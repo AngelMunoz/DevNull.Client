@@ -27,9 +27,19 @@ let private menuItem(label: string, onClick: unit -> unit) : NativeMenuItem =
 
   entry
 
-let install
-  (window: Window, router: IRouter<Control>, unread: IObservable<int>)
-  : unit =
+/// Everything the tray needs: the window it raises, the router it
+/// navigates, the unread count it badges, and the real quit.
+[<Struct>]
+type TrayProps = {
+  Window: Window
+  Router: IRouter<Control>
+  Unread: IObservable<int>
+  Quit: unit -> unit
+}
+
+let install(props: TrayProps) : unit =
+  let window = props.Window
+
   let icon =
     new TrayIcon(
       Icon =
@@ -43,33 +53,35 @@ let install
   menu.Add(
     menuItem(
       "Open /dev/null",
-      fun () -> navigate(window, router, "/log/latest")
+      fun () -> navigate(window, props.Router, "/log/latest")
     )
   )
 
   menu.Add(
     menuItem(
       "Notifications",
-      fun () -> navigate(window, router, "/notifications")
+      fun () -> navigate(window, props.Router, "/notifications")
     )
   )
 
-  menu.Add(menuItem("Saved", fun () -> navigate(window, router, "/saved")))
+  menu.Add(
+    menuItem("Saved", fun () -> navigate(window, props.Router, "/saved"))
+  )
+
   menu.Add(NativeMenuItemSeparator())
-  menu.Add(menuItem("Quit", fun () -> window.Close()))
+  menu.Add(menuItem("Quit", props.Quit))
 
   icon.Menu <- menu
 
   icon.Clicked.Add(fun _ -> raiseWindow window)
 
-  unread
-  |> Observable.subscribe(fun count ->
+  props.Unread
+  |> Observable.add(fun count ->
     icon.ToolTipText <-
       if count = 0 then
         "/dev/null"
       else
         $"/dev/null · {count} unread")
-  |> ignore
 
   match Application.Current with
   | null -> ()

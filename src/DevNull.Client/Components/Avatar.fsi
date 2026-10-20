@@ -1,7 +1,7 @@
 module DevNull.Client.Avatar
 
 open Avalonia.Controls
-open DevNull.Client.Theme
+open DevNull.Client.Core.ApiTypes
 
 /// One user's avatar: the initial on a lane-colored disc. Props record
 /// keeps the constructor under the three-parameter rule.
@@ -9,7 +9,7 @@ open DevNull.Client.Theme
 type Props = {
   Name: string
   Url: string option
-  Lane: int option
+  Lane: Lane option
   Size: float
 }
 

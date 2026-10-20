@@ -68,9 +68,17 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
   code, no XAML. Layers bottom-up:
   - `Errors.fs` - the `AppError` edge type (every Core IWSAM leaf) and
     its plain-text `describe`.
-  - `Theme.fsi/fs` - the dark palette brushes and the closed style
-    vocabulary (`StyleClass`); views never style themselves, they add
-    classes.
+  - `Theme.fsi/fs` - the themed resource dictionaries (the site's
+    light and dark tokens), the observable brushes that follow the
+    variant, the Geist fonts, and the closed style vocabulary
+    (`StyleClass`); views never style themselves, they bind a brush or
+    add classes. A nested child style on an app-level style stalls the
+    headless style system; hover states ride on sibling pseudo-class
+    styles.
+  - `SettingsStore.fsi/fs` - the local settings (`closeToTray`, the
+    theme choice) in a JSON file under `%LOCALAPPDATA%\DevNull`; the
+    store persists through an injected hook, so tests inject their
+    own.
   - `Icons.fsi/fs` - the `Glyph` set as `PathIcon` geometry.
   - `Formatting.fsi/fs` - `timeAgo` and `shortCount`.
   - `Stores.fsi/fs` - `SessionStore` (`BehaviorSubject` of the sign-in
@@ -105,10 +113,12 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
     settings), plus `Routes.fs` (the Navs table, the session guards,
     and the boot URL).
   - `Shell.fsi/fs` - the one window: sidebar with the unread badge,
-    the router outlet, the extended client area (a drag band over the
-    drawn chrome; Mica on Windows), the narrow drawer (sidebar folds
-    below 640 width; minimum 380x640), tray and poller wiring, and the
-    forwarded sign-in callback.
+    the router outlet, the extended client area (a drag band carrying
+    the app-drawn caption row and the drawer hamburger; the drawn
+    chrome stays at `BorderOnly`; Mica on Windows), F11/Esc
+    fullscreen, the close-to-tray guard and `Quit`, the narrow drawer
+    (sidebar folds below 640 width; minimum 380x640), tray and poller
+    wiring, and the forwarded sign-in callback.
   - `Program.fs` - Serilog (console plus one file per day under
     `%LOCALAPPDATA%\DevNull\logs`), the Fluent theme first, app styles
     after; single-instance mutex; the second instance completes the
@@ -134,3 +144,4 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
 3. **Fakes control their output.** Each fake worker (`FixedClock`, `FixedNonceSource`, `FixedSigner`, `FakeHttp`, `CapturingHttp`) returns exactly the canned value wrapped in `async { return ... }`; no test reaches a real process, network, or file.
 4. **The API is never shaped for tests.** Tests implement the same error interfaces the production edge implements; domain code gains nothing for testability.
 5. **Headless UI tests touch controls on the session thread only.** Windows are born inside `probeUi`; every control read or click goes through `onUi`, `probeUi`, or the `waitFor` helpers. A test that touches a control directly off the session thread fails with a cross-thread error at best and hangs at worst.
+6. **Never dispatch from inside a dispatch.** A `probeUi`/`onUi` call inside an `onUi` block queues a job the nested wait cannot serve, and the run freezes. Finders run plain inside `onUi`; only the outermost call dispatches. When a run stalls, rerun with `-- --sequenced --debug`: it names the test that never finished.

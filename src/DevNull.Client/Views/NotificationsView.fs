@@ -193,13 +193,14 @@ let view
       .IsVisible(model |> Observable.map(_.Error.IsSome))
 
   let busy =
-    Status.busy "Loading the inbox…"
-    |> fun control -> control.IsVisible(model |> Observable.map _.Loading)
+    Status
+      .busy("Loading the inbox…")
+      .IsVisible(model |> Observable.map _.Loading)
 
   let emptyState =
-    Status.empty "Nothing here yet."
-    |> fun control ->
-      control.IsVisible(
+    Status
+      .empty("Nothing here yet.")
+      .IsVisible(
         model
         |> Observable.map(fun current ->
           not current.Loading && current.Error.IsNone && current.Items.IsEmpty)
@@ -226,7 +227,7 @@ let view
     StackPanel()
       .MaxWidth(720.0)
       .HorizontalAlignment(HorizontalAlignment.Stretch)
-      .Margin(Theme.pagePadding)
+      .Margin(Theme.pinnedPadding)
       .Children(title, errorPanel, busy, emptyState)
 
   let root = Grid()

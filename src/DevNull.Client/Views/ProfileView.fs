@@ -2,6 +2,7 @@ module DevNull.Client.Views.ProfileView
 
 open System
 open System.Collections.Generic
+open Avalonia
 open Avalonia.Controls
 open Avalonia.Media
 open Avalonia.Controls.Templates
@@ -213,6 +214,90 @@ let nodeKey(node: CommitNode) =
   | LiveCommit commit -> commit.Id
   | Tombstone tombstone -> tombstone.Id
 
+/// The counts line of the header, the way the site orders them.
+let statsLine(details: ProfileDetails) : string =
+  $"commits {details.Profile.CommitsCount |> Option.defaultValue 0} · "
+  + $"followers {details.Profile.FollowersCount |> Option.defaultValue 0} · "
+  + $"following {details.Profile.FollowingCount |> Option.defaultValue 0}"
+
+let followButton(details: ProfileDetails, dispatch: Dispatch<Msg>) : Control =
+  Button()
+    .Classes(Theme.name Theme.NavButton)
+    .Content(if details.IsFollowing then "Unfollow" else "Follow")
+    .OnClickHandler(fun _ _ -> dispatch FollowToggled)
+
+let muteButton(details: ProfileDetails, dispatch: Dispatch<Msg>) : Control =
+  Button()
+    .Classes(Theme.name Theme.NavButton)
+    .Content(if details.IsMuting then "Unmute" else "Mute")
+    .OnClickHandler(fun _ _ -> dispatch MuteToggled)
+
+let blockButton(dispatch: Dispatch<Msg>) : Control =
+  Button()
+    .Classes(Theme.name Theme.DangerButton)
+    .Content("Block")
+    .OnClickHandler(fun _ _ -> dispatch BlockToggled)
+
+/// The follow, mute, and block actions; the viewer's own header
+/// carries none.
+let actions
+  (details: ProfileDetails, isSelf: bool, dispatch: Dispatch<Msg>)
+  : Control array =
+  if isSelf then
+    [||]
+  else
+    [|
+      followButton(details, dispatch)
+      muteButton(details, dispatch)
+      blockButton dispatch
+    |]
+
+/// The profile header: the avatar, the identity, the bio, the counts,
+/// and the actions, in one card.
+let headerCard
+  (details: ProfileDetails, isSelf: bool, dispatch: Dispatch<Msg>)
+  : Control =
+  let user = details.Profile.User
+
+  Border()
+    .Classes(Theme.name Theme.Card)
+    .Margin(0.0, 0.0, 0.0, 8.0)
+    .Child(
+      StackPanel()
+        .Spacing(4.0)
+        .Children(
+          StackPanel()
+            .Orientation(Orientation.Horizontal)
+            .Spacing(10.0)
+            .Children(
+              Avatar.view {
+                Name = user.Name
+                Url = user.AvatarUrl
+                Lane = user.Lane
+                Size = 56.0
+              },
+              StackPanel()
+                .Spacing(2.0)
+                .Children(
+                  TextBlock().Classes(Theme.name Theme.Title).Text(user.Name),
+                  TextBlock()
+                    .Classes(Theme.name Theme.Muted)
+                    .Text($"@{user.Username}"),
+                  TextBlock()
+                    .Text(details.Profile.Bio |> Option.defaultValue "")
+                    .TextWrapping(TextWrapping.Wrap),
+                  TextBlock()
+                    .Classes(Theme.name Theme.Muted)
+                    .Text(statsLine details)
+                )
+            ),
+          StackPanel()
+            .Orientation(Orientation.Horizontal)
+            .Spacing(8.0)
+            .Children(actions(details, isSelf, dispatch))
+        )
+    )
+
 let view
   (props: Props<'env>)
   (model: IObservable<Model>)
@@ -236,105 +321,35 @@ let view
       .IsVisible(model |> Observable.map(_.Error.IsSome))
 
   let busy =
-    Status.busy "Loading the profile…"
-    |> fun control -> control.IsVisible(model |> Observable.map _.Loading)
+    Status
+      .busy("Loading the profile…")
+      .IsVisible(model |> Observable.map _.Loading)
+
+  let currentContent =
+    model
+    |> Observable.map(fun current ->
+      match current.Details with
+      | Some details ->
+        headerCard(
+          details,
+          details.Profile.User.Id = props.Session.Session.User.Id,
+          dispatch
+        )
+      | None -> Status.empty "")
 
   // The header is rebuilt when the profile changes: the follow, mute,
   // and block states come back from the server after every action.
   let headerHost = ContentControl()
 
-  headerHost.Content(
-    model
-    |> Observable.map(fun current ->
-      match current.Details with
-      | Some details ->
-        let user = details.Profile.User
-
-        let isSelf = user.Id = props.Session.Session.User.Id
-
-        let lane =
-          user.Lane
-          |> Option.bind(function
-            | LaneIndex index -> Some index
-            | LaneColor _ -> None)
-
-        let bio = details.Profile.Bio |> Option.defaultValue ""
-
-        let stats =
-          $"commits {details.Profile.CommitsCount |> Option.defaultValue 0} · "
-          + $"followers {details.Profile.FollowersCount |> Option.defaultValue 0} · "
-          + $"following {details.Profile.FollowingCount |> Option.defaultValue 0}"
-
-        let followButton =
-          Button()
-            .Classes(Theme.name Theme.NavButton)
-            .Content(if details.IsFollowing then "Unfollow" else "Follow")
-            .OnClickHandler(fun _ _ -> dispatch FollowToggled)
-
-        let muteButton =
-          Button()
-            .Classes(Theme.name Theme.NavButton)
-            .Content(if details.IsMuting then "Unmute" else "Mute")
-            .OnClickHandler(fun _ _ -> dispatch MuteToggled)
-
-        let blockButton =
-          Button()
-            .Classes(Theme.name Theme.DangerButton)
-            .Content("Block")
-            .OnClickHandler(fun _ _ -> dispatch BlockToggled)
-
-        let actions: Control array =
-          if isSelf then
-            [||]
-          else
-            [| followButton; muteButton; blockButton |]
-
-        Border()
-          .Classes(Theme.name Theme.Card)
-          .Margin(0.0, 0.0, 0.0, 8.0)
-          .Child(
-            StackPanel()
-              .Spacing(4.0)
-              .Children(
-                StackPanel()
-                  .Orientation(Orientation.Horizontal)
-                  .Spacing(10.0)
-                  .Children(
-                    Avatar.view {
-                      Name = user.Name
-                      Url = user.AvatarUrl
-                      Lane = lane
-                      Size = 56.0
-                    },
-                    StackPanel()
-                      .Spacing(2.0)
-                      .Children(
-                        TextBlock()
-                          .Classes(Theme.name Theme.Title)
-                          .Text(user.Name),
-                        TextBlock()
-                          .Classes(Theme.name Theme.Muted)
-                          .Text($"@{user.Username}"),
-                        TextBlock().Text(bio).TextWrapping(TextWrapping.Wrap),
-                        TextBlock().Classes(Theme.name Theme.Muted).Text(stats)
-                      )
-                  ),
-                StackPanel()
-                  .Orientation(Orientation.Horizontal)
-                  .Spacing(8.0)
-                  .Children(actions)
-              )
-          )
-        :> obj
-      | None -> Status.empty "" :> obj)
-  )
-  |> ignore
+  headerHost.Content(currentContent.ToBinding()) |> ignore
 
   let commitRow(node: CommitNode) : Control =
     match node with
     | LiveCommit commit ->
       CommitCard.view {
         Commit = commit
+        Rail = ValueNone
+        Dense = false
         OnEvent =
           fun event ->
             match event with
@@ -365,7 +380,7 @@ let view
     StackPanel()
       .MaxWidth(720.0)
       .HorizontalAlignment(HorizontalAlignment.Stretch)
-      .Margin(Theme.pagePadding)
+      .Margin(Theme.pinnedPadding)
       .Children(headerHost, errorPanel, busy)
 
   let root = Grid()

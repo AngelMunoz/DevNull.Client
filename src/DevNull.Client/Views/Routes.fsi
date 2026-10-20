@@ -5,6 +5,7 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Env
+open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
 open Navs
 
@@ -26,4 +27,5 @@ val build:
     and 'env :> IProvidePkceSource
     and 'env :> IProvideHttp
     and 'env :> IProvideSession
+    and 'env :> IProvideSettings
     and 'env :> IProvideLogging

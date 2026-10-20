@@ -19,3 +19,14 @@ let shortCount(count: int) : string =
     let thousands = float count / 1000.0
 
     thousands.ToString("F0", CultureInfo.InvariantCulture) + "k"
+
+let dayLabel(now: DateTimeOffset, day: DateTimeOffset) : string =
+  let today = now.Date
+  let day' = day.Date
+
+  if day' = today then
+    "Today"
+  elif day' = today.AddDays -1.0 then
+    "Yesterday"
+  else
+    day'.ToString("ddd, MMM d", CultureInfo.InvariantCulture)

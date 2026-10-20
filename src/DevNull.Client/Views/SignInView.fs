@@ -81,13 +81,13 @@ let exnMessage(exn: exn) =
 let awaitSession() : Async<Result<DeviceSession, string>> =
   let started = DateTimeOffset.UtcNow
 
-  let rec loop() = async {
+  let rec loop() = asyncEx {
     match loadSession() with
     | Some session -> return Ok session
     | None ->
       match takeLastError() with
       | Some message -> return Error message
-      | None when (DateTimeOffset.UtcNow - started) > TimeSpan.FromMinutes 5.0 ->
+      | None when DateTimeOffset.UtcNow - started > TimeSpan.FromMinutes 5.0 ->
         deletePending()
         return Error "The sign-in expired. Start again."
       | None ->
@@ -104,12 +104,10 @@ let init (props: Props<'env>) () =
   | _ -> initial, Cmd.none
 
 let recordSession(props: Props<'env>, session: DeviceSession) : unit =
-  props.Env.Session.Enter(
-    {
-      Session = session
-      KeyFile = devicePrivateKeyPath
-    }
-  )
+  props.Env.Session.Enter {
+    Session = session
+    KeyFile = devicePrivateKeyPath
+  }
 
   props.OnDone()
 

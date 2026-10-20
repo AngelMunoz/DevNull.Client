@@ -12,6 +12,7 @@ open IcedTasks
 open Microsoft.Extensions.Logging
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
 
 type SystemClock() =
@@ -173,6 +174,17 @@ type AppEnv(baseAddress: string, session: SessionStore, logging: ILoggerFactory)
   let pkceSource = RandomPkceSource()
   let signer = SshKeygenSigner()
   let http = HttpClientTransport(baseAddress)
+  let logger = logging.CreateLogger "DevNull.Client.SettingsStore"
+
+  let settings =
+    AppSettingsStore(
+      SettingsStore.load(),
+      fun value ->
+        match SettingsStore.save value with
+        | Ok() -> ()
+        | Error message ->
+          logger.LogError("The settings were not saved: {Error}", message)
+    )
 
   interface IProvideClock with
     member _.Clock = upcast clock
@@ -191,6 +203,9 @@ type AppEnv(baseAddress: string, session: SessionStore, logging: ILoggerFactory)
 
   interface IProvideSession with
     member _.Session = session
+
+  interface IProvideSettings with
+    member _.Settings = settings
 
   interface IProvideLogging with
     member _.LoggerFactory = logging

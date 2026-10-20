@@ -6,6 +6,7 @@ open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.DeviceAuth
 open DevNull.Client.Env
+open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
 
 /// The canned clock: one fixed unix second for every request.
@@ -50,7 +51,11 @@ type FakeApi(handler: HttpRequest -> HttpResponse) =
     }
 
 /// The app environment over fakes: fixed workers and the given store.
-type TestEnv(store: SessionStore, http: IHttp) =
+type TestEnv(store: SessionStore, http: IHttp, ?settings: AppSettingsStore) =
+
+  let settingsStore =
+    settings |> Option.defaultWith(fun () -> AppSettingsStore(None, ignore))
+
   let clock = FixedClock(1760000000L)
   let nonceSource = FixedNonceSource("00112233445566778899aabbccddeeff")
   let signer = FixedSigner("dGVzdC1zaWduYXR1cmU")
@@ -75,6 +80,9 @@ type TestEnv(store: SessionStore, http: IHttp) =
 
   interface IProvideSession with
     member _.Session = store
+
+  interface IProvideSettings with
+    member _.Settings = settingsStore
 
   interface IProvideLogging with
     member _.LoggerFactory = NullLoggerFactory.Instance
@@ -203,6 +211,57 @@ let threadApi() =
 
 /// The api of the empty-log test.
 let emptyLogApi() = FakeApi(emptyLogPageJson)
+
+/// One commit pinned to a fixed 2020 date, so its day label is stable
+/// for decades: "Fri, Apr 3" and "Wed, Apr 1".
+let datedCommitJson(id: string, hash: string, body: string, date: string) =
+  commitJson
+    .Replace(
+      "\"id\":\"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d\"",
+      $"\"id\":\"{id}\""
+    )
+    .Replace("\"short_hash\":\"b8b9c0d\"", $"\"short_hash\":\"{hash}\"")
+    .Replace("\"body\":\"It was DNS.\"", $"\"body\":\"{body}\"")
+    .Replace(
+      "\"created_at\":\"2026-10-20T04:17:19Z\"",
+      $"\"created_at\":\"{date}\""
+    )
+
+/// The api of the day-separator test: two commits on two fixed days.
+let twoDaysLogApi() =
+  FakeApi(
+    sprintf
+      "{\"data\":[%s,%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
+      (datedCommitJson(
+        "0a0a0a0a-0000-0000-0000-000000000001",
+        "aaa1111",
+        "First landing.",
+        "2020-04-03T12:00:00Z"
+      ))
+      (datedCommitJson(
+        "0a0a0a0a-0000-0000-0000-000000000002",
+        "bbb2222",
+        "The week before.",
+        "2020-04-01T12:00:00Z"
+      ))
+  )
+
+/// The signed-in session of the canned user.
+let signedInSession() = {
+  Session = sessionOf "octocat"
+  KeyFile = devicePrivateKeyPath
+}
+
+/// One log page carrying a single commit newer than the head.
+let newerPageJson =
+  sprintf
+    "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":1,\"suggestions\":[]}"
+    (datedCommitJson(
+      "0a0a0a0a-0000-0000-0000-000000000003",
+      "ccc3333",
+      "A newer commit.",
+      "2020-04-04T12:00:00Z"
+    ))
 
 /// A log page of N distinct commits, so the virtualized feed overflows
 /// the viewport plus its cache band and recycles rows while scrolling.

@@ -23,6 +23,10 @@ type Glyph =
   | Image
   | Menu
   | Link
+  | Minimize
+  | Maximize
+  | Restore
+  | ArrowUp
 
 let pathData glyph =
   match glyph with
@@ -57,6 +61,11 @@ let pathData glyph =
   | Menu -> "M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z"
   | Link ->
     "M3.9,12C3.9,10.29 5.29,8.9 7,8.9H11V7H7A5,5 0 0,0 2,12A5,5 0 0,0 7,17H11V15.1H7C5.29,15.1 3.9,13.71 3.9,12M8,13H16V11H8V13M17,7H13V8.9H17C18.71,8.9 20.1,10.29 20.1,12C20.1,13.71 18.71,15.1 17,15.1H13V17H17A5,5 0 0,0 22,12A5,5 0 0,0 17,7Z"
+  | Minimize -> "M4,11H20V13H4V11Z"
+  | Maximize -> "M3,3H21V21H3V3M5,5V19H19V5H5Z"
+  | Restore -> "M4,8H8V4H20V16H16V20H4V8M16,14V8H10V14H16M6,10V18H14V16H6V10Z"
+  | ArrowUp ->
+    "M11,4L5,10L6.41,11.41L11,6.83V20H13V6.83L17.59,11.41L19,10L13,4H11Z"
 
 let geometry glyph = StreamGeometry.Parse(pathData glyph)
 

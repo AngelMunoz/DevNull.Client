@@ -1,6 +1,7 @@
 module DevNull.Client.Views.SettingsView
 
 open System
+open Avalonia
 open Avalonia.Controls
 open Avalonia.Media
 open Avalonia.Layout
@@ -15,6 +16,7 @@ open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
 open DevNull.Client.Navigation
+open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
 open DevNull.Client.Theme
 
@@ -23,7 +25,8 @@ type Props<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideSession> = {
+  and 'env :> IProvideSession
+  and 'env :> IProvideSettings> = {
   Env: 'env
   Session: SignedInSession
   Nav: INavigable
@@ -163,58 +166,58 @@ let view
       .IsVisible(model |> Observable.map _.Note.IsSome)
 
   let busy =
-    Status.busy "Loading the settings…"
-    |> fun control -> control.IsVisible(model |> Observable.map _.Busy)
+    Status
+      .busy("Loading the settings…")
+      .IsVisible(model |> Observable.map _.Busy)
 
   let laneRow =
     // The palette is rebuilt when the lane changes: the ring follows.
-    let laneHost = ContentControl()
+    let laneHost =
+      let content: IObservable<Control> =
+        model
+        |> Observable.map(fun current ->
+          match current.Me with
+          | Some me ->
+            let current' = laneIndex me.PreferredLane
 
-    laneHost.Content(
-      model
-      |> Observable.map(fun current ->
-        match current.Me with
-        | Some me ->
-          let current' = laneIndex me.PreferredLane
+            let laneButton(index: int) : Control =
+              Button()
+                .Width(34.0)
+                .Height(34.0)
+                .CornerRadius(17.0)
+                .Background(Brushes.lane index)
+                .BorderBrush(
+                  if current' = Some index then
+                    Brushes.text
+                  else
+                    Brushes.border
+                )
+                .BorderThickness(2.0)
+                .OnClickHandler(fun _ _ -> dispatch(LaneSet index))
 
-          let laneButton(index: int) : Control =
-            Button()
-              .Width(34.0)
-              .Height(34.0)
-              .CornerRadius(17.0)
-              .Background(Brushes.lane index)
-              .BorderBrush(
-                if current' = Some index then
-                  Brushes.text
-                else
-                  Brushes.border
-              )
-              .BorderThickness(2.0)
-              .OnClickHandler(fun _ _ -> dispatch(LaneSet index))
+            let automatic =
+              Button()
+                .Classes(Theme.name Theme.NavButton)
+                .Content("Automatic")
+                .OnClickHandler(fun _ _ -> dispatch LaneAutomatic)
 
-          let automatic =
-            Button()
-              .Classes(Theme.name Theme.NavButton)
-              .Content("Automatic")
-              .OnClickHandler(fun _ _ -> dispatch LaneAutomatic)
+            if me.PreferredLane = None then
+              automatic.Background(Brushes.card) |> ignore
 
-          if me.PreferredLane = None then
-            automatic.Background <- Brushes.card
+            let row: Control array = [|
+              automatic
+              for index in 0..5 do
+                laneButton index
+            |]
 
-          let row: Control array = [|
-            yield automatic
-            for index in 0..5 do
-              yield laneButton index
-          |]
+            StackPanel()
+              .Orientation(Orientation.Horizontal)
+              .Spacing(6.0)
+              .Children(row)
+            :> Control
+          | None -> Status.empty "")
 
-          StackPanel()
-            .Orientation(Orientation.Horizontal)
-            .Spacing(6.0)
-            .Children(row)
-          :> obj
-        | None -> Status.empty "" :> obj)
-    )
-    |> ignore
+      ContentControl().Content(content.ToBinding())
 
     StackPanel()
       .Spacing(6.0)
@@ -226,6 +229,50 @@ let view
             "The color on your commits. The server picks one when automatic."
           ),
         laneHost
+      )
+
+  // The appearance row rebuilds from the store, the way the lane row
+  // follows the server settings.
+  let themeRow =
+    let store = (props.Env :> IProvideSettings).Settings
+    let themeHost = ContentControl()
+
+    let model =
+      store.Observe
+      |> Observable.map(fun current ->
+        let choiceButton(label: string, choice: ThemeChoice) : Control =
+          let button =
+            Button()
+              .Classes(Theme.name Theme.NavButton)
+              .Content(label)
+              .OnClickHandler(fun _ _ -> store.SetTheme choice)
+
+          if current.Theme = choice then
+            button.BorderBrush(Brushes.accent) |> ignore
+
+          button
+
+        let row: Control array = [|
+          choiceButton("System", System)
+          choiceButton("Light", Light)
+          choiceButton("Dark", Dark)
+        |]
+
+        StackPanel()
+          .Orientation(Orientation.Horizontal)
+          .Spacing(6.0)
+          .Children(row))
+
+    themeHost.Content(model.ToBinding()) |> ignore
+
+    StackPanel()
+      .Spacing(6.0)
+      .Children(
+        TextBlock().Classes(Theme.name Theme.Subtitle).Text("Appearance"),
+        TextBlock()
+          .Classes(Theme.name Theme.Muted)
+          .Text("The light and dark palettes of the site, or the system's."),
+        themeHost
       )
 
   let pasteisOn =
@@ -253,6 +300,36 @@ let view
       .Content("Sync the GitHub profile")
       .OnClickHandler(fun _ _ -> dispatch GithubSyncRequested)
 
+  // The application preferences live in the local store, off the MVUish
+  // loop: like the sign-out, they are machine state, not server state.
+  let applicationRow =
+    let store = (props.Env :> IProvideSettings).Settings
+
+    let toggle =
+      ToggleSwitch()
+        .IsChecked(store.Current.CloseToTray)
+        .OnIsCheckedChangedHandler(fun toggle _ ->
+          toggle.IsChecked
+          |> Option.ofNullable
+          |> Option.iter store.SetCloseToTray)
+
+    toggle.Name <- "CloseToTrayToggle"
+
+    StackPanel()
+      .Spacing(6.0)
+      .Children(
+        TextBlock().Classes(Theme.name Theme.Subtitle).Text("Application"),
+        StackPanel()
+          .Orientation(Orientation.Horizontal)
+          .Spacing(10.0)
+          .Children(
+            toggle,
+            TextBlock()
+              .VerticalAlignment(VerticalAlignment.Center)
+              .Text("Keep running in the tray when the window closes")
+          )
+      )
+
   let signOutButton =
     Button()
       .Classes(Theme.name Theme.DangerButton)
@@ -276,8 +353,10 @@ let view
           TextBlock().Classes(Theme.name Theme.Title).Text($"@{user.Username}"),
           TextBlock().Text(user.Name),
           laneRow,
+          themeRow,
           pasteisRow,
           syncButton,
+          applicationRow,
           signOutButton,
           errorPanel,
           noteText,
@@ -290,7 +369,8 @@ type Page<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideSession>(props: Props<'env>) as this =
+  and 'env :> IProvideSession
+  and 'env :> IProvideSettings>(props: Props<'env>) as this =
   inherit UserControl()
 
   do

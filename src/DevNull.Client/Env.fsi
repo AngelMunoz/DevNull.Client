@@ -3,6 +3,7 @@ module DevNull.Client.Env
 open Microsoft.Extensions.Logging
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
 
 /// The logging capability: one factory bridged to Serilog, so every
@@ -11,7 +12,8 @@ type IProvideLogging =
   abstract LoggerFactory: ILoggerFactory
 
 /// The production environment: system clock, crypto nonce source,
-/// ssh-keygen signer, http transport, and the live session store.
+/// ssh-keygen signer, http transport, the live session store, and the
+/// local settings store.
 type AppEnv =
   new:
     baseAddress: string * session: SessionStore * logging: ILoggerFactory ->
@@ -23,6 +25,7 @@ type AppEnv =
   interface IProvidePkceSource
   interface IProvideHttp
   interface IProvideSession
+  interface IProvideSettings
   interface IProvideLogging
 
 module KeyFiles =

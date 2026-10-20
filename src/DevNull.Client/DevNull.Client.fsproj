@@ -15,6 +15,8 @@
 
   <ItemGroup>
     <Compile Include="Errors.fs" />
+    <Compile Include="SettingsStore.fsi" />
+    <Compile Include="SettingsStore.fs" />
     <Compile Include="Theme.fsi" />
     <Compile Include="Theme.fs" />
     <Compile Include="Icons.fsi" />
@@ -45,6 +47,8 @@
     <Compile Include="Components\Composer.fs" />
     <Compile Include="Components\Feed.fsi" />
     <Compile Include="Components\Feed.fs" />
+    <Compile Include="Components\ProfileCard.fsi" />
+    <Compile Include="Components\ProfileCard.fs" />
     <Compile Include="Views\SignInView.fsi" />
     <Compile Include="Views\SignInView.fs" />
     <Compile Include="Views\LogView.fsi" />

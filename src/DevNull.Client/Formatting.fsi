@@ -8,3 +8,7 @@ val timeAgo: now: DateTimeOffset * at: DateTimeOffset -> string
 
 /// A count as "1.2k", "345", the way the web client shows stars.
 val shortCount: count: int -> string
+
+/// One day boundary as "Today", "Yesterday", or "Fri, Apr 3", the way
+/// the web client separates feed days.
+val dayLabel: now: DateTimeOffset * day: DateTimeOffset -> string

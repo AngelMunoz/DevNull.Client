@@ -1,5 +1,6 @@
 module DevNull.Client.Status
 
+open System
 open Avalonia.Controls
 open Avalonia.Layout
 open Avalonia.Media
@@ -7,7 +8,7 @@ open NXUI.Extensions
 open DevNull.Client
 open DevNull.Client.Theme
 
-let panel(text: string, brush: IBrush) : Control =
+let panel(text: string, brush: IObservable<IBrush>) : Control =
   TextBlock()
     .Text(text)
     .TextWrapping(TextWrapping.Wrap)

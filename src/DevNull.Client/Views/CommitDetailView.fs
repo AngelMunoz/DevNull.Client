@@ -4,6 +4,7 @@ open System
 open System.Collections.Generic
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.Shapes
 open Avalonia.Controls.Templates
 open Avalonia.Layout
 open Avalonia.Media
@@ -220,20 +221,42 @@ let nodeKey(node: CommitNode) =
   | LiveCommit commit -> commit.Id
   | Tombstone tombstone -> tombstone.Id
 
+/// One reply row: indented off a dashed spine, dense card.
 let replyRow (props: Props<'env>) (node: CommitNode) : Control =
   match node with
   | LiveCommit commit ->
-    CommitCard.view {
-      Commit = commit
-      OnEvent =
-        fun event ->
-          match event with
-          | CommitCard.Opened c ->
-            Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
-          | CommitCard.QuoteRequested c ->
-            Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
-          | _ -> ()
-    }
+    let spine =
+      Line(
+        StartPoint = Point(0.0, 0.0),
+        EndPoint = Point(0.0, 1.0),
+        Stretch = Stretch.Fill,
+        StrokeThickness = 2.0,
+        HorizontalAlignment = HorizontalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Stretch
+      )
+        .Stroke(Brushes.rail)
+        .StrokeDashArray(Avalonia.Collections.AvaloniaList<double>(2.0, 2.0))
+
+    let grid = Grid()
+
+    grid.ColumnDefinitions <- ColumnDefinitions("32,*")
+
+    let card =
+      CommitCard.view {
+        Commit = commit
+        OnEvent =
+          fun event ->
+            match event with
+            | CommitCard.Opened c ->
+              Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
+            | CommitCard.QuoteRequested c ->
+              Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
+            | _ -> ()
+        Rail = ValueNone
+        Dense = true
+      }
+
+    grid.Children(spine.Column(0), card.Column(1))
   | Tombstone tombstone -> CommitCard.tombstone tombstone
 
 let ancestorRow (props: Props<'env>) (node: CommitNode) : Control =
@@ -293,26 +316,28 @@ let view
       .IsVisible(model |> Observable.map _.Note.IsSome)
 
   let busy =
-    Status.busy "Loading the commit…"
-    |> fun control -> control.IsVisible(model |> Observable.map _.Loading)
+    Status
+      .busy("Loading the commit…")
+      .IsVisible(model |> Observable.map _.Loading)
     // snapshot keeps the star visual honest.
 
   // The card is rebuilt when the commit changes: a fresh control per
-  let cardHost = ContentControl()
-
-  cardHost.Content(
-    model
-    |> Observable.map(fun current ->
-      match current.Page with
-      | Some page ->
-        CommitCard.view {
-          Commit = page.Commit
-          OnEvent = fun event -> dispatch(CardEvent event)
-        }
-        :> obj
-      | None -> Status.empty "" :> obj)
-  )
-  |> ignore
+  let cardHost =
+    ContentControl()
+      .Content(
+        model
+        |> Observable.map(fun current ->
+          match current.Page with
+          | Some page ->
+            CommitCard.view {
+              Commit = page.Commit
+              OnEvent = fun event -> dispatch(CardEvent event)
+              Rail = ValueNone
+              Dense = false
+            }
+          | None -> Status.empty "")
+        |> _.ToBinding()
+      )
 
   let pastelButton =
     Button()

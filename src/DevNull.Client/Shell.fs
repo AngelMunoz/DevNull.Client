@@ -6,6 +6,7 @@ open System.Threading.Tasks
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Chrome
+open Avalonia.Controls.Documents
 open Avalonia.Input
 open Avalonia.Layout
 open Avalonia.Media
@@ -16,6 +17,7 @@ open Navs
 open Navs.Avalonia
 open Serilog
 open DevNull.Client
+open DevNull.Client.Components
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.DeviceAuth
@@ -23,6 +25,7 @@ open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.Icons
 open DevNull.Client.Navigation
+open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
 open DevNull.Client.Theme
 open DevNull.Client.Tray
@@ -31,6 +34,10 @@ open DevNull.Client.Views
 
 /// The window width under which the sidebar folds into a drawer.
 let narrowWidth = 640.0
+
+/// The window width from which the aside column opens, the site's
+/// wide breakpoint.
+let asideWidth = 1280.0
 
 /// One sidebar destination. `Badge` carries the live unread count the
 /// entry renders, when it renders one.
@@ -51,22 +58,52 @@ let inline go(router: IRouter<Control>, url: string) : unit =
       Log.Error("Navigation to {Url} failed: {Error}", url, message)
   )
 
-// The client surface fills the window behind the system caption. Only
-// Windows answers the Mica chain; the opaque theme background stays
-// elsewhere.
+// The client surface fills the window behind the caption row. Only
+// Windows answers the Mica chain; every backdrop follows the theme.
+/// A page transition that swaps immediately. The outlet's default
+/// cross-fade never finishes under a headless clock, which keeps the
+/// previous page attached — and its buttons steal clicks from the
+/// live one.
+type ImmediatePageTransition() =
+
+  interface Animation.IPageTransition with
+    member _.Start(_, _, _, _) = Task.CompletedTask
+
 let applyWindowChrome(window: Window) : unit =
   window.ExtendClientAreaToDecorationsHint <- true
   window.ExtendClientAreaTitleBarHeightHint <- 32.0
 
-  if OperatingSystem.IsWindows() then
-    window.TransparencyLevelHint <-
-      ResizeArray [
-        WindowTransparencyLevel.Mica
-        WindowTransparencyLevel.AcrylicBlur
-        WindowTransparencyLevel.Transparent
-      ]
+  // The app draws the caption row itself in the band. The drawn chrome
+  // keeps only the border: its caption template paints an opaque strip
+  // over the client, and 12.0.5 exposes no per-button control to drop
+  // its fullscreen button, the one that traps the window.
+  window.WindowDecorations <- WindowDecorations.BorderOnly
 
-    window.Background <- Brushes.transparent
+  match Application.Current with
+  | null -> ()
+  | app ->
+    // A Mica miss falls back to the themed background, never to black.
+    if OperatingSystem.IsWindows() then
+      window.TransparencyLevelHint <-
+        ResizeArray [
+          WindowTransparencyLevel.Mica
+          WindowTransparencyLevel.AcrylicBlur
+          WindowTransparencyLevel.Transparent
+        ]
+
+      window.Bind(
+        TopLevel.TransparencyBackgroundFallbackProperty,
+        app.GetResourceObservable Keys.background
+      )
+      |> ignore
+
+      window.Background <- Brushes.Transparent
+    else
+      window.Bind(
+        Window.BackgroundProperty,
+        app.GetResourceObservable Keys.background
+      )
+      |> ignore
 
 /// The count the notifications entry badges, from the session store.
 let unreadCount(session: SessionStore) : IObservable<int> =
@@ -121,17 +158,16 @@ let navItem
     Button()
       .Classes(Theme.name Theme.NavItem)
       .Content(content)
-      .Background(
-        active
-        |> Observable.map(fun flag ->
-          if flag then Brushes.card :> IBrush else Brushes.transparent)
-      )
-      .Foreground(
-        active
-        |> Observable.map(fun flag ->
-          if flag then Brushes.text else Brushes.muted)
-      )
       .OnClickHandler(fun _ _ -> go(router, entry.Url))
+
+  // The active look lives in the NavItemActive class, whose colors are
+  // themed resources; the subscription only moves the class.
+  active
+  |> Observable.add(fun flag ->
+    if flag then
+      item.Classes.Add(Theme.name Theme.NavItemActive)
+    else
+      item.Classes.Remove(Theme.name Theme.NavItemActive) |> ignore)
 
   if entry.Badge.IsSome then
     item.HorizontalContentAlignment <- HorizontalAlignment.Stretch
@@ -185,11 +221,35 @@ let footer
 
   StackPanel().Margin(12.0).Children(signedInFooter, signedOutFooter)
 
-/// The window band: a drag surface the drawn chrome answers, plus the
-/// hamburger that opens the drawer under the narrow layout. The band
-/// rides above every pane, so the whole top strip drags the window
-/// while the hamburger stays clickable.
-let band(narrow: IObservable<bool>, drawerOpen: BehaviorSubject<bool>) : Panel =
+/// Everything the window band needs: the responsive state, the live
+/// window state, and the caption actions the shell answers.
+[<Struct>]
+type BandProps = {
+  Narrow: IObservable<bool>
+  DrawerOpen: BehaviorSubject<bool>
+  WindowState: IObservable<WindowState>
+  Minimize: unit -> unit
+  ToggleMaximize: unit -> unit
+  Close: unit -> unit
+}
+
+/// One app-drawn caption button carrying its system element role.
+let captionButton
+  (role: WindowDecorationsElementRole, glyph: Glyph, onClick: Button -> unit)
+  : Button =
+  let button =
+    Button().Classes(Theme.name Theme.CaptionButton).Content(Icons.icon glyph)
+
+  WindowDecorationProperties.SetElementRole(button, role)
+  button.OnClickHandler(fun sender _ -> onClick sender) |> ignore
+
+  button
+
+/// The window band: a drag surface the window answers, the hamburger
+/// that opens the drawer under the narrow layout, and the caption row.
+/// The band rides above every pane, so the whole top strip drags the
+/// window while the buttons stay clickable.
+let band(props: BandProps) : Panel =
   let dragSurface =
     Border()
       .Background(Brushes.transparent)
@@ -208,8 +268,9 @@ let band(narrow: IObservable<bool>, drawerOpen: BehaviorSubject<bool>) : Panel =
       .Content(Icons.icon Glyph.Menu)
       .HorizontalAlignment(HorizontalAlignment.Left)
       .VerticalAlignment(VerticalAlignment.Top)
-      .IsVisible(narrow)
-      .OnClickHandler(fun _ _ -> drawerOpen.OnNext(not drawerOpen.Value))
+      .IsVisible(props.Narrow)
+      .OnClickHandler(fun _ _ ->
+        props.DrawerOpen.OnNext(not props.DrawerOpen.Value))
 
   hamburger.Name <- "MenuButton"
 
@@ -218,7 +279,63 @@ let band(narrow: IObservable<bool>, drawerOpen: BehaviorSubject<bool>) : Panel =
     WindowDecorationsElementRole.User
   )
 
-  Panel().Children(dragSurface, hamburger)
+  let maximizeGlyph(state: WindowState) =
+    match state with
+    | WindowState.Maximized -> Glyph.Restore
+    | _ -> Glyph.Maximize
+
+  let minimize =
+    captionButton(
+      WindowDecorationsElementRole.MinimizeButton,
+      Glyph.Minimize,
+      fun _ -> props.Minimize()
+    )
+
+  minimize.Name <- "MinimizeButton"
+
+  let maximize =
+    Button()
+      .Classes(Theme.name Theme.CaptionButton)
+      .Content(
+        props.WindowState
+        |> Observable.map(fun state -> Icons.icon(maximizeGlyph state))
+        |> _.ToBinding()
+      )
+      .OnClickHandler(fun _ _ -> props.ToggleMaximize())
+
+  WindowDecorationProperties.SetElementRole(
+    maximize,
+    WindowDecorationsElementRole.MaximizeButton
+  )
+
+  maximize.Name <- "MaximizeButton"
+
+  let close =
+    captionButton(
+      WindowDecorationsElementRole.CloseButton,
+      Glyph.Close,
+      fun _ -> props.Close()
+    )
+
+  close.Name <- "CloseButton"
+
+  let captionRow =
+    StackPanel()
+      .Orientation(Orientation.Horizontal)
+      .VerticalAlignment(VerticalAlignment.Top)
+      .HorizontalAlignment(HorizontalAlignment.Right)
+      .IsVisible(
+        props.WindowState
+        |> Observable.map(fun state ->
+          match state with
+          | WindowState.FullScreen -> false
+          | _ -> true)
+      )
+      .Children(minimize, maximize, close)
+
+  captionRow.Name <- "CaptionRow"
+
+  Panel().Children(dragSurface, hamburger, captionRow)
 
 type Shell<'env
   when 'env :> IProvideClock
@@ -227,8 +344,13 @@ type Shell<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideSession
+  and 'env :> IProvideSettings
   and 'env :> IProvideLogging>(env: 'env, callback: string option) as this =
   inherit Window()
+
+  // The close bypass: `Quit` raises it, so the close-to-tray guard in
+  // the Closing handler stands down.
+  let quitRequested = new BehaviorSubject<bool>(false)
 
   do
     let session = (env :> IProvideSession).Session
@@ -238,10 +360,13 @@ type Shell<'env
     this.Height <- 720.0
     this.MinWidth <- 380.0
     this.MinHeight <- 640.0
-    this.Background <- Brushes.background
 
     this.Icon <-
       WindowIcon(AssetLoader.Open(Uri "avares://DevNull.Client/Assets/app.ico"))
+
+    // The type face of the app rides the inherited font property; the
+    // themed resources carry the template fonts.
+    TextElement.SetFontFamily(this, Fonts.sans)
 
     applyWindowChrome this
 
@@ -261,11 +386,16 @@ type Shell<'env
 
     // The responsive state: narrow folds the sidebar into a drawer that
     // the band hamburger opens, and every navigation closes it again.
+    // Wide enough windows open the aside column, the way the site does
+    // past its wide breakpoint.
     let narrow = new BehaviorSubject<bool>(this.Width < narrowWidth)
 
+    let wide = new BehaviorSubject<bool>(this.Width >= asideWidth)
+
     this.GetObservable(TopLevel.ClientSizeProperty)
-    |> Observable.map(fun size -> size.Width < narrowWidth)
-    |> Observable.add narrow.OnNext
+    |> Observable.add(fun size ->
+      narrow.OnNext(size.Width < narrowWidth)
+      wide.OnNext(size.Width >= asideWidth))
 
     let drawerOpen = new BehaviorSubject<bool>(false)
 
@@ -324,11 +454,34 @@ type Shell<'env
 
     let item entry = navItem(router, activeSection, entry)
 
+    // The lowercase brand: the second slash wears the lane color, the
+    // wordmark's outlined slash.
+    let wordmark =
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Children(
+          TextBlock().Classes(Theme.name Theme.Wordmark).Text("/dev"),
+          TextBlock()
+            .Classes(Theme.name Theme.Wordmark)
+            .Foreground(Brushes.lane 0)
+            .Text("/"),
+          TextBlock().Classes(Theme.name Theme.Wordmark).Text("null")
+        )
+
+    // Wide layout: the sidebar owns the top-left corner. Narrow: the
+    // drawer header clears the hamburger the band overlays.
     let header =
       StackPanel()
-        .Margin(8.0, Theme.bandHeight + 8.0, 8.0, 20.0)
+        .Margin(
+          narrow
+          |> Observable.map(fun isNarrow ->
+            if isNarrow then
+              Thickness(8.0, Theme.bandHeight + 8.0, 8.0, 20.0)
+            else
+              Thickness(8.0, 8.0, 8.0, 20.0))
+        )
         .Children(
-          TextBlock().Classes(Theme.name Theme.Title).Text("// /dev/null"),
+          wordmark,
           TextBlock()
             .Classes(Theme.name Theme.Muted)
             .Text("a social network for devs")
@@ -378,28 +531,72 @@ type Shell<'env
         .IsVisible(sidebarVisible)
         .Child(sidebarHost)
 
+    // The aside: the signed-in user's card, the way the site's right
+    // column does past its wide breakpoint. It rebuilds on every
+    // sign-in state change.
+    let asideHost = ContentControl()
+
+    asideHost.Name <- "AsideHost"
+
+    session.Observe
+    |> Observable.add(fun state ->
+      match state with
+      | SignedIn entry ->
+        asideHost.Content <-
+          ProfileCard.Page { Env = env; Session = entry } :> Control
+      | SignedOut -> asideHost.Content <- null)
+
+    let aside =
+      ScrollViewer()
+        .IsVisible(wide)
+        .Padding(Thickness(12.0, Theme.bandHeight + 8.0, 12.0, 0.0))
+        .Content(asideHost)
+
     let outlet =
       RouterOutlet(Router = Some router)
         .Column(0)
         .ColumnSpan(2)
         .Margin(
-          narrow
-          |> Observable.map(fun isNarrow ->
-            if isNarrow then
+          this.GetObservable(TopLevel.ClientSizeProperty)
+          |> Observable.map(fun size ->
+            if size.Width < narrowWidth then
               Thickness(0.0)
+            elif size.Width >= asideWidth then
+              Thickness(260.0, 0.0, 320.0, 0.0)
             else
               Thickness(260.0, 0.0, 0.0, 0.0))
         )
 
+    // The outlet ships a 150ms cross-fade; swap immediately instead.
+    outlet.PageTransition <-
+      ImmediatePageTransition() :> Animation.IPageTransition
+
     let root = Grid()
 
-    root.ColumnDefinitions <- ColumnDefinitions("260,*")
+    root.ColumnDefinitions <- ColumnDefinitions("260,*,320")
+
+    let windowState = this.GetObservable(Window.WindowStateProperty)
+
+    let bandPanel =
+      band {
+        Narrow = narrow :> IObservable<bool>
+        DrawerOpen = drawerOpen
+        WindowState = windowState
+        Minimize = fun () -> this.WindowState <- WindowState.Minimized
+        ToggleMaximize =
+          fun () ->
+            match this.WindowState with
+            | WindowState.Maximized -> this.WindowState <- WindowState.Normal
+            | _ -> this.WindowState <- WindowState.Maximized
+        Close = fun () -> this.Close()
+      }
 
     this.Content <-
       root.Children(
         outlet,
         sidebarPane,
-        band(narrow, drawerOpen).Column(0).ColumnSpan(2)
+        aside.Column(2),
+        bandPanel.Column(0).ColumnSpan(3)
       )
 
     // The inbox marks everything read as it lists, so the poller stops
@@ -415,7 +612,36 @@ type Shell<'env
     let poller = UnreadPoller.run(env, inboxOpen, 45_000)
     this.Closed.Add(fun _ -> poller.Dispose())
 
-    Tray.install(this, router, unread)
+    // Close-to-tray: the flag turns a close into a hide, so the tray
+    // and the poller keep the app alive. `Quit` marks the bypass first.
+    let settings = (env :> IProvideSettings).Settings
+
+    // The theme choice follows the store: system at boot, then
+    // whatever the settings page pins.
+    settings.Observe |> Observable.add(fun value -> Theme.apply value.Theme)
+
+    this.Closing.Add(fun args ->
+      if not quitRequested.Value && settings.Current.CloseToTray then
+        args.Cancel <- true
+        this.Hide())
+
+    Tray.install {
+      Window = this
+      Router = router
+      Unread = unread :> IObservable<int>
+      Quit =
+        fun () ->
+          quitRequested.OnNext true
+          this.Close()
+    }
+
+    // F11 walks the window in and out of fullscreen; Esc only leaves
+    // it. The band hides its caption row while fullscreen holds.
+    this.KeyDown.Add(fun args ->
+      match args.Key with
+      | Key.F11 -> this.ToggleFullScreen()
+      | Key.Escape -> this.ExitFullScreen()
+      | _ -> ())
 
     match callback with
     | Some uri ->
@@ -435,3 +661,20 @@ type Shell<'env
       }
       |> Async.StartImmediate
     | None -> ()
+
+  /// Walks the window in and out of fullscreen.
+  member this.ToggleFullScreen() : unit =
+    match this.WindowState with
+    | WindowState.FullScreen -> this.WindowState <- WindowState.Normal
+    | _ -> this.WindowState <- WindowState.FullScreen
+
+  /// Leaves fullscreen when it holds; other states stay as they are.
+  member this.ExitFullScreen() : unit =
+    match this.WindowState with
+    | WindowState.FullScreen -> this.WindowState <- WindowState.Normal
+    | _ -> ()
+
+  /// Closes for real: the close-to-tray flag never hides this path.
+  member this.Quit() : unit =
+    quitRequested.OnNext true
+    this.Close()

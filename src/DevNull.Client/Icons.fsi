@@ -23,6 +23,10 @@ type Glyph =
   | Image
   | Menu
   | Link
+  | Minimize
+  | Maximize
+  | Restore
+  | ArrowUp
 
 /// One icon ready to place: the glyph in the default size, 18 device
 /// independent pixels.

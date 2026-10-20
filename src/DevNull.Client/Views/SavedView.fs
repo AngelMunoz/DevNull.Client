@@ -130,13 +130,14 @@ let view
       .IsVisible(model |> Observable.map(_.Error.IsSome))
 
   let busy =
-    Status.busy "Loading the saved list…"
-    |> fun control -> control.IsVisible(model |> Observable.map _.Loading)
+    Status
+      .busy("Loading the saved list…")
+      .IsVisible(model |> Observable.map _.Loading)
 
   let emptyState =
-    Status.empty "Save commits to find them here."
-    |> fun control ->
-      control.IsVisible(
+    Status
+      .empty("Save commits to find them here.")
+      .IsVisible(
         model
         |> Observable.map(fun current ->
           not current.Loading && current.Error.IsNone && current.Items.IsEmpty)
@@ -147,6 +148,8 @@ let view
     | LiveCommit commit ->
       CommitCard.view {
         Commit = commit
+        Rail = ValueNone
+        Dense = false
         OnEvent =
           fun event ->
             match event with
@@ -177,7 +180,7 @@ let view
     StackPanel()
       .MaxWidth(720.0)
       .HorizontalAlignment(HorizontalAlignment.Stretch)
-      .Margin(Theme.pagePadding)
+      .Margin(Theme.pinnedPadding)
       .Children(title, errorPanel, busy, emptyState)
 
   let root = Grid()

@@ -1,6 +1,5 @@
 module DevNull.Client.Avatar
 
-open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Shapes
 open Avalonia.Layout
@@ -15,7 +14,7 @@ open DevNull.Client.Theme
 type Props = {
   Name: string
   Url: string option
-  Lane: int option
+  Lane: Lane option
   Size: float
 }
 
@@ -28,15 +27,15 @@ let initial(name: string) =
     trimmed.Substring(0, 1).ToUpperInvariant()
 
 let view(props: Props) : Control =
-  let disc =
-    Ellipse()
-      .Width(props.Size)
-      .Height(props.Size)
-      .Fill(
-        props.Lane
-        |> Option.map Brushes.lane
-        |> Option.defaultValue Brushes.laneFallback
-      )
+  let disc = Ellipse().Width(props.Size).Height(props.Size)
+
+  let paint(element: Ellipse) =
+    match props.Lane with
+    | Some(LaneIndex index) -> element.Fill(Brushes.lane index)
+    | Some(LaneColor hex) -> element.Fill(Brushes.solid hex)
+    | None -> element.Fill(Brushes.laneFallback)
+
+  paint disc |> ignore
 
   let letter =
     TextBlock()

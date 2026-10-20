@@ -4,19 +4,25 @@ module DevNull.Client.UI.Tests.App
 // renders through the signed API with fakes, the sidebar navigates, and
 // the guard sends a signed-out visitor to sign-in.
 
+open System
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Input
+open Avalonia.Styling
 open Avalonia.VisualTree
 
 open Expecto
 
 open DevNull.Client.Core
+open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Http
+open DevNull.Client.SettingsStore
 open DevNull.Client.Shell
 open DevNull.Client.Stores
+open DevNull.Client.Theme
 open DevNull.Client.UI.Tests.Fixtures
 open DevNull.Client.UI.Tests.Harness
+open DevNull.Client.Views
 
 let buttons(root: Control) : Button list =
   root.GetVisualDescendants()
@@ -101,6 +107,74 @@ let tests =
       Expect.isTrue
         (showsText(window, "Nothing here yet. Commit something."))
         "the empty state never rendered"
+    }
+
+    test "the log separates the days and rides the rail" {
+      let window = startShell(signedInStore(), twoDaysLogApi() :> IHttp)
+
+      Expect.isTrue
+        (showsText(window, "Fri, Apr 3"))
+        "the first day header never rendered"
+
+      Expect.isTrue
+        (showsText(window, "Wed, Apr 1"))
+        "the second day header never rendered"
+
+      Expect.isTrue
+        (showsText(window, "First landing."))
+        "the first commit never rendered"
+
+      Expect.isTrue
+        (showsText(window, "The week before."))
+        "the second commit never rendered"
+    }
+
+    test "toRows interleaves the days of the log" {
+      let response =
+        (twoDaysLogApi(): IHttp)
+          .Send(
+            {
+              Method = "GET"
+              Target = "/api/v1/log/latest"
+              Headers = []
+              Body = HttpBody.Empty
+            }
+          )
+        |> Async.RunSynchronously
+
+      let page =
+        match response with
+        | Ok response ->
+          match LogPage.decode response.Body with
+          | Ok page -> page
+          | Error failure -> failwith $"page never decoded: {failure.Message}"
+        | Error failure -> failwith $"request failed: {failure.Message}"
+
+      let rows = LogView.toRows page.Page.Items
+
+      let commitOf(node: CommitNode) =
+        match node with
+        | LiveCommit commit -> commit
+        | Tombstone _ -> failwith "the fixture commit is live"
+
+      let first = commitOf page.Page.Items[0]
+      let second = commitOf page.Page.Items[1]
+
+      Expect.equal (rows |> List.length) 4 "the row count"
+
+      Expect.equal
+        rows[0]
+        (LogView.LogRow.Day "Fri, Apr 3")
+        "the first separator"
+
+      Expect.equal rows[1] (LogView.LogRow.Node(first, None)) "the first node"
+
+      Expect.equal
+        rows[2]
+        (LogView.LogRow.Day "Wed, Apr 1")
+        "the second separator"
+
+      Expect.equal rows[3] (LogView.LogRow.Node(second, None)) "the second node"
     }
 
     test "the sidebar navigates to the settings page" {
@@ -400,9 +474,28 @@ let tests =
 
       clickWhenShown(window, "Quote")
 
-      Expect.isTrue
-        (showsText(window, "Add your comment to the quote…"))
-        "the quote composer never rendered"
+      let rendered =
+        waitFor(
+          5000,
+          (fun () -> window),
+          (fun root -> hasText(root, "Add your comment to the quote…"))
+        )
+
+      if not rendered then
+        let texts: string list =
+          probeUi(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.choose(fun visual ->
+              match visual with
+              | :? TextBlock as textBlock -> Option.ofObj textBlock.Text
+              | _ -> None)
+            |> Seq.toList)
+
+        let visible = System.String.Join(" | ", texts)
+
+        Expect.isTrue
+          rendered
+          $"the quote composer never rendered; visible: {visible}"
     }
 
     test "the inbox lists notifications" {
@@ -619,5 +712,282 @@ let tests =
         url
         "https://dev-null.sh/@octocat/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
         "the clipboard carried another text"
+    }
+
+    test "the shell keeps the drawn chrome to the border only" {
+      let window = startShell(signedInStore(), logApi() :> IHttp)
+
+      Expect.isTrue (showsText(window, "The Octocat")) "the log never rendered"
+
+      Expect.equal
+        (probeUi(fun () -> window.WindowDecorations))
+        WindowDecorations.BorderOnly
+        "the drawn chrome painted its caption over the client again"
+    }
+
+    test "the caption buttons drive the window state" {
+      let window = startShell(signedInStore(), logApi() :> IHttp)
+
+      Expect.isTrue (showsText(window, "The Octocat")) "the log never rendered"
+
+      let byName(name: string) =
+        controlByName(window, name)
+        |> Option.map(fun control -> control :?> Button)
+
+      let exists(name: string) =
+        probeUi(fun () -> byName name |> Option.isSome)
+
+      Expect.isTrue (exists "MinimizeButton") "no minimize button"
+      Expect.isTrue (exists "MaximizeButton") "no maximize button"
+      Expect.isTrue (exists "CloseButton") "no close button"
+
+      onUi(fun () -> byName "MinimizeButton" |> Option.iter click)
+
+      Expect.equal
+        (probeUi(fun () -> window.WindowState))
+        WindowState.Minimized
+        "the minimize button never ran"
+
+      onUi(fun () ->
+        window.WindowState <- WindowState.Normal
+        byName "MaximizeButton" |> Option.iter click)
+
+      Expect.equal
+        (probeUi(fun () -> window.WindowState))
+        WindowState.Maximized
+        "the maximize button never ran"
+
+      onUi(fun () -> byName "MaximizeButton" |> Option.iter click)
+
+      Expect.equal
+        (probeUi(fun () -> window.WindowState))
+        WindowState.Normal
+        "the restore never ran"
+    }
+
+    test "fullscreen hides the caption row and toggling brings it back" {
+      let window = startShell(signedInStore(), logApi() :> IHttp)
+
+      Expect.isTrue (showsText(window, "The Octocat")) "the log never rendered"
+
+      onUi(fun () -> (window :?> Shell<TestEnv>).ToggleFullScreen())
+
+      Expect.equal
+        (probeUi(fun () -> window.WindowState))
+        WindowState.FullScreen
+        "the window never went fullscreen"
+
+      Expect.isFalse
+        (probeUi(fun () ->
+          controlByName(window, "CaptionRow")
+          |> Option.map effectiveVisible
+          |> Option.defaultValue false))
+        "the caption row stayed visible in fullscreen"
+
+      onUi(fun () -> (window :?> Shell<TestEnv>).ToggleFullScreen())
+
+      Expect.equal
+        (probeUi(fun () -> window.WindowState))
+        WindowState.Normal
+        "the window never left fullscreen"
+
+      let restored =
+        waitFor(
+          5000,
+          (fun () -> controlByName(window, "CaptionRow")),
+          (fun control ->
+            control |> Option.map effectiveVisible |> Option.defaultValue false)
+        )
+
+      Expect.isTrue restored "the caption row never came back"
+    }
+
+    test "closing with close-to-tray hides the window and Quit closes it" {
+      let settings = AppSettingsStore(None, ignore)
+      settings.SetCloseToTray true
+
+      let env = TestEnv(signedInStore(), logApi() :> IHttp, settings)
+      let window = probeUi(fun () -> Shell(env, None) :> Window)
+      show window |> ignore
+
+      Expect.isTrue (showsText(window, "The Octocat")) "the log never rendered"
+
+      let closes = ResizeArray<string>()
+
+      onUi(fun () -> window.Closed.Add(fun _ -> closes.Add "closed"))
+
+      onUi(fun () -> window.Close())
+
+      Expect.isFalse
+        (probeUi(fun () -> window.IsVisible))
+        "the window stayed visible after the close"
+
+      Expect.equal
+        (probeUi(fun () -> closes.Count))
+        0
+        "the close was never cancelled"
+
+      onUi(fun () -> (window :?> Shell<TestEnv>).Quit())
+
+      let quit =
+        waitFor(5000, (fun () -> closes.Count), (fun count -> count > 0))
+
+      Expect.isTrue quit "the quit never closed the window"
+    }
+
+    test "closing without the flag closes the window" {
+      let env = TestEnv(signedInStore(), logApi() :> IHttp)
+      let window = probeUi(fun () -> Shell(env, None) :> Window)
+      show window |> ignore
+
+      Expect.isTrue (showsText(window, "The Octocat")) "the log never rendered"
+
+      let closes = ResizeArray<string>()
+
+      onUi(fun () -> window.Closed.Add(fun _ -> closes.Add "closed"))
+
+      onUi(fun () -> window.Close())
+
+      let closed =
+        waitFor(5000, (fun () -> closes.Count), (fun count -> count > 0))
+
+      Expect.isTrue closed "the window never closed"
+    }
+
+    test "the settings toggle persists close-to-tray" {
+      let saves = ResizeArray<AppSettings>()
+
+      let settings = AppSettingsStore(None, fun value -> saves.Add value)
+
+      let env = TestEnv(signedInStore(), logApi() :> IHttp, settings)
+      let window = probeUi(fun () -> Shell(env, None) :> Window)
+      show window |> ignore
+
+      Expect.isTrue (showsText(window, "The Octocat")) "the log never rendered"
+
+      clickWhenShown(window, "Settings")
+
+      Expect.isTrue
+        (showsText(window, "Keep running in the tray when the window closes"))
+        "the application section never rendered"
+
+      onUi(fun () ->
+        controlByName(window, "CloseToTrayToggle")
+        |> Option.iter(fun control ->
+          (control :?> ToggleSwitch).IsChecked <- Nullable true))
+
+      Expect.isTrue
+        (probeUi(fun () -> settings.Current.CloseToTray))
+        "the store never took the flag"
+
+      Expect.equal (probeUi(fun () -> saves.Count)) 1 "the save hook never ran"
+    }
+
+    test "the theme carries distinct dark and light tokens" {
+      Expect.notEqual
+        (probeUi(fun () -> solid(ThemeVariant.Dark, Keys.background)))
+        (probeUi(fun () -> solid(ThemeVariant.Light, Keys.background)))
+        "the variants share the background token"
+    }
+
+    test "the theme choice parses the stored names" {
+      Expect.equal (parseTheme "dark") (Some Dark) "dark never parsed"
+      Expect.equal (parseTheme "light") (Some Light) "light never parsed"
+      Expect.equal (parseTheme " system ") (Some System) "system never parsed"
+      Expect.isNone (parseTheme "solarized") "an unknown name parsed"
+    }
+
+    test "the settings store publishes theme changes" {
+      let saves = ResizeArray<AppSettings>()
+      let store = AppSettingsStore(None, fun value -> saves.Add value)
+
+      store.SetTheme Light
+
+      Expect.equal store.Current.Theme Light "the store never took the choice"
+
+      Expect.equal (probeUi(fun () -> saves.Count)) 1 "the save hook never ran"
+
+      Expect.equal saves[0].Theme Light "the save hook ran with the default"
+
+      store.SetTheme System
+
+      Expect.equal store.Current.Theme System "the store never came back"
+    }
+
+    test "the active navigation wears the primary wash" {
+      let window = startShell(signedInStore(), logApi() :> IHttp)
+
+      Expect.isTrue (showsText(window, "The Octocat")) "the log never rendered"
+
+      let active =
+        probeUi(fun () ->
+          buttonWithText(window, "Log")
+          |> Option.exists(fun button ->
+            button.Classes.Contains(name NavItemActive)))
+
+      Expect.isTrue active "the log entry never went active"
+    }
+
+    test "the wordmark renders the brand" {
+      let window = startShell(signedInStore(), logApi() :> IHttp)
+
+      Expect.isTrue (showsText(window, "/dev")) "the wordmark never rendered"
+    }
+
+    test "the aside shows the profile card on wide windows" {
+      let window = startShell(signedInStore(), accountApi() :> IHttp)
+
+      Expect.isTrue (showsText(window, "The Octocat")) "the log never rendered"
+
+      onUi(fun () ->
+        window.Width <- 1440.0
+        window.Height <- 900.0)
+
+      Expect.isTrue
+        (showsText(window, "7 commits · 13 following · 11 followers"))
+        "the profile card stats never rendered"
+    }
+
+    test "a since check stages new commits behind the pill" {
+      let session = signedInSession()
+
+      let env = TestEnv(signedInStore(), twoDaysLogApi() :> IHttp)
+
+      let props: LogView.Props<TestEnv> = {
+        Env = env
+        Log = Latest
+        Session = session
+
+        // The pill messages never navigate, so the router stays out.
+        Nav = Unchecked.defaultof<Navs.INavigable>
+      }
+
+      let newer =
+        match LogPage.decode newerPageJson with
+        | Ok page -> page
+        | Error failure ->
+          failwith $"the newer page never decoded: {failure.Message}"
+
+      let model = {
+        LogView.initial with
+            Head = Some "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+      }
+
+      let staged, _ = LogView.update props (LogView.NewChecked(Ok newer)) model
+
+      Expect.isSome staged.New "the newer commits never staged"
+
+      Expect.equal
+        (staged.New |> Option.map List.length |> Option.defaultValue 0)
+        1
+        "the staged count"
+
+      Expect.isEmpty staged.Items "the feed grew before the pill ran"
+
+      let merged, _ = LogView.update props LogView.NewRequested staged
+
+      Expect.isNone merged.New "the pill never cleared"
+
+      Expect.equal (merged.Items |> List.length) 1 "the feed never merged"
     }
   ]

@@ -26,7 +26,10 @@ let private session =
     AvaloniaTestIsolationLevel.PerAssembly
   )
 
-/// Runs a unit-of-work on the UI thread and waits for it.
+/// Runs a unit-of-work on the UI thread and waits for it. Avalonia
+/// pumps nested dispatches, so a call from the UI thread re-enters
+/// instead of deadlocking; jobs below Render priority never do, which
+/// is why `pump` exists.
 let onUi(test: unit -> unit) : unit =
   session.Dispatch(Action test, CancellationToken.None).GetAwaiter().GetResult()
 

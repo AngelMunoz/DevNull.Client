@@ -12,7 +12,6 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
-open Microsoft.Win32
 
 type DeviceKey = {
   PrivatePath: string
@@ -150,41 +149,6 @@ let ensureKey() : Result<DeviceKey, string> =
       }))
   with ex ->
     Error ex.Message
-
-let executablePath() =
-  match Environment.ProcessPath with
-  | null -> Path.Combine(AppContext.BaseDirectory, "DevNull.Client.exe")
-  | path when
-    path.EndsWith("DevNull.Client.exe", StringComparison.OrdinalIgnoreCase)
-    ->
-    path
-  | _ -> Path.Combine(AppContext.BaseDirectory, "DevNull.Client.exe")
-
-// The registry APIs return null when they cannot create the key; the
-// BCL does not annotate the return as nullable.
-#nowarn "3261"
-
-let registerScheme() : Result<unit, string> =
-  try
-    let command = "\"" + executablePath() + "\" \"%1\""
-
-    match Registry.CurrentUser.CreateSubKey(@"Software\Classes\devnull") with
-    | null -> Error "Could not open the devnull registry key."
-    | key ->
-      use key = key
-      key.SetValue("", "URL:devnull Protocol")
-      key.SetValue("URL Protocol", "")
-
-      match key.CreateSubKey(@"shell\open\command") with
-      | null -> Error "Could not open the devnull command key."
-      | commandKey ->
-        use commandKey = commandKey
-        commandKey.SetValue("", command)
-        Ok()
-  with ex ->
-    Error ex.Message
-
-#warnon "3261"
 
 let startAuthorization
   (env: #IProvidePkceSource & #IProvideNonceSource, key: DeviceKey)

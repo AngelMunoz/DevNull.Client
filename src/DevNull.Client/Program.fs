@@ -13,6 +13,7 @@ open Serilog.Extensions.Logging
 open DevNull.Client.DeviceAuth
 open DevNull.Client.Env
 open DevNull.Client.Errors
+open DevNull.Client.SchemeRegistration
 open DevNull.Client.Shell
 open DevNull.Client.Stores
 
@@ -81,7 +82,12 @@ let start argv =
   let store = SessionStore(loadSession(), devicePrivateKeyPath, clearSession)
 
   let env = AppEnv(baseAddress, store, logging)
-  registerScheme() |> ignore
+
+  match register() with
+  | Ok() -> ()
+  | Error message ->
+    Log.Warning("The devnull:// scheme is not registered: {Error}", message)
+
   let callback = callbackUri argv
 
   if hasRunningInstance() then

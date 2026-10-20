@@ -31,9 +31,6 @@ val devicePrivateKeyPath: string
 /// Creates the app key when it is missing, and returns its SSH fingerprint.
 val ensureKey: unit -> Result<DeviceKey, string>
 
-/// Registers devnull:// for the current user, pointing at this executable.
-val registerScheme: unit -> Result<unit, string>
-
 /// Starts one device authorization and returns the browser URL.
 val startAuthorization:
   env: #IProvidePkceSource & #IProvideNonceSource * key: DeviceKey ->

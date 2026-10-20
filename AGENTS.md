@@ -91,9 +91,13 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
     session store, and the logging factory; `KeyFiles` discovery in
     `~/.ssh`.
   - `DeviceAuth.fsi/fs` - the app's Ed25519 key under
-    `%LOCALAPPDATA%`, the `devnull://` scheme registration, device
-    authorization, callback redemption and session storage; generic
-    over the capability interfaces, never over the concrete env.
+    `%LOCALAPPDATA%`, device authorization, callback redemption and
+    session storage; generic over the capability interfaces, never over
+    the concrete env.
+  - `SchemeRegistration.fsi/fs` - the `ISchemeRegistrar` for the
+    `devnull://` scheme, one per operating system: the Windows registry,
+    the Linux `.desktop` file plus `xdg-mime`, and a designed failure on
+    macOS, where the handler comes from the app bundle.
   - `Navigation.fsi/fs` - `go`: every fire-and-forget navigation is
     `asyncEx { ... } |> Async.StartImmediate` on the UI thread.
   - `Components/` - `Status` (busy/error/empty panels), `Avatar`

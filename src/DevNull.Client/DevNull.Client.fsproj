@@ -22,6 +22,8 @@
     <Compile Include="Env.fs" />
     <Compile Include="DeviceAuth.fsi" />
     <Compile Include="DeviceAuth.fs" />
+    <Compile Include="SchemeRegistration.fsi" />
+    <Compile Include="SchemeRegistration.fs" />
     <Compile Include="Navigation.fsi" />
     <Compile Include="Navigation.fs" />
     <Compile Include="Components\Status.fsi" />

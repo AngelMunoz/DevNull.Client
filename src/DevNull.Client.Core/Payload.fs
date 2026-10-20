@@ -4,7 +4,6 @@ open FSharp.UMX
 open DevNull.Client.Core
 open DevNull.Client.Core.Types
 
-/// The values a signed commit payload needs, together.
 [<Struct>]
 type CommitPayload = {
   Timestamp: int64

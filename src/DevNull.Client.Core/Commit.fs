@@ -11,10 +11,8 @@ open DevNull.Client.Core.Types
 open FsToolkit.ErrorHandling
 open IcedTasks
 
-/// One image the caller read from disk.
 type ImageAttachment = { FileName: string; Bytes: byte array }
 
-/// A validated image, with the content type and SHA-256 the signed payload needs.
 type Image = {
   FileName: string
   ContentType: string
@@ -22,7 +20,6 @@ type Image = {
   Hash: string
 }
 
-/// Raw input of one commit, parsed at the boundary of `commit`.
 type CommitInput = {
   Body: string
   ReplyTo: string option
@@ -30,14 +27,12 @@ type CommitInput = {
   Images: ImageAttachment list
 }
 
-/// The values one signature needs.
 type SignInput = {
   KeyFile: string
   Namespace: string
   Payload: string
 }
 
-/// The values one POST /api/cli/commits needs.
 type PostInput = {
   Payload: string
   Signature: string
@@ -52,30 +47,31 @@ module CommitImages =
   [<Literal>]
   let MaxBytes = 10240000
 
-  let hasPrefixAt (offset: int) (prefix: byte array) (bytes: byte array) =
+  let hasPrefixAt(offset: int, prefix: byte array, bytes: byte array) =
     bytes.Length >= offset + prefix.Length
     && (prefix
         |> Array.indexed
         |> Array.forall(fun (index, value) -> bytes.[offset + index] = value))
 
-  let hasPrefix (prefix: byte array) (bytes: byte array) =
-    hasPrefixAt 0 prefix bytes
+  let hasPrefix(prefix: byte array, bytes: byte array) =
+    hasPrefixAt(0, prefix, bytes)
 
   let ascii(text: string) = Encoding.ASCII.GetBytes text
 
   let detect(bytes: byte array) =
     if
-      hasPrefix
-        [| 0x89uy; 0x50uy; 0x4Euy; 0x47uy; 0x0Duy; 0x0Auy; 0x1Auy; 0x0Auy |]
+      hasPrefix(
+        [| 0x89uy; 0x50uy; 0x4Euy; 0x47uy; 0x0Duy; 0x0Auy; 0x1Auy; 0x0Auy |],
         bytes
+      )
     then
       Some "image/png"
-    elif hasPrefix [| 0xFFuy; 0xD8uy; 0xFFuy |] bytes then
+    elif hasPrefix([| 0xFFuy; 0xD8uy; 0xFFuy |], bytes) then
       Some "image/jpeg"
     elif
       bytes.Length >= 12
-      && hasPrefix (ascii "RIFF") bytes
-      && hasPrefixAt 8 (ascii "WEBP") bytes
+      && hasPrefix(ascii "RIFF", bytes)
+      && hasPrefixAt(8, ascii "WEBP", bytes)
     then
       Some "image/webp"
     else
@@ -123,7 +119,6 @@ module Commit =
         candidates.Split('\n')
         |> Array.map _.Trim()
         |> Array.filter(fun line -> line <> "")
-        |> Array.toList
 
       let request = {
         Method = "POST"
@@ -138,7 +133,7 @@ module Commit =
         match outcome with
         | Error failure -> Error('e.LookupUnreachable failure.Message)
         | Ok response when isSuccess response.Status ->
-          KeyIds.fromLookup response.Body offered
+          KeyIds.fromLookup(response.Body, offered)
         | Ok response -> Error('e.LookupRefused(response.Status, response.Body))
     }
 

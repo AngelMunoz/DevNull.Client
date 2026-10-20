@@ -131,7 +131,7 @@ let tests =
     }
 
     test "a lookup answer that was not offered fails" {
-      match KeyIds.fromLookup "ssh-ed25519 AAAA" [ "ssh-ed25519 BBBB" ] with
+      match KeyIds.fromLookup("ssh-ed25519 AAAA", [| "ssh-ed25519 BBBB" |]) with
       | Error(UnexpectedKey key) ->
         Expect.equal key "ssh-ed25519 AAAA" "the offered key travels"
       | _ -> failtest "expected UnexpectedKey"
@@ -139,10 +139,10 @@ let tests =
 
     test "a lookup answer that was offered becomes a key id" {
       let parsed: Result<string<KeyId>, TestError> =
-        KeyIds.fromLookup "ssh-ed25519 BBBB\n" [
-          "ssh-ed25519 AAAA"
-          "ssh-ed25519 BBBB"
-        ]
+        KeyIds.fromLookup(
+          "ssh-ed25519 BBBB\n",
+          [| "ssh-ed25519 AAAA"; "ssh-ed25519 BBBB" |]
+        )
 
       match parsed with
       | Ok keyId ->

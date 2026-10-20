@@ -103,12 +103,11 @@ module KeyIds =
 
   /// Accepts the answer only when it names one of the candidates the caller offered.
   let fromLookup<'e when KeyError<'e>>
-    (answer: string)
-    (candidates: string list)
+    (answer: string, candidates: string array)
     : Result<string<KeyId>, 'e> =
     let offered = answer.Trim()
 
-    if candidates |> List.contains offered then
+    if candidates |> Array.contains offered then
       Ok(UMX.tag<KeyId> offered)
     else
       Error('e.UnexpectedKey offered)

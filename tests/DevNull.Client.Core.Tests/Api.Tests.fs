@@ -689,7 +689,7 @@ let tombstoneJson =
   """{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2}"""
 
 let richCommitJson =
-  """{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"b8b9c0d","body":"It was DNS.\n```fsharp\nlet x = 1\n```","parent_id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","html_url":"https://dev-null.sh/@octocat/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:17:19Z","stars_count":2,"replies_count":1,"status":"pending","author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null},"images":[],"body_segments":[{"type":"text","text":"It was DNS."},{"type":"code","code":"let x = 1"},{"type":"block","language":"fsharp","html":"<span>let x = 1</span>"}],"preview_segments":[{"type":"text","text":"It was DNS."}],"mentions":[{"username":"octocat","offset":0,"length":2}],"is_pinned":true,"starred":true,"is_saved":true,"pasteis_count":5,"quoted_commit_id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent":{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2},"quoted_commit":{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2},"poll":{"id":"018f4c1e-cccc-7c3a-9b2d-5e6f7a8b9c0d","closes_at":null,"is_closed":false,"has_voted":true,"total_votes":3,"options":[{"id":"018f4c1e-dddd-7c3a-9b2d-5e6f7a8b9c0d","label":"Yes","votes_count":2,"voted":true,"percentage":67}]},"link_preview":{"url":"https://example.test","title":"Example","description":null,"image_url":null,"site_name":"Example","is_pending":false,"embed":{"provider":"youtube","kind":"video","src":"https://youtube.com/embed/x","aspect_ratio":"16 / 9","height":null,"poster":null}},"reply_preview":{"data":[{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2}],"next_cursor":"abc"}}"""
+  """{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"b8b9c0d","body":"It was DNS.\n```fsharp\nlet x = 1\n```","parent_id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","html_url":"https://dev-null.sh/@octocat/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:17:19Z","stars_count":2,"replies_count":1,"status":"pending","author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null},"images":[],"body_segments":[{"type":"text","text":"It was DNS."},{"type":"code","code":"let x = 1"},{"type":"block","language":"fsharp","html":"<span>let x = 1</span>"}],"preview_segments":[{"type":"text","text":"It was DNS."}],"mentions":[{"username":"octocat","offset":0,"length":2}],"is_pinned":true,"starred":true,"pasteis_count":5,"quoted_commit_id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent":{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2},"quoted_commit":{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2},"poll":{"id":"018f4c1e-cccc-7c3a-9b2d-5e6f7a8b9c0d","closes_at":null,"is_closed":false,"has_voted":true,"total_votes":3,"options":[{"id":"018f4c1e-dddd-7c3a-9b2d-5e6f7a8b9c0d","label":"Yes","votes_count":2,"voted":true,"percentage":67}]},"link_preview":{"url":"https://example.test","title":"Example","description":null,"image_url":null,"site_name":"Example","is_pending":false,"embed":{"provider":"youtube","kind":"video","src":"https://youtube.com/embed/x","aspect_ratio":"16 / 9","height":null,"poster":null}},"reply_preview":{"data":[{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2}],"next_cursor":"abc"}}"""
 
 let richCommitTests =
   testList "Api.richCommits" [
@@ -720,7 +720,6 @@ let richCommitTests =
         Expect.equal true commit.IsPinned "pinned"
         Expect.equal 5 commit.PasteisCount "pasteis"
         Expect.equal (Some true) commit.Starred "starred"
-        Expect.equal (Some true) commit.IsSaved "saved"
 
         match commit.Parent with
         | Some(Tombstone tombstone) ->
@@ -1274,11 +1273,6 @@ let actionApiTests =
         CommitId = uuid
       }
 
-      let bookmarkAction: Bookmarks.ActionRequest = {
-        KeyFile = "key-file"
-        CommitId = uuid
-      }
-
       let starAction: Stars.ActionRequest = {
         KeyFile = "key-file"
         CommitId = uuid
@@ -1294,7 +1288,7 @@ let actionApiTests =
         Username = "octocat"
       }
 
-      let bookmarkRequest: Bookmarks.ListRequest = {
+      let starredRequest: Stars.ListRequest = {
         KeyFile = "key-file"
         Cursor = Some "abc"
       }
@@ -1330,18 +1324,6 @@ let actionApiTests =
         ("/api/v1/commits/" + uuid + "/pasteis")
 
       expectRequest
-        "save commit"
-        (fun http -> Bookmarks.save(envFor http, bookmarkAction))
-        "PUT"
-        ("/api/v1/commits/" + uuid + "/bookmark")
-
-      expectRequest
-        "unsave commit"
-        (fun http -> Bookmarks.unsave(envFor http, bookmarkAction))
-        "DELETE"
-        ("/api/v1/commits/" + uuid + "/bookmark")
-
-      expectRequest
         "unstar commit"
         (fun http -> Stars.unstar(envFor http, starAction))
         "DELETE"
@@ -1366,10 +1348,10 @@ let actionApiTests =
         "/api/v1/users/octocat/block"
 
       expectRequest
-        "list saved"
-        (fun http -> Bookmarks.list(envFor http, bookmarkRequest))
+        "list starred"
+        (fun http -> Stars.index(envFor http, starredRequest))
         "GET"
-        "/api/v1/saved?cursor=abc"
+        "/api/v1/starred?cursor=abc"
 
       expectRequest
         "list muted"

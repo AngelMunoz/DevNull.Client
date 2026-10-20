@@ -441,19 +441,20 @@ module Commits =
       and Rejected<'e>
       and DecodeError<'e>
 
-module Bookmarks =
+module Stars =
 
-  /// The saved commits, one cursor page at a time.
+  /// The starred commits, one cursor page at a time. Starring is also
+  /// how the app saves commits: one action, one list.
   type ListRequest = {
     KeyFile: string
     Cursor: string option
   }
 
-  /// One commit to save or remove from the saved list.
+  /// One commit to star or unstar.
   type ActionRequest = { KeyFile: string; CommitId: string }
 
-  /// Reads the signed user's saved commits.
-  val list:
+  /// Reads the signed user's starred commits.
+  val index:
     env: 'env * request: ListRequest -> Async<Result<Page<CommitNode>, 'e>>
       when 'env :> IProvideClock
       and 'env :> IProvideNonceSource
@@ -464,39 +465,6 @@ module Bookmarks =
       and TransportError<'e>
       and Rejected<'e>
       and DecodeError<'e>
-
-  /// Saves one commit.
-  val save:
-    env: 'env * request: ActionRequest -> Async<Result<Commit, 'e>>
-      when 'env :> IProvideClock
-      and 'env :> IProvideNonceSource
-      and 'env :> IProvideSigner
-      and 'env :> IProvideHttp
-      and CommitIdError<'e>
-      and NonceError<'e>
-      and SigningError<'e>
-      and TransportError<'e>
-      and Rejected<'e>
-      and DecodeError<'e>
-
-  /// Removes one commit from the saved list.
-  val unsave:
-    env: 'env * request: ActionRequest -> Async<Result<Commit, 'e>>
-      when 'env :> IProvideClock
-      and 'env :> IProvideNonceSource
-      and 'env :> IProvideSigner
-      and 'env :> IProvideHttp
-      and CommitIdError<'e>
-      and NonceError<'e>
-      and SigningError<'e>
-      and TransportError<'e>
-      and Rejected<'e>
-      and DecodeError<'e>
-
-module Stars =
-
-  /// One commit to star or unstar.
-  type ActionRequest = { KeyFile: string; CommitId: string }
 
   /// Stars one commit.
   val star:

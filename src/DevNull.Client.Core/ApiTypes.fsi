@@ -139,7 +139,6 @@ type Commit = {
   Author: User
   Images: Image list
   Starred: bool option
-  IsSaved: bool option
   IsPinned: bool
   PasteisCount: int
   QuotedCommitId: string option

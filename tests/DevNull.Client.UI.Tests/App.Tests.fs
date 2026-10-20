@@ -416,7 +416,7 @@ let tests =
         "the follow button leaked"
     }
 
-    test "the saved list renders bookmarked commits" {
+    test "the saved list renders the starred commits" {
       let api = accountApi()
       let window = startShell(signedInStore(), api :> IHttp)
 
@@ -430,8 +430,8 @@ let tests =
 
       Expect.exists
         api.Requests
-        (fun request -> request.Target.StartsWith "/api/v1/saved")
-        "the saved request"
+        (fun request -> request.Target.StartsWith "/api/v1/starred")
+        "the starred request"
     }
 
     test "signing out lands on sign-in and drops the session" {

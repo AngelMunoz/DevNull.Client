@@ -13,13 +13,12 @@ open DevNull.Client.Formatting
 open DevNull.Client.Icons
 open DevNull.Client.Theme
 
-/// What one card reports up: open the thread, toggle the star, toggle
-/// the bookmark, or start a quote.
+/// What one card reports up: open the thread, toggle the star, or
+/// start a quote.
 [<Struct>]
 type Event =
   | Opened of Commit
   | StarToggled of Commit
-  | BookmarkToggled of Commit
   | QuoteRequested of Commit
 
 /// One commit card. `OnEvent` receives every interaction.
@@ -215,8 +214,6 @@ let actions(commit: Commit, onEvent: Event -> unit) : Control =
 
   let starred = commit.Starred |> Option.contains true
 
-  let saved = commit.IsSaved |> Option.contains true
-
   let star =
     actionButton(Glyph.Star, starLabel, fun () -> onEvent(StarToggled commit))
 
@@ -229,17 +226,11 @@ let actions(commit: Commit, onEvent: Event -> unit) : Control =
   let quote =
     actionButton(Glyph.Quote, "Quote", fun () -> onEvent(QuoteRequested commit))
 
-  let bookmark =
-    actionButton(Glyph.Saved, "", fun () -> onEvent(BookmarkToggled commit))
-
-  if saved then
-    bookmark.Foreground <- Brushes.accent
-
   StackPanel()
     .Orientation(Orientation.Horizontal)
     .Spacing(8.0)
     .Margin(0.0, 8.0, 0.0, 0.0)
-    .Children(star, reply, quote, bookmark)
+    .Children(star, reply, quote)
 
 let view(props: Props) : Control =
   let commit = props.Commit

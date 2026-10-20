@@ -3,13 +3,12 @@ module DevNull.Client.Components.CommitCard
 open Avalonia.Controls
 open DevNull.Client.Core.ApiTypes
 
-/// What one card reports up: open the thread, toggle the star, toggle
-/// the bookmark, or start a quote.
+/// What one card reports up: open the thread, toggle the star, or
+/// start a quote.
 [<Struct>]
 type Event =
   | Opened of Commit
   | StarToggled of Commit
-  | BookmarkToggled of Commit
   | QuoteRequested of Commit
 
 /// One commit card. `OnEvent` receives every interaction.

@@ -52,7 +52,7 @@ let initial = {
 }
 
 let fetch(env, session: SignedInSession, cursor: string option) =
-  Bookmarks.list(
+  Stars.index(
     env,
     {
       KeyFile = session.KeyFile

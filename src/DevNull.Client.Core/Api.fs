@@ -681,7 +681,7 @@ module Commits =
       )
   }
 
-module Bookmarks =
+module Stars =
 
   type ListRequest = {
     KeyFile: string
@@ -690,10 +690,10 @@ module Bookmarks =
 
   type ActionRequest = { KeyFile: string; CommitId: string }
 
-  let list(env, request: ListRequest) =
+  let index(env, request: ListRequest) =
     let target =
       Internal.withQuery(
-        "/api/v1/saved",
+        "/api/v1/starred",
         Internal.optionalParameter("cursor", request.Cursor)
       )
 
@@ -707,42 +707,6 @@ module Bookmarks =
         Decode = CommitNode.decodePage
       }
     )
-
-  let save(env, request: ActionRequest) = asyncResult {
-    let! path = Internal.commitPath("/bookmark", request.CommitId)
-
-    return!
-      Internal.sendSigned(
-        env,
-        {
-          KeyFile = request.KeyFile
-          Method = "PUT"
-          Target = path
-          Body = ""
-          Decode = Commit.decodeCreated
-        }
-      )
-  }
-
-  let unsave(env, request: ActionRequest) = asyncResult {
-    let! path = Internal.commitPath("/bookmark", request.CommitId)
-
-    return!
-      Internal.sendSigned(
-        env,
-        {
-          KeyFile = request.KeyFile
-          Method = "DELETE"
-          Target = path
-          Body = ""
-          Decode = Commit.decodeCreated
-        }
-      )
-  }
-
-module Stars =
-
-  type ActionRequest = { KeyFile: string; CommitId: string }
 
   let star(env, request: ActionRequest) = asyncResult {
     let! path = Internal.commitPath("/star", request.CommitId)

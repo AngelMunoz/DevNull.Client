@@ -53,7 +53,6 @@ type Msg =
   | PastelRequested
   | DeleteRequested
   | StarDone of Result<Commit, AppError>
-  | BookmarkDone of Result<Commit, AppError>
   | PastelGiven of Result<PastelResult, AppError>
   | Deleted of Result<unit, AppError>
 
@@ -166,19 +165,6 @@ let update (props: Props<'env>) msg model =
         Stars.star(props.Env, request)
 
     { model with Error = None }, Cmd.OfAsync.perform toggle () StarDone
-  | CardEvent(CommitCard.BookmarkToggled commit) ->
-    let toggle() =
-      let request: Bookmarks.ActionRequest = {
-        KeyFile = props.Session.KeyFile
-        CommitId = commit.Id
-      }
-
-      if commit.IsSaved |> Option.contains true then
-        Bookmarks.unsave(props.Env, request)
-      else
-        Bookmarks.save(props.Env, request)
-
-    { model with Error = None }, Cmd.OfAsync.perform toggle () BookmarkDone
   | CardEvent(CommitCard.Opened commit) ->
     Navigation.go(props.Nav, "/commit/" + commit.Id, ignore)
     model, Cmd.none
@@ -209,10 +195,6 @@ let update (props: Props<'env>) msg model =
 
     { model with Error = None }, Cmd.OfAsync.perform remove () Deleted
   | StarDone result ->
-    match result with
-    | Ok updated -> withCommit(updated, model), Cmd.none
-    | Error error -> { model with Error = Some error }, Cmd.none
-  | BookmarkDone result ->
     match result with
     | Ok updated -> withCommit(updated, model), Cmd.none
     | Error error -> { model with Error = Some error }, Cmd.none
@@ -313,9 +295,9 @@ let view
   let busy =
     Status.busy "Loading the commit…"
     |> fun control -> control.IsVisible(model |> Observable.map _.Loading)
+    // snapshot keeps the star visual honest.
 
   // The card is rebuilt when the commit changes: a fresh control per
-  // snapshot keeps the star and bookmark visuals honest.
   let cardHost = ContentControl()
 
   cardHost.Content(

@@ -47,9 +47,7 @@ type Msg =
   | Appended of Result<LogPage, AppError>
   | MoreRequested
   | StarToggled of Commit
-  | BookmarkToggled of Commit
   | StarDone of Result<Commit, AppError>
-  | BookmarkDone of Result<Commit, AppError>
 
 let initial = {
   Loading = true
@@ -134,29 +132,7 @@ let update (props: Props<'env>) msg model =
         Stars.star(props.Env, request)
 
     { model with Error = None }, Cmd.OfAsync.perform toggle () StarDone
-  | BookmarkToggled commit ->
-    let toggle() =
-      let request: Bookmarks.ActionRequest = {
-        KeyFile = props.Session.KeyFile
-        CommitId = commit.Id
-      }
-
-      if commit.IsSaved |> Option.contains true then
-        Bookmarks.unsave(props.Env, request)
-      else
-        Bookmarks.save(props.Env, request)
-
-    { model with Error = None }, Cmd.OfAsync.perform toggle () BookmarkDone
   | StarDone result ->
-    match result with
-    | Ok updated ->
-      {
-        model with
-            Items = replaceNode(model.Items, updated)
-      },
-      Cmd.none
-    | Error error -> { model with Error = Some error }, Cmd.none
-  | BookmarkDone result ->
     match result with
     | Ok updated ->
       {
@@ -185,7 +161,6 @@ let row
           | CommitCard.Opened c ->
             Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
           | CommitCard.StarToggled c -> dispatch(StarToggled c)
-          | CommitCard.BookmarkToggled c -> dispatch(BookmarkToggled c)
           | CommitCard.QuoteRequested c ->
             Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
     }

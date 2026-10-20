@@ -66,8 +66,9 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
   logs, action results, `ApiErrorCode` and decode failures),
   `Api.fsi/fs` (the signed `/api/v1` surface in the `devnull-api`
   namespace: `signedRequest`, device authorization, account and
-  preferences, users and follows, logs, commits, replies, stars,
-  bookmarks, pastéis, reports and notifications; the create route
+  preferences, users and follows, logs, commits, replies, stars (the
+  starred index doubles as the saved list), pastéis, reports and
+  notifications; the create route
   accepts no images or poll), `Payload.fsi/fs` (pure render of the CLI
   signed payload), `Commit.fsi/fs` (CLI findKey / sign / post leaves
   and the `commit` composite, all async). Core never references the
@@ -102,13 +103,13 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
     `asyncEx { ... } |> Async.StartImmediate` on the UI thread.
   - `Components/` - `Status` (busy/error/empty panels), `Avatar`
     (initial on a lane-colored disc), `CommitCard` (one commit: header,
-    segments, poll, link preview, star/reply/quote/bookmark actions as
+    segments, poll, link preview, star/reply/quote actions as
     an `Event` DU), `Composer` (MVUish quick composer: fresh, reply, or
     quote target).
   - `Views/` - one MVUish page per route, each a `Page` `UserControl`
     over a `Program.mkProgram`: `SignInView` (device authorization with
     the pending-file poll), `LogView` (tabs, composer, timeline,
-    star/bookmark toggles, load-more), `ComposeView` (full-height
+    star toggle, load-more), `ComposeView` (full-height
     composer), `CommitDetailView` (ancestors, card, pastel, delete,
     replies, reply composer), `NotificationsView`, `SavedView`,
     `ProfileView` (header, follow/mute/block, commits),

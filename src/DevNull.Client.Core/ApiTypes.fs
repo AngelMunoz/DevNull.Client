@@ -137,7 +137,6 @@ type Commit = {
   Author: User
   Images: Image list
   Starred: bool option
-  IsSaved: bool option
   IsPinned: bool
   PasteisCount: int
   QuotedCommitId: string option
@@ -950,10 +949,6 @@ let rec commitDecoder
     Optional.Property.get ("starred", Optional.boolean) element
     |> Result.map Option.flatten
 
-  let! isSaved =
-    Optional.Property.get ("is_saved", Optional.boolean) element
-    |> Result.map Option.flatten
-
   let! isPinned = Required.Property.get ("is_pinned", Required.boolean) element
 
   let! pasteisCount =
@@ -1001,7 +996,6 @@ let rec commitDecoder
     Author = author
     Images = Option.defaultValue [] images
     Starred = starred
-    IsSaved = isSaved
     IsPinned = isPinned
     PasteisCount = pasteisCount
     QuotedCommitId = quotedCommitId

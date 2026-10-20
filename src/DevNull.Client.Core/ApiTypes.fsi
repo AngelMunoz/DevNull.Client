@@ -1,6 +1,6 @@
-#nowarn "3535"
-
 module DevNull.Client.Core.ApiTypes
+
+#nowarn "3535"
 
 open System
 

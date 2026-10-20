@@ -1,7 +1,5 @@
 module DevNull.Client.Theme
 
-#nowarn "3261" // the Style selector constructor annotates nullability
-
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Layout
@@ -69,8 +67,10 @@ let name class' =
 
 /// One app-level style: a selector plus its setters, as code.
 let styleOf
-  (build: Selector -> Selector, setters: (AvaloniaProperty * obj) array)
-  : Style =
+  (
+    build: Selector | null -> Selector,
+    setters: (AvaloniaProperty * obj | null) array
+  ) : Style =
   Style(build)
     .Setters(
       setters |> Array.map(fun (property, value) -> Setter(property, value))

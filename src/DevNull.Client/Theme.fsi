@@ -72,7 +72,8 @@ val name: class': StyleClass -> string
 
 /// One app-level style: a selector plus its setters, as code.
 val styleOf:
-  build: (Selector -> Selector) * setters: (AvaloniaProperty * obj) array ->
+  build: (Selector | null -> Selector) *
+  setters: (AvaloniaProperty * obj | null) array ->
     Style
 
 /// One style for the given class.

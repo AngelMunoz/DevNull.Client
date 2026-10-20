@@ -1,5 +1,3 @@
-#nowarn "3535"
-
 module DevNull.Client.Core.Api
 
 open System

@@ -1,5 +1,3 @@
-#nowarn "3535"
-
 module Tests.TestSupport
 
 open Expecto

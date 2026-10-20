@@ -1,7 +1,5 @@
 module DevNull.Client.Core.Commit
 
-#nowarn "3535"
-
 open System
 open System.Security.Cryptography
 open System.Text

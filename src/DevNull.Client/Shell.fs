@@ -223,10 +223,10 @@ type Shell<'env
         .IsEnabled(false)
 
     let navChildren: Control array = [|
-      yield header
+      header
       for entry in entries do
-        yield item entry
-      yield remotes
+        item entry
+      remotes
     |]
 
     let navList = ScrollViewer().Content(StackPanel().Children(navChildren))
@@ -260,9 +260,7 @@ type Shell<'env
 
     root.ColumnDefinitions <- ColumnDefinitions("260,*")
 
-    root.Children(sidebarPane.Column(0), outlet.Column(1)) |> ignore
-
-    this.Content <- root
+    this.Content <- root.Children(sidebarPane.Column(0), outlet.Column(1))
 
     match callback with
     | Some uri ->

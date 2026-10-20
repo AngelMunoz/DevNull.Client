@@ -1,6 +1,3 @@
-#nowarn "3535"
-#nowarn "3261"
-
 module DevNull.Client.DeviceAuth
 
 open System
@@ -163,6 +160,10 @@ let executablePath() =
     path
   | _ -> Path.Combine(AppContext.BaseDirectory, "DevNull.Client.exe")
 
+// The registry APIs return null when they cannot create the key; the
+// BCL does not annotate the return as nullable.
+#nowarn "3261"
+
 let registerScheme() : Result<unit, string> =
   try
     let command = "\"" + executablePath() + "\" \"%1\""
@@ -182,6 +183,8 @@ let registerScheme() : Result<unit, string> =
         Ok()
   with ex ->
     Error ex.Message
+
+#warnon "3261"
 
 let startAuthorization
   (env: #IProvidePkceSource & #IProvideNonceSource, key: DeviceKey)

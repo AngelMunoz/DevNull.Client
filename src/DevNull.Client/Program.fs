@@ -1,21 +1,56 @@
 module DevNull.Client.Program
 
 open System
+open System.IO
 open System.Threading
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Themes.Fluent
+open Microsoft.Extensions.Logging
 open NXUI.Extensions
-open DevNull.Client.CommitView
+open Serilog
+open Serilog.Extensions.Logging
 open DevNull.Client.DeviceAuth
 open DevNull.Client.Env
 open DevNull.Client.Errors
+open DevNull.Client.Shell
+open DevNull.Client.Stores
 
-/// The application root: the Fluent theme as shipped.
+/// The application root: the Fluent theme first, then the app styles.
 type App() =
   inherit Application()
 
-  override this.Initialize() = this.Styles.Add(FluentTheme())
+  override this.Initialize() =
+    this.Styles.Add(FluentTheme())
+    Theme.install this
+
+/// The app log: the console plus one file per day under the app's data
+/// directory, debug-verbose in development builds.
+let configureLogging() =
+  let folder =
+    Path.Combine(
+      Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+      "DevNull",
+      "logs"
+    )
+
+  Directory.CreateDirectory(folder) |> ignore
+
+  Log.Logger <-
+    LoggerConfiguration()
+#if DEBUG
+      .MinimumLevel
+      .Debug()
+#else
+      .MinimumLevel
+      .Information()
+#endif
+      .WriteTo.Console()
+      .WriteTo.File(
+        Path.Combine(folder, "devnull-.log"),
+        rollingInterval = RollingInterval.Day
+      )
+      .CreateLogger()
 
 let mutexName = "DevNull.Client.SingleInstance"
 
@@ -27,6 +62,9 @@ let hasRunningInstance() =
   | :? WaitHandleCannotBeOpenedException -> false
   | :? UnauthorizedAccessException -> true
 
+/// The second instance has no UI: it completes the sign-in callback
+/// headlessly, stores the outcome, and lets the first instance poll for
+/// the session file.
 let completeCallback (env: AppEnv) (uri: string) =
   match ensureKey() with
   | Error message -> saveLastError message
@@ -36,7 +74,13 @@ let completeCallback (env: AppEnv) (uri: string) =
     | Error error -> saveLastError(describe error)
 
 let start argv =
-  let env = AppEnv baseAddress
+  configureLogging()
+
+  let logging = (new LoggerFactory()).AddSerilog(Log.Logger)
+
+  let store = SessionStore(loadSession(), devicePrivateKeyPath, clearSession)
+
+  let env = AppEnv(baseAddress, store, logging)
   registerScheme() |> ignore
   let callback = callbackUri argv
 
@@ -53,7 +97,7 @@ let start argv =
       .Configure<App>()
       .UsePlatformDetect()
       .StartWithClassicDesktopLifetime(
-        (fun () -> buildWindow(env, callback)),
+        (fun () -> Shell(env, callback) :> Window),
         argv
       )
 

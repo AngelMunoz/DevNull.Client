@@ -12,8 +12,9 @@ open System.Text.RegularExpressions
 open IcedTasks
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
+open DevNull.Client.Core.Capabilities
+open DevNull.Client.Core.Http
 open DevNull.Client.Errors
-open DevNull.Client.Env
 open Microsoft.Win32
 
 type DeviceKey = {
@@ -38,7 +39,11 @@ let dataDirectory =
   )
 
 let keyDirectory = Path.Combine(dataDirectory, "keys")
-let privateKeyPath = Path.Combine(keyDirectory, "device")
+
+let devicePrivateKeyPath = Path.Combine(keyDirectory, "device")
+
+let privateKeyPath = devicePrivateKeyPath
+
 let publicKeyPath = privateKeyPath + ".pub"
 let pendingPath = Path.Combine(dataDirectory, "pending.json")
 let sessionPath = Path.Combine(dataDirectory, "session.json")
@@ -178,7 +183,9 @@ let registerScheme() : Result<unit, string> =
   with ex ->
     Error ex.Message
 
-let startAuthorization(env: AppEnv, key: DeviceKey) : SignInStart =
+let startAuthorization
+  (env: #IProvidePkceSource & #IProvideNonceSource, key: DeviceKey)
+  : SignInStart =
   let request: Device.AuthorizationRequest = {
     BaseAddress = baseAddress
     Fingerprint = key.Fingerprint
@@ -209,29 +216,23 @@ let savePending(pending: PendingAuthorization) : Result<unit, string> =
 
 let loadPending() : PendingAuthorization option =
   try
-    if not(File.Exists pendingPath) then
-      None
-    else
-      use document = JsonDocument.Parse(readAllTextShared pendingPath)
-      let root = document.RootElement
+    use document = JsonDocument.Parse(readAllTextShared pendingPath)
+    let root = document.RootElement
 
-      match root.TryGetProperty "verifier", root.TryGetProperty "state" with
-      | (true, verifier), (true, state) ->
-        match
-          verifier.GetString() |> Option.ofObj,
-          state.GetString() |> Option.ofObj
-        with
-        | Some verifier, Some state ->
-          Some { Verifier = verifier; State = state }
-        | _ -> None
+    match root.TryGetProperty "verifier", root.TryGetProperty "state" with
+    | (true, verifier), (true, state) ->
+      match
+        verifier.GetString() |> Option.ofObj, state.GetString() |> Option.ofObj
+      with
+      | Some verifier, Some state -> Some { Verifier = verifier; State = state }
       | _ -> None
+    | _ -> None
   with _ ->
     None
 
 let deletePending() =
   try
-    if File.Exists pendingPath then
-      File.Delete pendingPath
+    File.Delete pendingPath
   with _ ->
     ()
 
@@ -300,35 +301,35 @@ let inline tryInt (name: string) (root: JsonElement) =
 
 let loadSession() : DeviceSession option =
   try
-    if not(File.Exists sessionPath) then
-      None
-    else
-      use document = JsonDocument.Parse(readAllTextShared sessionPath)
-      let root = document.RootElement
+    use document = JsonDocument.Parse(readAllTextShared sessionPath)
+    let root = document.RootElement
 
-      match
-        tryString "id" root,
-        tryString "username" root,
-        tryString "name" root,
-        tryInt "unread" root
-      with
-      | Some id, Some username, Some name, Some unread ->
-        Some {
-          User = {
-            Id = id
-            Username = username
-            Name = name
-            AvatarUrl = tryString "avatar_url" root
-          }
-          UnreadNotificationsCount = unread
+    match
+      tryString "id" root,
+      tryString "username" root,
+      tryString "name" root,
+      tryInt "unread" root
+    with
+    | Some id, Some username, Some name, Some unread ->
+      Some {
+        User = {
+          Id = id
+          Username = username
+          Name = name
+          AvatarUrl = tryString "avatar_url" root
         }
-      | _ -> None
+        UnreadNotificationsCount = unread
+      }
+    | _ -> None
   with _ ->
     None
 
 let complete
-  (env: AppEnv, key: DeviceKey, callbackUri: string)
-  : Async<Result<DeviceSession, AppError>> = asyncEx {
+  (
+    env: #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp,
+    key: DeviceKey,
+    callbackUri: string
+  ) : Async<Result<DeviceSession, AppError>> = asyncEx {
   match parseCallback callbackUri with
   | Error message -> return Error(SignInFailed message)
   | Ok callback ->
@@ -368,6 +369,12 @@ let complete
       | Error error -> return Error error
 }
 
+let clearSession() : unit =
+  try
+    File.Delete sessionPath
+  with _ ->
+    ()
+
 let saveLastError(message: string) =
   try
     Directory.CreateDirectory(dataDirectory) |> ignore
@@ -377,12 +384,9 @@ let saveLastError(message: string) =
 
 let takeLastError() : string option =
   try
-    if File.Exists errorPath then
-      let message = readAllTextShared errorPath
-      File.Delete errorPath
-      Some message
-    else
-      None
+    let message = readAllTextShared errorPath
+    File.Delete errorPath
+    Some message
   with _ ->
     None
 

@@ -16,6 +16,10 @@
     <PackageVersion Include="Avalonia.Headless" Version="12.0.5" />
     <PackageVersion Include="NXUI" Version="12.0.0" />
     <PackageVersion Include="NXUI.Desktop" Version="12.0.0" />
+    <!-- 2.0.1: the version Briple.Trainer verifies against Avalonia 12.0.5;
+         sources live at E:\Navs and E:\MVUish.Avalonia -->
+    <PackageVersion Include="Navs.Avalonia" Version="2.0.1" />
+    <PackageVersion Include="MVUish.Avalonia" Version="1.0.1" />
     <!-- Data -->
     <PackageVersion Include="Donald" Version="10.1.0" />
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.13" />

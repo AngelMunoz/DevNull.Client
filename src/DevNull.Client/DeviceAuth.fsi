@@ -1,8 +1,9 @@
 module DevNull.Client.DeviceAuth
 
 open DevNull.Client.Core.ApiTypes
+open DevNull.Client.Core.Capabilities
+open DevNull.Client.Core.Http
 open DevNull.Client.Errors
-open DevNull.Client.Env
 
 /// The app's own Ed25519 key, the one the device approval binds to.
 type DeviceKey = {
@@ -23,6 +24,10 @@ type SignInStart = {
 /// The server the app signs in to.
 val baseAddress: string
 
+/// The private key file of the app's own key, the one every signed
+/// request after sign-in uses.
+val devicePrivateKeyPath: string
+
 /// Creates the app key when it is missing, and returns its SSH fingerprint.
 val ensureKey: unit -> Result<DeviceKey, string>
 
@@ -30,7 +35,9 @@ val ensureKey: unit -> Result<DeviceKey, string>
 val registerScheme: unit -> Result<unit, string>
 
 /// Starts one device authorization and returns the browser URL.
-val startAuthorization: env: AppEnv * key: DeviceKey -> SignInStart
+val startAuthorization:
+  env: #IProvidePkceSource & #IProvideNonceSource * key: DeviceKey ->
+    SignInStart
 
 /// Keeps the verifier and state until the browser returns.
 val savePending: pending: PendingAuthorization -> Result<unit, string>
@@ -43,14 +50,21 @@ val deletePending: unit -> unit
 
 /// Verifies the callback state, redeems the code, and stores the session.
 val complete:
-  env: AppEnv * key: DeviceKey * callbackUri: string ->
+  env: 'env * key: DeviceKey * callbackUri: string ->
     Async<Result<DeviceSession, AppError>>
+    when 'env :> IProvideClock
+    and 'env :> IProvideNonceSource
+    and 'env :> IProvideSigner
+    and 'env :> IProvideHttp
 
 /// Reads the stored session, when one exists.
 val loadSession: unit -> DeviceSession option
 
 /// Stores the session.
 val saveSession: session: DeviceSession -> Result<unit, string>
+
+/// Removes the stored session.
+val clearSession: unit -> unit
 
 /// Stores the last sign-in error for the window that owns the UI.
 val saveLastError: message: string -> unit

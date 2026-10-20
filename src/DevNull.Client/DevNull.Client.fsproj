@@ -10,25 +10,70 @@
 
   <ItemGroup>
     <Compile Include="Errors.fs" />
+    <Compile Include="Theme.fsi" />
+    <Compile Include="Theme.fs" />
+    <Compile Include="Icons.fsi" />
+    <Compile Include="Icons.fs" />
+    <Compile Include="Formatting.fsi" />
+    <Compile Include="Formatting.fs" />
+    <Compile Include="Stores.fsi" />
+    <Compile Include="Stores.fs" />
     <Compile Include="Env.fsi" />
     <Compile Include="Env.fs" />
     <Compile Include="DeviceAuth.fsi" />
     <Compile Include="DeviceAuth.fs" />
-    <Compile Include="CommitView.fsi" />
-    <Compile Include="CommitView.fs" />
+    <Compile Include="Navigation.fsi" />
+    <Compile Include="Navigation.fs" />
+    <Compile Include="Components\Status.fsi" />
+    <Compile Include="Components\Status.fs" />
+    <Compile Include="Components\Avatar.fsi" />
+    <Compile Include="Components\Avatar.fs" />
+    <Compile Include="Components\CommitCard.fsi" />
+    <Compile Include="Components\CommitCard.fs" />
+    <Compile Include="Components\Composer.fsi" />
+    <Compile Include="Components\Composer.fs" />
+    <Compile Include="Views\SignInView.fsi" />
+    <Compile Include="Views\SignInView.fs" />
+    <Compile Include="Views\LogView.fsi" />
+    <Compile Include="Views\LogView.fs" />
+    <Compile Include="Views\ComposeView.fsi" />
+    <Compile Include="Views\ComposeView.fs" />
+    <Compile Include="Views\CommitDetailView.fsi" />
+    <Compile Include="Views\CommitDetailView.fs" />
+    <Compile Include="Views\NotificationsView.fsi" />
+    <Compile Include="Views\NotificationsView.fs" />
+    <Compile Include="Views\SavedView.fsi" />
+    <Compile Include="Views\SavedView.fs" />
+    <Compile Include="Views\ProfileView.fsi" />
+    <Compile Include="Views\ProfileView.fs" />
+    <Compile Include="Views\SettingsView.fsi" />
+    <Compile Include="Views\SettingsView.fs" />
+    <Compile Include="Views\Routes.fsi" />
+    <Compile Include="Views\Routes.fs" />
+    <Compile Include="Shell.fsi" />
+    <Compile Include="Shell.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- UI: Fluent base (as shipped), NXUI for authoring in code -->
+    <!-- UI: Fluent base (as shipped), NXUI for authoring in code,
+         Navs for routing, MVUish for the page state loop -->
     <PackageReference Include="Avalonia" />
     <PackageReference Include="Avalonia.Desktop" />
     <PackageReference Include="Avalonia.Themes.Fluent" />
     <PackageReference Include="NXUI" />
     <PackageReference Include="NXUI.Desktop" />
+    <PackageReference Include="Navs.Avalonia" />
+    <PackageReference Include="MVUish.Avalonia" />
 
     <!-- Async: asyncEx binds the Task-based .NET APIs without AwaitTask -->
     <PackageReference Include="IcedTasks" />
+
+    <!-- Logging: Serilog console + rolling file, bridged for the router -->
+    <PackageReference Include="Serilog" />
+    <PackageReference Include="Serilog.Extensions.Logging" />
+    <PackageReference Include="Serilog.Sinks.Console" />
+    <PackageReference Include="Serilog.Sinks.File" />
   </ItemGroup>
 
   <ItemGroup>

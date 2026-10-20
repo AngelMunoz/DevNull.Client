@@ -5,5 +5,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/DevNull.Client.Core.Tests/DevNull.Client.Core.Tests.fsproj" />
+    <Project Path="tests/DevNull.Client.UI.Tests/DevNull.Client.UI.Tests.fsproj" />
   </Folder>
 </Solution>

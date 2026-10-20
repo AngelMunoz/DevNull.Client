@@ -9,8 +9,10 @@ open System.Security.Cryptography
 open System.Text
 open System.Threading.Tasks
 open IcedTasks
+open Microsoft.Extensions.Logging
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.Stores
 
 type SystemClock() =
 
@@ -160,7 +162,11 @@ type HttpClientTransport(baseAddress: string) =
         return Error({ Message = ex.Message }: TransportFailure)
     }
 
-type AppEnv(baseAddress: string) =
+type IProvideLogging =
+  abstract LoggerFactory: ILoggerFactory
+
+type AppEnv(baseAddress: string, session: SessionStore, logging: ILoggerFactory)
+  =
 
   let clock = SystemClock()
   let nonceSource = RandomNonceSource()
@@ -183,6 +189,12 @@ type AppEnv(baseAddress: string) =
   interface IProvideHttp with
     member _.Http = upcast http
 
+  interface IProvideSession with
+    member _.Session = session
+
+  interface IProvideLogging with
+    member _.LoggerFactory = logging
+
 module KeyFiles =
 
   let sshDirectory =
@@ -191,19 +203,29 @@ module KeyFiles =
       ".ssh"
     )
 
-  let candidates() =
-    Directory.GetFiles(sshDirectory, "*.pub")
-    |> Array.map(fun pub -> File.ReadLines(pub) |> Seq.head)
-    |> Array.filter(fun line ->
-      line.StartsWith "ssh-ed25519 " || line.StartsWith "ssh-rsa ")
-    |> Array.map(fun line ->
-      let parts = line.Split(' ')
-      parts[0] + " " + parts[1])
-    |> Array.distinct
-    |> Array.toList
+  let firstLineOf(path: string) : string option =
+    try
+      File.ReadLines path |> Seq.tryHead
+    with _ ->
+      None
+
+  let candidates() : string array =
+    try
+      Directory.GetFiles(sshDirectory, "*.pub")
+      |> Array.choose firstLineOf
+      |> Array.filter(fun line ->
+        line.StartsWith "ssh-ed25519 " || line.StartsWith "ssh-rsa ")
+      |> Array.map(fun line ->
+        let parts = line.Split(' ')
+        parts[0] + " " + parts[1])
+      |> Array.distinct
+    with _ -> [||]
 
   let privatePathOf(keyId: string) =
-    Directory.GetFiles(sshDirectory, "*.pub")
-    |> Array.tryFind(fun pub ->
-      (File.ReadLines(pub) |> Seq.head).StartsWith keyId)
-    |> Option.map(fun pub -> pub.Substring(0, pub.Length - 4))
+    try
+      Directory.GetFiles(sshDirectory, "*.pub")
+      |> Array.tryFind(fun pub ->
+        firstLineOf pub |> Option.exists(fun line -> line.StartsWith keyId))
+      |> Option.map(fun pub -> pub.Substring(0, pub.Length - 4))
+    with _ ->
+      None

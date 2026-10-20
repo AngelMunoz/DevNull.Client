@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <DebugType>embedded</DebugType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Measures.fsi" />
+    <Compile Include="Measures.fs" />
+    <Compile Include="Types.fs" />
+    <Compile Include="Pkce.fsi" />
+    <Compile Include="Pkce.fs" />
+    <Compile Include="Http.fsi" />
+    <Compile Include="Http.fs" />
+    <Compile Include="Capabilities.fsi" />
+    <Compile Include="Capabilities.fs" />
+    <Compile Include="ApiTypes.fsi" />
+    <Compile Include="ApiTypes.fs" />
+    <Compile Include="Api.fsi" />
+    <Compile Include="Api.fs" />
+    <Compile Include="Payload.fsi" />
+    <Compile Include="Payload.fs" />
+    <Compile Include="Commit.fsi" />
+    <Compile Include="Commit.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.UMX" />
+    <PackageReference Include="FsToolkit.ErrorHandling" />
+    <PackageReference Include="IcedTasks" />
+    <PackageReference Include="JDeck" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <DebugType>embedded</DebugType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Errors.fs" />
+    <Compile Include="Env.fsi" />
+    <Compile Include="Env.fs" />
+    <Compile Include="DeviceAuth.fsi" />
+    <Compile Include="DeviceAuth.fs" />
+    <Compile Include="CommitView.fsi" />
+    <Compile Include="CommitView.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- UI: Fluent base (as shipped), NXUI for authoring in code -->
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <PackageReference Include="NXUI" />
+    <PackageReference Include="NXUI.Desktop" />
+
+    <!-- Async: asyncEx binds the Task-based .NET APIs without AwaitTask -->
+    <PackageReference Include="IcedTasks" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DevNull.Client.Core\DevNull.Client.Core.fsproj" />
+  </ItemGroup>
+
+</Project>

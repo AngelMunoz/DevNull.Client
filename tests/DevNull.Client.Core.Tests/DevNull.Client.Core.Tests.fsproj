@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="TestSupport.fs" />
+    <Compile Include="Types.Tests.fs" />
+    <Compile Include="Pkce.Tests.fs" />
+    <Compile Include="Payload.Tests.fs" />
+    <Compile Include="Api.Tests.fs" />
+    <Compile Include="Commit.Tests.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Expecto" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DevNull.Client.Core\DevNull.Client.Core.fsproj" />
+  </ItemGroup>
+
+</Project>

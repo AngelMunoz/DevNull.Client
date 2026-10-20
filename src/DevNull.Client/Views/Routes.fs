@@ -52,14 +52,12 @@ let logPage
   | ValueSome session, ValueSome raw ->
     let kind = LogKinds.tryParse raw |> Option.defaultValue LogKind.Latest
 
-    LogView.Page(
-      {
-        Env = env
-        Log = kind
-        Session = session
-        Nav = nav
-      }
-    )
+    LogView.Page {
+      Env = env
+      Log = kind
+      Session = session
+      Nav = nav
+    }
   | _ -> Status.soon "Sign in to read the log."
 
 let commitPage

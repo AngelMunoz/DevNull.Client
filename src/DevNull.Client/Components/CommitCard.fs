@@ -4,9 +4,11 @@ open System
 open System.Text.RegularExpressions
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Input
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
+open IcedTasks
 open DevNull.Client
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Formatting
@@ -144,7 +146,9 @@ let linkPreviewView(preview: LinkPreview) : Control =
         )
     )
 
-let actionButton(glyph: Glyph, label: string, onClick: unit -> unit) : Button =
+let actionButton
+  (glyph: Glyph, label: string, onClick: Button -> unit)
+  : Button =
   Button()
     .Classes(Theme.name Theme.GhostButton)
     .Padding(6.0, 2.0, 6.0, 2.0)
@@ -156,9 +160,22 @@ let actionButton(glyph: Glyph, label: string, onClick: unit -> unit) : Button =
     )
     // The card itself is a button: a handled action click never opens
     // the thread as a side effect.
-    .OnClickHandler(fun _ args ->
+    .OnClickHandler(fun button args ->
       args.Handled <- true
-      onClick())
+      onClick button)
+
+/// Puts the commit's web URL on the clipboard.
+let copyLink(source: Control, url: string) : unit =
+  match TopLevel.GetTopLevel source with
+  | null -> ()
+  | top ->
+    match top.Clipboard with
+    | null -> ()
+    | clipboard ->
+      let data = new DataTransfer()
+      data.Add(DataTransferItem.CreateText url)
+
+      asyncEx { do! clipboard.SetDataAsync data } |> Async.StartImmediate
 
 let header(commit: Commit) : Control =
   let lane =
@@ -179,19 +196,25 @@ let header(commit: Commit) : Control =
 
   headGrid.ColumnDefinitions <- ColumnDefinitions.Parse "Auto,*"
 
+  let nameGrid = Grid()
+
+  nameGrid.ColumnDefinitions <- ColumnDefinitions.Parse "Auto,*,Auto"
+
   let name =
-    StackPanel()
-      .Orientation(Orientation.Horizontal)
-      .Spacing(6.0)
-      .Children(
-        TextBlock().Classes(Theme.name Theme.Subtitle).Text(commit.Author.Name),
-        TextBlock()
-          .Classes(Theme.name Theme.Muted)
-          .Text($"@{commit.Author.Username}"),
-        TextBlock()
-          .Classes(Theme.name Theme.Muted)
-          .Text(timeAgo(DateTimeOffset.UtcNow, commit.CreatedAt))
-      )
+    TextBlock().Classes(Theme.name Theme.Subtitle).Text(commit.Author.Name)
+
+  let handle =
+    TextBlock()
+      .Classes(Theme.name Theme.Muted)
+      .Text($"@{commit.Author.Username}")
+      .Margin(6.0, 0.0, 0.0, 0.0)
+      .TextTrimming(TextTrimming.CharacterEllipsis)
+
+  let time =
+    TextBlock()
+      .Classes(Theme.name Theme.Muted)
+      .Text(timeAgo(DateTimeOffset.UtcNow, commit.CreatedAt))
+      .Margin(6.0, 0.0, 0.0, 0.0)
 
   let hash =
     TextBlock()
@@ -199,7 +222,9 @@ let header(commit: Commit) : Control =
       .Text(commit.ShortHash)
       .HorizontalAlignment(HorizontalAlignment.Right)
 
-  let side = StackPanel().Column(1).Children(name, hash)
+  nameGrid.Children(name.Column(0), handle.Column(1), time.Column(2)) |> ignore
+
+  let side = StackPanel().Column(1).Children(nameGrid, hash)
 
   headGrid.Children(avatar.Margin(0.0, 0.0, 10.0, 0.0), side) |> ignore
 
@@ -215,22 +240,30 @@ let actions(commit: Commit, onEvent: Event -> unit) : Control =
   let starred = commit.Starred |> Option.contains true
 
   let star =
-    actionButton(Glyph.Star, starLabel, fun () -> onEvent(StarToggled commit))
+    actionButton(Glyph.Star, starLabel, fun _ -> onEvent(StarToggled commit))
 
   if starred then
     star.Foreground <- Brushes.accent
 
   let reply =
-    actionButton(Glyph.Reply, replyLabel, fun () -> onEvent(Opened commit))
+    actionButton(Glyph.Reply, replyLabel, fun _ -> onEvent(Opened commit))
 
   let quote =
-    actionButton(Glyph.Quote, "Quote", fun () -> onEvent(QuoteRequested commit))
+    actionButton(Glyph.Quote, "Quote", fun _ -> onEvent(QuoteRequested commit))
 
-  StackPanel()
-    .Orientation(Orientation.Horizontal)
-    .Spacing(8.0)
-    .Margin(0.0, 8.0, 0.0, 0.0)
-    .Children(star, reply, quote)
+  let link =
+    actionButton(
+      Glyph.Link,
+      "Link",
+      fun button -> copyLink(button, commit.HtmlUrl)
+    )
+
+  let actionRow =
+    WrapPanel().Orientation(Orientation.Horizontal).Margin(0.0, 8.0, 0.0, 0.0)
+
+  actionRow.ItemSpacing <- 8.0
+
+  actionRow.Children(star, reply, quote, link)
 
 let view(props: Props) : Control =
   let commit = props.Commit

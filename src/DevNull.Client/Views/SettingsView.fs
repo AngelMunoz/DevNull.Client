@@ -266,7 +266,7 @@ let view
       .Children(pasteisOffButton, pasteisOnButton)
 
   ScrollViewer()
-    .Padding(24.0, 20.0, 24.0, 0.0)
+    .Padding(Theme.pagePadding)
     .Content(
       StackPanel()
         .MaxWidth(560.0)

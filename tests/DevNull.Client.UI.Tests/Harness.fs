@@ -156,6 +156,32 @@ let textBoxWithWatermark(root: Control, text: string) : TextBox option =
     | _ -> None)
   |> Seq.tryFind(fun textBox -> textBox.PlaceholderText = text)
 
+/// The main feed: the scrollable viewer with the largest extent. Small
+/// chrome viewers never qualify.
+let private feedScroller(window: Window) : ScrollViewer option =
+  window.GetVisualDescendants()
+  |> Seq.choose(fun visual ->
+    match visual with
+    | :? ScrollViewer as scroller -> Some scroller
+    | _ -> None)
+  |> Seq.filter(fun scroller ->
+    scroller.Extent.Height > scroller.Viewport.Height + 1.0)
+  |> Seq.sortByDescending(fun scroller -> scroller.Extent.Height)
+  |> Seq.tryHead
+
+/// Scrolls the main feed to its end, so a virtualized list realizes
+/// the rows near the bottom and recycles the rows at the top.
+let scrollFeedToEnd(window: Window) : unit =
+  onUi(fun () -> feedScroller window |> Option.iter _.ScrollToEnd())
+
+/// Scrolls the main feed back to its start, so recycled rows are
+/// realized again.
+let scrollFeedToTop(window: Window) : unit =
+  onUi(fun () ->
+    feedScroller window
+    |> Option.iter(fun scroller ->
+      scroller.Offset <- Avalonia.Vector(0.0, 0.0)))
+
 /// Clicks through the routed event, the way MigrondiUI's tests do.
 let click(button: Button) : unit =
   button.RaiseEvent(Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent))

@@ -405,7 +405,7 @@ let view
         composer
       )
 
-  ScrollViewer().Padding(24.0, 20.0, 24.0, 0.0).Content(content)
+  ScrollViewer().Padding(Theme.pagePadding).Content(content)
 
 type Page<'env
   when 'env :> IProvideClock

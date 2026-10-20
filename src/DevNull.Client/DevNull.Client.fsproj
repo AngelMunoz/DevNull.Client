@@ -1,12 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
+    <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <DebugType>embedded</DebugType>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
 
   <ItemGroup>
     <Compile Include="Errors.fs" />
@@ -26,6 +31,10 @@
     <Compile Include="SchemeRegistration.fs" />
     <Compile Include="Navigation.fsi" />
     <Compile Include="Navigation.fs" />
+    <Compile Include="UnreadPoller.fsi" />
+    <Compile Include="UnreadPoller.fs" />
+    <Compile Include="Tray.fsi" />
+    <Compile Include="Tray.fs" />
     <Compile Include="Components\Status.fsi" />
     <Compile Include="Components\Status.fs" />
     <Compile Include="Components\Avatar.fsi" />
@@ -34,6 +43,8 @@
     <Compile Include="Components\CommitCard.fs" />
     <Compile Include="Components\Composer.fsi" />
     <Compile Include="Components\Composer.fs" />
+    <Compile Include="Components\Feed.fsi" />
+    <Compile Include="Components\Feed.fs" />
     <Compile Include="Views\SignInView.fsi" />
     <Compile Include="Views\SignInView.fs" />
     <Compile Include="Views\LogView.fsi" />

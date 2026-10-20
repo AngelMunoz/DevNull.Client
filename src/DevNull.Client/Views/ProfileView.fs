@@ -330,33 +330,19 @@ let view
   )
   |> ignore
 
-  let commits =
-    let template =
-      FuncDataTemplate<CommitNode>(
-        (fun node _ ->
-          match node with
-          | LiveCommit commit ->
-            CommitCard.view {
-              Commit = commit
-              OnEvent =
-                fun event ->
-                  match event with
-                  | CommitCard.Opened c ->
-                    Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
-                  | _ -> ()
-            }
-          | Tombstone tombstone -> CommitCard.tombstone tombstone),
-        false
-      )
-
-    let list = ItemsControl().ItemTemplate(template)
-
-    list.BindItemsSource(
-      model
-      |> Observable.map(fun current ->
-        current.Commits :> IReadOnlyList<CommitNode>),
-      nodeKey
-    )
+  let commitRow(node: CommitNode) : Control =
+    match node with
+    | LiveCommit commit ->
+      CommitCard.view {
+        Commit = commit
+        OnEvent =
+          fun event ->
+            match event with
+            | CommitCard.Opened c ->
+              Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
+            | _ -> ()
+      }
+    | Tombstone tombstone -> CommitCard.tombstone tombstone
 
   let more =
     Button()
@@ -367,14 +353,28 @@ let view
       .IsVisible(model |> Observable.map _.NextCursor.IsSome)
       .OnClickHandler(fun _ _ -> dispatch MoreCommits)
 
-  ScrollViewer()
-    .Padding(24.0, 20.0, 24.0, 0.0)
-    .Content(
-      StackPanel()
-        .MaxWidth(720.0)
-        .HorizontalAlignment(HorizontalAlignment.Stretch)
-        .Children(headerHost, errorPanel, busy, commits, more)
-    )
+  let commits =
+    Feed.view {
+      Items = model |> Observable.map _.Commits
+      KeyOf = nodeKey
+      Row = commitRow
+      Footer = ValueSome more
+    }
+
+  let pinned =
+    StackPanel()
+      .MaxWidth(720.0)
+      .HorizontalAlignment(HorizontalAlignment.Stretch)
+      .Margin(Theme.pagePadding)
+      .Children(headerHost, errorPanel, busy)
+
+  let root = Grid()
+  root.RowDefinitions <- RowDefinitions("Auto,*")
+
+  root.Children(pinned.Row(0), commits.Margin(24.0, 0.0, 24.0, 0.0).Row(1))
+  |> ignore
+
+  root
 
 type Page<'env
   when 'env :> IProvideClock

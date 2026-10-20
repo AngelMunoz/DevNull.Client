@@ -205,22 +205,6 @@ let view
           not current.Loading && current.Error.IsNone && current.Items.IsEmpty)
       )
 
-  let list =
-    let template =
-      FuncDataTemplate<Notification>(
-        (fun notification _ -> row props notification),
-        false
-      )
-
-    let items = ItemsControl().ItemTemplate(template)
-
-    items.BindItemsSource(
-      model
-      |> Observable.map(fun current ->
-        current.Items :> IReadOnlyList<Notification>),
-      _.Id
-    )
-
   let loadMore =
     Button()
       .Content("Load more")
@@ -230,14 +214,28 @@ let view
       .IsVisible(model |> Observable.map _.NextCursor.IsSome)
       .OnClickHandler(fun _ _ -> dispatch MoreRequested)
 
-  ScrollViewer()
-    .Padding(24.0, 20.0, 24.0, 0.0)
-    .Content(
-      StackPanel()
-        .MaxWidth(720.0)
-        .HorizontalAlignment(HorizontalAlignment.Stretch)
-        .Children(title, errorPanel, busy, emptyState, list, loadMore)
-    )
+  let list =
+    Feed.view {
+      Items = model |> Observable.map _.Items
+      KeyOf = _.Id
+      Row = row props
+      Footer = ValueSome loadMore
+    }
+
+  let pinned =
+    StackPanel()
+      .MaxWidth(720.0)
+      .HorizontalAlignment(HorizontalAlignment.Stretch)
+      .Margin(Theme.pagePadding)
+      .Children(title, errorPanel, busy, emptyState)
+
+  let root = Grid()
+  root.RowDefinitions <- RowDefinitions("Auto,*")
+
+  root.Children(pinned.Row(0), list.Margin(24.0, 0.0, 24.0, 0.0).Row(1))
+  |> ignore
+
+  root
 
 type Page<'env
   when 'env :> IProvideClock

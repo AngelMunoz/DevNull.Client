@@ -66,6 +66,15 @@ type StyleClass =
   | CodeBlock
   | Chip
   | Divider
+  | ChromeTitle
+
+/// The height of the drag band the shell lays over the drawn window
+/// chrome.
+val bandHeight: float
+
+/// The insets every page scrolls under: the window band plus the page
+/// gutter.
+val pagePadding: Thickness
 
 /// The readable name of one class, for `.Classes(...)`.
 val name: class': StyleClass -> string

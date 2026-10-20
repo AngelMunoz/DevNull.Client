@@ -92,6 +92,20 @@ let sessionOf(username: string) : DeviceSession = {
 let signedInStore() =
   SessionStore(Some(sessionOf "octocat"), devicePrivateKeyPath, ignore)
 
+/// A signed-in store with a custom unread notification count, so the
+/// badge assertions can use a count no canned commit carries.
+let signedInStoreWithUnread(unread: int) =
+  SessionStore(
+    Some(
+      {
+        sessionOf "octocat" with
+            UnreadNotificationsCount = unread
+      }
+    ),
+    devicePrivateKeyPath,
+    ignore
+  )
+
 let signedOutStore() =
   SessionStore(None, devicePrivateKeyPath, ignore)
 
@@ -189,6 +203,34 @@ let threadApi() =
 
 /// The api of the empty-log test.
 let emptyLogApi() = FakeApi(emptyLogPageJson)
+
+/// A log page of N distinct commits, so the virtualized feed overflows
+/// the viewport plus its cache band and recycles rows while scrolling.
+let manyCardsPageJson(cardCount: int) : string =
+  let card index =
+    commitJson
+      .Replace(
+        "\"id\":\"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d\"",
+        $"\"id\":\"018f4c1e-6f8a-7c3a-9b2d-{index:D4}\""
+      )
+      .Replace(
+        "\"short_hash\":\"b8b9c0d\"",
+        $"\"short_hash\":\"card{index:D2}\""
+      )
+      .Replace("\"body\":\"It was DNS.\"", $"\"body\":\"Card {index}.\"")
+
+  sprintf
+    "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"suggestions\":[]}"
+    (String.concat "," [ for index in 1..cardCount -> card index ])
+
+/// The api of the recycle test: every log read answers the many-cards
+/// page.
+let manyCardsApi() =
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/log/" then
+      ok(manyCardsPageJson 6)
+    else
+      ok "{}")
 
 /// The signed-in account, as GET /api/v1/me returns it.
 let meJson =

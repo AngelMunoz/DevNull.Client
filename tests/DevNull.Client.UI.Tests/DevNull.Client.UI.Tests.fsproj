@@ -10,6 +10,7 @@
   <ItemGroup>
     <Compile Include="Harness.fs" />
     <Compile Include="Fixtures.fs" />
+    <Compile Include="Unread.Tests.fs" />
     <Compile Include="App.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

@@ -191,17 +191,16 @@ let logTabs: Tab list = [
 ]
 
 let tab(active: LogKind, nav: INavigable, info: Tab) : Control =
+  let isActive = active = info.Kind
+
   Button()
     .Content(info.Label)
     .Padding(12.0, 8.0, 12.0, 8.0)
-    .CornerRadius(8.0)
-    .Background(
-      if active = info.Kind then
-        Brushes.card :> IBrush
-      else
-        Brushes.transparent
-    )
-    .Foreground(if active = info.Kind then Brushes.text else Brushes.muted)
+    .CornerRadius(0.0)
+    .BorderThickness(0.0, 0.0, 0.0, 2.0)
+    .BorderBrush(if isActive then Brushes.accent else Brushes.transparent)
+    .Background(Brushes.transparent)
+    .Foreground(if isActive then Brushes.text else Brushes.muted)
     .OnClickHandler(fun _ _ -> Navigation.go(nav, info.Url, ignore))
 
 let view
@@ -254,22 +253,6 @@ let view
           not current.Loading && current.Error.IsNone && current.Items.IsEmpty)
       )
 
-  let list =
-    let template =
-      FuncDataTemplate<CommitNode>(
-        (fun node _ -> row (props, dispatch) node),
-        false
-      )
-
-    let items = ItemsControl().ItemTemplate(template)
-
-    items.BindItemsSource(
-      model
-      |> Observable.map(fun current ->
-        current.Items :> IReadOnlyList<CommitNode>),
-      nodeKey
-    )
-
   let loadMore =
     Button()
       .Content("Load more")
@@ -279,22 +262,28 @@ let view
       .IsVisible(model |> Observable.map _.NextCursor.IsSome)
       .OnClickHandler(fun _ _ -> dispatch MoreRequested)
 
-  ScrollViewer()
-    .Padding(24.0, 20.0, 24.0, 0.0)
-    .Content(
-      StackPanel()
-        .MaxWidth(720.0)
-        .HorizontalAlignment(HorizontalAlignment.Stretch)
-        .Children(
-          tabStrip,
-          composer,
-          errorPanel,
-          busy,
-          emptyState,
-          list,
-          loadMore
-        )
-    )
+  let list =
+    Feed.view {
+      Items = model |> Observable.map _.Items
+      KeyOf = nodeKey
+      Row = row(props, dispatch)
+      Footer = ValueSome loadMore
+    }
+
+  let pinned =
+    StackPanel()
+      .MaxWidth(720.0)
+      .HorizontalAlignment(HorizontalAlignment.Stretch)
+      .Margin(Theme.pagePadding)
+      .Children(tabStrip, composer, errorPanel, busy, emptyState)
+
+  let root = Grid()
+  root.RowDefinitions <- RowDefinitions("Auto,*")
+
+  root.Children(pinned.Row(0), list.Margin(24.0, 0.0, 24.0, 0.0).Row(1))
+  |> ignore
+
+  root
 
 type Page<'env
   when 'env :> IProvideClock

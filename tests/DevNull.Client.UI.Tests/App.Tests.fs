@@ -4,7 +4,9 @@ module DevNull.Client.UI.Tests.App
 // renders through the signed API with fakes, the sidebar navigates, and
 // the guard sends a signed-out visitor to sign-in.
 
+open Avalonia
 open Avalonia.Controls
+open Avalonia.Input
 open Avalonia.VisualTree
 
 open Expecto
@@ -23,6 +25,27 @@ let buttons(root: Control) : Button list =
     | :? Button as button -> Some button
     | _ -> None)
   |> List.ofSeq
+
+/// True when the control and every ancestor are visible.
+let effectiveVisible(control: Control) : bool =
+  control.IsVisible
+  && (control.GetVisualAncestors()
+      |> Seq.choose(fun visual ->
+        match visual with
+        | :? Control as ancestor -> Some ancestor
+        | _ -> None)
+      |> Seq.forall(fun ancestor -> ancestor.IsVisible))
+
+/// The first control carrying the automation name.
+let controlByName(root: Control, name: string) : Control option =
+  root.GetVisualDescendants()
+  |> Seq.tryFind(fun visual -> visual.Name = name)
+  |> Option.map(fun visual -> visual :?> Control)
+
+/// The visible-state probe for the finder helpers: an option-aware
+/// `effectiveVisible`.
+let visibleOption(option: Button option) : bool =
+  option |> Option.map effectiveVisible |> Option.defaultValue false
 
 /// Builds and shows the shell over one test env. The window is born on
 /// the UI thread: the headless platform only exists there.
@@ -231,9 +254,42 @@ let tests =
 
       clickWhenShown(window, "Load more")
 
+      scrollFeedToEnd window
+
       Expect.isTrue
         (showsText(window, "Second commit."))
         "the second page never rendered"
+    }
+
+    test "scrolling recycles rows and realizes them again" {
+      let window = startShell(signedInStore(), manyCardsApi() :> IHttp)
+
+      Expect.isTrue
+        (showsText(window, "Card 1."))
+        "the first card never rendered"
+
+      // The small window makes the six-card feed overflow the viewport
+      // plus its cache band, so scrolling must recycle the top rows.
+      onUi(fun () ->
+        window.Width <- 420.0
+        window.Height <- 480.0)
+
+      scrollFeedToEnd window
+
+      let recycled =
+        waitFor(
+          5000,
+          (fun () -> window),
+          (fun root -> not(hasText(root, "Card 1.")))
+        )
+
+      Expect.isTrue recycled "the first row was never recycled"
+
+      scrollFeedToTop window
+
+      Expect.isTrue
+        (showsText(window, "Card 1."))
+        "the recycled row never came back"
     }
 
     test "opening a commit shows the thread with its replies" {
@@ -455,5 +511,113 @@ let tests =
       let state = probeUi(fun () -> store.Current)
 
       Expect.equal state SignedOut "the store kept the session"
+    }
+
+    test "the notifications entry carries the unread badge" {
+      let window = startShell(signedInStoreWithUnread 9, logApi() :> IHttp)
+
+      Expect.isTrue (showsText(window, "The Octocat")) "the log never rendered"
+
+      Expect.isTrue (showsText(window, "9")) "the unread badge never rendered"
+    }
+
+    test "the sidebar folds into a drawer on narrow windows" {
+      let window = startShell(signedInStore(), logApi() :> IHttp)
+
+      Expect.isTrue (showsText(window, "The Octocat")) "the log never rendered"
+
+      Expect.isTrue
+        (probeUi(fun () ->
+          buttonWithText(window, "Settings")
+          |> Option.map effectiveVisible
+          |> Option.defaultValue false))
+        "the sidebar never rendered on the wide window"
+
+      Expect.isFalse
+        (probeUi(fun () ->
+          controlByName(window, "MenuButton")
+          |> Option.map effectiveVisible
+          |> Option.defaultValue false))
+        "the hamburger showed on the wide window"
+
+      onUi(fun () ->
+        window.Width <- 400.0
+        window.Height <- 700.0)
+
+      let hamburger =
+        waitFor(
+          5000,
+          (fun () -> controlByName(window, "MenuButton")),
+          (fun control ->
+            control
+            |> Option.bind(fun c ->
+              if c :? Button then Some(c :?> Button) else None)
+            |> visibleOption)
+        )
+
+      Expect.isTrue hamburger "the hamburger never showed on the narrow window"
+
+      Expect.isFalse
+        (probeUi(fun () -> buttonWithText(window, "Settings") |> visibleOption))
+        "the sidebar stayed open on the narrow window"
+
+      onUi(fun () ->
+        controlByName(window, "MenuButton")
+        |> Option.iter(fun control -> click(control :?> Button)))
+
+      let drawer =
+        waitFor(
+          5000,
+          (fun () -> buttonWithText(window, "Settings")),
+          visibleOption
+        )
+
+      Expect.isTrue drawer "the drawer never opened"
+
+      clickWhenShown(window, "Settings")
+
+      let closed =
+        waitFor(
+          5000,
+          (fun () -> buttonWithText(window, "Settings")),
+          (fun button ->
+            not(
+              button |> Option.map effectiveVisible |> Option.defaultValue true
+            ))
+        )
+
+      Expect.isTrue closed "the drawer stayed open after navigation"
+
+      Expect.isTrue
+        (showsText(window, "@octocat"))
+        "the settings page never rendered"
+    }
+
+    test "the copy-link action puts the commit URL on the clipboard" {
+      let window = startShell(signedInStore(), logApi() :> IHttp)
+
+      Expect.isTrue (showsText(window, "It was DNS.")) "the log never rendered"
+
+      clickWhenShown(window, "Link")
+
+      let url =
+        probeUi(fun () ->
+          match TopLevel.GetTopLevel window with
+          | null -> ""
+          | top ->
+            match top.Clipboard with
+            | null -> ""
+            | clipboard ->
+              match clipboard.TryGetDataAsync().GetAwaiter().GetResult() with
+              | null -> ""
+              | data ->
+                match data.TryGetTextAsync().GetAwaiter().GetResult() with
+                | null -> ""
+                | text -> text)
+
+      Expect.equal
+        url
+        "https://dev-null.sh/@octocat/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+        "the clipboard carried another text"
     }
   ]

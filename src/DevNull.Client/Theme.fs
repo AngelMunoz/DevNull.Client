@@ -2,6 +2,7 @@ module DevNull.Client.Theme
 
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.Chrome
 open Avalonia.Layout
 open Avalonia.Media
 open Avalonia.Styling
@@ -48,6 +49,15 @@ type StyleClass =
   | CodeBlock
   | Chip
   | Divider
+  | ChromeTitle
+
+/// The height of the drag band the shell lays over the drawn window
+/// chrome.
+let bandHeight = 32.0
+
+/// The insets every page scrolls under: the window band plus the page
+/// gutter.
+let pagePadding = Thickness(24.0, 40.0, 24.0, 0.0)
 
 let name class' =
   match class' with
@@ -64,6 +74,7 @@ let name class' =
   | CodeBlock -> "code-block"
   | Chip -> "chip"
   | Divider -> "divider"
+  | ChromeTitle -> "chrome-title"
 
 /// One app-level style: a selector plus its setters, as code.
 let styleOf
@@ -206,6 +217,18 @@ let style class' =
         Control.HeightProperty, box 1.0
       |]
     )
+  | ChromeTitle ->
+    // The drawn window chrome draws the window title over the client
+    // area; the shell paints its own brand, so the chrome text stays
+    // off.
+    styleOf(
+      (fun selector ->
+        selector
+          .OfType<WindowDrawnDecorations>()
+          .Descendant()
+          .OfType<TextBlock>()),
+      [| Control.IsVisibleProperty, box false |]
+    )
 
 let styles() =
   let styles = Styles()
@@ -224,6 +247,7 @@ let styles() =
     CodeBlock
     Chip
     Divider
+    ChromeTitle
   ]
   |> List.iter(fun class' -> styles.Add(style class'))
 

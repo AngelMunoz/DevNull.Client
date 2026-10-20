@@ -50,28 +50,17 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
 
 ## Architecture
 
-- `src/DevNull.Client.Core/` - the protocol layer. It carries the CLI
-  protocol under `/api/cli/*` with plain-text responses, and the signed
-  JSON API under `/api/v1/*`. `Measures.fsi/fs` (`CommitId`,
-  `CommitBody`, `ShortHash`, `Nonce` and `KeyId` as `FSharp.UMX`
-  measures over `string`; companion modules are plural so the measure
-  stays usable in `string<Measure>`), `Types.fs` (parse leaves and
-  IWSAM error interfaces), `Pkce.fsi/fs` (PKCE S256 challenge),
-  `Http.fsi/fs` (generic request and response values, the `IHttp`
-  worker and `IProvideHttp` accessor), `Capabilities.fs` (worker +
-  accessor pairs: clock, nonce source, PKCE verifier source,
-  ssh-keygen signer), `ApiTypes.fsi/fs` (the full JSON API shape:
-  accounts, users, profiles, cursor pages, commits and tombstones,
-  segments, mentions, link previews, polls, images, notifications,
-  logs, action results, `ApiErrorCode` and decode failures),
-  `Api.fsi/fs` (the signed `/api/v1` surface in the `devnull-api`
-  namespace: `signedRequest`, device authorization, account and
-  preferences, users and follows, logs, commits, replies, stars (the
-  starred index doubles as the saved list), pastéis, reports and
-  notifications; the create route
-  accepts no images or poll), `Payload.fsi/fs` (pure render of the CLI
-  signed payload), `Commit.fsi/fs` (CLI findKey / sign / post leaves
-  and the `commit` composite, all async). Core never references the
+- `src/DevNull.Client.Core/` - the protocol layer: the CLI protocol
+  under `/api/cli/*` with plain-text responses, and the signed JSON
+  API under `/api/v1/*`. `Measures` (UMX-measured strings: `CommitId`,
+  `CommitBody`, `ShortHash`, `Nonce`, `KeyId`; companion modules are
+  plural, e.g. `CommitIds`, so the measure stays usable), `Types`
+  (parse leaves and IWSAM error interfaces), `Pkce`, `Http` (`IHttp`
+  worker + `IProvideHttp` accessor), `Capabilities` (worker + accessor
+  pairs: clock, nonce source, PKCE verifier source, ssh-keygen signer),
+  `ApiTypes` (the JSON shape and its decoders), `Api` (the signed
+  surface; the create route accepts no images or poll), `Payload` and
+  `Commit` (the CLI signing composite). Core never references the
   app. The server contract source is the dev-null repository (read-only
   reference at `E:\dev-null`); verify response shapes there before
   changing `ApiTypes`.
@@ -99,44 +88,39 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
     `devnull://` scheme, one per operating system: the Windows registry,
     the Linux `.desktop` file plus `xdg-mime`, and a designed failure on
     macOS, where the handler comes from the app bundle.
-  - `Navigation.fsi/fs` - `go`: every fire-and-forget navigation is
-    `asyncEx { ... } |> Async.StartImmediate` on the UI thread.
-  - `Components/` - `Status` (busy/error/empty panels), `Avatar`
-    (initial on a lane-colored disc), `CommitCard` (one commit: header,
-    segments, poll, link preview, star/reply/quote actions as
-    an `Event` DU), `Composer` (MVUish quick composer: fresh, reply, or
-    quote target).
-  - `Views/` - one MVUish page per route, each a `Page` `UserControl`
-    over a `Program.mkProgram`: `SignInView` (device authorization with
-    the pending-file poll), `LogView` (tabs, composer, timeline,
-    star toggle, load-more), `ComposeView` (full-height
-    composer), `CommitDetailView` (ancestors, card, pastel, delete,
-    replies, reply composer), `NotificationsView`, `SavedView`,
-    `ProfileView` (header, follow/mute/block, commits),
-    `SettingsView` (lane palette, pastéis mode, GitHub sync, sign out),
-    and `Routes.fs` (the Navs table, the `requiresSession` /
-    `requiresSignedOut` guards, and the boot URL).
-  - `Shell.fsi/fs` - the one window: sidebar (`NavEntry` list, active
-    section from `router.Changed`), the Navs `RouterOutlet`, the
-    extended client area with the Mica chain on Windows, and the
+  - `Navigation.fsi/fs` - `go`: fire-and-forget navigation on the UI
+    thread.
+  - `UnreadPoller.fsi/fs` - polls `Me.get` on an interval into the
+    session store; pauses while the inbox is open; survives failures.
+  - `Tray.fsi/fs` - the tray icon: menu, raise on click, unread
+    tooltip.
+  - `Components/` - `Status`, `Avatar`, `CommitCard` (reports an
+    `Event` DU up to the page), `Composer`, and `Feed` (the
+    virtualized list: `ItemsControl` over a `VirtualizingStackPanel`
+    in its own scroll, bound through `BindItemsSource`; the template
+    is total against the `null` recycle pass; list pages pin their
+    headers and hand it rows plus a footer).
+  - `Views/` - one MVUish page per route over `Program.mkProgram`
+    (sign-in, log, compose, thread, notifications, saved, profile,
+    settings), plus `Routes.fs` (the Navs table, the session guards,
+    and the boot URL).
+  - `Shell.fsi/fs` - the one window: sidebar with the unread badge,
+    the router outlet, the extended client area (a drag band over the
+    drawn chrome; Mica on Windows), the narrow drawer (sidebar folds
+    below 640 width; minimum 380x640), tray and poller wiring, and the
     forwarded sign-in callback.
   - `Program.fs` - Serilog (console plus one file per day under
     `%LOCALAPPDATA%\DevNull\logs`), the Fluent theme first, app styles
     after; single-instance mutex; the second instance completes the
     callback headlessly.
-- `tests/DevNull.Client.Core.Tests/` - the Expecto suite over Core, with
-  `TestSupport.fs` providing the test edge type, the async fake workers,
-  the requirements interface, and `Values` builders.
-- `tests/DevNull.Client.UI.Tests/` - the headless UI suite. `Harness.fs`
-  holds the session (`PerAssembly` isolation), `onUi`/`probeUi`, the
-  `pump`/`settle`/`waitFor` frame helpers, and the finders
-  (`buttonWithText` prefers the innermost button);
-  `Fixtures.fs` holds `TestEnv` (fixed workers over a `SessionStore`),
-  `FakeApi` (records every request, answers canned JSON), and the
-  canned payloads; `App.Tests.fs` drives the real shell: boot route per
-  session state, timeline through the signed API, composer, star,
-  paging, thread, replies, pastel, quote, inbox, profile, saved, and
-  sign-out.
+- `tests/DevNull.Client.Core.Tests/` - Expecto over Core; `TestSupport`
+  carries the fakes and builders. Tests never reach network, disk, or
+  real processes.
+- `tests/DevNull.Client.UI.Tests/` - the headless suite over the real
+  shell: `Harness` (per-assembly session, `onUi`/`probeUi`, frame
+  pumps, finders, `scrollFeedToEnd`), `Fixtures` (`TestEnv`, `FakeApi`,
+  canned JSON), `App.Tests` (the shell and its pages), and
+  `Unread.Tests` (the poller).
 - `Directory.Packages.props` - central package management; every package
   version lives there, never in a project file. reference from the
   projects only what each uses. UI stack: Avalonia 12.0.5, NXUI 12.0.0,

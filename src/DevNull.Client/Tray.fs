@@ -7,20 +7,21 @@ open Avalonia.Platform
 open Navs
 open DevNull.Client.Navigation
 
-/// Brings the window back: restore first, then activate.
-let private raiseWindow(window: Window) : unit =
+/// Brings the window back. Close-to-tray hides it, and `Activate`
+/// alone never shows a hidden window: `Show` runs first, always.
+let raiseWindow(window: Window) : unit =
+  window.Show()
+
   if window.WindowState = WindowState.Minimized then
     window.WindowState <- WindowState.Normal
 
   window.Activate()
 
-let private navigate
-  (window: Window, router: IRouter<Control>, url: string)
-  : unit =
+let navigate(window: Window, router: IRouter<Control>, url: string) : unit =
   raiseWindow window
   go(router, url, ignore)
 
-let private menuItem(label: string, onClick: unit -> unit) : NativeMenuItem =
+let menuItem(label: string, onClick: unit -> unit) : NativeMenuItem =
   let entry = NativeMenuItem(Header = label)
 
   entry.Click.Add(fun _ -> onClick())

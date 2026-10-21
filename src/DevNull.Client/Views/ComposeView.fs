@@ -1,6 +1,7 @@
 module DevNull.Client.Views.ComposeView
 
 open Avalonia.Controls
+open Avalonia.Controls.Primitives
 open Avalonia.Layout
 open NXUI.Extensions
 open IcedTasks
@@ -43,7 +44,10 @@ let view(props: Props<'env>) : Control =
         fun commit -> Navigation.go(props.Nav, "/commit/" + commit.Id, ignore)
     }
 
+  // One axis only: the composer measures against the column, never an
+  // unbounded extent.
   ScrollViewer()
+    .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
     .Padding(Theme.pagePadding)
     .Content(
       StackPanel()

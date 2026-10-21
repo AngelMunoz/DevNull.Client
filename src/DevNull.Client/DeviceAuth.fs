@@ -247,6 +247,7 @@ let saveSession(session: DeviceSession) : Result<unit, string> =
     |> Option.iter(fun url -> json.["avatar_url"] <- JsonValue.Create url)
 
     json.["unread"] <- JsonValue.Create session.UnreadNotificationsCount
+    json.["pasteis_mode"] <- JsonValue.Create session.PasteisMode
     writeAllTextAtomic sessionPath (json.ToJsonString())
     Ok()
   with ex ->
@@ -266,6 +267,12 @@ let inline tryInt (name: string) (root: JsonElement) =
     | false, _ -> None
   | _ -> None
 
+let inline tryBool (name: string) (root: JsonElement) =
+  match root.TryGetProperty name with
+  | true, value when value.ValueKind = JsonValueKind.True -> Some true
+  | true, value when value.ValueKind = JsonValueKind.False -> Some false
+  | _ -> None
+
 let loadSession() : DeviceSession option =
   try
     use document = JsonDocument.Parse(readAllTextShared sessionPath)
@@ -278,6 +285,7 @@ let loadSession() : DeviceSession option =
       tryInt "unread" root
     with
     | Some id, Some username, Some name, Some unread ->
+      // A session stored before pastéis mode exists reads as off.
       Some {
         User = {
           Id = id
@@ -286,6 +294,7 @@ let loadSession() : DeviceSession option =
           AvatarUrl = tryString "avatar_url" root
         }
         UnreadNotificationsCount = unread
+        PasteisMode = tryBool "pasteis_mode" root |> Option.defaultValue false
       }
     | _ -> None
   with _ ->
@@ -326,6 +335,7 @@ let complete
             AvatarUrl = me.Profile.User.AvatarUrl
           }
           UnreadNotificationsCount = me.UnreadNotificationsCount
+          PasteisMode = me.PasteisMode
         }
 
         match saveSession session with

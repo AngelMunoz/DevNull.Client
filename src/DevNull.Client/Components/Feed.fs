@@ -2,6 +2,7 @@ module DevNull.Client.Components.Feed
 
 open System
 open Avalonia.Controls
+open Avalonia.Controls.Primitives
 open Avalonia.Controls.Templates
 open Avalonia.Layout
 open NXUI.Extensions
@@ -41,10 +42,12 @@ let view(props: Props<'T>) : Control =
     | ValueSome footer -> footer
   |]
 
-  let rows =
-    StackPanel()
-      .MaxWidth(720.0)
-      .HorizontalAlignment(HorizontalAlignment.Center)
-      .Children(children)
+  // The rows run edge to edge of the reading column, the way the
+  // site's feed does: the rail owns the left edge, no page gutter.
+  let rows = StackPanel().Children(children)
 
-  ScrollViewer().Content(rows)
+  // The horizontal axis stays locked: wrapped rows measure against the
+  // column, never against an unbounded extent.
+  ScrollViewer()
+    .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
+    .Content(rows)

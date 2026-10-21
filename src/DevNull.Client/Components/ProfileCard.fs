@@ -3,6 +3,7 @@ module DevNull.Client.Components.ProfileCard
 open System
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.Shapes
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
@@ -81,6 +82,31 @@ let errorText(model: IObservable<Model>) : Control =
     )
     .IsVisible(model |> Observable.map _.Error.IsSome)
 
+/// The handle line: a lane dot beside the @handle, the way the site's
+/// aside marks the user's lane.
+let laneHandle(lane: Lane option, username: string) : Control =
+  let dot = Ellipse().Width(8.0).Height(8.0).Fill(Brushes.laneOf lane)
+
+  StackPanel()
+    .Orientation(Orientation.Horizontal)
+    .Spacing(6.0)
+    .VerticalAlignment(VerticalAlignment.Center)
+    .Children(
+      dot,
+      TextBlock().Classes(Theme.name Theme.Mono).Text("@" + username)
+    )
+
+/// One count-and-label pair of the stats row.
+let statRow(count: int, label: string) : Control =
+  StackPanel()
+    .Orientation(Orientation.Horizontal)
+    .Spacing(4.0)
+    .VerticalAlignment(VerticalAlignment.Center)
+    .Children(
+      TextBlock().Classes(Theme.name Theme.StatNum).Text(string count),
+      TextBlock().Classes(Theme.name Theme.Muted).Text(label)
+    )
+
 let view (model: IObservable<Model>) (_: Dispatch<Msg>) : Control =
   let busy =
     Status.busy("Loading your card…").IsVisible(model |> Observable.map _.Busy)
@@ -94,33 +120,51 @@ let view (model: IObservable<Model>) (_: Dispatch<Msg>) : Control =
 
         let bio = details.Profile.Bio |> Option.defaultValue ""
 
-        let stats =
-          $"{details.Profile.CommitsCount |> Option.defaultValue 0} commits · "
-          + $"{details.Profile.FollowingCount |> Option.defaultValue 0} following · "
-          + $"{details.Profile.FollowersCount |> Option.defaultValue 0} followers"
-
         StackPanel()
-          .Spacing(4.0)
+          .Spacing(16.0)
           .Children(
-            Avatar.view {
-              Name = user.Name
-              Url = user.AvatarUrl
-              Lane = user.Lane
-              Size = 48.0
-            },
-            TextBlock().Classes(Theme.name Theme.Subtitle).Text(user.Name),
-            TextBlock()
-              .Classes(Theme.name Theme.Mono)
-              .Text($"@{user.Username}"),
+            StackPanel()
+              .Orientation(Orientation.Horizontal)
+              .Spacing(12.0)
+              .Children(
+                Avatar.view {
+                  Name = user.Name
+                  Url = user.AvatarUrl
+                  Lane = details.Profile.Lane
+                  Size = 48.0
+                },
+                StackPanel()
+                  .VerticalAlignment(VerticalAlignment.Center)
+                  .Spacing(2.0)
+                  .Children(
+                    TextBlock()
+                      .Classes(Theme.name Theme.Subtitle)
+                      .Text(user.Name),
+                    laneHandle(details.Profile.Lane, user.Username)
+                  )
+              ),
+            StackPanel()
+              .Orientation(Orientation.Horizontal)
+              .Spacing(16.0)
+              .Children(
+                statRow(
+                  details.Profile.CommitsCount |> Option.defaultValue 0,
+                  "commits"
+                ),
+                statRow(
+                  details.Profile.FollowingCount |> Option.defaultValue 0,
+                  "following"
+                ),
+                statRow(
+                  details.Profile.FollowersCount |> Option.defaultValue 0,
+                  "followers"
+                )
+              ),
             TextBlock()
               .Classes(Theme.name Theme.Muted)
               .IsVisible(details.Profile.Bio.IsSome)
               .TextWrapping(TextWrapping.Wrap)
-              .Text(bio),
-            TextBlock()
-              .Classes(Theme.name Theme.Mono)
-              .TextWrapping(TextWrapping.Wrap)
-              .Text(stats)
+              .Text(bio)
           )
       | None -> Status.empty "")
 

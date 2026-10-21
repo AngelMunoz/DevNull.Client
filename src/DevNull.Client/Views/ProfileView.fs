@@ -1,9 +1,10 @@
 module DevNull.Client.Views.ProfileView
 
 open System
-open System.Collections.Generic
+open System.Globalization
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.Shapes
 open Avalonia.Media
 open Avalonia.Controls.Templates
 open Avalonia.Layout
@@ -35,18 +36,30 @@ type Props<'env
   Nav: INavigable
 }
 
+/// The feed tab the page shows: the user's own commits or their
+/// replies.
+type Tab =
+  | Commits
+  | Replies
+
 type Model = {
   Loading: bool
   Error: AppError option
   Details: ProfileDetails option
   Commits: CommitNode list
   NextCursor: string option
+  Tab: Tab
 }
 
 type Msg =
   | Fetched of Result<ProfileDetails, AppError>
   | CommitsFetched of Result<Page<CommitNode>, AppError>
   | MoreCommits
+  | TabChosen of Tab
+  | StarToggled of Commit
+  | StarDone of Result<Commit, AppError>
+  | PastelGiven of Commit
+  | PastelDone of Result<PastelResult, AppError>
   | FollowToggled
   | MuteToggled
   | BlockToggled
@@ -54,24 +67,38 @@ type Msg =
   | MuteDone of Result<MuteResult, AppError>
   | BlockDone of Result<BlockResult, AppError>
 
+let replaceNode(items: CommitNode list, updated: Commit) : CommitNode list =
+  items
+  |> List.map(function
+    | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
+    | node -> node)
+
 let initial = {
   Loading = true
   Error = None
   Details = None
   Commits = []
   NextCursor = None
+  Tab = Commits
 }
 
-let fetchCommits
-  (env, session: SignedInSession, username: string, cursor: string option)
-  =
+/// One feed read: whose commits, which tab, and the pager cursor.
+[<Struct>]
+type FeedQuery = {
+  Session: SignedInSession
+  Username: string
+  Replies: bool
+  Cursor: string option
+}
+
+let fetchCommits(env, query: FeedQuery) =
   Users.commits(
     env,
     {
-      KeyFile = session.KeyFile
-      Username = username
-      Replies = false
-      Cursor = cursor
+      KeyFile = query.Session.KeyFile
+      Username = query.Username
+      Replies = query.Replies
+      Cursor = query.Cursor
     }
   )
 
@@ -89,7 +116,13 @@ let init (props: Props<'env>) () =
 
     Cmd.OfAsync.perform
       fetchCommits
-      (props.Env, props.Session, props.Username, None)
+      (props.Env,
+       {
+         Session = props.Session
+         Username = props.Username
+         Replies = false
+         Cursor = None
+       })
       CommitsFetched
   ]
 
@@ -98,6 +131,18 @@ let update (props: Props<'env>) msg model =
     model.Details
     |> Option.map(fun details -> details.Profile.User.Username)
     |> Option.defaultValue props.Username
+
+  let refetch(replies: bool) =
+    Cmd.OfAsync.perform
+      fetchCommits
+      (props.Env,
+       {
+         Session = props.Session
+         Username = username
+         Replies = replies
+         Cursor = None
+       })
+      CommitsFetched
 
   match msg with
   | Fetched result ->
@@ -122,6 +167,7 @@ let update (props: Props<'env>) msg model =
     | Ok page ->
       {
         model with
+            Loading = false
             Commits = model.Commits @ page.Items
             NextCursor = page.NextCursor
       },
@@ -131,11 +177,72 @@ let update (props: Props<'env>) msg model =
     model,
     Cmd.OfAsync.perform
       fetchCommits
-      (props.Env, props.Session, username, model.NextCursor)
+      (props.Env,
+       {
+         Session = props.Session
+         Username = username
+         Replies = model.Tab = Replies
+         Cursor = model.NextCursor
+       })
       CommitsFetched
+  | TabChosen kind ->
+    if kind = model.Tab then
+      model, Cmd.none
+    else
+      {
+        model with
+            Loading = true
+            Error = None
+            Commits = []
+            NextCursor = None
+            Tab = kind
+      },
+      refetch(kind = Replies)
+  | StarToggled commit ->
+    let toggle() =
+      let request: Stars.ActionRequest = {
+        KeyFile = props.Session.KeyFile
+        CommitId = commit.Id
+      }
+
+      if commit.Starred |> Option.contains true then
+        Stars.unstar(props.Env, request)
+      else
+        Stars.star(props.Env, request)
+
+    { model with Error = None }, Cmd.OfAsync.perform toggle () StarDone
+  | StarDone result ->
+    match result with
+    | Ok updated ->
+      {
+        model with
+            Commits = replaceNode(model.Commits, updated)
+      },
+      Cmd.none
+    | Error error -> { model with Error = Some error }, Cmd.none
+  | PastelGiven commit ->
+    let give() =
+      Pasteis.give(
+        props.Env,
+        {
+          KeyFile = props.Session.KeyFile
+          CommitId = commit.Id
+        }
+      )
+
+    { model with Error = None }, Cmd.OfAsync.perform give () PastelDone
+  | PastelDone result ->
+    match result with
+    | Ok pastel ->
+      {
+        model with
+            Commits = replaceNode(model.Commits, pastel.Commit)
+      },
+      Cmd.none
+    | Error error -> { model with Error = Some error }, Cmd.none
   | FollowToggled ->
     let following =
-      model.Details |> Option.map(_.IsFollowing) |> Option.defaultValue false
+      model.Details |> Option.map _.IsFollowing |> Option.defaultValue false
 
     let toggle() =
       let request: Users.Request = {
@@ -151,7 +258,7 @@ let update (props: Props<'env>) msg model =
     { model with Error = None }, Cmd.OfAsync.perform toggle () FollowDone
   | MuteToggled ->
     let muting =
-      model.Details |> Option.map(_.IsMuting) |> Option.defaultValue false
+      model.Details |> Option.map _.IsMuting |> Option.defaultValue false
 
     let toggle() =
       let request: Users.Request = {
@@ -214,12 +321,6 @@ let nodeKey(node: CommitNode) =
   | LiveCommit commit -> commit.Id
   | Tombstone tombstone -> tombstone.Id
 
-/// The counts line of the header, the way the site orders them.
-let statsLine(details: ProfileDetails) : string =
-  $"commits {details.Profile.CommitsCount |> Option.defaultValue 0} · "
-  + $"followers {details.Profile.FollowersCount |> Option.defaultValue 0} · "
-  + $"following {details.Profile.FollowingCount |> Option.defaultValue 0}"
-
 let followButton(details: ProfileDetails, dispatch: Dispatch<Msg>) : Control =
   Button()
     .Classes(Theme.name Theme.NavButton)
@@ -252,51 +353,252 @@ let actions
       blockButton dispatch
     |]
 
-/// The profile header: the avatar, the identity, the bio, the counts,
-/// and the actions, in one card.
-let headerCard
+/// One small label chip, the site's "Follows you" and "Muted" marks.
+let mark(text: string) : Control =
+  Border()
+    .Classes(Theme.name Theme.Chip)
+    .CornerRadius(999.0)
+    .Child(
+      TextBlock().Classes(Theme.name Theme.Muted).FontSize(11.0).Text(text)
+    )
+
+/// The lane-tinted level chip the profile and the XP shelf carry.
+let levelChip(achievements: Achievements, lane: Lane option) : Control =
+  Border()
+    .BorderBrush(Brushes.laneOf lane)
+    .BorderThickness(Thickness(1.0))
+    .CornerRadius(999.0)
+    .Padding(8.0, 2.0, 8.0, 2.0)
+    .VerticalAlignment(VerticalAlignment.Center)
+    .Child(
+      TextBlock()
+        .Classes(Theme.name Theme.Mono)
+        .FontSize(11.0)
+        .Foreground(Brushes.laneOf lane)
+        .Text($"Lv. {achievements.Level} · {achievements.Rank}")
+    )
+
+/// The joined-and-links line under the bio: company, location, the
+/// website host, and the join month.
+let metaLine(profile: Profile) : Control =
+  let stripScheme(url: string) =
+    url.Replace("https://", "").Replace("http://", "")
+
+  let joined =
+    profile.CreatedAt.ToString("MMMM yyyy", CultureInfo.InvariantCulture)
+
+  let parts: string list = [
+    match profile.Company with
+    | Some company -> company
+    | None -> ()
+
+    match profile.Location with
+    | Some location -> location
+    | None -> ()
+
+    match profile.Website |> Option.map stripScheme with
+    | Some website -> website
+    | None -> ()
+
+    $"Joined {joined}"
+  ]
+
+  TextBlock()
+    .Classes(Theme.name Theme.Mono)
+    .TextWrapping(TextWrapping.Wrap)
+    .Text(String.Join(" · ", parts))
+
+/// The activity bars: one lane-colored column per bucket, bottom
+/// aligned, the height following the count.
+let activityView(activity: Activity, lane: Lane option) : Control =
+  let buckets = activity.Buckets |> List.truncate 52
+
+  let caption =
+    TextBlock()
+      .Classes(Theme.name Theme.Mono)
+      .Text($"activity · {activity.Scale}")
+
+  match buckets with
+  | [] -> StackPanel().Children(caption)
+  | _ ->
+    let maxCount = buckets |> List.maxBy _.Count |> _.Count |> max 1
+
+    let bars = Grid()
+
+    bars.Height <- 56.0
+
+    bars.ColumnDefinitions <-
+      ColumnDefinitions(String.Join(",", [ for _ in buckets -> "6" ]))
+
+    buckets
+    |> List.iteri(fun index bucket ->
+      let height = 8.0 + float bucket.Count / float maxCount * 44.0
+
+      bars.Children(
+        Border()
+          .Width(6.0)
+          .Height(height)
+          .CornerRadius(1.0)
+          .Background(Brushes.laneOf lane)
+          .VerticalAlignment(VerticalAlignment.Bottom)
+          .Column(index)
+      )
+      |> ignore)
+
+    StackPanel().Spacing(6.0).Children(caption, bars)
+
+/// The streak line under the activity.
+let streaksView(streaks: Streaks) : Control =
+  TextBlock()
+    .Classes(Theme.name Theme.Mono)
+    .Text(
+      $"longest streak {streaks.Longest} days · current streak {streaks.Current} days"
+    )
+
+/// The XP shelf: the level chip, the progress bar toward the next
+/// level, and the badge count.
+let xpView(achievements: Achievements, lane: Lane option) : Control =
+  let progress = achievements.LevelProgress |> max 0 |> min 100
+
+  let fill =
+    Border()
+      .Height(6.0)
+      .CornerRadius(3.0)
+      .Background(Brushes.laneOf lane)
+      .VerticalAlignment(VerticalAlignment.Center)
+
+  let track = Grid()
+
+  track.Height <- 6.0
+  track.ColumnDefinitions <- ColumnDefinitions($"{progress}*,{100 - progress}*")
+  track.Children(fill.Column(0)) |> ignore
+
+  let next =
+    achievements.NextLevelXp
+    |> Option.map(fun target -> $" · next {target}")
+    |> Option.defaultValue ""
+
+  let badges =
+    let unlocked = achievements.Badges |> List.filter _.Unlocked |> List.length
+
+    $"{unlocked}/{List.length achievements.Badges} badges"
+
+  StackPanel()
+    .Spacing(6.0)
+    .Margin(0.0, 16.0, 0.0, 0.0)
+    .Children(
+      DockPanel()
+        .LastChildFill(true)
+        .Children(
+          TextBlock()
+            .Classes(Theme.name Theme.Mono)
+            .Text($"{achievements.Xp} xp{next}")
+            .DockRight(),
+          levelChip(achievements, lane)
+        ),
+      Border().Background(Brushes.surface).CornerRadius(3.0).Child(track),
+      TextBlock().Classes(Theme.name Theme.Muted).Text(badges)
+    )
+
+/// The level chip when achievements exist, nothing when they do not.
+let achievementsChip
+  (achievements: Achievements option, lane: Lane option)
+  : Control =
+  match achievements with
+  | Some shelf -> levelChip(shelf, lane)
+  | None -> Status.empty ""
+
+/// The sections between the identity header and the tabs: the
+/// activity bars, the streak line, and the XP shelf.
+let profileSections(details: ProfileDetails) : Control array =
+  let lane = details.Profile.Lane
+
+  [|
+    match details.Activity with
+    | Some activity -> activityView(activity, lane)
+    | None -> ()
+
+    match details.Streaks with
+    | Some streaks -> streaksView streaks
+    | None -> ()
+
+    match details.Achievements with
+    | Some shelf -> xpView(shelf, lane)
+    | None -> ()
+  |]
+
+/// The identity header: the avatar in its lane ring, the actions, the
+/// name, the handle row, the bio, the meta line, and the stats.
+let identity
   (details: ProfileDetails, isSelf: bool, dispatch: Dispatch<Msg>)
   : Control =
-  let user = details.Profile.User
+  let profile = details.Profile
+  let user = profile.User
 
-  Border()
-    .Classes(Theme.name Theme.Card)
-    .Margin(0.0, 0.0, 0.0, 8.0)
-    .Child(
-      StackPanel()
-        .Spacing(4.0)
-        .Children(
-          StackPanel()
-            .Orientation(Orientation.Horizontal)
-            .Spacing(10.0)
-            .Children(
-              Avatar.view {
-                Name = user.Name
-                Url = user.AvatarUrl
-                Lane = user.Lane
-                Size = 56.0
-              },
-              StackPanel()
-                .Spacing(2.0)
-                .Children(
-                  TextBlock().Classes(Theme.name Theme.Title).Text(user.Name),
-                  TextBlock()
-                    .Classes(Theme.name Theme.Muted)
-                    .Text($"@{user.Username}"),
-                  TextBlock()
-                    .Text(details.Profile.Bio |> Option.defaultValue "")
-                    .TextWrapping(TextWrapping.Wrap),
-                  TextBlock()
-                    .Classes(Theme.name Theme.Muted)
-                    .Text(statsLine details)
-                )
-            ),
-          StackPanel()
-            .Orientation(Orientation.Horizontal)
-            .Spacing(8.0)
-            .Children(actions(details, isSelf, dispatch))
+  let ring =
+    Border()
+      .Background(Brushes.card)
+      .BorderBrush(Brushes.laneOf profile.Lane)
+      .BorderThickness(Thickness(2.0))
+      .CornerRadius(44.0)
+      .Padding(3.0)
+      .Child(
+        Avatar.view {
+          Name = user.Name
+          Url = user.AvatarUrl
+          Lane = profile.Lane
+          Size = 80.0
+        }
+      )
+
+  let headerChildren: Control array = [|
+    DockPanel()
+      .LastChildFill(false)
+      .Children(
+        StackPanel()
+          .Orientation(Orientation.Horizontal)
+          .Spacing(8.0)
+          .VerticalAlignment(VerticalAlignment.Top)
+          .DockRight()
+          .Children(actions(details, isSelf, dispatch)),
+        ring
+      )
+    TextBlock().Classes(Theme.name Theme.Headline).Text(user.Name)
+    StackPanel()
+      .Orientation(Orientation.Horizontal)
+      .Spacing(10.0)
+      .Children(
+        ProfileCard.laneHandle(profile.Lane, user.Username),
+        mark("Follows you").IsVisible(details.FollowsYou),
+        mark("Muted").IsVisible(details.IsMuting),
+        achievementsChip(details.Achievements, profile.Lane)
+      )
+    TextBlock()
+      .TextWrapping(TextWrapping.Wrap)
+      .IsVisible(profile.Bio.IsSome)
+      .Text(profile.Bio |> Option.defaultValue "")
+    metaLine profile
+    StackPanel()
+      .Orientation(Orientation.Horizontal)
+      .Spacing(16.0)
+      .Margin(0.0, 12.0, 0.0, 0.0)
+      .Children(
+        ProfileCard.statRow(
+          profile.CommitsCount |> Option.defaultValue 0,
+          "commits"
+        ),
+        ProfileCard.statRow(
+          profile.FollowingCount |> Option.defaultValue 0,
+          "following"
+        ),
+        ProfileCard.statRow(
+          profile.FollowersCount |> Option.defaultValue 0,
+          "followers"
         )
-    )
+      )
+  |]
+
+  StackPanel().Spacing(8.0).Children(headerChildren)
 
 let view
   (props: Props<'env>)
@@ -325,37 +627,45 @@ let view
       .busy("Loading the profile…")
       .IsVisible(model |> Observable.map _.Loading)
 
-  let currentContent =
-    model
-    |> Observable.map(fun current ->
-      match current.Details with
-      | Some details ->
-        headerCard(
-          details,
-          details.Profile.User.Id = props.Session.Session.User.Id,
-          dispatch
-        )
-      | None -> Status.empty "")
-
   // The header is rebuilt when the profile changes: the follow, mute,
   // and block states come back from the server after every action.
   let headerHost = ContentControl()
 
-  headerHost.Content(currentContent.ToBinding()) |> ignore
+  headerHost.Content(
+    model
+    |> Observable.map(fun current ->
+      match current.Details with
+      | Some details ->
+        let isSelf = details.Profile.User.Id = props.Session.Session.User.Id
+
+        StackPanel()
+          .Spacing(16.0)
+          .Children(
+            Array.append
+              [| identity(details, isSelf, dispatch) |]
+              (profileSections details)
+          )
+        :> Control
+      | None -> Status.empty "")
+    |> _.ToBinding()
+  )
+  |> ignore
 
   let commitRow(node: CommitNode) : Control =
     match node with
     | LiveCommit commit ->
       CommitCard.view {
         Commit = commit
-        Rail = ValueNone
+        Pastels = props.Session.Session.PasteisMode
         Dense = false
         OnEvent =
           fun event ->
             match event with
             | CommitCard.Opened c ->
               Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
-            | _ -> ()
+            | CommitCard.StarToggled c -> dispatch(StarToggled c)
+            | CommitCard.PastelGiven c -> dispatch(PastelGiven c)
+            | CommitCard.QuoteRequested _ -> ()
       }
     | Tombstone tombstone -> CommitCard.tombstone tombstone
 
@@ -376,18 +686,66 @@ let view
       Footer = ValueSome more
     }
 
+  let tabStrip =
+    let kinds: (Tab * string * int) list = [
+      Commits, "Commits", 0
+      Replies, "Replies", 1
+    ]
+
+    let strip = Grid()
+
+    strip.ColumnDefinitions <- ColumnDefinitions("*,*")
+
+    let buttons: Control array = [|
+      for kind, label, index in kinds ->
+        Button()
+          .Classes(Theme.name Theme.TabButton)
+          .Content(label)
+          .Column(index)
+          .OnClickHandler(fun _ _ -> dispatch(TabChosen kind))
+    |]
+
+    model
+    |> Observable.add(fun current ->
+      for (kind, _, _), button in List.zip kinds (Array.toList buttons) do
+        if current.Tab = kind then
+          button.Classes.Add(Theme.name Theme.TabButtonActive) |> ignore
+        else
+          button.Classes.Remove(Theme.name Theme.TabButtonActive) |> ignore)
+
+    Border()
+      .BorderBrush(Brushes.border)
+      .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
+      .Child(strip.Children(buttons))
+
+  let emptyState =
+    ContentControl()
+      .Content(
+        model
+        |> Observable.map(fun current ->
+          match current.Tab with
+          | Commits -> "No commits yet."
+          | Replies -> "No replies yet.")
+        |> _.ToBinding()
+      )
+      .IsVisible(
+        model
+        |> Observable.map(fun current ->
+          not current.Loading
+          && current.Error.IsNone
+          && current.Commits.IsEmpty)
+      )
+
   let pinned =
     StackPanel()
-      .MaxWidth(720.0)
       .HorizontalAlignment(HorizontalAlignment.Stretch)
       .Margin(Theme.pinnedPadding)
-      .Children(headerHost, errorPanel, busy)
+      .Children(headerHost, errorPanel, busy, emptyState)
 
   let root = Grid()
-  root.RowDefinitions <- RowDefinitions("Auto,*")
+  root.RowDefinitions <- RowDefinitions("Auto,Auto,*")
 
-  root.Children(pinned.Row(0), commits.Margin(24.0, 0.0, 24.0, 0.0).Row(1))
-  |> ignore
+  root.Children(pinned.Row(0), tabStrip.Row(1), commits.Row(2)) |> ignore
 
   root
 

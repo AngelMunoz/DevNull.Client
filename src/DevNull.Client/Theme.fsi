@@ -4,6 +4,7 @@ open System
 open Avalonia
 open Avalonia.Media
 open Avalonia.Styling
+open DevNull.Client.Core.ApiTypes
 open DevNull.Client.SettingsStore
 
 /// The named brushes of the app. Every brush is an observable of the
@@ -57,6 +58,13 @@ module Brushes =
   /// out-of-range indexes.
   val lane: index: int -> IObservable<IBrush>
 
+  /// One brush that never changes, as an observable.
+  val constant: brush: IBrush -> IObservable<IBrush>
+
+  /// The brush of one lane value: a palette index, a user hex, or the
+  /// neutral fallback when the user carries no lane.
+  val laneOf: lane: Lane option -> IObservable<IBrush>
+
   /// One solid brush from a hex color, for user-painted lanes.
   val solid: hex: string -> IBrush
 
@@ -76,16 +84,24 @@ module Fonts =
 type StyleClass =
   | NavItem
   | NavItemActive
+  | NavCommit
   | Card
   | Title
+  | Headline
   | Subtitle
   | Muted
+  | StatNum
   | AccentButton
   | GhostButton
   | DangerButton
   | NavButton
   | CodeBlock
   | Chip
+  | FilterPill
+  | FilterPillActive
+  | TabButton
+  | TabButtonActive
+  | CommitRow
   | Divider
   | ChromeTitle
   | CaptionButton

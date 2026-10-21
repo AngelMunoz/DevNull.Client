@@ -47,5 +47,9 @@ type IHttp =
 type IProvideHttp =
   abstract Http: IHttp
 
+/// The agent every request of this client wears, so the server tells
+/// our traffic from browsers and scripts.
+val userAgent: string
+
 /// True when the status is 2xx.
 val inline isSuccess: status: int -> bool

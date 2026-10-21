@@ -43,6 +43,10 @@ type Msg =
   | Fetched of Result<Page<CommitNode>, AppError>
   | Appended of Result<Page<CommitNode>, AppError>
   | MoreRequested
+  | StarToggled of Commit
+  | StarDone of Result<Commit, AppError>
+  | PastelGiven of Commit
+  | PastelDone of Result<PastelResult, AppError>
 
 let initial = {
   Loading = true
@@ -62,6 +66,12 @@ let fetch(env, session: SignedInSession, cursor: string option) =
 
 let init (props: Props<'env>) () =
   initial, Cmd.OfAsync.perform fetch (props.Env, props.Session, None) Fetched
+
+let replaceNode(items: CommitNode list, updated: Commit) : CommitNode list =
+  items
+  |> List.map(function
+    | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
+    | node -> node)
 
 let update (props: Props<'env>) msg model =
   match msg with
@@ -96,6 +106,48 @@ let update (props: Props<'env>) msg model =
         model with
             Items = model.Items @ page.Items
             NextCursor = page.NextCursor
+      },
+      Cmd.none
+    | Error error -> { model with Error = Some error }, Cmd.none
+  | StarToggled commit ->
+    let toggle() =
+      let request: Stars.ActionRequest = {
+        KeyFile = props.Session.KeyFile
+        CommitId = commit.Id
+      }
+
+      if commit.Starred |> Option.contains true then
+        Stars.unstar(props.Env, request)
+      else
+        Stars.star(props.Env, request)
+
+    { model with Error = None }, Cmd.OfAsync.perform toggle () StarDone
+  | StarDone result ->
+    match result with
+    | Ok updated ->
+      {
+        model with
+            Items = replaceNode(model.Items, updated)
+      },
+      Cmd.none
+    | Error error -> { model with Error = Some error }, Cmd.none
+  | PastelGiven commit ->
+    let give() =
+      Pasteis.give(
+        props.Env,
+        {
+          KeyFile = props.Session.KeyFile
+          CommitId = commit.Id
+        }
+      )
+
+    { model with Error = None }, Cmd.OfAsync.perform give () PastelDone
+  | PastelDone result ->
+    match result with
+    | Ok pastel ->
+      {
+        model with
+            Items = replaceNode(model.Items, pastel.Commit)
       },
       Cmd.none
     | Error error -> { model with Error = Some error }, Cmd.none
@@ -148,14 +200,16 @@ let view
     | LiveCommit commit ->
       CommitCard.view {
         Commit = commit
-        Rail = ValueNone
+        Pastels = props.Session.Session.PasteisMode
         Dense = false
         OnEvent =
           fun event ->
             match event with
             | CommitCard.Opened c ->
               Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
-            | _ -> ()
+            | CommitCard.StarToggled c -> dispatch(StarToggled c)
+            | CommitCard.PastelGiven c -> dispatch(PastelGiven c)
+            | CommitCard.QuoteRequested _ -> ()
       }
     | Tombstone tombstone -> CommitCard.tombstone tombstone
 
@@ -178,7 +232,6 @@ let view
 
   let pinned =
     StackPanel()
-      .MaxWidth(720.0)
       .HorizontalAlignment(HorizontalAlignment.Stretch)
       .Margin(Theme.pinnedPadding)
       .Children(title, errorPanel, busy, emptyState)
@@ -186,10 +239,7 @@ let view
   let root = Grid()
   root.RowDefinitions <- RowDefinitions("Auto,*")
 
-  root.Children(pinned.Row(0), list.Margin(24.0, 0.0, 24.0, 0.0).Row(1))
-  |> ignore
-
-  root
+  root.Children(pinned.Row(0), list.Row(1))
 
 type Page<'env
   when 'env :> IProvideClock

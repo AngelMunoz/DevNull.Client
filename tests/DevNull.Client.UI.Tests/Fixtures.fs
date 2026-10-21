@@ -95,10 +95,25 @@ let sessionOf(username: string) : DeviceSession = {
     AvatarUrl = None
   }
   UnreadNotificationsCount = 3
+  PasteisMode = true
 }
 
 let signedInStore() =
   SessionStore(Some(sessionOf "octocat"), devicePrivateKeyPath, ignore)
+
+/// A signed-in store whose viewer has pastéis mode off, so the pastel
+/// controls must stay hidden everywhere.
+let signedInStoreWithoutPasteis() =
+  SessionStore(
+    Some(
+      {
+        sessionOf "octocat" with
+            PasteisMode = false
+      }
+    ),
+    devicePrivateKeyPath,
+    ignore
+  )
 
 /// A signed-in store with a custom unread notification count, so the
 /// badge assertions can use a count no canned commit carries.
@@ -263,6 +278,30 @@ let newerPageJson =
       "2020-04-04T12:00:00Z"
     ))
 
+/// One ranked page: is_ranked true and the days interleaved by rank,
+/// the way Trending orders commits.
+let rankedLogPageJson =
+  sprintf
+    "{\"data\":[%s,%s,%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"trending\",\"is_ranked\":true,\"new_commits_count\":null,\"suggestions\":[]}"
+    (datedCommitJson(
+      "0a0a0a0a-0000-0000-0000-000000000011",
+      "ttt1111",
+      "Ranked one.",
+      "2020-04-03T12:00:00Z"
+    ))
+    (datedCommitJson(
+      "0a0a0a0a-0000-0000-0000-000000000012",
+      "yyy2222",
+      "Ranked two.",
+      "2020-04-01T12:00:00Z"
+    ))
+    (datedCommitJson(
+      "0a0a0a0a-0000-0000-0000-000000000013",
+      "ttt3333",
+      "Ranked three.",
+      "2020-04-03T13:00:00Z"
+    ))
+
 /// A log page of N distinct commits, so the virtualized feed overflows
 /// the viewport plus its cache band and recycles rows while scrolling.
 let manyCardsPageJson(cardCount: int) : string =
@@ -307,6 +346,56 @@ let notificationsJson =
     "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"filters\":{\"type\":\"all\"},\"read_at\":\"2026-10-20T04:20:00Z\"}"
     notificationJson
 
+/// One grouped row: three starred events by two actors.
+let groupedNotificationJson =
+  sprintf
+    """{"id":"01a15752-aaaa-7065-b076-99e5bdad596d","type":"starred","subject_id":null,"reason":null,"read_at":null,"created_at":"2026-10-20T05:17:19Z","actor":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null},"actors":[{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null},{"id":"01a151db-7fee-727b-a7ce-c911a7556243","username":"hubot","name":"The Hubot","avatar_url":null}],"group_id":"01a15751-bbbb-7261-a486-e524bcb4d8e8","event_count":3,"actors_count":2,"unread_count":0,"commit":%s}"""
+    commitJson
+
+/// The grouped inbox: one plain reply and one starred group.
+let groupedInboxJson =
+  sprintf
+    "{\"data\":[%s,%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"filters\":{\"type\":\"all\"},\"read_at\":\"2026-10-20T04:20:00Z\"}"
+    notificationJson
+    groupedNotificationJson
+
+/// One event inside a group: a starred notification with its own id
+/// and commit body.
+let groupEventJson(id: string, body: string) =
+  let commit =
+    commitJson
+      .Replace(
+        "\"id\":\"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d\"",
+        $"\"id\":\"{id}\""
+      )
+      .Replace("\"body\":\"It was DNS.\"", $"\"body\":\"{body}\"")
+
+  sprintf
+    """{"id":"%s","type":"starred","subject_id":null,"reason":null,"read_at":null,"created_at":"2026-10-20T05:17:19Z","actor":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null},"actors":[{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null}],"group_id":"01a15751-bbbb-7261-a486-e524bcb4d8e8","event_count":1,"actors_count":1,"unread_count":0,"commit":%s}"""
+    id
+    commit
+
+/// The group's events, as GET /api/v1/notifications/{id}/group
+/// returns them.
+let groupPageJson =
+  sprintf
+    "{\"data\":[%s,%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+    (groupEventJson("018f4c1e-1111-7c3a-9b2d-5e6f7a8b9c0d", "Starred once."))
+    (groupEventJson("018f4c1e-2222-7c3a-9b2d-5e6f7a8b9c0d", "Starred again."))
+
+/// The api of the inbox tests: the boot log, the grouped inbox, and
+/// the group endpoint all answer from cans.
+let groupedInboxApi() =
+  FakeApi(fun request ->
+    if request.Target.Contains "/group" then
+      ok groupPageJson
+    elif request.Target.StartsWith "/api/v1/notifications" then
+      ok groupedInboxJson
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    else
+      ok "{}")
+
 /// The author of the canned commits, as a bare user.
 let apiUserJson =
   """{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","username":"octocat","name":"The Octocat","avatar_url":null,"bio":"Builds things.","company":"GitHub","location":"San Francisco","website":"https://example.test","github_url":"https://github.com/octocat","html_url":"https://dev-null.sh/@octocat","feed_url":"https://dev-null.sh/@octocat/feed.atom","created_at":"2026-01-01T00:00:00Z","commits_count":7,"followers_count":11,"following_count":13,"lane":3}"""
@@ -316,6 +405,24 @@ let profileJson =
   sprintf
     """{"data":%s,"is_following":false,"follows_you":true,"is_muting":false,"pasteis_received":7,"activity":null,"streaks":null,"achievements":null,"pinned_commit":null}"""
     apiUserJson
+
+/// The same profile carrying its activity, streaks, and achievements.
+let profileWithStatsJson =
+  profileJson.Replace(
+    "\"activity\":null,\"streaks\":null,\"achievements\":null",
+    "\"activity\":{\"scale\":\"week\",\"buckets\":[{\"date\":\"2026-10-13\",\"count\":3},{\"date\":\"2026-10-14\",\"count\":5},{\"date\":\"2026-10-15\",\"count\":1}]},\"streaks\":{\"longest\":12,\"current\":3},\"achievements\":{\"level\":3,\"rank\":\"Wizard\",\"xp\":1234,\"next_level_xp\":2000,\"level_progress\":61,\"xp_breakdown\":{\"commits\":{\"count\":10,\"multiplier\":2,\"xp\":200},\"streak\":{\"count\":5,\"multiplier\":3,\"xp\":150},\"stars_received\":{\"count\":4,\"multiplier\":5,\"xp\":200},\"replies\":{\"count\":2,\"multiplier\":4,\"xp\":80},\"stars_given\":{\"count\":6,\"multiplier\":1,\"xp\":60},\"luddite\":{\"count\":1,\"multiplier\":2,\"xp\":20}},\"ranks\":[],\"badges\":[{\"id\":\"b1\",\"name\":\"First commit\",\"description\":\"You committed\",\"icon\":\"commit\",\"unlocked\":true,\"progress\":1,\"target\":1}]}"
+  )
+
+/// The api of the profile stats test: the boot log and the carrying
+/// profile answer from cans.
+let statsProfileApi() =
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    elif request.Target = "/api/v1/users/octocat" then
+      ok profileWithStatsJson
+    else
+      ok "{}")
 
 /// The api of the account pages: the inbox, the profile, the saved
 /// list, and the account all answer from cans.

@@ -26,18 +26,20 @@ type Props<'env
 /// a deletion marker.
 type LogRow =
   | Day of string
-  | Node of Commit * prevLane: Lane option
+  | Node of Commit
   | TombstoneRow of Tombstone
 
 /// The state of one log page: the loaded items, the pager cursor, the
-/// head the since-poll checks against, and the commits the pill holds.
+/// head the since-poll checks against, the new-commit count the pill
+/// holds, and whether the log is ranked.
 type Model = {
   Loading: bool
   Error: AppError option
   Items: CommitNode list
   NextCursor: string option
   Head: string option
-  New: CommitNode list option
+  NewCount: int option
+  Ranked: bool
 }
 
 /// The messages of the log page, including the since-poll pair.
@@ -48,16 +50,20 @@ type Msg =
   | MoreRequested
   | StarToggled of Commit
   | StarDone of Result<Commit, AppError>
+  | PastelGiven of Commit
+  | PastelDone of Result<PastelResult, AppError>
   | CheckNew
   | NewChecked of Result<LogPage, AppError>
   | NewRequested
+  | NewFetched of Result<LogPage, AppError>
 
 /// The fresh page state.
 val initial: Model
 
-/// Interleaves day separators and carries the previous row's lane, so
-/// every commit paints the rail segment above its node.
-val toRows: items: CommitNode list -> LogRow list
+/// Interleaves day separators between the commits of different days,
+/// carrying the day across tombstones. A ranked log is score ordered,
+/// its days interleave, so it rides without separators.
+val toRows: items: CommitNode list * ranked: bool -> LogRow list
 
 /// The stable identity of one feed row.
 val keyOf: logRow: LogRow -> string

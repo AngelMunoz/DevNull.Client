@@ -107,5 +107,5 @@ let start argv =
         argv
       )
 
-[<EntryPoint>]
+[<EntryPoint; STAThread>]
 let main argv = start argv

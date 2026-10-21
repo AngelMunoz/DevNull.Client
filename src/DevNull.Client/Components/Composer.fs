@@ -35,13 +35,21 @@ type Props<'env
   OnCommitted: Commit -> unit
 }
 
-type Model = { Busy: bool; Error: AppError option }
+type Model = {
+  Busy: bool
+  Error: AppError option
+  Committed: int
+}
 
 type Msg =
   | Submitted of body: string
   | Committed of Result<Commit, AppError>
 
-let initial = { Busy = false; Error = None }
+let initial = {
+  Busy = false
+  Error = None
+  Committed = 0
+}
 
 let apiTarget(target: Target) : Commits.Target =
   match target with
@@ -68,7 +76,12 @@ let update (props: Props<'env>) msg model =
     match result with
     | Ok commit ->
       props.OnCommitted commit
-      initial, Cmd.none
+
+      {
+        initial with
+            Committed = model.Committed + 1
+      },
+      Cmd.none
     | Error error ->
       {
         model with
@@ -89,16 +102,22 @@ let view
     | ReplyTo _ -> "Write your reply…"
     | Quoting _ -> "Add your comment to the quote…"
 
+  // One line to start, the site's textarea rhythm; the inner presenter
+  // takes over past the cap.
   let body =
-    let box = TextBox()
-
-    box.PlaceholderText <- placeholder
-    box.AcceptsReturn <- true
-    box.MinHeight <- 64.0
-    box.TextWrapping <- TextWrapping.Wrap
-    box
+    TextBox()
+      .Name("ComposerBody")
+      .PlaceholderText(placeholder)
+      .AcceptsReturn(true)
+      .MinHeight(44.0)
+      .MaxHeight(300.0)
+      .TextWrapping(TextWrapping.Wrap)
 
   let busy = model |> Observable.map _.Busy
+
+  // Every landed commit leaves the box empty for the next one, so a
+  // sent body never lingers to be cut or reposted.
+  model |> Observable.map _.Committed |> Observable.add(fun _ -> body.Clear())
 
   let errorLine =
     let text =
@@ -112,30 +131,26 @@ let view
       .Text(text)
       .IsVisible(model |> Observable.map(_.Error.IsSome))
 
-  Border()
-    .Classes(Theme.name Theme.Card)
+  // No box: the composer rides the rail plain, the way the site's
+  // does on the log and the thread; a host that wants a card wraps it.
+  StackPanel()
     .Margin(0.0, 0.0, 0.0, 12.0)
-    .Child(
-      StackPanel()
-        .Spacing(8.0)
+    .Spacing(8.0)
+    .Children(
+      body,
+      DockPanel()
+        .LastChildFill(true)
         .Children(
-          body,
-          DockPanel()
-            .LastChildFill(true)
-            .Children(
-              Button()
-                .Classes(Theme.name Theme.AccentButton)
-                .Content("Commit")
-                .IsEnabled(busy |> Observable.map not)
-                .OnClickHandler(fun _ _ ->
-                  dispatch(
-                    Submitted(
-                      body.Text |> Option.ofObj |> Option.defaultValue ""
-                    )
-                  ))
-                .DockRight(),
-              errorLine
-            )
+          Button()
+            .Classes(Theme.name Theme.AccentButton)
+            .Content("Commit")
+            .IsEnabled(busy |> Observable.map not)
+            .OnClickHandler(fun _ _ ->
+              dispatch(
+                Submitted(body.Text |> Option.ofObj |> Option.defaultValue "")
+              ))
+            .DockRight(),
+          errorLine
         )
     )
 

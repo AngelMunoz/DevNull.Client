@@ -11,6 +11,8 @@ open Avalonia.Input
 open Avalonia.Layout
 open Avalonia.Media
 open Avalonia.Platform
+open Avalonia.Threading
+open Avalonia.VisualTree
 open NXUI.Extensions
 open IcedTasks
 open Navs
@@ -38,6 +40,11 @@ let narrowWidth = 640.0
 /// The window width from which the aside column opens, the site's
 /// wide breakpoint.
 let asideWidth = 1280.0
+
+/// The widest the whole shell strip grows, the site's 1264px app row:
+/// past it the strip centers, so the timeline keeps the window's
+/// middle instead of hugging the sidebar.
+let stripWidth = 1264.0
 
 /// One sidebar destination. `Badge` carries the live unread count the
 /// entry renders, when it renders one.
@@ -174,8 +181,11 @@ let navItem
 
   item
 
+/// The sidebar footer: the signed-in user's row, or the sign-in entry.
+/// The account row rebuilds on every sign-in state change, the way the
+/// shell's aside does.
 let footer
-  (session: IObservable<SessionState>, router: IRouter<Control>)
+  (router: IRouter<Control>, session: IObservable<SessionState>)
   : Control =
   let signedIn =
     session
@@ -183,43 +193,53 @@ let footer
       | SignedIn _ -> true
       | SignedOut -> false)
 
-  let signedOut =
-    session
-    |> Observable.map(function
-      | SignedIn _ -> false
-      | SignedOut -> true)
+  let host = ContentControl()
 
-  let name =
-    session
-    |> Observable.map(function
-      | SignedIn entry -> entry.Session.User.Name
-      | SignedOut -> "")
+  session
+  |> Observable.add(fun state ->
+    match state with
+    | SignedIn entry ->
+      host.Content <-
+        StackPanel()
+          .Orientation(Orientation.Horizontal)
+          .Spacing(12.0)
+          .Children(
+            Avatar.view {
+              Name = entry.Session.User.Name
+              Url = entry.Session.User.AvatarUrl
+              Lane = None
+              Size = 36.0
+            },
+            StackPanel()
+              .VerticalAlignment(VerticalAlignment.Center)
+              .Children(
+                TextBlock()
+                  .Classes(Theme.name Theme.Subtitle)
+                  .Text(entry.Session.User.Name),
+                TextBlock()
+                  .Classes(Theme.name Theme.Mono)
+                  .Text("@" + entry.Session.User.Username)
+              )
+          )
+    | SignedOut -> host.Content <- null)
 
-  let handle =
-    session
-    |> Observable.map(function
-      | SignedIn entry -> "@" + entry.Session.User.Username
-      | SignedOut -> "")
-
-  let signedInFooter =
-    StackPanel()
-      .Orientation(Orientation.Horizontal)
-      .Spacing(10.0)
+  let account =
+    Button()
+      .Classes(Theme.name Theme.NavItem)
+      .HorizontalAlignment(HorizontalAlignment.Stretch)
+      .Content(host)
       .IsVisible(signedIn)
-      .Children(
-        TextBlock().Classes(Theme.name Theme.Subtitle).Text(name),
-        TextBlock().Classes(Theme.name Theme.Muted).Text(handle)
-      )
+      .OnClickHandler(fun _ _ -> go(router, "/profile"))
 
-  let signedOutFooter =
+  let signIn =
     Button()
       .Classes(Theme.name Theme.NavButton)
       .HorizontalAlignment(HorizontalAlignment.Stretch)
       .Content("Sign in")
-      .IsVisible(signedOut)
+      .IsVisible(signedIn |> Observable.map not)
       .OnClickHandler(fun _ _ -> go(router, "/signin"))
 
-  StackPanel().Margin(12.0).Children(signedInFooter, signedOutFooter)
+  StackPanel().Children(account, signIn)
 
 /// Everything the window band needs: the responsive state, the live
 /// window state, and the caption actions the shell answers.
@@ -337,6 +357,60 @@ let band(props: BandProps) : Panel =
 
   Panel().Children(dragSurface, hamburger, captionRow)
 
+/// The commit dialog the site's Commit button opens: the composer on a
+/// card over a scrim. A commit, a scrim click, or Esc closes it.
+let composeDialog
+  (
+    env: #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp,
+    session: SignedInSession,
+    close: unit -> unit
+  ) : Control =
+  let card =
+    Border()
+      .Classes(Theme.name Theme.Card)
+      .MaxWidth(560.0)
+      .Margin(24.0, Theme.bandHeight + 24.0, 24.0, 24.0)
+      .HorizontalAlignment(HorizontalAlignment.Center)
+      .VerticalAlignment(VerticalAlignment.Center)
+      .Child(
+        StackPanel()
+          .Spacing(8.0)
+          .Children(
+            TextBlock().Classes(Theme.name Theme.Title).Text("Write a commit"),
+            Composer.Page {
+              Env = env
+              Session = session
+              Target = Composer.Fresh
+              OnCommitted = fun _ -> close()
+            }
+          )
+      )
+
+  card.Name <- "ComposeDialog"
+
+  card.AttachedToVisualTree.Add(fun _ ->
+    // The program builds the box a layout pass later; the focus lands
+    // once it exists.
+    Dispatcher.UIThread.Post(fun () ->
+      card.GetVisualDescendants()
+      |> Seq.tryFind(fun visual -> visual.Name = "ComposerBody")
+      |> Option.iter(fun visual -> (visual :?> TextBox).Focus() |> ignore)))
+
+  card
+
+/// Focuses the composer on screen, when one is. The site's Commit
+/// button focuses the log's inline composer instead of opening the
+/// dialog over it.
+let focusInlineComposer(window: Window) : bool =
+  match
+    window.GetVisualDescendants()
+    |> Seq.tryFind(fun visual -> visual.Name = "ComposerBody")
+  with
+  | Some(:? TextBox as box) ->
+    box.Focus() |> ignore
+    true
+  | _ -> false
+
 type Shell<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
@@ -364,9 +438,10 @@ type Shell<'env
     this.Icon <-
       WindowIcon(AssetLoader.Open(Uri "avares://DevNull.Client/Assets/app.ico"))
 
-    // The type face of the app rides the inherited font property; the
-    // themed resources carry the template fonts.
+    // The type face and the body size ride the inherited font
+    // properties; the themed resources carry the template fonts.
     TextElement.SetFontFamily(this, Fonts.sans)
+    TextElement.SetFontSize(this, 15.0)
 
     applyWindowChrome this
 
@@ -401,18 +476,53 @@ type Shell<'env
 
     router.Changed |> Observable.add(fun _ -> drawerOpen.OnNext false)
 
-    let sidebarVisible = new BehaviorSubject<bool>(true)
+    // The drawer layer shows only while narrow and open. The sidebar
+    // column itself leaves the layout below the narrow line, so the
+    // timeline takes the full width; wide windows keep the aside, the
+    // way the site does past its wide breakpoint.
+    let drawerShown = new BehaviorSubject<bool>(false)
 
-    let syncSidebar() =
-      sidebarVisible.OnNext(not narrow.Value || drawerOpen.Value)
+    let syncDrawer() =
+      drawerShown.OnNext(narrow.Value && drawerOpen.Value)
 
-    narrow |> Observable.add(fun _ -> syncSidebar())
+    narrow |> Observable.add(fun _ -> syncDrawer())
 
-    drawerOpen |> Observable.add(fun _ -> syncSidebar())
+    drawerOpen |> Observable.add(fun _ -> syncDrawer())
 
     let unread = new BehaviorSubject<int>(0)
 
     unreadCount session |> Observable.add unread.OnNext
+
+    // The compose dialog: one overlay above the panes, below the band
+    // so the caption stays reachable. It opens only signed in.
+    let composeOpen = new BehaviorSubject<bool>(false)
+
+    let composeHost =
+      ContentControl()
+        .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+        .VerticalContentAlignment(VerticalAlignment.Stretch)
+
+    let closeCompose() = composeOpen.OnNext false
+
+    composeOpen
+    |> Observable.add(fun isOpen ->
+      if isOpen then
+        match session.Current with
+        | SignedIn entry ->
+          composeHost.Content <- composeDialog(env, entry, closeCompose)
+        | SignedOut -> closeCompose()
+      else
+        composeHost.Content <- null)
+
+    let composeScrim =
+      Border()
+        .Background(Brushes.solid "#8A000000")
+        .OnPointerPressedHandler(fun _ _ -> closeCompose())
+
+    let composeLayer =
+      Panel()
+        .IsVisible(composeOpen :> IObservable<bool>)
+        .Children(composeScrim, composeHost)
 
     let entries = [
       {
@@ -454,82 +564,75 @@ type Shell<'env
 
     let item entry = navItem(router, activeSection, entry)
 
-    // The lowercase brand: the second slash wears the lane color, the
-    // wordmark's outlined slash.
-    let wordmark =
-      StackPanel()
-        .Orientation(Orientation.Horizontal)
-        .Children(
-          TextBlock().Classes(Theme.name Theme.Wordmark).Text("/dev"),
-          TextBlock()
-            .Classes(Theme.name Theme.Wordmark)
-            .Foreground(Brushes.lane 0)
-            .Text("/"),
-          TextBlock().Classes(Theme.name Theme.Wordmark).Text("null")
-        )
+    // The sidebar, built fresh per host: the pane keeps one tree and
+    // the narrow drawer another, so no control lands in two parents.
+    let sidebarContent() : Control =
+      // The lowercase brand: the second slash wears the lane color, the
+      // wordmark's outlined slash.
+      let wordmark =
+        StackPanel()
+          .Orientation(Orientation.Horizontal)
+          .Children(
+            TextBlock().Classes(Theme.name Theme.Wordmark).Text("/dev"),
+            TextBlock()
+              .Classes(Theme.name Theme.Wordmark)
+              .Foreground(Brushes.lane 0)
+              .Text("/"),
+            TextBlock().Classes(Theme.name Theme.Wordmark).Text("null")
+          )
 
-    // Wide layout: the sidebar owns the top-left corner. Narrow: the
-    // drawer header clears the hamburger the band overlays.
-    let header =
-      StackPanel()
-        .Margin(
-          narrow
-          |> Observable.map(fun isNarrow ->
-            if isNarrow then
-              Thickness(8.0, Theme.bandHeight + 8.0, 8.0, 20.0)
-            else
-              Thickness(8.0, 8.0, 8.0, 20.0))
-        )
-        .Children(
-          wordmark,
-          TextBlock()
-            .Classes(Theme.name Theme.Muted)
-            .Text("a social network for devs")
-        )
+      // The header clears the drag band the shell lays over the top
+      // strip; the site's own py-6 keeps the same rhythm below it.
+      let header =
+        StackPanel()
+          .Margin(Thickness(14.0, Theme.bandHeight + 12.0, 14.0, 24.0))
+          .Children(
+            wordmark,
+            TextBlock()
+              .Classes(Theme.name Theme.Muted)
+              .Text("a social network for devs")
+          )
 
-    let remotes =
-      Button()
-        .Classes(Theme.name Theme.GhostButton)
-        .Content("Remotes")
-        .IsEnabled(false)
+      let commitButton =
+        Button()
+          .Classes(Theme.name Theme.NavCommit)
+          .Margin(0.0, 8.0, 0.0, 8.0)
+          .Content(
+            StackPanel()
+              .Orientation(Orientation.Horizontal)
+              .Spacing(12.0)
+              .Children(Icons.icon Glyph.Commit, TextBlock().Text("Commit"))
+          )
+          .OnClickHandler(fun _ _ ->
+            // The site focuses the log's own composer when one is on
+            // screen, and opens the dialog everywhere else.
+            if
+              activeSection.Value <> ValueSome "log"
+              || not(focusInlineComposer this)
+            then
+              composeOpen.OnNext true)
 
-    let navChildren: Control array = [|
-      header
-      for entry in entries do
-        item entry
-      remotes
-    |]
+      commitButton.Name <- "NavCommitButton"
 
-    let navList = ScrollViewer().Content(StackPanel().Children(navChildren))
+      let navChildren: Control array = [|
+        header
+        for entry in entries do
+          item entry
+        commitButton
+      |]
 
-    let commitButton =
-      Button()
-        .Classes(Theme.name Theme.AccentButton)
-        .Margin(8.0)
-        .HorizontalContentAlignment(HorizontalAlignment.Center)
-        .Content(
-          StackPanel()
-            .Orientation(Orientation.Horizontal)
-            .Spacing(8.0)
-            .Children(Icons.icon Glyph.Commit, TextBlock().Text("Commit"))
-        )
-        .OnClickHandler(fun _ _ -> go(router, "/compose"))
+      let navList = ScrollViewer().Content(StackPanel().Children(navChildren))
 
-    let sidebarHost =
       DockPanel()
         .LastChildFill(true)
         .Children(
-          commitButton.DockBottom(),
-          footer(session.Observe, router).DockBottom(),
+          footer(router, session.Observe)
+            .DockBottom()
+            .Margin(Thickness(14.0, 8.0, 14.0, 12.0)),
           navList
         )
 
-    let sidebarPane =
-      Border()
-        .Background(Brushes.surface)
-        .Width(260.0)
-        .IsVisible(sidebarVisible)
-        .Child(sidebarHost)
+    let sidebarPane = Border().Width(260.0).Child(sidebarContent())
 
     // The aside: the signed-in user's card, the way the site's right
     // column does past its wide breakpoint. It rebuilds on every
@@ -542,38 +645,46 @@ type Shell<'env
     |> Observable.add(fun state ->
       match state with
       | SignedIn entry ->
-        asideHost.Content <-
-          ProfileCard.Page { Env = env; Session = entry } :> Control
+        asideHost.Content <- ProfileCard.Page { Env = env; Session = entry }
       | SignedOut -> asideHost.Content <- null)
 
     let aside =
       ScrollViewer()
+        .Width(320.0)
         .IsVisible(wide)
-        .Padding(Thickness(12.0, Theme.bandHeight + 8.0, 12.0, 0.0))
+        .Padding(Thickness(24.0, Theme.bandHeight + 24.0, 24.0, 24.0))
         .Content(asideHost)
 
-    let outlet =
-      RouterOutlet(Router = Some router)
-        .Column(0)
-        .ColumnSpan(2)
-        .Margin(
-          this.GetObservable(TopLevel.ClientSizeProperty)
-          |> Observable.map(fun size ->
-            if size.Width < narrowWidth then
-              Thickness(0.0)
-            elif size.Width >= asideWidth then
-              Thickness(260.0, 0.0, 320.0, 0.0)
-            else
-              Thickness(260.0, 0.0, 0.0, 0.0))
-        )
+    let outlet = RouterOutlet(Router = Some router)
 
     // The outlet ships a 150ms cross-fade; swap immediately instead.
     outlet.PageTransition <-
       ImmediatePageTransition() :> Animation.IPageTransition
 
-    let root = Grid()
+    // The reading column: the site's main — a card surface between two
+    // hairlines, never wider than the site's 620px column. Where the
+    // window leaves room, the column centers in it.
+    let mainHost =
+      Border()
+        .Background(Brushes.card)
+        .BorderBrush(Brushes.border)
+        .BorderThickness(Thickness(1.0, 0.0, 1.0, 0.0))
+        .MaxWidth(620.0)
+        .Child(outlet)
 
-    root.ColumnDefinitions <- ColumnDefinitions("260,*,320")
+    // The shell: sidebar, reading column, aside — one strip that never
+    // grows past the site's app row. Stretch with the cap fills the
+    // window and the clamp centers the strip past it; a centered
+    // alignment here would shrink the strip to its content instead.
+    // The side columns are Auto, so a hidden sidebar or aside leaves
+    // no reserved strip.
+    let shell =
+      let grid = Grid()
+
+      grid.ColumnDefinitions <- ColumnDefinitions("Auto,*,Auto")
+      grid.MaxWidth <- stripWidth
+
+      grid.Children(sidebarPane.Column(0), mainHost.Column(1), aside.Column(2))
 
     let windowState = this.GetObservable(Window.WindowStateProperty)
 
@@ -591,13 +702,45 @@ type Shell<'env
         Close = fun () -> this.Close()
       }
 
+    // The narrow drawer: the sidebar's content over a scrim, under the
+    // band so the hamburger stays reachable.
+    let scrim =
+      Border()
+        .Background(Brushes.solid "#8A000000")
+        .OnPointerPressedHandler(fun _ _ -> drawerOpen.OnNext false)
+
+    let drawerPane =
+      Border()
+        .Background(Brushes.surface)
+        .BorderBrush(Brushes.border)
+        .BorderThickness(Thickness(0.0, 0.0, 1.0, 0.0))
+        .Width(260.0)
+        .HorizontalAlignment(HorizontalAlignment.Left)
+        .Margin(0.0, Theme.bandHeight, 0.0, 0.0)
+
+    let drawerLayer =
+      Panel()
+        .IsVisible(drawerShown :> IObservable<bool>)
+        .Children(scrim, drawerPane)
+
+    // One sidebar tree, re-parented: docked in the shell while wide,
+    // riding the drawer layer while narrow. The drawer's own visibility
+    // drives the narrow mode, so no second copy of the nav exists.
+    let placeSidebar(isNarrow: bool) =
+      if isNarrow then
+        shell.Children.Remove(sidebarPane) |> ignore
+        drawerPane.Child <- sidebarPane
+      else
+        drawerPane.Child <- null
+        drawerOpen.OnNext false
+
+        if not(shell.Children.Contains sidebarPane) then
+          shell.Children.Add sidebarPane
+
+    narrow |> Observable.add placeSidebar
+
     this.Content <-
-      root.Children(
-        outlet,
-        sidebarPane,
-        aside.Column(2),
-        bandPanel.Column(0).ColumnSpan(3)
-      )
+      Panel().Children(shell, drawerLayer, composeLayer, bandPanel)
 
     // The inbox marks everything read as it lists, so the poller stops
     // while the inbox is on screen.
@@ -635,12 +778,17 @@ type Shell<'env
           this.Close()
     }
 
-    // F11 walks the window in and out of fullscreen; Esc only leaves
-    // it. The band hides its caption row while fullscreen holds.
+    // F11 walks the window in and out of fullscreen; Esc leaves it, but
+    // never past an open compose dialog. The band hides its caption row
+    // while fullscreen holds.
     this.KeyDown.Add(fun args ->
       match args.Key with
       | Key.F11 -> this.ToggleFullScreen()
-      | Key.Escape -> this.ExitFullScreen()
+      | Key.Escape ->
+        if composeOpen.Value then
+          closeCompose()
+        else
+          this.ExitFullScreen()
       | _ -> ())
 
     match callback with

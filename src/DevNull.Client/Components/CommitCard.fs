@@ -4,6 +4,7 @@ open System
 open System.Text.RegularExpressions
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.Shapes
 open Avalonia.Input
 open Avalonia.Layout
 open Avalonia.Media
@@ -15,22 +16,23 @@ open DevNull.Client.Formatting
 open DevNull.Client.Icons
 open DevNull.Client.Theme
 
-/// What one card reports up: open the thread, toggle the star, or
-/// start a quote.
+/// What one card reports up: open the thread, toggle the star, give a
+/// pastel, or start a quote.
 [<Struct>]
 type Event =
   | Opened of Commit
   | StarToggled of Commit
+  | PastelGiven of Commit
   | QuoteRequested of Commit
 
-/// One commit row. `OnEvent` receives every interaction. `Rail`
-/// carries the lane of the row above: `ValueSome` draws the commit on
-/// the graph rail, `ValueNone` lays the row out flat.
+/// One commit row. `OnEvent` receives every interaction. Every card
+/// rides the graph rail with its author's avatar; dense rows (the
+/// replies of a thread) shrink the node.
 [<Struct>]
 type Props = {
   Commit: Commit
   OnEvent: Event -> unit
-  Rail: Lane option voption
+  Pastels: bool
   Dense: bool
 }
 
@@ -46,7 +48,7 @@ let segmentView(segment: Segment) : Control =
       .Background(Brushes.surface)
       .CornerRadius(6.0)
       .Padding(10.0)
-      .Margin(0.0, 6.0, 0.0, 0.0)
+      .Margin(0.0, 4.0, 0.0, 0.0)
       .Child(
         TextBlock()
           .Classes(Theme.name Theme.CodeBlock)
@@ -58,7 +60,7 @@ let segmentView(segment: Segment) : Control =
       .Background(Brushes.surface)
       .CornerRadius(6.0)
       .Padding(10.0)
-      .Margin(0.0, 6.0, 0.0, 0.0)
+      .Margin(0.0, 4.0, 0.0, 0.0)
       .Child(
         TextBlock()
           .Classes(Theme.name Theme.CodeBlock)
@@ -76,8 +78,9 @@ let quotedView(quoted: CommitNode) : Control =
   match quoted with
   | LiveCommit commit ->
     Border()
-      .Background(Brushes.surface)
-      .CornerRadius(6.0)
+      .BorderBrush(Brushes.border)
+      .BorderThickness(Thickness(1.0))
+      .CornerRadius(8.0)
       .Padding(10.0)
       .Margin(0.0, 6.0, 0.0, 0.0)
       .Child(
@@ -85,7 +88,7 @@ let quotedView(quoted: CommitNode) : Control =
           .Spacing(2.0)
           .Children(
             TextBlock()
-              .Classes(Theme.name Theme.Muted)
+              .Classes(Theme.name Theme.Mono)
               .Text($"@{commit.Author.Username}"),
             TextBlock()
               .Text(commit.Body)
@@ -102,7 +105,9 @@ let quotedView(quoted: CommitNode) : Control =
 
 let pollOptionRow(option: PollOption) : Control =
   let share =
-    option.Percentage |> Option.map(sprintf " · %d%%") |> Option.defaultValue ""
+    option.Percentage
+    |> Option.map(fun percentage -> $" · {percentage}%%")
+    |> Option.defaultValue ""
 
   StackPanel()
     .Spacing(2.0)
@@ -119,22 +124,25 @@ let pollView(poll: Poll) : Control =
     |> Option.defaultValue "poll"
 
   let children: Control array = [|
-    yield TextBlock().Classes(Theme.name Theme.Muted).Text(title)
+    TextBlock().Classes(Theme.name Theme.Muted).Text(title)
+
     for option in poll.Options do
-      yield pollOptionRow option
+      pollOptionRow option
   |]
 
   Border()
-    .Background(Brushes.surface)
-    .CornerRadius(6.0)
+    .BorderBrush(Brushes.border)
+    .BorderThickness(Thickness(1.0))
+    .CornerRadius(8.0)
     .Padding(10.0)
     .Margin(0.0, 6.0, 0.0, 0.0)
     .Child(StackPanel().Children(children))
 
 let linkPreviewView(preview: LinkPreview) : Control =
   Border()
-    .Background(Brushes.surface)
-    .CornerRadius(6.0)
+    .BorderBrush(Brushes.border)
+    .BorderThickness(Thickness(1.0))
+    .CornerRadius(8.0)
     .Padding(10.0)
     .Margin(0.0, 6.0, 0.0, 0.0)
     .Child(
@@ -151,26 +159,31 @@ let linkPreviewView(preview: LinkPreview) : Control =
         )
     )
 
-let actionButton
-  (glyph: Glyph, label: string, onClick: Button -> unit)
+/// One quiet action of the row: an icon, an optional mono count, no
+/// border. A handled click never opens the thread as a side effect.
+let iconAction
+  (name: string, glyph: Glyph, label: string voption, onClick: Button -> unit)
   : Button =
+  let children: Control array = [|
+    Icons.iconAt(glyph, 16.0)
+    match label with
+    | ValueNone -> ()
+    | ValueSome count -> TextBlock().Classes(Theme.name Theme.Mono).Text(count)
+  |]
+
   Button()
+    .Name(name)
     .Classes(Theme.name Theme.GhostButton)
     .Padding(6.0, 2.0, 6.0, 2.0)
     .Content(
       StackPanel()
         .Orientation(Orientation.Horizontal)
         .Spacing(4.0)
-        .Children(
-          Icons.icon glyph,
-          TextBlock().Classes(Theme.name Theme.Mono).Text(label)
-        )
+        .Children(children)
     )
-    // The card itself is a button: a handled action click never opens
-    // the thread as a side effect.
-    .OnClickHandler(fun button args ->
+    .OnClickHandler(fun sender args ->
       args.Handled <- true
-      onClick button)
+      onClick sender)
 
 /// Puts the commit's web URL on the clipboard.
 let copyLink(source: Control, url: string) : unit =
@@ -185,194 +198,215 @@ let copyLink(source: Control, url: string) : unit =
 
       asyncEx { do! clipboard.SetDataAsync data } |> Async.StartImmediate
 
-let header(commit: Commit, dense: bool, avatar: Control voption) : Control =
-  let headGrid = Grid()
+/// The identity line: name, handle, and time in the site's rhythm,
+/// the short hash docked to the right edge.
+let header(commit: Commit) : Control =
+  let hash = TextBlock().Classes(Theme.name Theme.Mono).Text(commit.ShortHash)
 
-  let nameGrid = Grid()
+  let identity =
+    StackPanel()
+      .Orientation(Orientation.Horizontal)
+      .Spacing(6.0)
+      .Children(
+        TextBlock().Classes(Theme.name Theme.Subtitle).Text(commit.Author.Name),
+        TextBlock().Classes(Theme.name Theme.Muted).Text("·"),
+        TextBlock()
+          .Classes(Theme.name Theme.Mono)
+          .Text($"@{commit.Author.Username}")
+          .TextTrimming(TextTrimming.CharacterEllipsis),
+        TextBlock().Classes(Theme.name Theme.Muted).Text("·"),
+        TextBlock()
+          .Classes(Theme.name Theme.Mono)
+          .Text(timeAgo(DateTimeOffset.UtcNow, commit.CreatedAt))
+      )
 
-  nameGrid.ColumnDefinitions <- ColumnDefinitions.Parse "Auto,Auto,*,Auto"
+  DockPanel().Children(hash.DockRight(), identity)
 
-  let name =
-    TextBlock()
-      .Classes(Theme.name Theme.Subtitle)
-      .VerticalAlignment(VerticalAlignment.Center)
-      .Text(commit.Author.Name)
+/// The "replying to" line under the identity, when the commit answers
+/// one.
+let replyLine(commit: Commit) : Control option =
+  match commit.Parent with
+  | Some(LiveCommit parent) ->
+    Some(
+      TextBlock()
+        .Classes(Theme.name Theme.Muted)
+        .Margin(0.0, 2.0, 0.0, 0.0)
+        .Text($"replying to @{parent.Author.Username}")
+    )
+  | Some(Tombstone _) ->
+    Some(
+      TextBlock()
+        .Classes(Theme.name Theme.Muted)
+        .Margin(0.0, 2.0, 0.0, 0.0)
+        .Text("replying to [deleted]")
+    )
+  | None -> None
 
-  let handle =
-    TextBlock()
-      .Classes(Theme.name Theme.Mono)
-      .VerticalAlignment(VerticalAlignment.Center)
-      .Margin(6.0, 0.0, 0.0, 0.0)
-      .Text($"@{commit.Author.Username}")
-      .TextTrimming(TextTrimming.CharacterEllipsis)
+/// The rail cell: the author's avatar sitting on a short lane-colored
+/// tail that ends in a dot, the site's loose feed rhythm. Dense rows
+/// shrink the node.
+let railCell(avatar: Control, lane: Lane option, dense: bool) : Panel =
+  let nodeSize = if dense then 28.0 else 40.0
 
-  let time =
-    TextBlock()
-      .Classes(Theme.name Theme.Mono)
-      .VerticalAlignment(VerticalAlignment.Center)
-      .Margin(6.0, 0.0, 0.0, 0.0)
-      .Text(timeAgo(DateTimeOffset.UtcNow, commit.CreatedAt))
+  let railWidth = if dense then 48.0 else 64.0
 
-  let hash =
-    TextBlock()
-      .Classes(Theme.name Theme.Mono)
-      .VerticalAlignment(VerticalAlignment.Center)
-      .Text(commit.ShortHash)
+  let nodeTop = if dense then 20.0 else 32.0
 
-  nameGrid.Children(
-    name.Column(0),
-    handle.Column(1),
-    time.Column(2),
-    hash.Column(3)
-  )
-  |> ignore
+  let dotZone = if dense then 12.0 else 20.0
 
-  match avatar with
-  | ValueSome face ->
-    headGrid.ColumnDefinitions <- ColumnDefinitions.Parse "Auto,*"
+  let tail =
+    Border()
+      .Width(2.0)
+      .Background(Brushes.laneOf lane)
+      .HorizontalAlignment(HorizontalAlignment.Center)
+      .VerticalAlignment(VerticalAlignment.Stretch)
+      .Margin(0.0, nodeTop, 0.0, dotZone)
 
-    headGrid.Children(face.Margin(0.0, 0.0, 10.0, 0.0), nameGrid.Column(1))
-    |> ignore
-  | ValueNone ->
-    headGrid.ColumnDefinitions <- ColumnDefinitions.Parse "*"
+  // The dot: a lane core inside a card gap inside a lane ring.
+  let dot =
+    Grid()
+      .Width(18.0)
+      .Height(18.0)
+      .HorizontalAlignment(HorizontalAlignment.Center)
+      .VerticalAlignment(VerticalAlignment.Bottom)
+      .Margin(0.0, 0.0, 0.0, dotZone - 9.0)
+      .Children(
+        Ellipse().Width(18.0).Height(18.0).Fill(Brushes.laneOf lane),
+        Ellipse()
+          .Width(12.0)
+          .Height(12.0)
+          .StrokeThickness(3.0)
+          .Stroke(Brushes.card)
+          .Fill(Brushes.laneOf lane)
+      )
 
-    headGrid.Children(nameGrid.Column(0)) |> ignore
+  let ring =
+    Border()
+      .Background(Brushes.card)
+      .BorderBrush(Brushes.laneOf lane)
+      .BorderThickness(Thickness(2.0))
+      .CornerRadius(nodeSize)
+      .Padding(1.0)
+      .HorizontalAlignment(HorizontalAlignment.Center)
+      .VerticalAlignment(VerticalAlignment.Top)
+      .Margin(0.0, nodeTop - (nodeSize + 6.0) / 2.0, 0.0, 0.0)
+      .Child(avatar)
 
-  headGrid
+  Panel()
+    .Width(railWidth)
+    .MinHeight(if dense then 48.0 else 64.0)
+    .Children(tail, dot, ring)
 
-let actions(commit: Commit, onEvent: Event -> unit) : Control =
-  let starLabel =
-    commit.StarsCount |> Option.map shortCount |> Option.defaultValue ""
-
-  let replyLabel =
-    commit.RepliesCount |> Option.map shortCount |> Option.defaultValue ""
-
+let actions(props: Props) : Control =
+  let commit = props.Commit
+  let onEvent = props.OnEvent
   let starred = commit.Starred |> Option.contains true
 
+  let starLabel =
+    commit.StarsCount
+    |> Option.filter(fun count -> count > 0)
+    |> Option.map shortCount
+    |> ValueOption.ofOption
+
   let star =
-    actionButton(Glyph.Star, starLabel, fun _ -> onEvent(StarToggled commit))
+    iconAction(
+      "StarButton",
+      Glyph.Star,
+      starLabel,
+      fun _ -> onEvent(StarToggled commit)
+    )
+      .Foreground(if starred then Brushes.accent else Brushes.muted)
 
-  if starred then
-    star.Foreground(Brushes.accent) |> ignore
+  let pastel =
+    let count =
+      if commit.PasteisCount > 0 then
+        ValueSome(shortCount commit.PasteisCount)
+      else
+        ValueNone
 
-  let reply =
-    actionButton(Glyph.Reply, replyLabel, fun _ -> onEvent(Opened commit))
+    iconAction(
+      "PastelButton",
+      Glyph.Pastel,
+      count,
+      fun _ -> onEvent(PastelGiven commit)
+    )
 
   let quote =
-    actionButton(Glyph.Quote, "Quote", fun _ -> onEvent(QuoteRequested commit))
+    iconAction(
+      "QuoteButton",
+      Glyph.Quote,
+      ValueNone,
+      fun _ -> onEvent(QuoteRequested commit)
+    )
 
   let link =
-    actionButton(
+    iconAction(
+      "LinkButton",
       Glyph.Link,
-      "Link",
+      ValueNone,
       fun button -> copyLink(button, commit.HtmlUrl)
     )
 
-  let actionRow =
-    WrapPanel().Orientation(Orientation.Horizontal).Margin(0.0, 8.0, 0.0, 0.0)
+  let leftChildren: Control array = [|
+    star
+    if props.Pastels then
+      pastel
+    quote
+  |]
 
-  actionRow.ItemSpacing <- 8.0
-
-  actionRow.Children(star, reply, quote, link)
-
-/// The rail cell of a graph row: the line from the row above, the
-/// line to the row below, and the avatar sitting on the seam.
-let railCell
-  (avatar: Control, ownLane: Lane option, prevLane: Lane option)
-  : Panel =
-  let line =
-    Border()
-      .Width(2.0)
-      .HorizontalAlignment(HorizontalAlignment.Center)
-      .VerticalAlignment(VerticalAlignment.Stretch)
-
-  let paintOwn(control: Border) =
-    match ownLane with
-    | Some(LaneIndex index) -> control.Background(Brushes.lane index)
-    | Some(LaneColor hex) -> control.Background(Brushes.solid hex)
-    | None -> control.Background(Brushes.laneFallback)
-
-  let paintPrevious(control: Border) =
-    match prevLane with
-    | Some(LaneIndex index) -> control.Background(Brushes.lane index)
-    | Some(LaneColor hex) -> control.Background(Brushes.solid hex)
-    | None -> control.Background(Brushes.rail)
-
-  // The avatar center sits 28 dips down: half the top margin plus
-  // half the avatar.
-  let above =
-    Border()
-      .Width(2.0)
-      .Height(28.0)
-      .HorizontalAlignment(HorizontalAlignment.Center)
-      .VerticalAlignment(VerticalAlignment.Top)
-
-  paintOwn line |> ignore
-  paintPrevious above |> ignore
-
-  let face =
-    Border()
-      .Background(Brushes.card)
-      .CornerRadius(20.0)
-      .Padding(2.0)
-      .HorizontalAlignment(HorizontalAlignment.Center)
-      .VerticalAlignment(VerticalAlignment.Top)
-      .Margin(0.0, 10.0, 0.0, 0.0)
-      .Child(avatar)
-
-  Panel().Children(line, above, face)
+  DockPanel()
+    .LastChildFill(true)
+    .Margin(0.0, 8.0, 0.0, 0.0)
+    .Children(
+      link.DockRight(),
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Spacing(2.0)
+        .Children(leftChildren)
+    )
 
 let view(props: Props) : Control =
   let commit = props.Commit
   let dense = props.Dense
 
-  let quotedPart =
-    commit.QuotedCommit |> Option.map quotedView |> Option.toArray
+  // The site's order: the reply pointer, the body, the poll, the
+  // quote, the link preview.
+  let bodyChildren: Control array = [|
+    match replyLine commit with
+    | Some line -> line
+    | None -> ()
 
-  let pollPart = commit.Poll |> Option.map pollView |> Option.toArray
+    bodyView commit
 
-  let previewPart =
-    commit.LinkPreview |> Option.map linkPreviewView |> Option.toArray
+    match commit.Poll with
+    | Some poll -> pollView poll
+    | None -> ()
 
-  let bodyChildren =
-    Array.concat [ quotedPart; [| bodyView commit |]; pollPart; previewPart ]
+    match commit.QuotedCommit with
+    | Some quoted -> quotedView quoted
+    | None -> ()
 
-  let body = StackPanel().Margin(0.0, 6.0, 0.0, 0.0).Children(bodyChildren)
+    match commit.LinkPreview with
+    | Some preview -> linkPreviewView preview
+    | None -> ()
+  |]
 
-  // One avatar per row: on the rail it rides the rail cell, flat rows
-  // carry it in the header.
+  let body = StackPanel().Margin(0.0, 2.0, 0.0, 0.0).Children(bodyChildren)
+
   let avatar =
     Avatar.view {
       Name = commit.Author.Name
       Url = commit.Author.AvatarUrl
       Lane = commit.Author.Lane
-      Size = if dense then 24.0 else 36.0
+      Size = if dense then 28.0 else 40.0
     }
 
-  let headerAvatar =
-    match props.Rail with
-    | ValueSome _ ->
-      // The rail cell owns the avatar's placement.
-      ValueNone
-    | ValueNone ->
-      avatar.Margin(0.0, 0.0, 10.0, 0.0) |> ignore
-      ValueSome avatar
+  let pad = if dense then 8.0 else 12.0
 
   let content =
     StackPanel()
-      .Margin(
-        Thickness(
-          0.0,
-          (if dense then 6.0 else 10.0),
-          16.0,
-          (if dense then 6.0 else 10.0)
-        )
-      )
-      .Children(
-        header(commit, dense, headerAvatar),
-        body,
-        actions(commit, props.OnEvent)
-      )
+      .Margin(0.0, pad, 16.0, pad)
+      .Children(header commit, body, actions props)
 
   // The hairline stops at the rail column: the rail runs unbroken.
   let contentColumn =
@@ -381,28 +415,62 @@ let view(props: Props) : Control =
       .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
       .Child(content)
 
-  let row: Control =
-    match props.Rail with
-    | ValueNone -> contentColumn :> Control
-    | ValueSome prevLane ->
-      let grid = Grid()
+  let grid = Grid()
 
-      grid.ColumnDefinitions <- ColumnDefinitions("56,*")
-
-      grid.Children(
-        railCell(avatar, commit.Author.Lane, prevLane).Column(0),
-        contentColumn.Column(1)
-      )
+  grid.ColumnDefinitions <- ColumnDefinitions(if dense then "48,*" else "64,*")
 
   Button()
-    .HorizontalAlignment(HorizontalAlignment.Stretch)
-    .HorizontalContentAlignment(HorizontalAlignment.Stretch)
-    .Background(Brushes.transparent)
-    .Content(row)
+    .Classes(Theme.name Theme.CommitRow)
+    .Content(
+      grid.Children(
+        railCell(avatar, commit.Author.Lane, dense).Column(0),
+        contentColumn.Column(1)
+      )
+    )
     .OnClickHandler(fun _ _ -> props.OnEvent(Opened commit))
 
-let tombstone(tombstone: Tombstone) : Control =
-  TextBlock()
-    .Classes(Theme.name Theme.Mono)
-    .Text($"rm {tombstone.Id} → /dev/null")
-    .Margin(0.0, 0.0, 0.0, 8.0)
+let tombstone(_: Tombstone) : Control =
+  let line =
+    Border()
+      .Width(2.0)
+      .Background(Brushes.rail)
+      .HorizontalAlignment(HorizontalAlignment.Center)
+      .VerticalAlignment(VerticalAlignment.Stretch)
+      .Margin(0.0, 32.0, 0.0, 0.0)
+
+  let node =
+    Ellipse()
+      .Width(24.0)
+      .Height(24.0)
+      .Fill(Brushes.card)
+      .StrokeThickness(2.0)
+      .Stroke(Brushes.rail)
+      .HorizontalAlignment(HorizontalAlignment.Center)
+      .VerticalAlignment(VerticalAlignment.Top)
+      .Margin(0.0, 20.0, 0.0, 0.0)
+
+  node.StrokeDashArray <-
+    Avalonia.Collections.AvaloniaList<double>([ 3.0; 3.0 ])
+
+  let text =
+    Border()
+      .BorderBrush(Brushes.border)
+      .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
+      .Child(
+        StackPanel()
+          .Orientation(Orientation.Horizontal)
+          .Spacing(6.0)
+          .Margin(0.0, 12.0, 16.0, 12.0)
+          .Children(
+            TextBlock().Classes(Theme.name Theme.Mono).Text("[deleted]"),
+            TextBlock()
+              .Classes(Theme.name Theme.Muted)
+              .Text("This commit was deleted.")
+          )
+      )
+
+  let grid = Grid()
+
+  grid.ColumnDefinitions <- ColumnDefinitions("64,*")
+
+  grid.Children(Panel().Children(line, node).Column(0), text.Column(1))

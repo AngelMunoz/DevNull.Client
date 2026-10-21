@@ -12,10 +12,12 @@ type CurrentUser = {
   AvatarUrl: string option
 }
 
-/// One redeemed device: the user, plus the unread notifications in the envelope.
+/// One redeemed device: the user, the unread notifications in the
+/// envelope, and whether the user shows pastel controls at all.
 type DeviceSession = {
   User: CurrentUser
   UnreadNotificationsCount: int
+  PasteisMode: bool
 }
 
 /// A lane as the API reports it: a palette index or a custom color.

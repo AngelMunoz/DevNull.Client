@@ -39,4 +39,8 @@ type IHttp =
 type IProvideHttp =
   abstract Http: IHttp
 
+/// The agent every request of this client wears, so the server tells
+/// our traffic from browsers and scripts.
+let userAgent = "dev-null-fsharp-client/0.0.1-dev"
+
 let inline isSuccess status = status >= 200 && status <= 299

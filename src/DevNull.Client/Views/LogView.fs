@@ -44,7 +44,8 @@ type Model = {
   Items: CommitNode list
   NextCursor: string option
   Head: string option
-  New: CommitNode list option
+  NewCount: int option
+  Ranked: bool
 }
 
 type Msg =
@@ -54,9 +55,12 @@ type Msg =
   | MoreRequested
   | StarToggled of Commit
   | StarDone of Result<Commit, AppError>
+  | PastelGiven of Commit
+  | PastelDone of Result<PastelResult, AppError>
   | CheckNew
   | NewChecked of Result<LogPage, AppError>
   | NewRequested
+  | NewFetched of Result<LogPage, AppError>
 
 let initial = {
   Loading = true
@@ -64,7 +68,8 @@ let initial = {
   Items = []
   NextCursor = None
   Head = None
-  New = None
+  NewCount = None
+  Ranked = false
 }
 
 /// The id of the newest commit in a page: the head the since-poll
@@ -125,7 +130,8 @@ let update (props: Props<'env>) msg model =
             Items = page.Page.Items
             NextCursor = page.Page.NextCursor
             Head = headOf page.Page.Items
-            New = None
+            NewCount = None
+            Ranked = page.IsRanked
       },
       Cmd.none
     | Error error ->
@@ -136,29 +142,41 @@ let update (props: Props<'env>) msg model =
       },
       Cmd.none
   | CheckNew ->
-    match model.Head with
-    | Some head -> model, Cmd.OfAsync.perform checkNew (props, head) NewChecked
-    | None -> model, Cmd.none
+    // A ranked log is score ordered, so "newer than head" means
+    // nothing; the site skips the poll there too.
+    match model.Head, model.Ranked with
+    | Some head, false ->
+      model, Cmd.OfAsync.perform checkNew (props, head) NewChecked
+    | _ -> model, Cmd.none
   | NewChecked result ->
     match result with
-    | Ok page when not page.Page.Items.IsEmpty ->
+    | Ok page ->
+      // The since read answers the same first page; only its count is
+      // news. The commits themselves come with the pill's refresh.
       {
         model with
-            New = Some page.Page.Items
+            NewCount =
+              page.NewCommitsCount |> Option.filter(fun count -> count > 0)
       },
       Cmd.none
-    | _ -> model, Cmd.none
+    | Error _ -> model, Cmd.none
   | NewRequested ->
-    match model.New with
-    | Some newItems ->
+    { model with NewCount = None },
+    Cmd.OfAsync.perform fetch (props, None) NewFetched
+  | NewFetched result ->
+    match result with
+    | Ok page ->
+      // The pill's refresh replaces the feed with the fresh first page,
+      // the way the site reloads its log; no duplicate can survive.
       {
         model with
-            Items = newItems @ model.Items
-            Head = headOf newItems
-            New = None
+            Items = page.Page.Items
+            NextCursor = page.Page.NextCursor
+            Head = headOf page.Page.Items
+            Ranked = page.IsRanked
       },
       Cmd.none
-    | None -> model, Cmd.none
+    | Error error -> { model with Error = Some error }, Cmd.none
   | ReloadRequested ->
     {
       model with
@@ -197,65 +215,87 @@ let update (props: Props<'env>) msg model =
       },
       Cmd.none
     | Error error -> { model with Error = Some error }, Cmd.none
+  | PastelGiven commit ->
+    let give() =
+      Pasteis.give(
+        props.Env,
+        {
+          KeyFile = props.Session.KeyFile
+          CommitId = commit.Id
+        }
+      )
+
+    { model with Error = None }, Cmd.OfAsync.perform give () PastelDone
+  | PastelDone result ->
+    match result with
+    | Ok pastel ->
+      {
+        model with
+            Items = replaceNode(model.Items, pastel.Commit)
+      },
+      Cmd.none
+    | Error error -> { model with Error = Some error }, Cmd.none
 
 /// One row of the log feed: a day separator, a commit on the rail, or
 /// a deletion marker.
 type LogRow =
   | Day of string
-  | Node of Commit * prevLane: Lane option
+  | Node of Commit
   | TombstoneRow of Tombstone
 
-/// Interleaves day separators and carries the previous row's lane, so
-/// every commit paints the rail segment above its node.
-let toRows(items: CommitNode list) : LogRow list =
+/// Interleaves day separators between the commits of different days,
+/// carrying the day across tombstones. A ranked log is score ordered,
+/// its days interleave, so it rides without separators the way the
+/// site's ranked feed does.
+let toRows(items: CommitNode list, ranked: bool) : LogRow list =
   let now = DateTimeOffset.UtcNow
 
-  let dayOf node =
+  let nodeRow node =
     match node with
-    | LiveCommit commit -> Some(dayLabel(now, commit.CreatedAt))
-    | Tombstone _ -> None
+    | LiveCommit commit -> LogRow.Node commit
+    | Tombstone tombstone -> LogRow.TombstoneRow tombstone
 
-  let laneOf node =
-    match node with
-    | LiveCommit commit -> commit.Author.Lane
-    | Tombstone _ -> None
-
-  // The day and lane seen before each item, carried across
-  // tombstones: one carried state per item, seeded with the empty one.
-  let carry =
-    items
-    |> List.scan
-      (fun (day, lane) node ->
-        dayOf node |> Option.orElse day, laneOf node |> Option.orElse lane)
-      (None, None)
-    |> List.truncate items.Length
-
-  [
-    for (prevDay, prevLane), node in List.zip carry items do
+  if ranked then
+    [ for node in items -> nodeRow node ]
+  else
+    let dayOf node =
       match node with
-      | LiveCommit commit ->
-        let day = dayLabel(now, commit.CreatedAt)
+      | LiveCommit commit -> Some(dayLabel(now, commit.CreatedAt))
+      | Tombstone _ -> None
 
-        if prevDay <> Some day then
-          LogRow.Day day
-          LogRow.Node(commit, prevLane)
-        else
-          LogRow.Node(commit, prevLane)
-      | Tombstone tombstone -> LogRow.TombstoneRow tombstone
-  ]
+    // The day seen before each item, carried across tombstones: one
+    // carried state per item, seeded with the empty one.
+    let carry =
+      items
+      |> List.scan (fun day node -> dayOf node |> Option.orElse day) None
+      |> List.truncate items.Length
+
+    [
+      for prevDay, node in List.zip carry items do
+        match node with
+        | LiveCommit commit ->
+          let day = dayLabel(now, commit.CreatedAt)
+
+          if prevDay <> Some day then
+            LogRow.Day day
+            LogRow.Node commit
+          else
+            LogRow.Node commit
+        | Tombstone tombstone -> LogRow.TombstoneRow tombstone
+    ]
 
 let keyOf(logRow: LogRow) : string =
   match logRow with
   | LogRow.Day label -> "day:" + label
-  | LogRow.Node(commit, _) -> commit.Id
+  | LogRow.Node commit -> commit.Id
   | LogRow.TombstoneRow tombstone -> tombstone.Id
 
-/// One day separator: the rail runs on, the label rides the content
-/// column above a hairline.
+/// One day separator: the rail runs on in the neutral tone, the label
+/// rides the content column above a hairline.
 let dayRow(label: string) : Control =
   let grid = Grid()
 
-  grid.ColumnDefinitions <- ColumnDefinitions("56,*")
+  grid.ColumnDefinitions <- ColumnDefinitions("64,*")
 
   let line =
     Border()
@@ -271,7 +311,7 @@ let dayRow(label: string) : Control =
       .Child(
         TextBlock()
           .Classes(Theme.name Theme.Mono)
-          .Margin(0.0, 14.0, 16.0, 4.0)
+          .Margin(0.0, 8.0, 16.0, 8.0)
           .Text(label)
       )
 
@@ -283,7 +323,7 @@ let row
   : Control =
   match logRow with
   | LogRow.Day label -> dayRow label
-  | LogRow.Node(commit, prevLane) ->
+  | LogRow.Node commit ->
     CommitCard.view {
       Commit = commit
       OnEvent =
@@ -292,9 +332,10 @@ let row
           | CommitCard.Opened c ->
             Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
           | CommitCard.StarToggled c -> dispatch(StarToggled c)
+          | CommitCard.PastelGiven c -> dispatch(PastelGiven c)
           | CommitCard.QuoteRequested c ->
-            Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
-      Rail = ValueSome prevLane
+            Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
+      Pastels = props.Session.Session.PasteisMode
       Dense = false
     }
   | LogRow.TombstoneRow tombstone -> CommitCard.tombstone tombstone
@@ -323,18 +364,18 @@ let logTabs: Tab list = [
   }
 ]
 
+/// One log tab: the page-tab shape, underlined while active.
 let tab(active: LogKind, nav: INavigable, info: Tab) : Control =
-  let isActive = active = info.Kind
+  let button =
+    Button()
+      .Classes(Theme.name Theme.TabButton)
+      .Content(info.Label)
+      .OnClickHandler(fun _ _ -> Navigation.go(nav, info.Url, ignore))
 
-  Button()
-    .Content(info.Label)
-    .Padding(12.0, 8.0, 12.0, 8.0)
-    .CornerRadius(0.0)
-    .BorderThickness(0.0, 0.0, 0.0, 2.0)
-    .BorderBrush(if isActive then Brushes.accent else Brushes.transparent)
-    .Background(Brushes.transparent)
-    .Foreground(if isActive then Brushes.text else Brushes.muted)
-    .OnClickHandler(fun _ _ -> Navigation.go(nav, info.Url, ignore))
+  if active = info.Kind then
+    button.Classes.Add(Theme.name Theme.TabButtonActive) |> ignore
+
+  button
 
 let view
   (props: Props<'env>)
@@ -342,11 +383,26 @@ let view
   (dispatch: Dispatch<Msg>)
   : Control =
 
+  // The tabs run edge to edge of the reading column over a hairline,
+  // the way the site's log header does. The band sits above the client,
+  // so the strip clears it.
   let tabStrip =
-    StackPanel()
-      .Orientation(Orientation.Horizontal)
-      .Spacing(4.0)
-      .Children([| for info in logTabs -> tab(props.Log, props.Nav, info) |])
+    let strip = Grid()
+
+    strip.ColumnDefinitions <- ColumnDefinitions("*,*,*")
+
+    Border()
+      .BorderBrush(Brushes.border)
+      .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
+      .Margin(0.0, Theme.bandHeight, 0.0, 0.0)
+      .Child(
+        strip.Children(
+          [|
+            for index, info in List.indexed logTabs ->
+              tab(props.Log, props.Nav, info).Column(index)
+          |]
+        )
+      )
 
   let composer =
     Composer.Page {
@@ -356,9 +412,13 @@ let view
       OnCommitted = fun _ -> dispatch ReloadRequested
     }
 
-  // The staged commit: the composer rides the rail's first row, its
-  // dashed line and hollow node waiting to be filled.
+  // The staged commit: the signed-in user's avatar rides the rail's
+  // first row, ring and all, and the dashed line runs from it down
+  // into the day separators — the site stages the next commit exactly
+  // so. The input keeps the cards' right inset.
   let composerRow =
+    let nodeTop = 9.0
+
     let line =
       Line(
         StartPoint = Point(0.0, 0.0),
@@ -370,24 +430,36 @@ let view
       )
         .Stroke(Brushes.rail)
         .StrokeDashArray(Avalonia.Collections.AvaloniaList<double>(2.0, 2.0))
+        .Margin(0.0, nodeTop + 46.0, 0.0, 0.0)
 
-
-    let node =
-      Ellipse()
-        .Width(14.0)
-        .Height(14.0)
+    let avatar =
+      Border()
+        .Name("ComposerRailNode")
+        .Background(Brushes.card)
+        .BorderBrush(Brushes.laneFallback)
+        .BorderThickness(Thickness(2.0))
+        .CornerRadius(46.0)
+        .Padding(1.0)
         .HorizontalAlignment(HorizontalAlignment.Center)
         .VerticalAlignment(VerticalAlignment.Top)
-        .Margin(0.0, 14.0, 0.0, 0.0)
-        .Fill(Brushes.card)
-        .Stroke(Brushes.rail)
-        .StrokeThickness(2.0)
+        .Margin(0.0, nodeTop, 0.0, 0.0)
+        .Child(
+          Avatar.view {
+            Name = props.Session.Session.User.Name
+            Url = props.Session.Session.User.AvatarUrl
+            Lane = None
+            Size = 40.0
+          }
+        )
 
     let grid = Grid()
 
-    grid.ColumnDefinitions <- ColumnDefinitions("56,*")
+    grid.ColumnDefinitions <- ColumnDefinitions("64,*")
 
-    grid.Children(Panel().Children(line, node).Column(0), composer.Column(1))
+    grid.Children(
+      Panel().Children(line, avatar).Column(0),
+      Border().Margin(0.0, 0.0, 16.0, 0.0).Child(composer).Column(1)
+    )
 
   let newPill =
     Button()
@@ -395,6 +467,7 @@ let view
       .CornerRadius(999.0)
       .Padding(16.0, 6.0, 16.0, 6.0)
       .Margin(0.0, 8.0, 0.0, 0.0)
+      .HorizontalAlignment(HorizontalAlignment.Center)
       .HorizontalContentAlignment(HorizontalAlignment.Center)
       .Content(
         StackPanel()
@@ -406,13 +479,13 @@ let view
               .Text(
                 model
                 |> Observable.map(fun current ->
-                  match current.New with
-                  | Some newItems -> $"{List.length newItems} new commits"
+                  match current.NewCount with
+                  | Some count -> $"{count} new commits"
                   | None -> "")
               )
           )
       )
-      .IsVisible(model |> Observable.map _.New.IsSome)
+      .IsVisible(model |> Observable.map _.NewCount.IsSome)
       .OnClickHandler(fun _ _ -> dispatch NewRequested)
 
   let errorText =
@@ -428,7 +501,7 @@ let view
   let errorPanel =
     Border()
       .Classes(Theme.name Theme.Card)
-      .Margin(0.0, 0.0, 0.0, 8.0)
+      .Margin(16.0, 0.0, 16.0, 8.0)
       .Child(errorText)
       .IsVisible(model |> Observable.map(_.Error.IsSome))
 
@@ -438,7 +511,7 @@ let view
   let emptyState =
     // The machine voice opens; the sentence answers.
     StackPanel()
-      .Margin(0.0, 0.0, 0.0, 8.0)
+      .Margin(16.0, 0.0, 16.0, 8.0)
       .Children(
         TextBlock()
           .Classes(Theme.name Theme.CodeBlock)
@@ -464,7 +537,9 @@ let view
 
   let list =
     Feed.view {
-      Items = model |> Observable.map(fun current -> toRows current.Items)
+      Items =
+        model
+        |> Observable.map(fun current -> toRows(current.Items, current.Ranked))
       KeyOf = keyOf
       Row = row(props, dispatch)
       Footer = ValueSome loadMore
@@ -480,18 +555,19 @@ let view
 
   newTimer.Tick.Add(fun _ -> dispatch CheckNew)
 
+  // The pinned area takes no horizontal inset: the composer's rail must
+  // sit on the same line as the day separators and the cards below,
+  // which all start at the reading column's left edge.
   let pinned =
     StackPanel()
-      .MaxWidth(720.0)
       .HorizontalAlignment(HorizontalAlignment.Stretch)
-      .Margin(Theme.pinnedPadding)
-      .Children(tabStrip, composerRow, newPill, errorPanel, busy, emptyState)
+      .Margin(Thickness(0.0, Theme.bandHeight + 8.0, 0.0, 0.0))
+      .Children(composerRow, newPill, errorPanel, busy, emptyState)
 
   let root = Grid()
-  root.RowDefinitions <- RowDefinitions("Auto,*")
+  root.RowDefinitions <- RowDefinitions("Auto,Auto,*")
 
-  root.Children(pinned.Row(0), list.Margin(24.0, 0.0, 24.0, 0.0).Row(1))
-  |> ignore
+  root.Children(tabStrip.Row(0), pinned.Row(1), list.Row(2)) |> ignore
 
   root.AttachedToVisualTree.Add(fun _ -> newTimer.Start())
 

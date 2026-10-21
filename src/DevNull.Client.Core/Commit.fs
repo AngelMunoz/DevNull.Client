@@ -123,7 +123,10 @@ module Commit =
       let request = {
         Method = "POST"
         Target = "/api/cli/key-lookups"
-        Headers = [ "Content-Type", "text/plain; charset=utf-8" ]
+        Headers = [
+          "User-Agent", userAgent
+          "Content-Type", "text/plain; charset=utf-8"
+        ]
         Body = Text candidates
       }
 
@@ -161,6 +164,7 @@ module Commit =
           Method = "POST"
           Target = "/api/cli/commits"
           Headers = [
+            "User-Agent", userAgent
             "X-SSH-Signature", input.Signature
             "Content-Type", "text/plain; charset=utf-8"
           ]
@@ -186,7 +190,10 @@ module Commit =
         {
           Method = "POST"
           Target = "/api/cli/commits"
-          Headers = [ "X-SSH-Signature", input.Signature ]
+          Headers = [
+            "User-Agent", userAgent
+            "X-SSH-Signature", input.Signature
+          ]
           Body =
             Multipart {
               Fields = []

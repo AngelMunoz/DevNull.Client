@@ -27,6 +27,11 @@ type Glyph =
   | Maximize
   | Restore
   | ArrowUp
+  | At
+  | UserPlus
+  | ChevronsUp
+  | Check
+  | Pastel
 
 /// One icon ready to place: the glyph in the default size, 18 device
 /// independent pixels.

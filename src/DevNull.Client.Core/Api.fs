@@ -61,6 +61,7 @@ module Signing =
       Method = method
       Target = request.Target
       Headers = [
+        "User-Agent", userAgent
         "X-Devnull-Timestamp", string timestamp
         "X-Devnull-Nonce", Nonces.value nonce
         "X-SSH-Signature", signature

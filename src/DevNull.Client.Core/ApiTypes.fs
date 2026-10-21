@@ -17,6 +17,7 @@ type CurrentUser = {
 type DeviceSession = {
   User: CurrentUser
   UnreadNotificationsCount: int
+  PasteisMode: bool
 }
 
 type Lane =

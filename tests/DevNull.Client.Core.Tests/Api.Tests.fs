@@ -66,6 +66,11 @@ let tests =
           (Some "application/json")
           (header "Content-Type" signed.Headers)
           "content type"
+
+        Expect.equal
+          (Some DevNull.Client.Core.Http.userAgent)
+          (header "User-Agent" signed.Headers)
+          "the agent header"
       | Error error -> failtestf "%A" error
     }
 

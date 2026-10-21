@@ -214,11 +214,15 @@ let build
     route |> Route.canActivate(fun _ _ -> requiresSignedOut env)
 
   let table: RouteDefinition<Control> list = [
+    // The log keeps its page between visits: the cached instance holds
+    // the feed's scroll, so a thread and back never resets the
+    // timeline. Three entries cover the three log tabs.
     Route.define<Control>(
       "log",
       "/log/:log",
       fun context nav -> logPage(env, nav, context)
     )
+    |> Route.cache(Cache(3, None))
     |> gated
 
     Route.define<Control>(
@@ -227,13 +231,6 @@ let build
       fun _ nav -> signInPage(env, nav)
     )
     |> signedOut
-
-    Route.define<Control>(
-      "compose",
-      "/compose",
-      fun _ nav -> composePage(env, nav, Composer.Fresh)
-    )
-    |> gated
 
     Route.define<Control>(
       "quote",

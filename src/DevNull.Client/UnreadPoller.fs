@@ -55,6 +55,7 @@ let rec loop
             env.Session.Refresh {
               current.Session with
                   UnreadNotificationsCount = me.UnreadNotificationsCount
+                  PasteisMode = me.PasteisMode
             }
           | ValueNone -> ()
         | Error _ -> ()

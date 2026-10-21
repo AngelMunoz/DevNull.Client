@@ -10,6 +10,7 @@ open Avalonia.Markup.Xaml.MarkupExtensions
 open Avalonia.Media
 open Avalonia.Styling
 open NXUI.Extensions
+open DevNull.Client.Core.ApiTypes
 open DevNull.Client.SettingsStore
 
 module Keys =
@@ -86,6 +87,27 @@ module Brushes =
 
   let lane(index: int) = themed(Keys.lane index)
 
+  /// One brush that never changes, as an observable.
+  let constant(brush: IBrush) : IObservable<IBrush> = {
+    new IObservable<IBrush> with
+      member _.Subscribe(observer) =
+        observer.OnNext brush
+
+        {
+          new IDisposable with
+            member _.Dispose() = ()
+        }
+  }
+
+  /// The brush of one lane value: a palette index, a user hex, or the
+  /// neutral fallback when the user carries no lane.
+  let laneOf(lane: Lane option) : IObservable<IBrush> =
+    match lane with
+    | Some(LaneIndex index) -> themed(Keys.lane index)
+    | Some(LaneColor hex) ->
+      constant(SolidColorBrush(Color.Parse hex) :> IBrush)
+    | None -> laneFallback
+
   /// One solid brush from a hex color, for user-painted lanes.
   let solid(hex: string) : IBrush =
     SolidColorBrush(Color.Parse hex) :> IBrush
@@ -93,16 +115,24 @@ module Brushes =
 type StyleClass =
   | NavItem
   | NavItemActive
+  | NavCommit
   | Card
   | Title
+  | Headline
   | Subtitle
   | Muted
+  | StatNum
   | AccentButton
   | GhostButton
   | DangerButton
   | NavButton
   | CodeBlock
   | Chip
+  | FilterPill
+  | FilterPillActive
+  | TabButton
+  | TabButtonActive
+  | CommitRow
   | Divider
   | ChromeTitle
   | CaptionButton
@@ -124,16 +154,24 @@ let name class' =
   match class' with
   | NavItem -> "nav-item"
   | NavItemActive -> "nav-item-active"
+  | NavCommit -> "nav-commit"
   | Card -> "card"
   | Title -> "title"
+  | Headline -> "headline"
   | Subtitle -> "subtitle"
   | Muted -> "muted"
+  | StatNum -> "stat-num"
   | AccentButton -> "accent-button"
   | GhostButton -> "ghost-button"
   | DangerButton -> "danger-button"
   | NavButton -> "nav-button"
   | CodeBlock -> "code-block"
   | Chip -> "chip"
+  | FilterPill -> "filter-pill"
+  | FilterPillActive -> "filter-pill-active"
+  | TabButton -> "tab-button"
+  | TabButtonActive -> "tab-button-active"
+  | CommitRow -> "commit-row"
   | Divider -> "divider"
   | ChromeTitle -> "chrome-title"
   | CaptionButton -> "caption-button"
@@ -158,6 +196,8 @@ let private themed(key: string) = box(DynamicResourceExtension key)
 let style class' =
   match class' with
   | NavItem ->
+    // The site's nav entry: one 44-high row, icon and label at 15px
+    // medium, rounded corners.
     styleOf(
       (fun selector -> selector.OfType<Button>().Class(name NavItem)),
       [|
@@ -165,9 +205,13 @@ let style class' =
         Button.BorderThicknessProperty, box(Thickness(0.0))
         Button.ForegroundProperty, themed Keys.muted
         Button.CornerRadiusProperty, box(CornerRadius(8.0))
-        Button.PaddingProperty, box(Thickness(12.0, 9.0, 12.0, 9.0))
+        Button.HeightProperty, box 44.0
+        Button.PaddingProperty, box(Thickness(16.0, 0.0, 12.0, 0.0))
+        Button.FontSizeProperty, box 15.0
+        Button.FontWeightProperty, box FontWeight.Medium
         Button.HorizontalAlignmentProperty, box HorizontalAlignment.Stretch
         Button.HorizontalContentAlignmentProperty, box HorizontalAlignment.Left
+        Button.VerticalContentAlignmentProperty, box VerticalAlignment.Center
       |]
     )
   | NavItemActive ->
@@ -179,6 +223,25 @@ let style class' =
       [|
         Button.BackgroundProperty, themed Keys.primarySoft
         Button.ForegroundProperty, themed Keys.accent
+      |]
+    )
+  | NavCommit ->
+    // The compose entry: the nav row shape filled with the primary
+    // color, the way the site's Commit button sits inside the nav.
+    styleOf(
+      (fun selector -> selector.OfType<Button>().Class(name NavCommit)),
+      [|
+        Button.BackgroundProperty, themed Keys.accent
+        Button.ForegroundProperty, themed Keys.onAccent
+        Button.BorderThicknessProperty, box(Thickness(0.0))
+        Button.CornerRadiusProperty, box(CornerRadius(8.0))
+        Button.HeightProperty, box 44.0
+        Button.PaddingProperty, box(Thickness(16.0, 0.0, 12.0, 0.0))
+        Button.FontSizeProperty, box 15.0
+        Button.FontWeightProperty, box FontWeight.Medium
+        Button.HorizontalAlignmentProperty, box HorizontalAlignment.Stretch
+        Button.HorizontalContentAlignmentProperty, box HorizontalAlignment.Left
+        Button.VerticalContentAlignmentProperty, box VerticalAlignment.Center
       |]
     )
   | Card ->
@@ -201,11 +264,21 @@ let style class' =
         TextBlock.ForegroundProperty, themed Keys.text
       |]
     )
+  | Headline ->
+    // The site's identity heading: 24px semibold, tight tracking.
+    styleOf(
+      (fun selector -> selector.OfType<TextBlock>().Class(name Headline)),
+      [|
+        TextBlock.FontSizeProperty, box 24.0
+        TextBlock.FontWeightProperty, box FontWeight.SemiBold
+        TextBlock.ForegroundProperty, themed Keys.text
+      |]
+    )
   | Subtitle ->
     styleOf(
       (fun selector -> selector.OfType<TextBlock>().Class(name Subtitle)),
       [|
-        TextBlock.FontSizeProperty, box 14.0
+        TextBlock.FontSizeProperty, box 15.0
         TextBlock.FontWeightProperty, box FontWeight.SemiBold
         TextBlock.ForegroundProperty, themed Keys.text
       |]
@@ -214,6 +287,17 @@ let style class' =
     styleOf(
       (fun selector -> selector.OfType<TextBlock>().Class(name Muted)),
       [| TextBlock.ForegroundProperty, themed Keys.muted |]
+    )
+  | StatNum ->
+    // The count half of one stat pair: mono, medium, reading color.
+    styleOf(
+      (fun selector -> selector.OfType<TextBlock>().Class(name StatNum)),
+      [|
+        TextBlock.FontFamilyProperty, box Fonts.mono
+        TextBlock.FontSizeProperty, box 14.0
+        TextBlock.FontWeightProperty, box FontWeight.Medium
+        TextBlock.ForegroundProperty, themed Keys.text
+      |]
     )
   | AccentButton ->
     styleOf(
@@ -276,6 +360,84 @@ let style class' =
         Border.BorderThicknessProperty, box(Thickness(1.0))
         Border.CornerRadiusProperty, box(CornerRadius(10.0))
         Border.PaddingProperty, box(Thickness(8.0, 2.0, 8.0, 2.0))
+      |]
+    )
+  | FilterPill ->
+    // The site's notification filter: a full-round pill that fills
+    // with the primary-soft wash while pressed in.
+    styleOf(
+      (fun selector -> selector.OfType<Button>().Class(name FilterPill)),
+      [|
+        Button.BackgroundProperty, box Brushes.Transparent
+        Button.BorderBrushProperty, themed Keys.border
+        Button.BorderThicknessProperty, box(Thickness(1.0))
+        Button.CornerRadiusProperty, box(CornerRadius(999.0))
+        Button.ForegroundProperty, themed Keys.muted
+        Button.FontSizeProperty, box 14.0
+        Button.FontWeightProperty, box FontWeight.Medium
+        Button.PaddingProperty, box(Thickness(12.0, 6.0, 12.0, 6.0))
+      |]
+    )
+  | FilterPillActive ->
+    styleOf(
+      (fun selector ->
+        selector
+          .OfType<Button>()
+          .Class(name FilterPill)
+          .Class(name FilterPillActive)),
+      [|
+        Button.BackgroundProperty, themed Keys.primarySoft
+        Button.BorderBrushProperty, themed Keys.accent
+        Button.ForegroundProperty, themed Keys.accent
+      |]
+    )
+  | TabButton ->
+    // The site's page tab: a full-width row of centered titles over a
+    // hairline, the active one underlined in primary.
+    styleOf(
+      (fun selector -> selector.OfType<Button>().Class(name TabButton)),
+      [|
+        Button.BackgroundProperty, box Brushes.Transparent
+        Button.BorderThicknessProperty, box(Thickness(0.0, 0.0, 0.0, 3.0))
+        Button.BorderBrushProperty, box Brushes.Transparent
+        Button.CornerRadiusProperty, box(CornerRadius(0.0))
+        Button.ForegroundProperty, themed Keys.muted
+        Button.FontSizeProperty, box 15.0
+        Button.FontWeightProperty, box FontWeight.Medium
+        Button.PaddingProperty, box(Thickness(16.0, 13.0, 16.0, 11.0))
+        Button.HorizontalAlignmentProperty, box HorizontalAlignment.Stretch
+        Button.HorizontalContentAlignmentProperty,
+        box HorizontalAlignment.Center
+      |]
+    )
+  | TabButtonActive ->
+    styleOf(
+      (fun selector ->
+        selector
+          .OfType<Button>()
+          .Class(name TabButton)
+          .Class(name TabButtonActive)),
+      [|
+        Button.BorderBrushProperty, themed Keys.accent
+        Button.ForegroundProperty, themed Keys.text
+      |]
+    )
+  | CommitRow ->
+    // One commit card: transparent over the feed, a surface wash on
+    // hover, the way the site's rows wash with accent/50. The padding
+    // stays at zero: the Fluent template's default inset would shove
+    // the whole row off the shared rail.
+    styleOf(
+      (fun selector -> selector.OfType<Button>().Class(name CommitRow)),
+      [|
+        Button.BackgroundProperty, box Brushes.Transparent
+        Button.BorderThicknessProperty, box(Thickness(0.0))
+        Button.PaddingProperty, box(Thickness(0.0))
+        Button.ForegroundProperty, themed Keys.text
+        Button.HorizontalAlignmentProperty, box HorizontalAlignment.Stretch
+        Button.HorizontalContentAlignmentProperty,
+        box HorizontalAlignment.Stretch
+        Button.VerticalContentAlignmentProperty, box VerticalAlignment.Stretch
       |]
     )
   | Divider ->
@@ -342,16 +504,24 @@ let styles() =
   [
     NavItem
     NavItemActive
+    NavCommit
     Card
     Title
+    Headline
     Subtitle
     Muted
+    StatNum
     AccentButton
     GhostButton
     DangerButton
     NavButton
     CodeBlock
     Chip
+    FilterPill
+    FilterPillActive
+    TabButton
+    TabButtonActive
+    CommitRow
     Divider
     ChromeTitle
     CaptionButton
@@ -360,8 +530,9 @@ let styles() =
   ]
   |> List.iter(fun class' -> styles.Add(style class'))
 
-  // The caption hover rides as a sibling pseudo-class style: a nested
-  // style on an app-level style stalls the style system.
+  // Hover states ride as sibling pseudo-class styles: a nested style on
+  // an app-level style stalls the style system. Later styles win over
+  // earlier ones, so each hover stays under its active override.
   styles.Add(
     styleOf(
       (fun selector ->
@@ -370,6 +541,49 @@ let styles() =
           .Class(name CaptionButton)
           .Class(":pointerover")),
       [| Button.BackgroundProperty, themed Keys.card |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector ->
+        selector.OfType<Button>().Class(name NavItem).Class(":pointerover")),
+      [|
+        Button.BackgroundProperty, themed Keys.surface
+        Button.ForegroundProperty, themed Keys.text
+      |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector ->
+        selector.OfType<Button>().Class(name NavCommit).Class(":pointerover")),
+      [| Button.BackgroundProperty, themed Keys.accentHover |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector ->
+        selector.OfType<Button>().Class(name FilterPill).Class(":pointerover")),
+      [| Button.BackgroundProperty, themed Keys.surface |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector ->
+        selector.OfType<Button>().Class(name TabButton).Class(":pointerover")),
+      [| Button.BackgroundProperty, themed Keys.surface |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector ->
+        selector.OfType<Button>().Class(name CommitRow).Class(":pointerover")),
+      [| Button.BackgroundProperty, themed Keys.surface |]
     )
   )
 

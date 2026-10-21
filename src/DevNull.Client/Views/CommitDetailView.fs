@@ -4,6 +4,7 @@ open System
 open System.Collections.Generic
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.Primitives
 open Avalonia.Controls.Shapes
 open Avalonia.Controls.Templates
 open Avalonia.Layout
@@ -51,7 +52,7 @@ type Msg =
   | ReloadRequested
   | MoreReplies
   | CardEvent of CommitCard.Event
-  | PastelRequested
+  | PastelRequested of commitId: string
   | DeleteRequested
   | StarDone of Result<Commit, AppError>
   | PastelGiven of Result<PastelResult, AppError>
@@ -106,6 +107,11 @@ let withCommit(updated: Commit, model: Model) : Model = {
   model with
       Page =
         model.Page |> Option.map(fun page -> { page with Commit = updated })
+      Replies =
+        model.Replies
+        |> List.map(function
+          | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
+          | node -> node)
 }
 
 let update (props: Props<'env>) msg model =
@@ -169,16 +175,19 @@ let update (props: Props<'env>) msg model =
   | CardEvent(CommitCard.Opened commit) ->
     Navigation.go(props.Nav, "/commit/" + commit.Id, ignore)
     model, Cmd.none
+  | CardEvent(CommitCard.PastelGiven commit) ->
+    { model with Error = None; Note = None },
+    Cmd.ofMsg(PastelRequested commit.Id)
   | CardEvent(CommitCard.QuoteRequested commit) ->
     Navigation.go(props.Nav, "/quote/" + commit.Id, ignore)
     model, Cmd.none
-  | PastelRequested ->
+  | PastelRequested commitId ->
     let give() =
       Pasteis.give(
         props.Env,
         {
           KeyFile = props.Session.KeyFile
-          CommitId = props.CommitId
+          CommitId = commitId
         }
       )
 
@@ -222,7 +231,9 @@ let nodeKey(node: CommitNode) =
   | Tombstone tombstone -> tombstone.Id
 
 /// One reply row: indented off a dashed spine, dense card.
-let replyRow (props: Props<'env>) (node: CommitNode) : Control =
+let replyRow
+  (props: Props<'env>, dispatch: Dispatch<Msg>, node: CommitNode)
+  : Control =
   match node with
   | LiveCommit commit ->
     let spine =
@@ -244,15 +255,8 @@ let replyRow (props: Props<'env>) (node: CommitNode) : Control =
     let card =
       CommitCard.view {
         Commit = commit
-        OnEvent =
-          fun event ->
-            match event with
-            | CommitCard.Opened c ->
-              Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
-            | CommitCard.QuoteRequested c ->
-              Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
-            | _ -> ()
-        Rail = ValueNone
+        OnEvent = fun event -> dispatch(CardEvent event)
+        Pastels = props.Session.Session.PasteisMode
         Dense = true
       }
 
@@ -332,7 +336,7 @@ let view
             CommitCard.view {
               Commit = page.Commit
               OnEvent = fun event -> dispatch(CardEvent event)
-              Rail = ValueNone
+              Pastels = props.Session.Session.PasteisMode
               Dense = false
             }
           | None -> Status.empty "")
@@ -343,7 +347,7 @@ let view
     Button()
       .Classes(Theme.name Theme.NavButton)
       .Content("Give a pastel")
-      .OnClickHandler(fun _ _ -> dispatch PastelRequested)
+      .OnClickHandler(fun _ _ -> dispatch(PastelRequested props.CommitId))
 
   let deleteButton =
     Button()
@@ -358,12 +362,20 @@ let view
       )
       .OnClickHandler(fun _ _ -> dispatch DeleteRequested)
 
+  // The viewer with pastéis mode off sees no pastel control at all, the
+  // way the site hides them.
+  let actionChildren: Control array = [|
+    if props.Session.Session.PasteisMode then
+      pastelButton
+    deleteButton
+  |]
+
   let threadActions =
     StackPanel()
       .Orientation(Orientation.Horizontal)
       .Spacing(8.0)
       .Margin(0.0, 8.0, 0.0, 12.0)
-      .Children(pastelButton, deleteButton)
+      .Children(actionChildren)
 
   let ancestors =
     let list = ItemsControl()
@@ -387,7 +399,10 @@ let view
     let list = ItemsControl()
 
     list.ItemTemplate <-
-      FuncDataTemplate<CommitNode>((fun node _ -> replyRow props node), false)
+      FuncDataTemplate<CommitNode>(
+        (fun node _ -> replyRow(props, dispatch, node)),
+        false
+      )
 
     list.BindItemsSource(
       model
@@ -415,7 +430,6 @@ let view
 
   let content =
     StackPanel()
-      .MaxWidth(720.0)
       .HorizontalAlignment(HorizontalAlignment.Stretch)
       .Children(
         back,
@@ -430,7 +444,12 @@ let view
         composer
       )
 
-  ScrollViewer().Padding(Theme.pagePadding).Content(content)
+  // The page scrolls one axis: a wrapped body and composer measure
+  // against the column, never an unbounded extent.
+  ScrollViewer()
+    .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
+    .Padding(Theme.pagePadding)
+    .Content(content)
 
 type Page<'env
   when 'env :> IProvideClock

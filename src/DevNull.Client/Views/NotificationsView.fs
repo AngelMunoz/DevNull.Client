@@ -38,12 +38,27 @@ type Props<'env
   Nav: INavigable
 }
 
+/// One notification group's expansion: the toggle, the events the
+/// group endpoint returned, and whether that read failed.
+type GroupVm = {
+  Open: bool
+  Items: Notification list
+  Failed: bool
+}
+
+let closedGroup: GroupVm = {
+  Open = false
+  Items = []
+  Failed = false
+}
+
 type Model = {
   Loading: bool
   Error: AppError option
   Filter: string option
   Items: Notification list
   NextCursor: string option
+  Groups: Map<string, GroupVm>
 }
 
 type Msg =
@@ -51,6 +66,8 @@ type Msg =
   | FilterChosen of filter: string option
   | Appended of Result<NotificationPage, AppError>
   | MoreRequested
+  | GroupToggled of Notification
+  | GroupLoaded of groupId: string * Result<Page<Notification>, AppError>
 
 let initial = {
   Loading = true
@@ -58,6 +75,7 @@ let initial = {
   Filter = None
   Items = []
   NextCursor = None
+  Groups = Map.empty
 }
 
 /// One inbox read: the filter in play and the pager cursor.
@@ -90,6 +108,26 @@ let init (props: Props<'env>) () =
        Cursor = None
      })
     Fetched
+
+/// Reads one group's events: the first event carries the id the group
+/// endpoint takes.
+let loadGroup
+  (env, session: SignedInSession, notification: Notification)
+  : Async<Result<Page<Notification>, AppError>> =
+  Notifications.group(
+    env,
+    {
+      KeyFile = session.KeyFile
+      NotificationId = notification.Id
+      Filter = None
+      Cursor = None
+    }
+  )
+
+let groupOf(notification: Notification, model: Model) : GroupVm =
+  model.Groups
+  |> Map.tryFind notification.GroupId
+  |> Option.defaultValue closedGroup
 
 let update (props: Props<'env>) msg model =
   match msg with
@@ -125,6 +163,7 @@ let update (props: Props<'env>) msg model =
             Filter = next
             Items = []
             NextCursor = None
+            Groups = Map.empty
       },
       Cmd.OfAsync.perform
         fetch
@@ -156,6 +195,54 @@ let update (props: Props<'env>) msg model =
       },
       Cmd.none
     | Error error -> { model with Error = Some error }, Cmd.none
+  | GroupToggled notification ->
+    let group = groupOf(notification, model)
+
+    if group.Open then
+      {
+        model with
+            Groups =
+              model.Groups.Add(
+                notification.GroupId,
+                { group with Open = false }
+              )
+      },
+      Cmd.none
+    else if List.isEmpty group.Items then
+      {
+        model with
+            Groups =
+              model.Groups.Add(notification.GroupId, { group with Open = true })
+      },
+      Cmd.OfAsync.perform
+        loadGroup
+        (props.Env, props.Session, notification)
+        (fun result -> GroupLoaded(notification.GroupId, result))
+    else
+      {
+        model with
+            Groups =
+              model.Groups.Add(notification.GroupId, { group with Open = true })
+      },
+      Cmd.none
+  | GroupLoaded(groupId, result) ->
+    let group =
+      model.Groups |> Map.tryFind groupId |> Option.defaultValue closedGroup
+
+    let next =
+      match result with
+      | Ok page -> {
+          group with
+              Items = page.Items
+              Failed = false
+        }
+      | Error _ -> { group with Failed = true }
+
+    {
+      model with
+          Groups = model.Groups.Add(groupId, next)
+    },
+    Cmd.none
 
 /// One filter pill: the wire type it requests and the label it wears.
 let filters: (string * string) list = [
@@ -184,12 +271,11 @@ let filterPill
       .Content(label)
       .OnClickHandler(fun _ _ -> dispatch(FilterChosen(Some wire)))
 
-  active
-  |> Observable.add(fun current ->
-    if current = Some wire then
-      pill.Classes.Add(Theme.name Theme.FilterPillActive) |> ignore
-    else
-      pill.Classes.Remove(Theme.name Theme.FilterPillActive) |> ignore)
+  Theme.bindClass(
+    pill,
+    Theme.FilterPillActive,
+    active |> Observable.map(fun current -> current = Some wire)
+  )
 
   pill
 
@@ -264,32 +350,6 @@ let rowKey(inboxRow: InboxRow) : string =
   match inboxRow with
   | InboxRow.Day label -> "day:" + label
   | InboxRow.Entry notification -> notification.GroupId
-
-/// One day separator over the neutral rail.
-let dayRow(label: string) : Control =
-  let grid = Grid()
-
-  grid.ColumnDefinitions <- ColumnDefinitions("64,*")
-
-  let line =
-    Border()
-      .Width(2.0)
-      .HorizontalAlignment(HorizontalAlignment.Center)
-      .VerticalAlignment(VerticalAlignment.Stretch)
-      .Background(Brushes.rail)
-
-  let label' =
-    Border()
-      .BorderBrush(Brushes.border)
-      .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
-      .Child(
-        TextBlock()
-          .Classes(Theme.name Theme.Mono)
-          .Margin(0.0, 8.0, 16.0, 8.0)
-          .Text(label)
-      )
-
-  grid.Children(line.Column(0), label'.Column(1))
 
 /// The rail cell of one notification: the neutral rail with the
 /// actor's avatar (the types about their commit) or the type's icon in
@@ -386,14 +446,6 @@ let excerptBox(notification: Notification) : Control option =
         .MaxLines(2)
         .TextTrimming(TextTrimming.CharacterEllipsis))
 
-/// The live expansion state of one group, held outside the recycled
-/// row controls.
-type GroupState = {
-  Open: BehaviorSubject<bool>
-  Items: BehaviorSubject<Notification list>
-  Failed: BehaviorSubject<bool>
-}
-
 /// One expanded event inside a group: the actor, the action, and the
 /// excerpt, off a short spine.
 let eventRow(notification: Notification) : Control =
@@ -407,7 +459,10 @@ let eventRow(notification: Notification) : Control =
           .Text(notification.Actor.Name),
         TextBlock()
           .Classes(Theme.name Theme.Mono)
-          .Text(timeAgo(DateTimeOffset.UtcNow, notification.CreatedAt))
+          .Text(
+            UiClock.minute
+            |> Observable.map(fun now -> timeAgo(now, notification.CreatedAt))
+          )
       )
 
   let children: Control array = [|
@@ -449,46 +504,6 @@ let view
   (dispatch: Dispatch<Msg>)
   : Control =
 
-  // One group's expansion state, created on first render and reused
-  // across the recycle passes.
-  let groups = Dictionary<string, GroupState>()
-
-  let stateOf(notification: Notification) : GroupState =
-    match groups.TryGetValue notification.GroupId with
-    | true, state -> state
-    | _ ->
-      let state = {
-        Open = new BehaviorSubject<bool>(false)
-        Items = new BehaviorSubject<Notification list>([])
-        Failed = new BehaviorSubject<bool>(false)
-      }
-
-      groups[notification.GroupId] <- state
-      state
-
-  /// Reads one group's events the first time it opens.
-  let loadGroup(notification: Notification, state: GroupState) : unit =
-    if List.isEmpty state.Items.Value then
-      asyncEx {
-        let! result: Result<Page<Notification>, AppError> =
-          Notifications.group(
-            props.Env,
-            {
-              KeyFile = props.Session.KeyFile
-              NotificationId = notification.Id
-              Filter = None
-              Cursor = None
-            }
-          )
-
-        match result with
-        | Ok page ->
-          state.Items.OnNext page.Items
-          state.Failed.OnNext false
-        | Error _ -> state.Failed.OnNext true
-      }
-      |> Async.StartImmediate
-
   let unread = props.Session.Session.UnreadNotificationsCount
 
   let unreadLabel =
@@ -496,8 +511,6 @@ let view
       $"Notifications · {unread} unread"
     else
       "Notifications"
-
-  let title = TextBlock().Classes(Theme.name Theme.Title).Text(unreadLabel)
 
   let activeFilter = model |> Observable.map _.Filter
 
@@ -511,52 +524,16 @@ let view
       for pair in filters -> filterPill(activeFilter, dispatch, pair)
     |]
 
-  let errorText =
-    TextBlock()
-      .TextWrapping(TextWrapping.Wrap)
-      .Foreground(Brushes.danger)
-      .Text(
-        model
-        |> Observable.map(fun current ->
-          current.Error |> Option.map describe |> Option.defaultValue "")
-      )
-
-  let errorPanel =
-    Border()
-      .Classes(Theme.name Theme.Card)
-      .Margin(0.0, 8.0, 0.0, 8.0)
-      .Child(errorText)
-      .IsVisible(model |> Observable.map(_.Error.IsSome))
-
-  let busy =
-    Status
-      .busy("Loading the inbox…")
-      .IsVisible(model |> Observable.map _.Loading)
-
-  let emptyState =
-    Status
-      .empty("Nothing here yet. Follows, stars, and replies will show up here.")
-      .IsVisible(
-        model
-        |> Observable.map(fun current ->
-          not current.Loading && current.Error.IsNone && current.Items.IsEmpty)
-      )
-
-  let loadMore =
-    Button()
-      .Content("Load more")
-      .Classes(Theme.name Theme.GhostButton)
-      .HorizontalAlignment(HorizontalAlignment.Center)
-      .Margin(0.0, 8.0, 0.0, 16.0)
-      .IsVisible(model |> Observable.map _.NextCursor.IsSome)
-      .OnClickHandler(fun _ _ -> dispatch MoreRequested)
-
   /// One group's expansion host: the toggle line and, while open, the
-  /// events the group endpoint returned.
-  let groupHost(notification: Notification, state: GroupState) : Control =
+  /// events the group endpoint returned. Every piece binds the group's
+  /// model entry, so a recycled row never keeps stale state.
+  let groupHost(notification: Notification) : Control =
     let count = notification.EventCount
 
     let label = $"{count} {nounOf notification.Type}"
+
+    let group =
+      model |> Observable.map(fun current -> groupOf(notification, current))
 
     let toggle =
       Button()
@@ -574,40 +551,31 @@ let view
         )
         .OnClickHandler(fun _ args ->
           args.Handled <- true
-
-          let next = not state.Open.Value
-
-          state.Open.OnNext next
-
-          if next then
-            loadGroup(notification, state))
+          dispatch(GroupToggled notification))
         .IsVisible(notification.EventCount > 1)
 
     let events =
+      let content =
+        group
+        |> Observable.map(fun current ->
+          StackPanel().Margin(24.0, 0.0, 0.0, 0.0).Children [|
+            for item in current.Items -> eventRow item
+          |])
+
       ContentControl()
-        .Content(
-          state.Items
-          |> Observable.map(fun items ->
-            StackPanel().Margin(24.0, 0.0, 0.0, 0.0).Children [|
-              for item in items -> eventRow item
-            |]
-            : Control)
-          |> _.ToBinding()
-        )
-        .IsVisible(state.Open)
+        .Content(content.ToBinding())
+        .IsVisible(group |> Observable.map _.Open)
 
     let failed =
       TextBlock()
         .Classes(Theme.name Theme.Mono)
         .Margin(0.0, 6.0, 0.0, 0.0)
         .Text("fatal: could not load")
-        .IsVisible(state.Failed)
+        .IsVisible(group |> Observable.map _.Failed)
 
     StackPanel().Children(toggle, events, failed)
 
   let row(notification: Notification) : Control =
-    let state = stateOf notification
-
     let where =
       commitOf notification |> Option.map(fun commit -> "/commit/" + commit.Id)
 
@@ -625,7 +593,10 @@ let view
             .TextTrimming(TextTrimming.CharacterEllipsis),
           TextBlock()
             .Classes(Theme.name Theme.Mono)
-            .Text(timeAgo(DateTimeOffset.UtcNow, notification.CreatedAt))
+            .Text(
+              UiClock.minute
+              |> Observable.map(fun now -> timeAgo(now, notification.CreatedAt))
+            )
         )
 
     let action =
@@ -642,7 +613,7 @@ let view
       | Some excerpt -> excerpt
       | None -> ()
 
-      groupHost(notification, state)
+      groupHost notification
     |]
 
     let content = StackPanel().Margin(0.0, 12.0, 16.0, 12.0).Children(children)
@@ -667,7 +638,7 @@ let view
 
   let feedRow(inboxRow: InboxRow) : Control =
     match inboxRow with
-    | InboxRow.Day label -> dayRow label
+    | InboxRow.Day label -> FeedParts.dayRow label
     | InboxRow.Entry notification -> row notification
 
   let list =
@@ -675,19 +646,28 @@ let view
       Items = model |> Observable.map(fun current -> toRows current.Items)
       KeyOf = rowKey
       Row = feedRow
-      Footer = ValueSome loadMore
+      Footer =
+        ValueSome(
+          PageChrome.loadMore(
+            model |> Observable.map _.NextCursor.IsSome,
+            fun () -> dispatch MoreRequested
+          )
+        )
     }
 
-  let pinned =
-    StackPanel()
-      .HorizontalAlignment(HorizontalAlignment.Stretch)
-      .Margin(Theme.pinnedPadding)
-      .Children(title, pillRow, errorPanel, busy, emptyState)
-
-  let root = Grid()
-  root.RowDefinitions <- RowDefinitions("Auto,*")
-
-  root.Children(pinned.Row(0), list.Row(1))
+  PageChrome.page {
+    Model = model
+    Title = unreadLabel
+    Padding = Theme.pinnedPadding
+    ErrorOf = _.Error
+    Busy = fun current -> current.Loading, "Loading the inbox…"
+    Empty =
+      fun current ->
+        not current.Loading && current.Error.IsNone && current.Items.IsEmpty,
+        "Nothing here yet. Follows, stars, and replies will show up here."
+    Header = [ fun () -> pillRow ]
+    Body = fun () -> list
+  }
 
 type Page<'env
   when 'env :> IProvideClock

@@ -1,18 +1,17 @@
 module DevNull.Client.UI.Tests.Unread
 
-// The unread poller: one /me poll pushes the count into the session
-// store, a failed poll keeps the last count, and the pause gate holds
-// every request while the inbox is on screen.
+// The unread service: one /me poll pushes the count into the session
+// store, a failed poll keeps the last count, and the inbox-visible gate
+// holds every request while the inbox is on screen.
 
 open System
 open System.Reactive.Subjects
-open System.Threading
 
 open Expecto
 
 open DevNull.Client.Core.Http
 open DevNull.Client.Stores
-open DevNull.Client.UnreadPoller
+open DevNull.Client.Unread
 open DevNull.Client.UI.Tests.Fixtures
 open DevNull.Client.UI.Tests.Harness
 
@@ -30,82 +29,94 @@ let meApi(unread: int) =
       ok "{}")
 
 let tests =
-  testList "unread poller" [
-    test "a poll pushes the unread count into the session store" {
-      let store = signedInStore()
-      let api = meApi 7
-      let env = TestEnv(store, api :> IHttp)
-      let paused = new BehaviorSubject<bool>(false)
+  testList "unread service" [
+    testCaseAsync
+      "a poll pushes the unread count into the session store"
+      (async {
+        let store = signedInStore()
+        let api = meApi 7
+        let env = TestEnv(store, api :> IHttp)
+        let inboxVisible = new BehaviorSubject<bool>(false)
 
-      use poller = DevNull.Client.UnreadPoller.run(env, paused, 20)
+        use poller =
+          (env :> IProvideUnread)
+            .Unread.Start(inboxVisible, TimeSpan.FromMilliseconds 20.0)
 
-      let refreshed =
-        waitFor(
-          5000,
-          (fun () -> store.Current),
-          (function
-          | SignedIn entry -> entry.Session.UnreadNotificationsCount = 7
-          | SignedOut -> false)
-        )
+        let! refreshed =
+          waitForAsync(
+            5000,
+            (fun () -> store.Current),
+            (function
+            | SignedIn entry -> entry.Session.UnreadNotificationsCount = 7
+            | SignedOut -> false)
+          )
 
-      Expect.isTrue refreshed "the store never took the polled count"
-    }
+        Expect.isTrue refreshed "the store never took the polled count"
+      })
 
-    test "a failed poll keeps the last count" {
-      let store = signedInStore()
+    testCaseAsync
+      "a failed poll keeps the last count"
+      (async {
+        let store = signedInStore()
 
-      let api =
-        FakeApi(fun _ -> {
-          Status = 500
-          Headers = []
-          Body = "{}"
-        })
+        let api =
+          FakeApi(fun _ -> {
+            Status = 500
+            Headers = []
+            Body = "{}"
+          })
 
-      let env = TestEnv(store, api :> IHttp)
-      let paused = new BehaviorSubject<bool>(false)
+        let env = TestEnv(store, api :> IHttp)
+        let inboxVisible = new BehaviorSubject<bool>(false)
 
-      use poller = DevNull.Client.UnreadPoller.run(env, paused, 20)
+        use poller =
+          (env :> IProvideUnread)
+            .Unread.Start(inboxVisible, TimeSpan.FromMilliseconds 20.0)
 
-      let attempted =
-        waitFor(
-          2000,
-          (fun () -> api.Requests),
-          (fun requests -> not requests.IsEmpty)
-        )
+        let! attempted =
+          waitForAsync(
+            2000,
+            (fun () -> api.Requests),
+            (fun requests -> not requests.IsEmpty)
+          )
 
-      Expect.isTrue attempted "the poller never sent a request"
+        Expect.isTrue attempted "the service never sent a request"
 
-      let count =
-        probeUi(fun () ->
-          match store.Current with
-          | SignedIn entry -> entry.Session.UnreadNotificationsCount
-          | SignedOut -> -1)
+        let! count =
+          probeUiAsync(fun () ->
+            match store.Current with
+            | SignedIn entry -> entry.Session.UnreadNotificationsCount
+            | SignedOut -> -1)
 
-      Expect.equal count 3 "a failed poll changed the count"
-    }
+        Expect.equal count 3 "a failed poll changed the count"
+      })
 
-    test "a paused poller sends nothing until it resumes" {
-      let store = signedInStore()
-      let api = meApi 7
-      let env = TestEnv(store, api :> IHttp)
-      let paused = new BehaviorSubject<bool>(true)
+    testCaseAsync
+      "a paused service sends nothing until it resumes"
+      (async {
+        let store = signedInStore()
+        let api = meApi 7
+        let env = TestEnv(store, api :> IHttp)
+        let inboxVisible = new BehaviorSubject<bool>(true)
 
-      use poller = DevNull.Client.UnreadPoller.run(env, paused, 20)
+        use poller =
+          (env :> IProvideUnread)
+            .Unread.Start(inboxVisible, TimeSpan.FromMilliseconds 20.0)
 
-      Thread.Sleep 150
-      pump()
+        do! Async.Sleep 150
+        do! pumpAsync()
 
-      Expect.isEmpty api.Requests "the paused poller sent a request"
+        Expect.isEmpty api.Requests "the paused service sent a request"
 
-      onUi(fun () -> paused.OnNext false)
+        do! onUiAsync(fun () -> inboxVisible.OnNext false)
 
-      let resumed =
-        waitFor(
-          2000,
-          (fun () -> api.Requests),
-          (fun requests -> not requests.IsEmpty)
-        )
+        let! resumed =
+          waitForAsync(
+            2000,
+            (fun () -> api.Requests),
+            (fun requests -> not requests.IsEmpty)
+          )
 
-      Expect.isTrue resumed "the poller never resumed"
-    }
+        Expect.isTrue resumed "the service never resumed"
+      })
   ]

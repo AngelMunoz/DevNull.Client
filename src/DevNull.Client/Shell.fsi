@@ -7,6 +7,7 @@ open DevNull.Client.Env
 open DevNull.Client.Icons
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
+open DevNull.Client.Unread
 open Navs
 
 /// The one window of the app: the sidebar, the router outlet, and the
@@ -20,7 +21,8 @@ type Shell<'env
   and 'env :> IProvideHttp
   and 'env :> IProvideSession
   and 'env :> IProvideSettings
-  and 'env :> IProvideLogging> =
+  and 'env :> IProvideLogging
+  and 'env :> IProvideUnread> =
   new: env: 'env * callback: string option -> Shell<'env>
   inherit Window
 

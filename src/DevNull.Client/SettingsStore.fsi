@@ -50,8 +50,9 @@ type AppSettingsStore =
 type IProvideSettings =
   abstract Settings: AppSettingsStore
 
-/// The stored settings file, or None when it is absent or unreadable.
-val load: unit -> AppSettings option
+/// The stored settings: `Ok None` when the file is absent, `Error` when
+/// the file exists and cannot be read.
+val load: unit -> Result<AppSettings option, string>
 
 /// Writes the settings file; the message carries the failure.
 val save: settings: AppSettings -> Result<unit, string>

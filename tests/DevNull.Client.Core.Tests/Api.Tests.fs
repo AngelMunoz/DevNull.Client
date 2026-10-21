@@ -304,7 +304,7 @@ let redeemDeviceTests =
       let! (result: Result<Me, TestError>) = Device.redeem(env, redeemRequest)
 
       match result with
-      | Error(Refused(400, InvalidGrant, message)) ->
+      | Error(Refused(400, Some InvalidGrant, message)) ->
         Expect.equal
           "This sign-in has expired or was already used. Sign in again in the app."
           message
@@ -323,7 +323,7 @@ let redeemDeviceTests =
       let! (result: Result<Me, TestError>) = Device.redeem(env, redeemRequest)
 
       match result with
-      | Error(Refused(503, Unknown "new_code", "Upstream failed.")) -> ()
+      | Error(Refused(503, Some(Unknown "new_code"), "Upstream failed.")) -> ()
       | _ -> failtest "expected Refused with an unknown code"
     }
 
@@ -334,7 +334,7 @@ let redeemDeviceTests =
       let! (result: Result<Me, TestError>) = Device.redeem(env, redeemRequest)
 
       match result with
-      | Error(Refused(500, Unknown "", "upstream failed")) -> ()
+      | Error(Refused(500, None, "upstream failed")) -> ()
       | _ -> failtest "expected Refused with the raw body"
     }
 
@@ -519,7 +519,7 @@ let commitApiTests =
         Commits.create(envFor http, commitRequest)
 
       match result with
-      | Error(Refused(422, Unknown "", message)) ->
+      | Error(Refused(422, None, message)) ->
         Expect.equal "The body field is required." message "message"
       | _ -> failtest "expected a code-less refusal"
     }
@@ -605,8 +605,9 @@ let commitApiTests =
       let! (result: Result<CommitPage, TestError>) = Commits.show(env, request)
 
       match result with
-      | Error(Refused(404, CommitUnavailable, "This commit isn't available.")) ->
-        ()
+      | Error(Refused(404,
+                      Some CommitUnavailable,
+                      "This commit isn't available.")) -> ()
       | _ -> failtest "expected Refused with commit_unavailable"
     }
 

@@ -5,6 +5,7 @@ open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
+open DevNull.Client.Unread
 
 /// The logging capability: one factory bridged to Serilog, so every
 /// service that accepts a logger lands in the same sink and level.
@@ -27,6 +28,7 @@ type AppEnv =
   interface IProvideSession
   interface IProvideSettings
   interface IProvideLogging
+  interface IProvideUnread
 
 module KeyFiles =
 

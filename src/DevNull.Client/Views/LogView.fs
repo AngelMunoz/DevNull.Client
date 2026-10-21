@@ -111,13 +111,6 @@ let replaceNode(items: CommitNode list, updated: Commit) : CommitNode list =
     | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
     | node -> node)
 
-let actionRequest
-  (session: SignedInSession, commit: Commit)
-  : Stars.ActionRequest = {
-  KeyFile = session.KeyFile
-  CommitId = commit.Id
-}
-
 let update (props: Props<'env>) msg model =
   match msg with
   | Fetched result ->
@@ -197,15 +190,11 @@ let update (props: Props<'env>) msg model =
       Cmd.none
     | Error error -> { model with Error = Some error }, Cmd.none
   | StarToggled commit ->
-    let toggle() =
-      let request = actionRequest(props.Session, commit)
-
-      if commit.Starred |> Option.contains true then
-        Stars.unstar(props.Env, request)
-      else
-        Stars.star(props.Env, request)
-
-    { model with Error = None }, Cmd.OfAsync.perform toggle () StarDone
+    { model with Error = None },
+    Cmd.OfAsync.perform
+      CommitActions.toggleStar
+      (props.Env, props.Session, commit)
+      StarDone
   | StarDone result ->
     match result with
     | Ok updated ->
@@ -290,39 +279,12 @@ let keyOf(logRow: LogRow) : string =
   | LogRow.Node commit -> commit.Id
   | LogRow.TombstoneRow tombstone -> tombstone.Id
 
-/// One day separator: the rail runs on in the neutral tone, the label
-/// rides the content column above a hairline.
-let dayRow(label: string) : Control =
-  let grid = Grid()
-
-  grid.ColumnDefinitions <- ColumnDefinitions("64,*")
-
-  let line =
-    Border()
-      .Width(2.0)
-      .HorizontalAlignment(HorizontalAlignment.Center)
-      .VerticalAlignment(VerticalAlignment.Stretch)
-      .Background(Brushes.rail)
-
-  let label' =
-    Border()
-      .BorderBrush(Brushes.border)
-      .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
-      .Child(
-        TextBlock()
-          .Classes(Theme.name Theme.Mono)
-          .Margin(0.0, 8.0, 16.0, 8.0)
-          .Text(label)
-      )
-
-  grid.Children(line.Column(0), label'.Column(1))
-
 let row
   (props: Props<'env>, dispatch: Dispatch<Msg>)
   (logRow: LogRow)
   : Control =
   match logRow with
-  | LogRow.Day label -> dayRow label
+  | LogRow.Day label -> FeedParts.dayRow label
   | LogRow.Node commit ->
     CommitCard.view {
       Commit = commit
@@ -338,7 +300,7 @@ let row
       Pastels = props.Session.Session.PasteisMode
       Dense = false
     }
-  | LogRow.TombstoneRow tombstone -> CommitCard.tombstone tombstone
+  | LogRow.TombstoneRow _ -> CommitCard.tombstone()
 
 type Tab = {
   Label: string
@@ -488,53 +450,6 @@ let view
       .IsVisible(model |> Observable.map _.NewCount.IsSome)
       .OnClickHandler(fun _ _ -> dispatch NewRequested)
 
-  let errorText =
-    TextBlock()
-      .TextWrapping(TextWrapping.Wrap)
-      .Foreground(Brushes.danger)
-      .Text(
-        model
-        |> Observable.map(fun current ->
-          current.Error |> Option.map describe |> Option.defaultValue "")
-      )
-
-  let errorPanel =
-    Border()
-      .Classes(Theme.name Theme.Card)
-      .Margin(16.0, 0.0, 16.0, 8.0)
-      .Child(errorText)
-      .IsVisible(model |> Observable.map(_.Error.IsSome))
-
-  let busy =
-    Status.busy("Loading the log…").IsVisible(model |> Observable.map _.Loading)
-
-  let emptyState =
-    // The machine voice opens; the sentence answers.
-    StackPanel()
-      .Margin(16.0, 0.0, 16.0, 8.0)
-      .Children(
-        TextBlock()
-          .Classes(Theme.name Theme.CodeBlock)
-          .Text("fatal: nothing found"),
-        TextBlock()
-          .Text("Nothing here yet. Commit something.")
-          .TextWrapping(TextWrapping.Wrap)
-      )
-      .IsVisible(
-        model
-        |> Observable.map(fun current ->
-          not current.Loading && current.Error.IsNone && current.Items.IsEmpty)
-      )
-
-  let loadMore =
-    Button()
-      .Content("Load more")
-      .Classes(Theme.name Theme.GhostButton)
-      .HorizontalAlignment(HorizontalAlignment.Center)
-      .Margin(0.0, 8.0, 0.0, 16.0)
-      .IsVisible(model |> Observable.map _.NextCursor.IsSome)
-      .OnClickHandler(fun _ _ -> dispatch MoreRequested)
-
   let list =
     Feed.view {
       Items =
@@ -542,7 +457,13 @@ let view
         |> Observable.map(fun current -> toRows(current.Items, current.Ranked))
       KeyOf = keyOf
       Row = row(props, dispatch)
-      Footer = ValueSome loadMore
+      Footer =
+        ValueSome(
+          PageChrome.loadMore(
+            model |> Observable.map _.NextCursor.IsSome,
+            fun () -> dispatch MoreRequested
+          )
+        )
     }
 
   // The since-poll: once a minute, ask the server what landed after
@@ -558,16 +479,25 @@ let view
   // The pinned area takes no horizontal inset: the composer's rail must
   // sit on the same line as the day separators and the cards below,
   // which all start at the reading column's left edge.
-  let pinned =
-    StackPanel()
-      .HorizontalAlignment(HorizontalAlignment.Stretch)
-      .Margin(Thickness(0.0, Theme.bandHeight + 8.0, 0.0, 0.0))
-      .Children(composerRow, newPill, errorPanel, busy, emptyState)
+  let pinnedPage =
+    PageChrome.page {
+      Model = model
+      Title = ""
+      Padding = Thickness(0.0, Theme.bandHeight + 8.0, 0.0, 0.0)
+      ErrorOf = _.Error
+      Busy = fun current -> current.Loading, "Loading the log…"
+      Empty =
+        fun current ->
+          not current.Loading && current.Error.IsNone && current.Items.IsEmpty,
+          "Nothing here yet. Commit something."
+      Header = [ (fun () -> composerRow); fun () -> newPill ]
+      Body = fun () -> list
+    }
 
   let root = Grid()
-  root.RowDefinitions <- RowDefinitions("Auto,Auto,*")
+  root.RowDefinitions <- RowDefinitions("Auto,*")
 
-  root.Children(tabStrip.Row(0), pinned.Row(1), list.Row(2)) |> ignore
+  root.Children(tabStrip.Row(0), pinnedPage.Row(1)) |> ignore
 
   root.AttachedToVisualTree.Add(fun _ -> newTimer.Start())
 

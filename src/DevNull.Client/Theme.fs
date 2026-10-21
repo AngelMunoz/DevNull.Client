@@ -49,9 +49,10 @@ let solid(variant: ThemeVariant, key: string) : IBrush =
 
 module Brushes =
 
-  let private themed(key: string) : IObservable<IBrush> =
+  let themed(key: string) : IObservable<IBrush> =
     match Application.Current with
-    | null -> failwith "the theme is not installed yet"
+    | null ->
+      System.Reactive.Linq.Observable.Return(Brushes.Transparent :> IBrush)
     | app ->
       app.GetResourceObservable key
       |> Observable.map(fun value ->
@@ -74,30 +75,14 @@ module Brushes =
   let primarySoft = themed Keys.primarySoft
   let laneFallback = themed Keys.laneFallback
 
-  let transparent = {
-    new IObservable<IBrush> with
-      member _.Subscribe(observer) =
-        observer.OnNext Brushes.Transparent
-
-        {
-          new IDisposable with
-            member _.Dispose() = ()
-        }
-  }
+  let transparent: IObservable<IBrush> =
+    System.Reactive.Linq.Observable.Return(Brushes.Transparent :> IBrush)
 
   let lane(index: int) = themed(Keys.lane index)
 
   /// One brush that never changes, as an observable.
-  let constant(brush: IBrush) : IObservable<IBrush> = {
-    new IObservable<IBrush> with
-      member _.Subscribe(observer) =
-        observer.OnNext brush
-
-        {
-          new IDisposable with
-            member _.Dispose() = ()
-        }
-  }
+  let constant(brush: IBrush) : IObservable<IBrush> =
+    System.Reactive.Linq.Observable.Return brush
 
   /// The brush of one lane value: a palette index, a user hex, or the
   /// neutral fallback when the user carries no lane.
@@ -178,6 +163,18 @@ let name class' =
   | Mono -> "mono"
   | Wordmark -> "wordmark"
 
+/// Moves one class on and off a control as the observable flips. The
+/// class list is the only thing the subscription touches.
+let bindClass
+  (control: Control, class': StyleClass, active: IObservable<bool>)
+  : unit =
+  active
+  |> Observable.add(fun flag ->
+    if flag then
+      control.Classes.Add(name class') |> ignore
+    else
+      control.Classes.Remove(name class') |> ignore)
+
 /// One app-level style: a selector plus its setters, as code.
 let styleOf
   (
@@ -191,11 +188,12 @@ let styleOf
 
 /// One themed setter value: a dynamic resource the variant switch
 /// re-resolves.
-let private themed(key: string) = box(DynamicResourceExtension key)
+let themed(key: string) = box(DynamicResourceExtension key)
 
-let style class' =
-  match class' with
-  | NavItem ->
+/// Every class and the style it carries, in cascade order.
+let styleTable: (StyleClass * (unit -> Style)) list = [
+  NavItem,
+  fun () ->
     // The site's nav entry: one 44-high row, icon and label at 15px
     // medium, rounded corners.
     styleOf(
@@ -214,7 +212,8 @@ let style class' =
         Button.VerticalContentAlignmentProperty, box VerticalAlignment.Center
       |]
     )
-  | NavItemActive ->
+  NavItemActive,
+  fun () ->
     // The site's active navigation: a primary-soft wash with primary
     // text, never a gray fill.
     styleOf(
@@ -225,7 +224,8 @@ let style class' =
         Button.ForegroundProperty, themed Keys.accent
       |]
     )
-  | NavCommit ->
+  NavCommit,
+  fun () ->
     // The compose entry: the nav row shape filled with the primary
     // color, the way the site's Commit button sits inside the nav.
     styleOf(
@@ -244,7 +244,8 @@ let style class' =
         Button.VerticalContentAlignmentProperty, box VerticalAlignment.Center
       |]
     )
-  | Card ->
+  Card,
+  fun () ->
     styleOf(
       (fun selector -> selector.OfType<Border>().Class(name Card)),
       [|
@@ -255,7 +256,8 @@ let style class' =
         Border.PaddingProperty, box(Thickness(14.0))
       |]
     )
-  | Title ->
+  Title,
+  fun () ->
     styleOf(
       (fun selector -> selector.OfType<TextBlock>().Class(name Title)),
       [|
@@ -264,7 +266,8 @@ let style class' =
         TextBlock.ForegroundProperty, themed Keys.text
       |]
     )
-  | Headline ->
+  Headline,
+  fun () ->
     // The site's identity heading: 24px semibold, tight tracking.
     styleOf(
       (fun selector -> selector.OfType<TextBlock>().Class(name Headline)),
@@ -274,7 +277,8 @@ let style class' =
         TextBlock.ForegroundProperty, themed Keys.text
       |]
     )
-  | Subtitle ->
+  Subtitle,
+  fun () ->
     styleOf(
       (fun selector -> selector.OfType<TextBlock>().Class(name Subtitle)),
       [|
@@ -283,12 +287,14 @@ let style class' =
         TextBlock.ForegroundProperty, themed Keys.text
       |]
     )
-  | Muted ->
+  Muted,
+  fun () ->
     styleOf(
       (fun selector -> selector.OfType<TextBlock>().Class(name Muted)),
       [| TextBlock.ForegroundProperty, themed Keys.muted |]
     )
-  | StatNum ->
+  StatNum,
+  fun () ->
     // The count half of one stat pair: mono, medium, reading color.
     styleOf(
       (fun selector -> selector.OfType<TextBlock>().Class(name StatNum)),
@@ -299,7 +305,8 @@ let style class' =
         TextBlock.ForegroundProperty, themed Keys.text
       |]
     )
-  | AccentButton ->
+  AccentButton,
+  fun () ->
     styleOf(
       (fun selector -> selector.OfType<Button>().Class(name AccentButton)),
       [|
@@ -311,7 +318,8 @@ let style class' =
         Button.PaddingProperty, box(Thickness(16.0, 9.0, 16.0, 9.0))
       |]
     )
-  | GhostButton ->
+  GhostButton,
+  fun () ->
     styleOf(
       (fun selector -> selector.OfType<Button>().Class(name GhostButton)),
       [|
@@ -320,7 +328,8 @@ let style class' =
         Button.BorderThicknessProperty, box(Thickness(0.0))
       |]
     )
-  | DangerButton ->
+  DangerButton,
+  fun () ->
     styleOf(
       (fun selector -> selector.OfType<Button>().Class(name DangerButton)),
       [|
@@ -331,7 +340,8 @@ let style class' =
         Button.PaddingProperty, box(Thickness(16.0, 9.0, 16.0, 9.0))
       |]
     )
-  | NavButton ->
+  NavButton,
+  fun () ->
     styleOf(
       (fun selector -> selector.OfType<Button>().Class(name NavButton)),
       [|
@@ -342,7 +352,8 @@ let style class' =
         Button.CornerRadiusProperty, box(CornerRadius(8.0))
       |]
     )
-  | CodeBlock ->
+  CodeBlock,
+  fun () ->
     styleOf(
       (fun selector -> selector.OfType<TextBlock>().Class(name CodeBlock)),
       [|
@@ -351,7 +362,8 @@ let style class' =
         TextBlock.ForegroundProperty, themed Keys.text
       |]
     )
-  | Chip ->
+  Chip,
+  fun () ->
     styleOf(
       (fun selector -> selector.OfType<Border>().Class(name Chip)),
       [|
@@ -362,7 +374,8 @@ let style class' =
         Border.PaddingProperty, box(Thickness(8.0, 2.0, 8.0, 2.0))
       |]
     )
-  | FilterPill ->
+  FilterPill,
+  fun () ->
     // The site's notification filter: a full-round pill that fills
     // with the primary-soft wash while pressed in.
     styleOf(
@@ -378,7 +391,8 @@ let style class' =
         Button.PaddingProperty, box(Thickness(12.0, 6.0, 12.0, 6.0))
       |]
     )
-  | FilterPillActive ->
+  FilterPillActive,
+  fun () ->
     styleOf(
       (fun selector ->
         selector
@@ -391,7 +405,8 @@ let style class' =
         Button.ForegroundProperty, themed Keys.accent
       |]
     )
-  | TabButton ->
+  TabButton,
+  fun () ->
     // The site's page tab: a full-width row of centered titles over a
     // hairline, the active one underlined in primary.
     styleOf(
@@ -410,7 +425,8 @@ let style class' =
         box HorizontalAlignment.Center
       |]
     )
-  | TabButtonActive ->
+  TabButtonActive,
+  fun () ->
     styleOf(
       (fun selector ->
         selector
@@ -422,7 +438,8 @@ let style class' =
         Button.ForegroundProperty, themed Keys.text
       |]
     )
-  | CommitRow ->
+  CommitRow,
+  fun () ->
     // One commit card: transparent over the feed, a surface wash on
     // hover, the way the site's rows wash with accent/50. The padding
     // stays at zero: the Fluent template's default inset would shove
@@ -440,7 +457,8 @@ let style class' =
         Button.VerticalContentAlignmentProperty, box VerticalAlignment.Stretch
       |]
     )
-  | Divider ->
+  Divider,
+  fun () ->
     styleOf(
       (fun selector -> selector.OfType<Border>().Class(name Divider)),
       [|
@@ -448,7 +466,8 @@ let style class' =
         Control.HeightProperty, box 1.0
       |]
     )
-  | Mono ->
+  Mono,
+  fun () ->
     // The machine voice: hashes, handles, times, and counts.
     styleOf(
       (fun selector -> selector.OfType<TextBlock>().Class(name Mono)),
@@ -458,7 +477,8 @@ let style class' =
         TextBlock.ForegroundProperty, themed Keys.muted
       |]
     )
-  | Wordmark ->
+  Wordmark,
+  fun () ->
     // The lowercase brand: bold, tight, with the second slash painted
     // in the lane color by the shell.
     styleOf(
@@ -470,7 +490,8 @@ let style class' =
         TextBlock.ForegroundProperty, themed Keys.text
       |]
     )
-  | ChromeTitle ->
+  ChromeTitle,
+  fun () ->
     // The drawn window chrome draws the window title over the client
     // area; the shell paints its own brand, so the chrome text stays
     // off.
@@ -482,7 +503,8 @@ let style class' =
           .OfType<TextBlock>()),
       [| Control.IsVisibleProperty, box false |]
     )
-  | CaptionButton ->
+  CaptionButton,
+  fun () ->
     // One app-drawn caption button; the hover state rides on a sibling
     // pseudo-class style in `styles`.
     styleOf(
@@ -497,38 +519,19 @@ let style class' =
         Button.CornerRadiusProperty, box(CornerRadius(6.0))
       |]
     )
+]
+
+/// One style for the given class.
+let style class' =
+  styleTable
+  |> List.pick(fun (candidate, build) ->
+    if candidate = class' then Some(build()) else None)
 
 let styles() =
   let styles = Styles()
 
-  [
-    NavItem
-    NavItemActive
-    NavCommit
-    Card
-    Title
-    Headline
-    Subtitle
-    Muted
-    StatNum
-    AccentButton
-    GhostButton
-    DangerButton
-    NavButton
-    CodeBlock
-    Chip
-    FilterPill
-    FilterPillActive
-    TabButton
-    TabButtonActive
-    CommitRow
-    Divider
-    ChromeTitle
-    CaptionButton
-    Mono
-    Wordmark
-  ]
-  |> List.iter(fun class' -> styles.Add(style class'))
+  for _, build in styleTable do
+    styles.Add(build())
 
   // Hover states ride as sibling pseudo-class styles: a nested style on
   // an app-level style stalls the style system. Later styles win over
@@ -591,7 +594,7 @@ let styles() =
 
 /// The dark palette: the site's `.dark` tokens from
 /// dev-null/resources/css/app.css.
-let private darks() =
+let darks() =
   let dictionary = ResourceDictionary()
 
   let colors = dictionary :> IDictionary<obj | null, obj | null>
@@ -625,7 +628,7 @@ let private darks() =
 
 /// The light palette: the site's `:root` tokens from
 /// dev-null/resources/css/app.css.
-let private lights() =
+let lights() =
   let dictionary = ResourceDictionary()
 
   let colors = dictionary :> IDictionary<obj | null, obj | null>

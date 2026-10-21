@@ -1,7 +1,6 @@
 module DevNull.Client.Env
 
 open System
-open System.Diagnostics
 open System.IO
 open System.Net.Http
 open System.Net.Http.Headers
@@ -10,10 +9,15 @@ open System.Text
 open System.Threading.Tasks
 open IcedTasks
 open Microsoft.Extensions.Logging
+open DevNull.Client.Core.Api
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.Errors
+open DevNull.Client.SessionFiles
 open DevNull.Client.SettingsStore
+open DevNull.Client.SshKeygen
 open DevNull.Client.Stores
+open DevNull.Client.Unread
 
 type SystemClock() =
 
@@ -63,30 +67,14 @@ type SshKeygenSigner() =
 
     File.WriteAllText(payloadFile, request.Payload, UTF8Encoding(false))
 
-    let start =
-      ProcessStartInfo(
-        FileName = "ssh-keygen",
-        Arguments =
-          $"-Y sign -f \"{request.KeyFile}\" -n {request.Namespace} \"{payloadFile}\"",
-        RedirectStandardError = true,
-        UseShellExecute = false,
-        CreateNoWindow = true
-      )
-
     let outcome: Result<string, SignFailure> =
-      match Process.Start(start) with
-      | null ->
-        Error {
-          Message = "ssh-keygen did not start."
-        }
-      | started ->
-        use signing = started
-        let stderr = signing.StandardError.ReadToEnd()
-        signing.WaitForExit()
-
-        match signing.ExitCode with
-        | 0 -> File.ReadAllText(payloadFile + ".sig") |> stripArmor |> Ok
-        | _ -> Error { Message = stderr }
+      match
+        SshKeygen.run(
+          $"-Y sign -f \"{request.KeyFile}\" -n {request.Namespace} \"{payloadFile}\""
+        )
+      with
+      | Error message -> Error { Message = message }
+      | Ok _ -> File.ReadAllText(payloadFile + ".sig") |> stripArmor |> Ok
 
     Directory.Delete(directory, true)
 
@@ -99,7 +87,11 @@ type SshKeygenSigner() =
 
 type HttpClientTransport(baseAddress: string) =
 
-  let client = new HttpClient(BaseAddress = Uri(baseAddress))
+  let client =
+    new HttpClient(
+      BaseAddress = Uri(baseAddress),
+      Timeout = TimeSpan.FromSeconds 30.0
+    )
 
   let headersOf(response: HttpResponseMessage) =
     Seq.append response.Headers response.Content.Headers
@@ -110,6 +102,10 @@ type HttpClientTransport(baseAddress: string) =
     member _.Send
       (request: HttpRequest)
       : Async<Result<HttpResponse, TransportFailure>> = asyncEx {
+      // The caller's token reaches the socket, so a disposed page stops
+      // its in-flight request instead of only its sleep.
+      let! ct = Async.CancellationToken
+
       try
         use message =
           new HttpRequestMessage(HttpMethod(request.Method), request.Target)
@@ -149,9 +145,9 @@ type HttpClientTransport(baseAddress: string) =
 
           message.Content <- content
 
-        let! response = client.SendAsync(message)
+        let! response = client.SendAsync(message, ct)
         use response = response
-        let! body = response.Content.ReadAsStringAsync()
+        let! body = response.Content.ReadAsStringAsync(ct)
 
         return
           Ok {
@@ -166,7 +162,7 @@ type HttpClientTransport(baseAddress: string) =
 type IProvideLogging =
   abstract LoggerFactory: ILoggerFactory
 
-type AppEnv(baseAddress: string, session: SessionStore, logging: ILoggerFactory)
+type AppEnv(baseAddress: string, session: SessionStore, logging: ILoggerFactory) as this
   =
 
   let clock = SystemClock()
@@ -178,12 +174,26 @@ type AppEnv(baseAddress: string, session: SessionStore, logging: ILoggerFactory)
 
   let settings =
     AppSettingsStore(
-      SettingsStore.load(),
+      (match SettingsStore.load() with
+       | Ok settings -> settings
+       | Error message ->
+         logger.LogError("The settings were not read: {Error}", message)
+         None),
       fun value ->
         match SettingsStore.save value with
         | Ok() -> ()
         | Error message ->
           logger.LogError("The settings were not saved: {Error}", message)
+    )
+
+  let unread =
+    UnreadService(
+      session,
+      (fun () ->
+        match session.SignedIn with
+        | ValueSome current -> Me.get(this, { KeyFile = current.KeyFile })
+        | ValueNone -> async { return Error(SignInFailed "signed out") }),
+      logging.CreateLogger "DevNull.Client.Unread"
     )
 
   interface IProvideClock with
@@ -209,6 +219,9 @@ type AppEnv(baseAddress: string, session: SessionStore, logging: ILoggerFactory)
 
   interface IProvideLogging with
     member _.LoggerFactory = logging
+
+  interface IProvideUnread with
+    member _.Unread = unread
 
 module KeyFiles =
 

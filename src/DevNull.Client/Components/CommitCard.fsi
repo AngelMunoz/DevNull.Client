@@ -28,4 +28,4 @@ type Props = {
 val view: props: Props -> Control
 
 /// Renders a deleted commit placeholder.
-val tombstone: tombstone: Tombstone -> Control
+val tombstone: unit -> Control

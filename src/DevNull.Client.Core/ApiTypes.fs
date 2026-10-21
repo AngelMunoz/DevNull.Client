@@ -410,8 +410,12 @@ module ErrorCodes =
 /// One JSON value the decoder could not read.
 type DecodeFailure = { Path: string; Message: string }
 
-/// The message and code of one refused request.
-type Failure = { Message: string; Code: ErrorCode }
+/// The message and code of one refused request. A body that carries no
+/// code leaves the option empty.
+type Failure = {
+  Message: string
+  Code: ErrorCode option
+}
 
 let inline failure path message = { Path = path; Message = message }
 
@@ -1398,8 +1402,7 @@ let apiFailureDecoder(element: JsonElement) = decode {
 
   return {
     Message = message
-    Code =
-      code |> Option.map ErrorCodes.parse |> Option.defaultValue(Unknown "")
+    Code = code |> Option.map ErrorCodes.parse
   }
 }
 
@@ -1497,7 +1500,8 @@ type TransportError<'e> =
   static abstract TransportFailed: message: string -> 'e
 
 type Rejected<'e> =
-  static abstract Refused: status: int * code: ErrorCode * message: string -> 'e
+  static abstract Refused:
+    status: int * code: ErrorCode option * message: string -> 'e
 
 type DecodeError<'e> =
   static abstract DecodeFailed: failure: DecodeFailure -> 'e

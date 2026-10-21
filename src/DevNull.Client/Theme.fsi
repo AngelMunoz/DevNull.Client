@@ -2,6 +2,7 @@ module DevNull.Client.Theme
 
 open System
 open Avalonia
+open Avalonia.Controls
 open Avalonia.Media
 open Avalonia.Styling
 open DevNull.Client.Core.ApiTypes
@@ -121,6 +122,11 @@ val pinnedPadding: Thickness
 
 /// The readable name of one class, for `.Classes(...)`.
 val name: class': StyleClass -> string
+
+/// Moves one class on and off a control as the observable flips. The
+/// class list is the only thing the subscription touches.
+val bindClass:
+  control: Control * class': StyleClass * active: IObservable<bool> -> unit
 
 /// One app-level style: a selector plus its setters, as code.
 val styleOf:

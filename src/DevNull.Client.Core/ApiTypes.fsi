@@ -395,8 +395,12 @@ module ErrorCodes =
 /// One JSON value the decoder could not read.
 type DecodeFailure = { Path: string; Message: string }
 
-/// The message and code of one refused request.
-type Failure = { Message: string; Code: ErrorCode }
+/// The message and code of one refused request. A body that carries no
+/// code leaves the option empty.
+type Failure = {
+  Message: string
+  Code: ErrorCode option
+}
 
 module Me =
   /// Reads the signed-in account envelope, from GET /api/v1/me and the sign-in responses.
@@ -457,7 +461,8 @@ type TransportError<'e> =
 
 /// The server refused the request with a status, a code and a message.
 type Rejected<'e> =
-  static abstract Refused: status: int * code: ErrorCode * message: string -> 'e
+  static abstract Refused:
+    status: int * code: ErrorCode option * message: string -> 'e
 
 /// The server answered with JSON this client could not read.
 type DecodeError<'e> =

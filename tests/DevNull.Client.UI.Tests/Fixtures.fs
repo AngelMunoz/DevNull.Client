@@ -1,13 +1,16 @@
 module DevNull.Client.UI.Tests.Fixtures
 
 open Microsoft.Extensions.Logging.Abstractions
+open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.DeviceAuth
 open DevNull.Client.Env
+open DevNull.Client.Errors
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
+open DevNull.Client.Unread
 
 /// The canned clock: one fixed unix second for every request.
 type FixedClock(epoch: int64) =
@@ -51,7 +54,8 @@ type FakeApi(handler: HttpRequest -> HttpResponse) =
     }
 
 /// The app environment over fakes: fixed workers and the given store.
-type TestEnv(store: SessionStore, http: IHttp, ?settings: AppSettingsStore) =
+type TestEnv(store: SessionStore, http: IHttp, ?settings: AppSettingsStore) as this
+  =
 
   let settingsStore =
     settings |> Option.defaultWith(fun () -> AppSettingsStore(None, ignore))
@@ -62,6 +66,16 @@ type TestEnv(store: SessionStore, http: IHttp, ?settings: AppSettingsStore) =
 
   let pkceSource =
     FixedPkceSource("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")
+
+  let unread =
+    UnreadService(
+      store,
+      (fun () ->
+        match store.SignedIn with
+        | ValueSome current -> Me.get(this, { KeyFile = current.KeyFile })
+        | ValueNone -> async { return Error(SignInFailed "signed out") }),
+      NullLogger.Instance
+    )
 
   interface IProvideClock with
     member _.Clock = clock
@@ -86,6 +100,9 @@ type TestEnv(store: SessionStore, http: IHttp, ?settings: AppSettingsStore) =
 
   interface IProvideLogging with
     member _.LoggerFactory = NullLoggerFactory.Instance
+
+  interface IProvideUnread with
+    member _.Unread = unread
 
 let sessionOf(username: string) : DeviceSession = {
   User = {

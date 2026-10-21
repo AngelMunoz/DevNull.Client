@@ -16,6 +16,11 @@ type RouterShell = {
   BootUrl: string
 }
 
+/// Fires one navigation now and reports a failed one through the env's
+/// logger.
+val go:
+  env: 'env * nav: INavigable * url: string -> unit when 'env :> IProvideLogging
+
 /// Builds the app route table and the router. The first navigation
 /// (`/log/latest` signed in, `/signin` signed out) is already in flight
 /// when this returns.

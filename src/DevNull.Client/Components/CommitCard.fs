@@ -217,7 +217,10 @@ let header(commit: Commit) : Control =
         TextBlock().Classes(Theme.name Theme.Muted).Text("·"),
         TextBlock()
           .Classes(Theme.name Theme.Mono)
-          .Text(timeAgo(DateTimeOffset.UtcNow, commit.CreatedAt))
+          .Text(
+            UiClock.minute
+            |> Observable.map(fun now -> timeAgo(now, commit.CreatedAt))
+          )
       )
 
   DockPanel().Children(hash.DockRight(), identity)
@@ -429,7 +432,7 @@ let view(props: Props) : Control =
     )
     .OnClickHandler(fun _ _ -> props.OnEvent(Opened commit))
 
-let tombstone(_: Tombstone) : Control =
+let tombstone() : Control =
   let line =
     Border()
       .Width(2.0)

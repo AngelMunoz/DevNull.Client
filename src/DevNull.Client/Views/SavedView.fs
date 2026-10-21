@@ -110,18 +110,11 @@ let update (props: Props<'env>) msg model =
       Cmd.none
     | Error error -> { model with Error = Some error }, Cmd.none
   | StarToggled commit ->
-    let toggle() =
-      let request: Stars.ActionRequest = {
-        KeyFile = props.Session.KeyFile
-        CommitId = commit.Id
-      }
-
-      if commit.Starred |> Option.contains true then
-        Stars.unstar(props.Env, request)
-      else
-        Stars.star(props.Env, request)
-
-    { model with Error = None }, Cmd.OfAsync.perform toggle () StarDone
+    { model with Error = None },
+    Cmd.OfAsync.perform
+      CommitActions.toggleStar
+      (props.Env, props.Session, commit)
+      StarDone
   | StarDone result ->
     match result with
     | Ok updated ->
@@ -152,49 +145,11 @@ let update (props: Props<'env>) msg model =
       Cmd.none
     | Error error -> { model with Error = Some error }, Cmd.none
 
-let nodeKey(node: CommitNode) =
-  match node with
-  | LiveCommit commit -> commit.Id
-  | Tombstone tombstone -> tombstone.Id
-
 let view
   (props: Props<'env>)
   (model: IObservable<Model>)
   (dispatch: Dispatch<Msg>)
   : Control =
-  let title = TextBlock().Classes(Theme.name Theme.Title).Text("Saved")
-
-  let errorText =
-    TextBlock()
-      .TextWrapping(TextWrapping.Wrap)
-      .Foreground(Brushes.danger)
-      .Text(
-        model
-        |> Observable.map(fun current ->
-          current.Error |> Option.map describe |> Option.defaultValue "")
-      )
-
-  let errorPanel =
-    Border()
-      .Classes(Theme.name Theme.Card)
-      .Margin(0.0, 8.0, 0.0, 8.0)
-      .Child(errorText)
-      .IsVisible(model |> Observable.map(_.Error.IsSome))
-
-  let busy =
-    Status
-      .busy("Loading the saved list…")
-      .IsVisible(model |> Observable.map _.Loading)
-
-  let emptyState =
-    Status
-      .empty("Save commits to find them here.")
-      .IsVisible(
-        model
-        |> Observable.map(fun current ->
-          not current.Loading && current.Error.IsNone && current.Items.IsEmpty)
-      )
-
   let row(node: CommitNode) : Control =
     match node with
     | LiveCommit commit ->
@@ -211,35 +166,35 @@ let view
             | CommitCard.PastelGiven c -> dispatch(PastelGiven c)
             | CommitCard.QuoteRequested _ -> ()
       }
-    | Tombstone tombstone -> CommitCard.tombstone tombstone
-
-  let loadMore =
-    Button()
-      .Content("Load more")
-      .Classes(Theme.name Theme.GhostButton)
-      .HorizontalAlignment(HorizontalAlignment.Center)
-      .Margin(0.0, 8.0, 0.0, 16.0)
-      .IsVisible(model |> Observable.map _.NextCursor.IsSome)
-      .OnClickHandler(fun _ _ -> dispatch MoreRequested)
+    | Tombstone _ -> CommitCard.tombstone()
 
   let list =
     Feed.view {
       Items = model |> Observable.map _.Items
-      KeyOf = nodeKey
+      KeyOf = FeedParts.nodeKey
       Row = row
-      Footer = ValueSome loadMore
+      Footer =
+        ValueSome(
+          PageChrome.loadMore(
+            model |> Observable.map _.NextCursor.IsSome,
+            fun () -> dispatch MoreRequested
+          )
+        )
     }
 
-  let pinned =
-    StackPanel()
-      .HorizontalAlignment(HorizontalAlignment.Stretch)
-      .Margin(Theme.pinnedPadding)
-      .Children(title, errorPanel, busy, emptyState)
-
-  let root = Grid()
-  root.RowDefinitions <- RowDefinitions("Auto,*")
-
-  root.Children(pinned.Row(0), list.Row(1))
+  PageChrome.page {
+    Model = model
+    Title = "Saved"
+    Padding = Theme.pinnedPadding
+    ErrorOf = _.Error
+    Busy = fun current -> current.Loading, "Loading the saved list…"
+    Empty =
+      fun current ->
+        not current.Loading && current.Error.IsNone && current.Items.IsEmpty,
+        "Save commits to find them here."
+    Header = []
+    Body = fun () -> list
+  }
 
 type Page<'env
   when 'env :> IProvideClock

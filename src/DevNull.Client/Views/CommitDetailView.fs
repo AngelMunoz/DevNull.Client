@@ -160,18 +160,11 @@ let update (props: Props<'env>) msg model =
       (props.Env, props.Session, props.CommitId, model.RepliesCursor)
       RepliesFetched
   | CardEvent(CommitCard.StarToggled commit) ->
-    let toggle() =
-      let request: Stars.ActionRequest = {
-        KeyFile = props.Session.KeyFile
-        CommitId = commit.Id
-      }
-
-      if commit.Starred |> Option.contains true then
-        Stars.unstar(props.Env, request)
-      else
-        Stars.star(props.Env, request)
-
-    { model with Error = None }, Cmd.OfAsync.perform toggle () StarDone
+    { model with Error = None },
+    Cmd.OfAsync.perform
+      CommitActions.toggleStar
+      (props.Env, props.Session, commit)
+      StarDone
   | CardEvent(CommitCard.Opened commit) ->
     Navigation.go(props.Nav, "/commit/" + commit.Id, ignore)
     model, Cmd.none
@@ -225,11 +218,6 @@ let update (props: Props<'env>) msg model =
       model, Cmd.none
     | Error error -> { model with Error = Some error }, Cmd.none
 
-let nodeKey(node: CommitNode) =
-  match node with
-  | LiveCommit commit -> commit.Id
-  | Tombstone tombstone -> tombstone.Id
-
 /// One reply row: indented off a dashed spine, dense card.
 let replyRow
   (props: Props<'env>, dispatch: Dispatch<Msg>, node: CommitNode)
@@ -261,7 +249,7 @@ let replyRow
       }
 
     grid.Children(spine.Column(0), card.Column(1))
-  | Tombstone tombstone -> CommitCard.tombstone tombstone
+  | Tombstone _ -> CommitCard.tombstone()
 
 let ancestorRow (props: Props<'env>) (node: CommitNode) : Control =
   match node with
@@ -300,15 +288,7 @@ let view
       .OnClickHandler(fun _ _ ->
         Navigation.go(props.Nav, "/log/latest", ignore))
 
-  let errorText =
-    TextBlock()
-      .TextWrapping(TextWrapping.Wrap)
-      .Foreground(Brushes.danger)
-      .Text(
-        model
-        |> Observable.map(fun current ->
-          current.Error |> Option.map describe |> Option.defaultValue "")
-      )
+  let errorPanel = PageChrome.errorPanel(model |> Observable.map _.Error)
 
   let noteText =
     TextBlock()
@@ -323,25 +303,24 @@ let view
     Status
       .busy("Loading the commit…")
       .IsVisible(model |> Observable.map _.Loading)
-    // snapshot keeps the star visual honest.
 
-  // The card is rebuilt when the commit changes: a fresh control per
+  // The card is rebuilt whenever the commit changes: the snapshot keeps
+  // the star visual honest.
   let cardHost =
-    ContentControl()
-      .Content(
-        model
-        |> Observable.map(fun current ->
-          match current.Page with
-          | Some page ->
-            CommitCard.view {
-              Commit = page.Commit
-              OnEvent = fun event -> dispatch(CardEvent event)
-              Pastels = props.Session.Session.PasteisMode
-              Dense = false
-            }
-          | None -> Status.empty "")
-        |> _.ToBinding()
-      )
+    let content =
+      model
+      |> Observable.map(fun current ->
+        match current.Page with
+        | Some page ->
+          CommitCard.view {
+            Commit = page.Commit
+            OnEvent = fun event -> dispatch(CardEvent event)
+            Pastels = props.Session.Session.PasteisMode
+            Dense = false
+          }
+        | None -> Status.empty "")
+
+    ContentControl().Content(content.ToBinding())
 
   let pastelButton =
     Button()
@@ -378,38 +357,36 @@ let view
       .Children(actionChildren)
 
   let ancestors =
-    let list = ItemsControl()
-
-    list.ItemTemplate <-
-      FuncDataTemplate<CommitNode>(
-        (fun node _ -> ancestorRow props node),
-        false
+    ItemsControl()
+      .ItemTemplate(
+        FuncDataTemplate<CommitNode>(
+          (fun node _ -> ancestorRow props node),
+          false
+        )
       )
-
-    list.BindItemsSource(
-      model
-      |> Observable.map(fun current ->
-        match current.Page with
-        | Some page -> page.Ancestors :> IReadOnlyList<CommitNode>
-        | None -> [] :> IReadOnlyList<CommitNode>),
-      nodeKey
-    )
+      .BindItemsSource(
+        model
+        |> Observable.map(fun current ->
+          match current.Page with
+          | Some page -> page.Ancestors :> IReadOnlyList<CommitNode>
+          | None -> [] :> IReadOnlyList<CommitNode>),
+        FeedParts.nodeKey
+      )
 
   let replies =
-    let list = ItemsControl()
-
-    list.ItemTemplate <-
-      FuncDataTemplate<CommitNode>(
-        (fun node _ -> replyRow(props, dispatch, node)),
-        false
+    ItemsControl()
+      .ItemTemplate(
+        FuncDataTemplate<CommitNode>(
+          (fun node _ -> replyRow(props, dispatch, node)),
+          false
+        )
       )
-
-    list.BindItemsSource(
-      model
-      |> Observable.map(fun current ->
-        current.Replies :> IReadOnlyList<CommitNode>),
-      nodeKey
-    )
+      .BindItemsSource(
+        model
+        |> Observable.map(fun current ->
+          current.Replies :> IReadOnlyList<CommitNode>),
+        FeedParts.nodeKey
+      )
 
   let moreReplies =
     Button()
@@ -433,7 +410,7 @@ let view
       .HorizontalAlignment(HorizontalAlignment.Stretch)
       .Children(
         back,
-        errorText,
+        errorPanel,
         noteText,
         busy,
         ancestors,

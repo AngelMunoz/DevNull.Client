@@ -42,7 +42,6 @@ type Model = {
 }
 
 type Msg =
-  | MeFetched of Result<Me, AppError>
   | LaneSet of index: int
   | LaneAutomatic
   | PasteisModeToggled
@@ -61,7 +60,7 @@ let fetchMe(env, session: SignedInSession) =
   Me.get(env, { KeyFile = session.KeyFile })
 
 let init (props: Props<'env>) () =
-  initial, Cmd.OfAsync.perform fetchMe (props.Env, props.Session) MeFetched
+  initial, Cmd.OfAsync.perform fetchMe (props.Env, props.Session) MeDone
 
 let laneIndex(lane: Lane option) : int option =
   lane
@@ -69,9 +68,8 @@ let laneIndex(lane: Lane option) : int option =
     | LaneIndex index -> Some index
     | LaneColor _ -> None)
 
-let rec update (props: Props<'env>) msg model =
+let update (props: Props<'env>) msg model =
   match msg with
-  | MeFetched result -> update props (MeDone result) model
   | MeDone result ->
     match result with
     | Ok me ->
@@ -237,7 +235,7 @@ let view
     let store = (props.Env :> IProvideSettings).Settings
     let themeHost = ContentControl()
 
-    let model =
+    let choices =
       store.Observe
       |> Observable.map(fun current ->
         let choiceButton(label: string, choice: ThemeChoice) : Control =
@@ -263,7 +261,7 @@ let view
           .Spacing(6.0)
           .Children(row))
 
-    themeHost.Content(model.ToBinding()) |> ignore
+    themeHost.Content(choices.ToBinding()) |> ignore
 
     StackPanel()
       .Spacing(6.0)

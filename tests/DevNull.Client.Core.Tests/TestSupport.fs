@@ -27,7 +27,7 @@ type TestError =
   | PostRefused of status: int * body: string
   | UnexpectedResponse of body: string
   | TransportFailed of message: string
-  | Refused of status: int * code: ErrorCode * message: string
+  | Refused of status: int * code: ErrorCode option * message: string
   | DecodeFailed of failure: DecodeFailure
   | ReportDetailsTooLong of length: int
   | InvalidLaneIndex of index: int

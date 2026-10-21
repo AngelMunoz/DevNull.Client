@@ -199,18 +199,11 @@ let update (props: Props<'env>) msg model =
       },
       refetch(kind = Replies)
   | StarToggled commit ->
-    let toggle() =
-      let request: Stars.ActionRequest = {
-        KeyFile = props.Session.KeyFile
-        CommitId = commit.Id
-      }
-
-      if commit.Starred |> Option.contains true then
-        Stars.unstar(props.Env, request)
-      else
-        Stars.star(props.Env, request)
-
-    { model with Error = None }, Cmd.OfAsync.perform toggle () StarDone
+    { model with Error = None },
+    Cmd.OfAsync.perform
+      CommitActions.toggleStar
+      (props.Env, props.Session, commit)
+      StarDone
   | StarDone result ->
     match result with
     | Ok updated ->
@@ -315,11 +308,6 @@ let update (props: Props<'env>) msg model =
       Navigation.go(props.Nav, "/log/latest", ignore)
       model, Cmd.none
     | Error error -> { model with Error = Some error }, Cmd.none
-
-let nodeKey(node: CommitNode) =
-  match node with
-  | LiveCommit commit -> commit.Id
-  | Tombstone tombstone -> tombstone.Id
 
 let followButton(details: ProfileDetails, dispatch: Dispatch<Msg>) : Control =
   Button()
@@ -605,28 +593,6 @@ let view
   (model: IObservable<Model>)
   (dispatch: Dispatch<Msg>)
   : Control =
-  let errorText =
-    TextBlock()
-      .TextWrapping(TextWrapping.Wrap)
-      .Foreground(Brushes.danger)
-      .Text(
-        model
-        |> Observable.map(fun current ->
-          current.Error |> Option.map describe |> Option.defaultValue "")
-      )
-
-  let errorPanel =
-    Border()
-      .Classes(Theme.name Theme.Card)
-      .Margin(0.0, 8.0, 0.0, 8.0)
-      .Child(errorText)
-      .IsVisible(model |> Observable.map(_.Error.IsSome))
-
-  let busy =
-    Status
-      .busy("Loading the profile…")
-      .IsVisible(model |> Observable.map _.Loading)
-
   // The header is rebuilt when the profile changes: the follow, mute,
   // and block states come back from the server after every action.
   let headerHost = ContentControl()
@@ -667,23 +633,20 @@ let view
             | CommitCard.PastelGiven c -> dispatch(PastelGiven c)
             | CommitCard.QuoteRequested _ -> ()
       }
-    | Tombstone tombstone -> CommitCard.tombstone tombstone
-
-  let more =
-    Button()
-      .Content("Load more")
-      .Classes(Theme.name Theme.GhostButton)
-      .HorizontalAlignment(HorizontalAlignment.Center)
-      .Margin(0.0, 8.0, 0.0, 16.0)
-      .IsVisible(model |> Observable.map _.NextCursor.IsSome)
-      .OnClickHandler(fun _ _ -> dispatch MoreCommits)
+    | Tombstone _ -> CommitCard.tombstone()
 
   let commits =
     Feed.view {
       Items = model |> Observable.map _.Commits
-      KeyOf = nodeKey
+      KeyOf = FeedParts.nodeKey
       Row = commitRow
-      Footer = ValueSome more
+      Footer =
+        ValueSome(
+          PageChrome.loadMore(
+            model |> Observable.map _.NextCursor.IsSome,
+            fun () -> dispatch MoreCommits
+          )
+        )
     }
 
   let tabStrip =
@@ -698,56 +661,51 @@ let view
 
     let buttons: Control array = [|
       for kind, label, index in kinds ->
-        Button()
-          .Classes(Theme.name Theme.TabButton)
-          .Content(label)
-          .Column(index)
-          .OnClickHandler(fun _ _ -> dispatch(TabChosen kind))
-    |]
+        let button =
+          Button()
+            .Classes(Theme.name Theme.TabButton)
+            .Content(label)
+            .Column(index)
+            .OnClickHandler(fun _ _ -> dispatch(TabChosen kind))
 
-    model
-    |> Observable.add(fun current ->
-      for (kind, _, _), button in List.zip kinds (Array.toList buttons) do
-        if current.Tab = kind then
-          button.Classes.Add(Theme.name Theme.TabButtonActive) |> ignore
-        else
-          button.Classes.Remove(Theme.name Theme.TabButtonActive) |> ignore)
+        Theme.bindClass(
+          button,
+          Theme.TabButtonActive,
+          model |> Observable.map(fun current -> current.Tab = kind)
+        )
+
+        button
+    |]
 
     Border()
       .BorderBrush(Brushes.border)
       .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
       .Child(strip.Children(buttons))
 
-  let emptyState =
-    ContentControl()
-      .Content(
-        model
-        |> Observable.map(fun current ->
-          match current.Tab with
-          | Commits -> "No commits yet."
-          | Replies -> "No replies yet.")
-        |> _.ToBinding()
-      )
-      .IsVisible(
-        model
-        |> Observable.map(fun current ->
-          not current.Loading
-          && current.Error.IsNone
-          && current.Commits.IsEmpty)
-      )
+  let body =
+    let root = Grid()
 
-  let pinned =
-    StackPanel()
-      .HorizontalAlignment(HorizontalAlignment.Stretch)
-      .Margin(Theme.pinnedPadding)
-      .Children(headerHost, errorPanel, busy, emptyState)
+    root.RowDefinitions <- RowDefinitions("Auto,*")
 
-  let root = Grid()
-  root.RowDefinitions <- RowDefinitions("Auto,Auto,*")
+    root.Children(tabStrip.Row(0), commits.Row(1)) |> ignore
 
-  root.Children(pinned.Row(0), tabStrip.Row(1), commits.Row(2)) |> ignore
+    root
 
-  root
+  PageChrome.page {
+    Model = model
+    Title = ""
+    Padding = Theme.pinnedPadding
+    ErrorOf = _.Error
+    Busy = fun current -> current.Loading, "Loading the profile…"
+    Empty =
+      fun current ->
+        not current.Loading && current.Error.IsNone && current.Commits.IsEmpty,
+        (match current.Tab with
+         | Commits -> "No commits yet."
+         | Replies -> "No replies yet.")
+    Header = [ fun () -> headerHost ]
+    Body = fun () -> body
+  }
 
 type Page<'env
   when 'env :> IProvideClock

@@ -86,7 +86,9 @@ let save(settings: AppSettings) : Result<unit, string> =
   with ex ->
     Error ex.Message
 
-let load() : AppSettings option =
+/// The stored settings: `Ok None` when the file is absent, `Error` when
+/// the file exists and cannot be read.
+let load() : Result<AppSettings option, string> =
   try
     use document = JsonDocument.Parse(File.ReadAllText settingsPath)
     let root = document.RootElement
@@ -103,9 +105,13 @@ let load() : AppSettings option =
       | _ -> None
       |> Option.defaultValue System
 
-    Some {
-      CloseToTray = closeToTray
-      Theme = theme
-    }
-  with _ ->
-    None
+    Ok(
+      Some {
+        CloseToTray = closeToTray
+        Theme = theme
+      }
+    )
+  with
+  | :? FileNotFoundException
+  | :? DirectoryNotFoundException -> Ok None
+  | ex -> Error ex.Message

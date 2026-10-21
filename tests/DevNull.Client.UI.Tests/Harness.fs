@@ -3,9 +3,9 @@ module DevNull.Client.UI.Tests.Harness
 // The headless harness, proven in Briple.Trainer: one session for the
 // whole assembly in PerAssembly isolation (PerTest resets the global UI
 // dispatcher, which strands the MVUish update loop on a ghost
-// dispatcher), every control touch through onUi, and a deterministic
-// Background-priority frame pump for dispatcher work queued from other
-// threads.
+// dispatcher), every control touch through onUiAsync, and a
+// deterministic Background-priority frame pump for dispatcher work
+// queued from other threads.
 
 open System
 open System.Threading
@@ -26,74 +26,100 @@ let private session =
     AvaloniaTestIsolationLevel.PerAssembly
   )
 
-/// Runs a unit-of-work on the UI thread and waits for it. Avalonia
-/// pumps nested dispatches, so a call from the UI thread re-enters
-/// instead of deadlocking; jobs below Render priority never do, which
-/// is why `pump` exists.
-let onUi(test: unit -> unit) : unit =
-  session.Dispatch(Action test, CancellationToken.None).GetAwaiter().GetResult()
-
-/// Runs a probe on the UI thread and brings its value back.
-let probeUi<'T>(probe: unit -> 'T) : 'T =
-  let cell = ref ValueNone
-
+/// The session's dispatcher. The first dispatcher created becomes
+/// `Dispatcher.UIThread`, and the headless platform creates it on the
+/// session thread inside the first setup. Capturing it there keeps a
+/// test thread's first `UIThread` access from creating a dispatcher on
+/// that thread instead.
+let private ui: Dispatcher =
   session
     .Dispatch(
-      Action(fun () -> cell.Value <- ValueSome(probe())),
+      Func<Dispatcher>(fun () -> Dispatcher.UIThread),
       CancellationToken.None
     )
     .GetAwaiter()
     .GetResult()
 
-  match cell.Value with
-  | ValueSome value -> value
-  | ValueNone -> failwith "the dispatch never ran"
+/// Runs a unit-of-work on the UI thread and waits for it. A call from
+/// the UI thread runs inline: a nested dispatch queues work the blocked
+/// thread can never serve. Every dispatch resumes its caller on the
+/// thread pool, so a continuation that lands on the session thread never
+/// turns the next call into a nested dispatch.
+let onUiAsync(test: unit -> unit) : Async<unit> = async {
+  if ui.CheckAccess() then
+    test()
+  else
+    do! Async.AwaitTask(session.Dispatch(Action test, CancellationToken.None))
+
+    do! Async.SwitchToThreadPool()
+}
+
+/// Runs a probe on the UI thread and brings its value back.
+let probeUiAsync<'T>(probe: unit -> 'T) : Async<'T> = async {
+  if ui.CheckAccess() then
+    return probe()
+  else
+    let! value =
+      Async.AwaitTask(session.Dispatch(Func<'T> probe, CancellationToken.None))
+
+    do! Async.SwitchToThreadPool()
+    return value
+}
 
 /// Drains every queued dispatcher job, including Background priority
 /// (RunJobs clamps to the minimum active priority and never reaches it).
-let pump() =
-  onUi(fun () ->
+let pumpAsync() : Async<unit> =
+  onUiAsync(fun () ->
     let frame = DispatcherFrame()
 
-    Dispatcher.UIThread.InvokeAsync(
+    ui.InvokeAsync(
       Action(fun () -> frame.Continue <- false),
       DispatcherPriority.Background
     )
     |> ignore
 
-    Dispatcher.UIThread.PushFrame frame)
+    ui.PushFrame frame)
 
 /// Gives cross-thread producers a beat, then drains.
-let settle() =
-  Thread.Sleep 50
-  pump()
+let settleAsync() : Async<unit> = async {
+  do! Async.Sleep 50
+  do! pumpAsync()
+}
 
 /// Polls until the predicate holds or the timeout elapses; each probe
 /// runs on the UI thread and each miss pumps, so the MVUish update loop
 /// and the render pass advance between attempts.
-let waitFor(ms: int, probe: unit -> 'T, predicate: 'T -> bool) : bool =
+let waitForAsync
+  (ms: int, probe: unit -> 'T, predicate: 'T -> bool)
+  : Async<bool> =
   let watch = Diagnostics.Stopwatch.StartNew()
-  let found = ref false
 
-  while (not found.Value) && watch.ElapsedMilliseconds < int64 ms do
-    if probeUi(fun () -> predicate(probe())) then
-      found.Value <- true
+  let rec loop() = async {
+    if watch.ElapsedMilliseconds >= int64 ms then
+      return false
     else
-      Thread.Sleep 100
-      pump()
+      let! found = probeUiAsync(fun () -> predicate(probe()))
 
-  found.Value
+      if found then
+        return true
+      else
+        do! Async.Sleep 100
+        do! pumpAsync()
+        return! loop()
+  }
+
+  loop()
 
 /// Shows one window on the UI thread and returns it, so the visual
 /// tree (and therefore GetVisualDescendants) exists for the probes.
-let show(window: Window) : Window =
-  probeUi(fun () ->
+let showAsync(window: Window) : Async<Window> =
+  probeUiAsync(fun () ->
     window.Show()
     window)
 
 /// Builds and shows one control inside a fresh window.
-let mount(control: Control) : Window =
-  probeUi(fun () ->
+let mountAsync(control: Control) : Async<Window> =
+  probeUiAsync(fun () ->
     let window = Window(Content = control)
     window.Show()
     window)
@@ -174,13 +200,13 @@ let private feedScroller(window: Window) : ScrollViewer option =
 
 /// Scrolls the main feed to its end, so a virtualized list realizes
 /// the rows near the bottom and recycles the rows at the top.
-let scrollFeedToEnd(window: Window) : unit =
-  onUi(fun () -> feedScroller window |> Option.iter _.ScrollToEnd())
+let scrollFeedToEndAsync(window: Window) : Async<unit> =
+  onUiAsync(fun () -> feedScroller window |> Option.iter _.ScrollToEnd())
 
 /// Scrolls the main feed back to its start, so recycled rows are
 /// realized again.
-let scrollFeedToTop(window: Window) : unit =
-  onUi(fun () ->
+let scrollFeedToTopAsync(window: Window) : Async<unit> =
+  onUiAsync(fun () ->
     feedScroller window
     |> Option.iter(fun scroller ->
       scroller.Offset <- Avalonia.Vector(0.0, 0.0)))

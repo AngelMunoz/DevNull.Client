@@ -17,10 +17,9 @@ open DevNull.Client.Core.Http
 open DevNull.Client.DeviceAuth
 open DevNull.Client.Errors
 open DevNull.Client.Navigation
+open DevNull.Client.SessionFiles
 open DevNull.Client.Stores
 open DevNull.Client.Theme
-
-exception SignInError of string
 
 type Props<'env
   when 'env :> IProvideClock
@@ -47,7 +46,6 @@ type Msg =
   | ReopenBrowser
   | Prepared of Result<SignInStart, string>
   | SessionObserved of Result<DeviceSession, string>
-  | StepFailed of message: string
 
 let initial =
   match loadPending() with
@@ -65,16 +63,6 @@ let prepare(env, key: DeviceKey) : Result<SignInStart, string> =
     match startBrowser started.Url with
     | Ok() -> Ok started
     | Error message -> Error message
-
-let runBrowser(url: string) : unit =
-  match startBrowser url with
-  | Ok() -> ()
-  | Error message -> raise(SignInError message)
-
-let exnMessage(exn: exn) =
-  match exn with
-  | SignInError message -> message
-  | other -> other.Message
 
 /// Waits until the session file or the error file shows up, or the
 /// approval times out, the way the CLI's `devnull auth` does.
@@ -136,9 +124,10 @@ let update (props: Props<'env>) msg model =
   | ReopenBrowser ->
     match model.Status with
     | AwaitingApproval url ->
-      model, Cmd.OfFunc.attempt runBrowser url (StepFailed << exnMessage)
+      match startBrowser url with
+      | Ok() -> model, Cmd.none
+      | Error message -> { model with Status = Failed message }, Cmd.none
     | _ -> model, Cmd.none
-  | StepFailed message -> { model with Status = Failed message }, Cmd.none
   | SessionObserved result ->
     match result with
     | Ok session ->
@@ -147,10 +136,6 @@ let update (props: Props<'env>) msg model =
     | Error message -> { model with Status = Failed message }, Cmd.none
 
 let view props (model: IObservable<Model>) (dispatch: Dispatch<Msg>) : Control =
-  let status = ref initial.Status
-
-  model |> Observable.add(fun current -> status.Value <- current.Status)
-
   let statusText =
     TextBlock()
       .TextWrapping(TextWrapping.Wrap)
@@ -176,6 +161,31 @@ let view props (model: IObservable<Model>) (dispatch: Dispatch<Msg>) : Control =
       | AwaitingApproval _ -> "Open the browser again"
       | Failed _ -> "Try again")
 
+  let awaiting =
+    model
+    |> Observable.map(fun current ->
+      match current.Status with
+      | AwaitingApproval _ -> true
+      | Idle
+      | Preparing
+      | Failed _ -> false)
+
+  let startButton =
+    Button()
+      .HorizontalAlignment(HorizontalAlignment.Stretch)
+      .Classes(Theme.name Theme.AccentButton)
+      .Content(TextBlock().Text(primaryLabel))
+      .IsVisible(awaiting |> Observable.map not)
+      .OnClickHandler(fun _ _ -> dispatch StartRequested)
+
+  let reopenButton =
+    Button()
+      .HorizontalAlignment(HorizontalAlignment.Stretch)
+      .Classes(Theme.name Theme.AccentButton)
+      .Content("Open the browser again")
+      .IsVisible(awaiting)
+      .OnClickHandler(fun _ _ -> dispatch ReopenBrowser)
+
   let card =
     StackPanel()
       .Spacing(14.0)
@@ -186,14 +196,8 @@ let view props (model: IObservable<Model>) (dispatch: Dispatch<Msg>) : Control =
           .TextAlignment(TextAlignment.Center)
           .Text("Sign in to /dev/null"),
         statusText,
-        Button()
-          .HorizontalAlignment(HorizontalAlignment.Stretch)
-          .Classes(Theme.name Theme.AccentButton)
-          .Content(TextBlock().Text(primaryLabel))
-          .OnClickHandler(fun _ _ ->
-            match status.Value with
-            | AwaitingApproval _ -> dispatch ReopenBrowser
-            | _ -> dispatch StartRequested)
+        startButton,
+        reopenButton
       )
 
   ScrollViewer()

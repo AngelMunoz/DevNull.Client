@@ -118,7 +118,7 @@ module Internal =
       | Ok response ->
         let fallback: Failure = {
           Message = response.Body.Trim()
-          Code = Unknown ""
+          Code = None
         }
 
         let failure =

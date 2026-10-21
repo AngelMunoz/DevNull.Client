@@ -22,7 +22,7 @@ type AppError =
   | PostRefused of status: int * body: string
   | UnexpectedResponse of body: string
   | TransportFailed of message: string
-  | Refused of status: int * code: ErrorCode * message: string
+  | Refused of status: int * code: ErrorCode option * message: string
   | DecodeFailed of failure: DecodeFailure
   | ReportDetailsTooLong of length: int
   | InvalidLaneIndex of index: int
@@ -110,9 +110,9 @@ let describe error =
   | UnexpectedResponse body ->
     $"Unexpected answer from dev-null.sh: {body.Trim()}"
   | TransportFailed message -> $"Could not reach dev-null.sh: {message.Trim()}"
-  | Refused(status, Unknown "", message) ->
+  | Refused(status, None, message) ->
     $"dev-null.sh refused the request (HTTP {status}): {message.Trim()}"
-  | Refused(status, code, message) ->
+  | Refused(status, Some code, message) ->
     $"dev-null.sh refused the request (HTTP {status}, {ErrorCodes.wire code}): {message.Trim()}"
   | DecodeFailed failure ->
     $"Unexpected answer from dev-null.sh at {failure.Path}: {failure.Message}"

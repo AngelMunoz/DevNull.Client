@@ -14,6 +14,8 @@ open DevNull.Client.DeviceAuth
 open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.SchemeRegistration
+open DevNull.Client.SessionFiles
+open DevNull.Client.SettingsStore
 open DevNull.Client.Shell
 open DevNull.Client.Stores
 
@@ -82,6 +84,10 @@ let start argv =
   let store = SessionStore(loadSession(), devicePrivateKeyPath, clearSession)
 
   let env = AppEnv(baseAddress, store, logging)
+
+  // The theme choice follows the store at app level, not window level.
+  (env :> IProvideSettings).Settings.Observe
+  |> Observable.add(fun value -> Theme.apply value.Theme)
 
   match register() with
   | Ok() -> ()

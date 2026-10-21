@@ -1,9 +1,9 @@
 module DevNull.Client.Views.Routes
 
 open Avalonia.Controls
+open Microsoft.Extensions.Logging
 open Navs
 open Navs.Avalonia
-open Serilog
 open DevNull.Client
 open DevNull.Client.Components
 open DevNull.Client.Core.ApiTypes
@@ -17,12 +17,16 @@ open DevNull.Client.Navigation
 open DevNull.Client.Theme
 open DevNull.Client.Views
 
-let go(nav: INavigable, url: string) : unit =
+/// Fires one navigation now and reports a failed one through the env's
+/// logger.
+let go(env: #IProvideLogging, nav: INavigable, url: string) : unit =
   Navigation.go(
     nav,
     url,
     fun message ->
-      Log.Error("Navigation to {Url} failed: {Error}", url, message)
+      env.LoggerFactory
+        .CreateLogger("DevNull.Client.Views.Routes")
+        .LogError("Navigation to {Url} failed: {Error}", url, message)
   )
 
 /// The router and the entry the app boots into.
@@ -42,6 +46,15 @@ let requiresSignedOut(env: #IProvideSession) : GuardResult =
   | ValueSome _ -> GuardResult.Redirect "/log/latest"
   | ValueNone -> GuardResult.Continue
 
+/// Builds one guarded page from the signed-in session, or shows the
+/// route's sign-in hint.
+let signedIn
+  (env: #IProvideSession, message: string, build: SignedInSession -> Control)
+  : Control =
+  match env.Session.SignedIn with
+  | ValueSome session -> build session
+  | ValueNone -> Status.soon message
+
 let logPage
   (
     env:
@@ -49,17 +62,22 @@ let logPage
     nav: INavigable,
     context: RouteContext
   ) : Control =
-  match env.Session.SignedIn, context.GetParam<string> "log" with
-  | ValueSome session, ValueSome raw ->
-    let kind = LogKinds.tryParse raw |> Option.defaultValue LogKind.Latest
+  signedIn(
+    env,
+    "Sign in to read the log.",
+    fun session ->
+      match context.GetParam<string> "log" with
+      | ValueSome raw ->
+        let kind = LogKinds.tryParse raw |> Option.defaultValue LogKind.Latest
 
-    LogView.Page {
-      Env = env
-      Log = kind
-      Session = session
-      Nav = nav
-    }
-  | _ -> Status.soon "Sign in to read the log."
+        LogView.Page {
+          Env = env
+          Log = kind
+          Session = session
+          Nav = nav
+        }
+      | ValueNone -> Status.soon "Sign in to read the log."
+  )
 
 let commitPage
   (
@@ -68,17 +86,22 @@ let commitPage
     nav: INavigable,
     context: RouteContext
   ) : Control =
-  match env.Session.SignedIn, context.GetParam<string> "commitId" with
-  | ValueSome session, ValueSome commitId ->
-    CommitDetailView.Page(
-      {
-        Env = env
-        CommitId = commitId
-        Session = session
-        Nav = nav
-      }
-    )
-  | _ -> Status.soon "Sign in to read the thread."
+  signedIn(
+    env,
+    "Sign in to read the thread.",
+    fun session ->
+      match context.GetParam<string> "commitId" with
+      | ValueSome commitId ->
+        CommitDetailView.Page(
+          {
+            Env = env
+            CommitId = commitId
+            Session = session
+            Nav = nav
+          }
+        )
+      | ValueNone -> Status.soon "Sign in to read the thread."
+  )
 
 let composePage
   (
@@ -87,17 +110,19 @@ let composePage
     nav: INavigable,
     target: Composer.Target
   ) : Control =
-  match env.Session.SignedIn with
-  | ValueSome session ->
-    ComposeView.Page(
-      {
-        Env = env
-        Session = session
-        Target = target
-        Nav = nav
-      }
-    )
-  | ValueNone -> Status.soon "Sign in to commit."
+  signedIn(
+    env,
+    "Sign in to commit.",
+    fun session ->
+      ComposeView.Page(
+        {
+          Env = env
+          Session = session
+          Target = target
+          Nav = nav
+        }
+      )
+  )
 
 let quotePage
   (
@@ -106,10 +131,14 @@ let quotePage
     nav: INavigable,
     context: RouteContext
   ) : Control =
-  match env.Session.SignedIn, context.GetParam<string> "commitId" with
-  | ValueSome session, ValueSome commitId ->
-    composePage(env, nav, Composer.Quoting commitId)
-  | _ -> Status.soon "Sign in to quote."
+  signedIn(
+    env,
+    "Sign in to quote.",
+    fun _ ->
+      match context.GetParam<string> "commitId" with
+      | ValueSome commitId -> composePage(env, nav, Composer.Quoting commitId)
+      | ValueNone -> Status.soon "Sign in to quote."
+  )
 
 let signInPage
   (
@@ -121,7 +150,7 @@ let signInPage
     {
       Env = env
       Nav = nav
-      OnDone = fun () -> go(nav, "/log/latest")
+      OnDone = fun () -> go(env, nav, "/log/latest")
     }
   )
 
@@ -131,16 +160,18 @@ let notificationsPage
       #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession,
     nav: INavigable
   ) : Control =
-  match env.Session.SignedIn with
-  | ValueSome session ->
-    NotificationsView.Page(
-      {
-        Env = env
-        Session = session
-        Nav = nav
-      }
-    )
-  | ValueNone -> Status.soon "Sign in to read the inbox."
+  signedIn(
+    env,
+    "Sign in to read the inbox.",
+    fun session ->
+      NotificationsView.Page(
+        {
+          Env = env
+          Session = session
+          Nav = nav
+        }
+      )
+  )
 
 let savedPage
   (
@@ -148,16 +179,18 @@ let savedPage
       #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession,
     nav: INavigable
   ) : Control =
-  match env.Session.SignedIn with
-  | ValueSome session ->
-    SavedView.Page(
-      {
-        Env = env
-        Session = session
-        Nav = nav
-      }
-    )
-  | ValueNone -> Status.soon "Sign in to read the saved list."
+  signedIn(
+    env,
+    "Sign in to read the saved list.",
+    fun session ->
+      SavedView.Page(
+        {
+          Env = env
+          Session = session
+          Nav = nav
+        }
+      )
+  )
 
 let profilePage
   (
@@ -165,17 +198,19 @@ let profilePage
       #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession,
     nav: INavigable
   ) : Control =
-  match env.Session.SignedIn with
-  | ValueSome session ->
-    ProfileView.Page(
-      {
-        Env = env
-        Username = session.Session.User.Username
-        Session = session
-        Nav = nav
-      }
-    )
-  | ValueNone -> Status.soon "Sign in to read the profile."
+  signedIn(
+    env,
+    "Sign in to read the profile.",
+    fun session ->
+      ProfileView.Page(
+        {
+          Env = env
+          Username = session.Session.User.Username
+          Session = session
+          Nav = nav
+        }
+      )
+  )
 
 let settingsPage
   (
@@ -183,20 +218,22 @@ let settingsPage
       #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideSettings,
     nav: INavigable
   ) : Control =
-  match env.Session.SignedIn with
-  | ValueSome session ->
-    SettingsView.Page(
-      {
-        Env = env
-        Session = session
-        Nav = nav
-        OnSignOut =
-          fun () ->
-            env.Session.Leave()
-            go(nav, "/signin")
-      }
-    )
-  | ValueNone -> Status.soon "Sign in to see the settings."
+  signedIn(
+    env,
+    "Sign in to see the settings.",
+    fun session ->
+      SettingsView.Page(
+        {
+          Env = env
+          Session = session
+          Nav = nav
+          OnSignOut =
+            fun () ->
+              env.Session.Leave()
+              go(env, nav, "/signin")
+        }
+      )
+  )
 
 let build
   (env:
@@ -274,6 +311,6 @@ let build
   let router =
     AvaloniaRouter(table, logger = env.LoggerFactory.CreateLogger "Navs.Router")
 
-  go(router, bootUrl)
+  go(env, router, bootUrl)
 
   { Router = router; BootUrl = bootUrl }

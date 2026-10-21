@@ -1,4 +1,4 @@
-module DevNull.Client.Avatar
+module DevNull.Client.Components.Avatar
 
 open Avalonia.Controls
 open Avalonia.Controls.Shapes

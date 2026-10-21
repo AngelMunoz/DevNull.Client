@@ -1,9 +1,11 @@
 module DevNull.Client.Views.SavedView
 
+open System
 open Avalonia.Controls
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Stores
+open DevNull.Client.UiClock
 open Navs
 
 /// The saved commits of the signed-in user.
@@ -11,10 +13,14 @@ type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
-  and 'env :> IProvideHttp> = {
+  and 'env :> IProvideHttp
+  and 'env :> IProvideSession
+  and 'env :> IProvideUiClock> = {
   Env: 'env
   Session: SignedInSession
   Nav: INavigable
+  /// The route the page lives in; owns the page's program lifetime.
+  Context: RouteContext
 }
 
 /// One saved list, self-contained: mounts the MVUish program.
@@ -22,6 +28,8 @@ type Page<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
-  and 'env :> IProvideHttp> =
+  and 'env :> IProvideHttp
+  and 'env :> IProvideSession
+  and 'env :> IProvideUiClock> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

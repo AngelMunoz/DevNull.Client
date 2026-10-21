@@ -42,6 +42,7 @@ let view(props: Props<'env>) : Control =
       Target = props.Target
       OnCommitted =
         fun commit -> Navigation.go(props.Nav, "/commit/" + commit.Id, ignore)
+      Register = ValueNone
     }
 
   // One axis only: the composer measures against the column, never an

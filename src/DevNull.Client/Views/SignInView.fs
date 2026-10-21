@@ -31,112 +31,119 @@ type Props<'env
   Env: 'env
   Nav: INavigable
   OnDone: unit -> unit
+  Context: RouteContext
 }
 
-type Status =
-  | Idle
-  | Preparing
-  | AwaitingApproval of url: string
-  | Failed of message: string
+/// The page's state logic: the sign-in flow, its messages, and update.
+module State =
 
-type Model = { Status: Status }
+  type Status =
+    | Idle
+    | Preparing
+    | AwaitingApproval of url: string
+    | Failed of message: string
 
-type Msg =
-  | StartRequested
-  | ReopenBrowser
-  | Prepared of Result<SignInStart, string>
-  | SessionObserved of Result<DeviceSession, string>
+  type Model = { Status: Status }
 
-let initial =
-  match loadPending() with
-  | Some _ -> { Status = AwaitingApproval "" }
-  | None -> { Status = Idle }
+  type Msg =
+    | StartRequested
+    | ReopenBrowser
+    | Prepared of Result<SignInStart, string>
+    | SessionObserved of Result<DeviceSession, string>
 
-/// One blocking sign-in start: the app key generation, the pending file,
-/// and the browser launch, all off the UI thread.
-let prepare(env, key: DeviceKey) : Result<SignInStart, string> =
-  let started = startAuthorization(env, key)
+  let initial =
+    match loadPending() with
+    | Some _ -> { Status = AwaitingApproval "" }
+    | None -> { Status = Idle }
 
-  match savePending started.Pending with
-  | Error message -> Error message
-  | Ok() ->
-    match startBrowser started.Url with
-    | Ok() -> Ok started
+  /// One blocking sign-in start: the app key generation, the pending file,
+  /// and the browser launch, all off the UI thread.
+  let prepare(env, key: DeviceKey) : Result<SignInStart, string> =
+    let started = startAuthorization(env, key)
+
+    match savePending started.Pending with
     | Error message -> Error message
+    | Ok() ->
+      match startBrowser started.Url with
+      | Ok() -> Ok started
+      | Error message -> Error message
 
-/// Waits until the session file or the error file shows up, or the
-/// approval times out, the way the CLI's `devnull auth` does.
-let awaitSession() : Async<Result<DeviceSession, string>> =
-  let started = DateTimeOffset.UtcNow
+  /// Waits until the session file or the error file shows up, or the
+  /// approval times out, the way the CLI's `devnull auth` does.
+  let awaitSession() : Async<Result<DeviceSession, string>> =
+    let started = DateTimeOffset.UtcNow
 
-  let rec loop() = asyncEx {
-    match loadSession() with
-    | Some session -> return Ok session
-    | None ->
-      match takeLastError() with
-      | Some message -> return Error message
-      | None when DateTimeOffset.UtcNow - started > TimeSpan.FromMinutes 5.0 ->
-        deletePending()
-        return Error "The sign-in expired. Start again."
+    let rec loop() = asyncEx {
+      match loadSession() with
+      | Some session -> return Ok session
       | None ->
-        do! Async.Sleep 1000
-        return! loop()
-  }
+        match takeLastError() with
+        | Some message -> return Error message
+        | None when DateTimeOffset.UtcNow - started > TimeSpan.FromMinutes 5.0 ->
+          deletePending()
+          return Error "The sign-in expired. Start again."
+        | None ->
+          do! Async.Sleep 1000
+          return! loop()
+    }
 
-  loop()
+    loop()
 
-let init (props: Props<'env>) () =
-  match initial.Status with
-  | AwaitingApproval _ ->
-    initial, Cmd.OfAsync.perform awaitSession () SessionObserved
-  | _ -> initial, Cmd.none
+  let init (props: Props<'env>) () =
+    match initial.Status with
+    | AwaitingApproval _ ->
+      initial, Cmd.OfAsync.perform awaitSession () SessionObserved
+    | _ -> initial, Cmd.none
 
-let recordSession(props: Props<'env>, session: DeviceSession) : unit =
-  props.Env.Session.Enter {
-    Session = session
-    KeyFile = devicePrivateKeyPath
-  }
+  let recordSession(props: Props<'env>, session: DeviceSession) : unit =
+    props.Env.Session.Enter {
+      Session = session
+      KeyFile = devicePrivateKeyPath
+    }
 
-  props.OnDone()
+    props.OnDone()
 
-let update (props: Props<'env>) msg model =
-  match msg with
-  | StartRequested ->
-    let work() =
-      Async.AwaitTask(
-        Task.Run(fun () ->
-          match ensureKey() with
-          | Error message -> Error message
-          | Ok key -> prepare(props.Env, key))
-      )
+  let update (props: Props<'env>) msg model =
+    match msg with
+    | StartRequested ->
+      let work() =
+        Async.AwaitTask(
+          Task.Run(fun () ->
+            match ensureKey() with
+            | Error message -> Error message
+            | Ok key -> prepare(props.Env, key))
+        )
 
-    ({ model with Status = Preparing }: Model),
-    Cmd.OfAsync.perform work () Prepared
-  | Prepared result ->
-    match result with
-    | Ok started ->
-      {
-        model with
-            Status = AwaitingApproval started.Url
-      },
-      Cmd.OfAsync.perform awaitSession () SessionObserved
-    | Error message -> { model with Status = Failed message }, Cmd.none
-  | ReopenBrowser ->
-    match model.Status with
-    | AwaitingApproval url ->
-      match startBrowser url with
-      | Ok() -> model, Cmd.none
+      ({ model with Status = Preparing }: Model),
+      Cmd.OfAsync.perform work () Prepared
+    | Prepared result ->
+      match result with
+      | Ok started ->
+        {
+          model with
+              Status = AwaitingApproval started.Url
+        },
+        Cmd.OfAsync.perform awaitSession () SessionObserved
       | Error message -> { model with Status = Failed message }, Cmd.none
-    | _ -> model, Cmd.none
-  | SessionObserved result ->
-    match result with
-    | Ok session ->
-      recordSession(props, session)
-      model, Cmd.none
-    | Error message -> { model with Status = Failed message }, Cmd.none
+    | ReopenBrowser ->
+      match model.Status with
+      | AwaitingApproval url ->
+        match startBrowser url with
+        | Ok() -> model, Cmd.none
+        | Error message -> { model with Status = Failed message }, Cmd.none
+      | _ -> model, Cmd.none
+    | SessionObserved result ->
+      match result with
+      | Ok session ->
+        recordSession(props, session)
+        model, Cmd.none
+      | Error message -> { model with Status = Failed message }, Cmd.none
 
-let view props (model: IObservable<Model>) (dispatch: Dispatch<Msg>) : Control =
-  let statusText =
+/// The page's semantic regions; the view only composes these.
+module Parts =
+
+  /// The status line: what the flow is doing right now.
+  let statusLine(model: IObservable<State.Model>) : Control =
     TextBlock()
       .TextWrapping(TextWrapping.Wrap)
       .TextAlignment(TextAlignment.Center)
@@ -145,63 +152,89 @@ let view props (model: IObservable<Model>) (dispatch: Dispatch<Msg>) : Control =
         model
         |> Observable.map(fun current ->
           match current.Status with
-          | Idle -> "Sign in with the SSH key your devnull account knows."
-          | Preparing -> "Preparing sign-in…"
-          | AwaitingApproval _ ->
+          | State.Idle ->
+            "Sign in with the SSH key your devnull account knows."
+          | State.Preparing -> "Preparing sign-in…"
+          | State.AwaitingApproval _ ->
             "Waiting for approval in the browser. Approve this device to continue."
-          | Failed message -> message)
+          | State.Failed message -> message)
       )
 
-  let primaryLabel =
-    model
-    |> Observable.map(fun current ->
-      match current.Status with
-      | Idle -> "Sign in"
-      | Preparing -> "Preparing…"
-      | AwaitingApproval _ -> "Open the browser again"
-      | Failed _ -> "Try again")
+  /// The primary actions: start, or open the browser again while an
+  /// approval is pending.
+  let primaryActions
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : Control array =
+    let primaryLabel =
+      model
+      |> Observable.map(fun current ->
+        match current.Status with
+        | State.Idle -> "Sign in"
+        | State.Preparing -> "Preparing…"
+        | State.AwaitingApproval _ -> "Open the browser again"
+        | State.Failed _ -> "Try again")
 
-  let awaiting =
-    model
-    |> Observable.map(fun current ->
-      match current.Status with
-      | AwaitingApproval _ -> true
-      | Idle
-      | Preparing
-      | Failed _ -> false)
+    let awaiting =
+      model
+      |> Observable.map(fun current ->
+        match current.Status with
+        | State.AwaitingApproval _ -> true
+        | State.Idle
+        | State.Preparing
+        | State.Failed _ -> false)
 
-  let startButton =
-    Button()
-      .HorizontalAlignment(HorizontalAlignment.Stretch)
-      .Classes(Theme.name Theme.AccentButton)
-      .Content(TextBlock().Text(primaryLabel))
-      .IsVisible(awaiting |> Observable.map not)
-      .OnClickHandler(fun _ _ -> dispatch StartRequested)
+    let startButton =
+      Button()
+        .HorizontalAlignment(HorizontalAlignment.Stretch)
+        .Classes(Theme.name Theme.AccentButton)
+        .Content(TextBlock().Text(primaryLabel))
+        .IsVisible(awaiting |> Observable.map not)
+        .OnClickHandler(fun _ _ -> dispatch State.StartRequested)
 
-  let reopenButton =
-    Button()
-      .HorizontalAlignment(HorizontalAlignment.Stretch)
-      .Classes(Theme.name Theme.AccentButton)
-      .Content("Open the browser again")
-      .IsVisible(awaiting)
-      .OnClickHandler(fun _ _ -> dispatch ReopenBrowser)
+    let reopenButton =
+      Button()
+        .HorizontalAlignment(HorizontalAlignment.Stretch)
+        .Classes(Theme.name Theme.AccentButton)
+        .Content("Open the browser again")
+        .IsVisible(awaiting)
+        .OnClickHandler(fun _ _ -> dispatch State.ReopenBrowser)
 
-  let card =
+    [| startButton; reopenButton |]
+
+  /// The sign-in card.
+  let card
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : Control =
+    let title =
+      TextBlock()
+        .Classes(Theme.name Theme.Title)
+        .TextAlignment(TextAlignment.Center)
+        .Text("Sign in to /dev/null")
+
     StackPanel()
       .Spacing(14.0)
       .MaxWidth(360.0)
       .Children(
-        TextBlock()
-          .Classes(Theme.name Theme.Title)
-          .TextAlignment(TextAlignment.Center)
-          .Text("Sign in to /dev/null"),
-        statusText,
-        startButton,
-        reopenButton
+        Array.append
+          [| title :> Control; statusLine model |]
+          (primaryActions(model, dispatch))
       )
 
+let view
+  (props: Props<'env>)
+  (model: IObservable<State.Model>)
+  (dispatch: Dispatch<State.Msg>)
+  : Control =
+
   ScrollViewer()
-    .Content(Grid().Children(card.VerticalAlignment(VerticalAlignment.Center)))
+    .Content(
+      Grid()
+        .Children(
+          Parts
+            .card(model, dispatch)
+            .VerticalAlignment(VerticalAlignment.Center)
+        )
+    )
 
 type Page<'env
   when 'env :> IProvideClock
@@ -213,6 +246,10 @@ type Page<'env
   inherit UserControl()
 
   do
-    let program = Program.mkProgram (init props) (update props) (view props)
+    let program =
+      Program.mkProgram (State.init props) (State.update props) (view props)
 
-    this.Content <- Program.runWith () program
+    let root, lifetime = Program.runWithLifecycle () program
+
+    this.Content <- root
+    props.Context.AddDisposable lifetime

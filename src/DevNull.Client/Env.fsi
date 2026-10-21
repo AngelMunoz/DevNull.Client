@@ -5,6 +5,7 @@ open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
+open DevNull.Client.UiClock
 open DevNull.Client.Unread
 
 /// The logging capability: one factory bridged to Serilog, so every
@@ -13,8 +14,8 @@ type IProvideLogging =
   abstract LoggerFactory: ILoggerFactory
 
 /// The production environment: system clock, crypto nonce source,
-/// ssh-keygen signer, http transport, the live session store, and the
-/// local settings store.
+/// ssh-keygen signer, http transport, the live session store, the
+/// local settings store, and the app services (unread poll, clock).
 type AppEnv =
   new:
     baseAddress: string * session: SessionStore * logging: ILoggerFactory ->
@@ -29,6 +30,7 @@ type AppEnv =
   interface IProvideSettings
   interface IProvideLogging
   interface IProvideUnread
+  interface IProvideUiClock
 
 module KeyFiles =
 

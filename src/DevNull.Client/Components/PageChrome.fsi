@@ -29,15 +29,16 @@ val loadMore: visible: IObservable<bool> * onClick: (unit -> unit) -> Control
 /// its own gutter.
 type PageProps<'m> = {
   Model: IObservable<'m>
-  Title: string
+  /// The title line, as a projection of the model; empty hides it.
+  TitleOf: 'm -> string
   Padding: Thickness
   ErrorOf: 'm -> AppError option
   Busy: 'm -> bool * string
   Empty: 'm -> bool * string
   /// The page's own header pieces, after the title, before the error.
-  Header: (unit -> Control) list
-  /// The scrolling body, built once.
-  Body: unit -> Control
+  Header: Control list
+  /// The scrolling body.
+  Body: Control
 }
 
 /// Builds one list page: the pinned header over the body.

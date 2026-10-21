@@ -64,26 +64,28 @@ let loadMore(visible: IObservable<bool>, onClick: unit -> unit) : Control =
 /// its own gutter.
 type PageProps<'m> = {
   Model: IObservable<'m>
-  Title: string
+  TitleOf: 'm -> string
   Padding: Thickness
   ErrorOf: 'm -> AppError option
   Busy: 'm -> bool * string
   Empty: 'm -> bool * string
   /// The page's own header pieces, after the title, before the error.
-  Header: (unit -> Control) list
-  /// The scrolling body, built once.
-  Body: unit -> Control
+  Header: Control list
+  /// The scrolling body.
+  Body: Control
 }
 
 /// Builds one list page: the pinned header over the body.
 let page(props: PageProps<'m>) : Control =
   let model = props.Model
 
+  let titleText = model |> Observable.map props.TitleOf
+
   let title =
     TextBlock()
       .Classes(Theme.name Theme.Title)
-      .Text(props.Title)
-      .IsVisible(props.Title <> "")
+      .Text(titleText)
+      .IsVisible(titleText |> Observable.map(fun text -> text <> ""))
 
   let busyVisible =
     model |> Observable.map(fun current -> fst(props.Busy current))
@@ -101,7 +103,7 @@ let page(props: PageProps<'m>) : Control =
   let emptyPanel =
     messagePanel(emptyText, Brushes.muted).IsVisible(emptyVisible)
 
-  let header: Control array = [| for build in props.Header -> build() |]
+  let header: Control array = [| for piece in props.Header -> piece |]
 
   let pinnedChildren: Control array = [|
     title
@@ -121,4 +123,4 @@ let page(props: PageProps<'m>) : Control =
 
   root.RowDefinitions <- RowDefinitions("Auto,*")
 
-  root.Children(pinned.Row(0), props.Body().Row(1))
+  root.Children(pinned.Row(0), props.Body.Row(1))

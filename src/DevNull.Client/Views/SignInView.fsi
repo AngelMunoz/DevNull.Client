@@ -19,6 +19,8 @@ type Props<'env
   Env: 'env
   Nav: INavigable
   OnDone: unit -> unit
+  /// The route the page lives in; owns the page's program lifetime.
+  Context: RouteContext
 }
 
 /// One sign-in screen, self-contained: mounts the MVUish program.

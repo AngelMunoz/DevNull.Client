@@ -1,10 +1,12 @@
 module DevNull.Client.Views.CommitDetailView
 
+open System
 open Avalonia.Controls
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Stores
+open DevNull.Client.UiClock
 open Navs
 
 /// The commit thread: the commit, its ancestors, its replies, and the
@@ -14,11 +16,14 @@ type Props<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideSession> = {
+  and 'env :> IProvideSession
+  and 'env :> IProvideUiClock> = {
   Env: 'env
   CommitId: string
   Session: SignedInSession
   Nav: INavigable
+  /// The route the page lives in; owns the page's program lifetime.
+  Context: RouteContext
 }
 
 /// One commit thread, self-contained: mounts the MVUish program.
@@ -27,6 +32,7 @@ type Page<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideSession> =
+  and 'env :> IProvideSession
+  and 'env :> IProvideUiClock> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

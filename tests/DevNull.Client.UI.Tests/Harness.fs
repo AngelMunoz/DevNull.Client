@@ -88,7 +88,10 @@ let settleAsync() : Async<unit> = async {
 
 /// Polls until the predicate holds or the timeout elapses; each probe
 /// runs on the UI thread and each miss pumps, so the MVUish update loop
-/// and the render pass advance between attempts.
+/// and the render pass advance between attempts. Every probe and pump
+/// is its own session dispatch: the session's own loop is what drives
+/// both the program loop's posts and layout in headless — one dispatch
+/// holding a nested frame pump runs neither.
 let waitForAsync
   (ms: int, probe: unit -> 'T, predicate: 'T -> bool)
   : Async<bool> =

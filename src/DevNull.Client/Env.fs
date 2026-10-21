@@ -17,6 +17,7 @@ open DevNull.Client.SessionFiles
 open DevNull.Client.SettingsStore
 open DevNull.Client.SshKeygen
 open DevNull.Client.Stores
+open DevNull.Client.UiClock
 open DevNull.Client.Unread
 
 type SystemClock() =
@@ -186,6 +187,8 @@ type AppEnv(baseAddress: string, session: SessionStore, logging: ILoggerFactory)
           logger.LogError("The settings were not saved: {Error}", message)
     )
 
+  let uiClock = UiClockService(TimeSpan.FromMinutes 1.0)
+
   let unread =
     UnreadService(
       session,
@@ -222,6 +225,9 @@ type AppEnv(baseAddress: string, session: SessionStore, logging: ILoggerFactory)
 
   interface IProvideUnread with
     member _.Unread = unread
+
+  interface IProvideUiClock with
+    member _.UiClock = uiClock
 
 module KeyFiles =
 

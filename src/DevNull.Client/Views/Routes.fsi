@@ -7,6 +7,7 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Env
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
+open DevNull.Client.UiClock
 open Navs
 
 /// The router and the entry the app boots into.
@@ -32,5 +33,6 @@ val build:
     and 'env :> IProvidePkceSource
     and 'env :> IProvideHttp
     and 'env :> IProvideSession
+    and 'env :> IProvideUiClock
     and 'env :> IProvideSettings
     and 'env :> IProvideLogging

@@ -33,78 +33,79 @@ type Props<'env
   Session: SignedInSession
   Target: Target
   OnCommitted: Commit -> unit
+  Register: (IDisposable -> unit) voption
 }
 
-type Model = {
-  Busy: bool
-  Error: AppError option
-  Committed: int
-}
+/// The composer's state logic: model, messages, and update.
+module State =
 
-type Msg =
-  | Submitted of body: string
-  | Committed of Result<Commit, AppError>
+  type Model = {
+    Busy: bool
+    Error: AppError option
+    Committed: int
+  }
 
-let initial = {
-  Busy = false
-  Error = None
-  Committed = 0
-}
+  type Msg =
+    | Submitted of body: string
+    | Committed of Result<Commit, AppError>
 
-let apiTarget(target: Target) : Commits.Target =
-  match target with
-  | Fresh -> Commits.New
-  | ReplyTo parentId -> Commits.ReplyTo parentId
-  | Quoting quotedId -> Commits.Quote quotedId
+  let initial = {
+    Busy = false
+    Error = None
+    Committed = 0
+  }
 
-let init props () = initial, Cmd.none
+  let apiTarget(target: Target) : Commits.Target =
+    match target with
+    | Fresh -> Commits.New
+    | ReplyTo parentId -> Commits.ReplyTo parentId
+    | Quoting quotedId -> Commits.Quote quotedId
 
-let update (props: Props<'env>) msg model =
-  match msg with
-  | Submitted body ->
-    { model with Busy = true; Error = None },
-    Cmd.OfAsync.perform
-      Commits.create
-      (props.Env,
-       {
-         KeyFile = props.Session.KeyFile
-         Body = body
-         Target = apiTarget props.Target
-       })
-      Committed
-  | Committed result ->
-    match result with
-    | Ok commit ->
-      props.OnCommitted commit
+  let init (props: Props<'env>) () = initial, Cmd.none
 
-      {
-        initial with
-            Committed = model.Committed + 1
-      },
-      Cmd.none
-    | Error error ->
-      {
-        model with
-            Busy = false
-            Error = Some error
-      },
-      Cmd.none
+  let update (props: Props<'env>) msg model =
+    match msg with
+    | Submitted body ->
+      { model with Busy = true; Error = None },
+      Cmd.OfAsync.perform
+        Commits.create
+        (props.Env,
+         {
+           KeyFile = props.Session.KeyFile
+           Body = body
+           Target = apiTarget props.Target
+         })
+        Committed
+    | Committed result ->
+      match result with
+      | Ok commit ->
+        props.OnCommitted commit
 
-let view
-  (props: Props<'env>)
-  (model: IObservable<Model>)
-  (dispatch: Dispatch<Msg>)
-  : Control =
+        {
+          initial with
+              Committed = model.Committed + 1
+        },
+        Cmd.none
+      | Error error ->
+        {
+          model with
+              Busy = false
+              Error = Some error
+        },
+        Cmd.none
 
-  let placeholder =
-    match props.Target with
-    | Fresh -> "What did you ship?"
-    | ReplyTo _ -> "Write your reply…"
-    | Quoting _ -> "Add your comment to the quote…"
+/// The composer's semantic regions; the view only composes these.
+module Parts =
 
-  // One line to start, the site's textarea rhythm; the inner presenter
-  // takes over past the cap.
-  let body =
+  /// The input: one line to start, the site's textarea rhythm; the
+  /// inner presenter takes over past the cap.
+  let body(props: Props<'env>) : TextBox =
+    let placeholder =
+      match props.Target with
+      | Fresh -> "What did you ship?"
+      | ReplyTo _ -> "Write your reply…"
+      | Quoting _ -> "Add your comment to the quote…"
+
     TextBox()
       .Name("ComposerBody")
       .PlaceholderText(placeholder)
@@ -113,46 +114,64 @@ let view
       .MaxHeight(300.0)
       .TextWrapping(TextWrapping.Wrap)
 
-  let busy = model |> Observable.map _.Busy
+  /// Every landed commit leaves the box empty for the next one, so a
+  /// sent body never lingers to be cut or reposted.
+  let clearOnCommit(model: IObservable<State.Model>, body: TextBox) : unit =
+    model |> Observable.map _.Committed |> Observable.add(fun _ -> body.Clear())
 
-  // Every landed commit leaves the box empty for the next one, so a
-  // sent body never lingers to be cut or reposted.
-  model |> Observable.map _.Committed |> Observable.add(fun _ -> body.Clear())
-
-  let errorLine =
-    let text =
-      model
-      |> Observable.map(fun current ->
-        current.Error |> Option.map describe |> Option.defaultValue "")
-
+  /// The error line under the input.
+  let errorLine(model: IObservable<State.Model>) : Control =
     TextBlock()
       .TextWrapping(TextWrapping.Wrap)
       .Foreground(Brushes.danger)
-      .Text(text)
+      .Text(
+        model
+        |> Observable.map(fun current ->
+          current.Error |> Option.map describe |> Option.defaultValue "")
+      )
       .IsVisible(model |> Observable.map(_.Error.IsSome))
 
-  // No box: the composer rides the rail plain, the way the site's
-  // does on the log and the thread; a host that wants a card wraps it.
+  /// The action row: the commit button docked right, the error line
+  /// filling the rest.
+  let actionRow
+    (
+      model: IObservable<State.Model>,
+      dispatch: Dispatch<State.Msg>,
+      body: TextBox
+    ) : Control =
+    DockPanel()
+      .LastChildFill(true)
+      .Children(
+        Button()
+          .Classes(Theme.name Theme.AccentButton)
+          .Content("Commit")
+          .IsEnabled(model |> Observable.map(fun current -> not current.Busy))
+          .OnClickHandler(fun _ _ ->
+            dispatch(
+              State.Submitted(
+                body.Text |> Option.ofObj |> Option.defaultValue ""
+              )
+            ))
+          .DockRight(),
+        errorLine model
+      )
+
+let view
+  (props: Props<'env>)
+  (model: IObservable<State.Model>)
+  (dispatch: Dispatch<State.Msg>)
+  : Control =
+
+  let body = Parts.body props
+
+  Parts.clearOnCommit(model, body)
+
+  // No box: the composer rides the rail plain, the way the site's does
+  // on the log and the thread; a host that wants a card wraps it.
   StackPanel()
     .Margin(0.0, 0.0, 0.0, 12.0)
     .Spacing(8.0)
-    .Children(
-      body,
-      DockPanel()
-        .LastChildFill(true)
-        .Children(
-          Button()
-            .Classes(Theme.name Theme.AccentButton)
-            .Content("Commit")
-            .IsEnabled(busy |> Observable.map not)
-            .OnClickHandler(fun _ _ ->
-              dispatch(
-                Submitted(body.Text |> Option.ofObj |> Option.defaultValue "")
-              ))
-            .DockRight(),
-          errorLine
-        )
-    )
+    .Children(body, Parts.actionRow(model, dispatch, body))
 
 type Page<'env
   when 'env :> IProvideClock
@@ -162,6 +181,14 @@ type Page<'env
   inherit UserControl()
 
   do
-    let program = Program.mkProgram (init props) (update props) (view props)
+    let program =
+      Program.mkProgram (State.init props) (State.update props) (view props)
 
-    this.Content <- Program.runWith () program
+    match props.Register with
+    | ValueNone ->
+      let root, _ = Program.runWithLifetime this () program
+      this.Content <- root
+    | ValueSome register ->
+      let root, lifetime = Program.runWithLifecycle () program
+      this.Content <- root
+      register lifetime

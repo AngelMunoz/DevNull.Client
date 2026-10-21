@@ -1,5 +1,6 @@
 module DevNull.Client.UI.Tests.Fixtures
 
+open System
 open Microsoft.Extensions.Logging.Abstractions
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
@@ -10,6 +11,7 @@ open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
+open DevNull.Client.UiClock
 open DevNull.Client.Unread
 
 /// The canned clock: one fixed unix second for every request.
@@ -67,6 +69,9 @@ type TestEnv(store: SessionStore, http: IHttp, ?settings: AppSettingsStore) as t
   let pkceSource =
     FixedPkceSource("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")
 
+  /// A fast clock, so time-driven assertions tick in milliseconds.
+  let uiClock = UiClockService(TimeSpan.FromSeconds 1.0)
+
   let unread =
     UnreadService(
       store,
@@ -103,6 +108,9 @@ type TestEnv(store: SessionStore, http: IHttp, ?settings: AppSettingsStore) as t
 
   interface IProvideUnread with
     member _.Unread = unread
+
+  interface IProvideUiClock with
+    member _.UiClock = uiClock
 
 let sessionOf(username: string) : DeviceSession = {
   User = {

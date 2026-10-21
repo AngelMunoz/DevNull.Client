@@ -26,204 +26,21 @@ open DevNull.Client.Icons
 open DevNull.Client.Navigation
 open DevNull.Client.Stores
 open DevNull.Client.Theme
+open DevNull.Client.UiClock
 
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
-  and 'env :> IProvideHttp> = {
+  and 'env :> IProvideHttp
+  and 'env :> IProvideSession
+  and 'env :> IProvideUiClock> = {
   Env: 'env
   Log: LogKind
   Session: SignedInSession
   Nav: INavigable
+  Context: RouteContext
 }
-
-type Model = {
-  Loading: bool
-  Error: AppError option
-  Items: CommitNode list
-  NextCursor: string option
-  Head: string option
-  NewCount: int option
-  Ranked: bool
-}
-
-type Msg =
-  | Fetched of Result<LogPage, AppError>
-  | ReloadRequested
-  | Appended of Result<LogPage, AppError>
-  | MoreRequested
-  | StarToggled of Commit
-  | StarDone of Result<Commit, AppError>
-  | PastelGiven of Commit
-  | PastelDone of Result<PastelResult, AppError>
-  | CheckNew
-  | NewChecked of Result<LogPage, AppError>
-  | NewRequested
-  | NewFetched of Result<LogPage, AppError>
-
-let initial = {
-  Loading = true
-  Error = None
-  Items = []
-  NextCursor = None
-  Head = None
-  NewCount = None
-  Ranked = false
-}
-
-/// The id of the newest commit in a page: the head the since-poll
-/// checks against.
-let headOf(items: CommitNode list) : string option =
-  items
-  |> List.tryPick(function
-    | LiveCommit commit -> Some commit.Id
-    | Tombstone _ -> None)
-
-let fetch(props: Props<'env>, cursor: string option) =
-  Logs.get(
-    props.Env,
-    {
-      KeyFile = props.Session.KeyFile
-      Log = props.Log
-      Since = None
-      Cursor = cursor
-    }
-  )
-
-let checkNew(props: Props<'env>, head: string) =
-  Logs.get(
-    props.Env,
-    {
-      KeyFile = props.Session.KeyFile
-      Log = props.Log
-      Since = Some head
-      Cursor = None
-    }
-  )
-
-let init (props: Props<'env>) () =
-  initial, Cmd.OfAsync.perform fetch (props, None) Fetched
-
-let replaceNode(items: CommitNode list, updated: Commit) : CommitNode list =
-  items
-  |> List.map(function
-    | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
-    | node -> node)
-
-let update (props: Props<'env>) msg model =
-  match msg with
-  | Fetched result ->
-    match result with
-    | Ok page ->
-      {
-        model with
-            Loading = false
-            Error = None
-            Items = page.Page.Items
-            NextCursor = page.Page.NextCursor
-            Head = headOf page.Page.Items
-            NewCount = None
-            Ranked = page.IsRanked
-      },
-      Cmd.none
-    | Error error ->
-      {
-        model with
-            Loading = false
-            Error = Some error
-      },
-      Cmd.none
-  | CheckNew ->
-    // A ranked log is score ordered, so "newer than head" means
-    // nothing; the site skips the poll there too.
-    match model.Head, model.Ranked with
-    | Some head, false ->
-      model, Cmd.OfAsync.perform checkNew (props, head) NewChecked
-    | _ -> model, Cmd.none
-  | NewChecked result ->
-    match result with
-    | Ok page ->
-      // The since read answers the same first page; only its count is
-      // news. The commits themselves come with the pill's refresh.
-      {
-        model with
-            NewCount =
-              page.NewCommitsCount |> Option.filter(fun count -> count > 0)
-      },
-      Cmd.none
-    | Error _ -> model, Cmd.none
-  | NewRequested ->
-    { model with NewCount = None },
-    Cmd.OfAsync.perform fetch (props, None) NewFetched
-  | NewFetched result ->
-    match result with
-    | Ok page ->
-      // The pill's refresh replaces the feed with the fresh first page,
-      // the way the site reloads its log; no duplicate can survive.
-      {
-        model with
-            Items = page.Page.Items
-            NextCursor = page.Page.NextCursor
-            Head = headOf page.Page.Items
-            Ranked = page.IsRanked
-      },
-      Cmd.none
-    | Error error -> { model with Error = Some error }, Cmd.none
-  | ReloadRequested ->
-    {
-      model with
-          Loading = true
-          Error = None
-    },
-    Cmd.OfAsync.perform fetch (props, None) Fetched
-  | MoreRequested ->
-    model, Cmd.OfAsync.perform fetch (props, model.NextCursor) Appended
-  | Appended result ->
-    match result with
-    | Ok page ->
-      {
-        model with
-            Items = model.Items @ page.Page.Items
-            NextCursor = page.Page.NextCursor
-      },
-      Cmd.none
-    | Error error -> { model with Error = Some error }, Cmd.none
-  | StarToggled commit ->
-    { model with Error = None },
-    Cmd.OfAsync.perform
-      CommitActions.toggleStar
-      (props.Env, props.Session, commit)
-      StarDone
-  | StarDone result ->
-    match result with
-    | Ok updated ->
-      {
-        model with
-            Items = replaceNode(model.Items, updated)
-      },
-      Cmd.none
-    | Error error -> { model with Error = Some error }, Cmd.none
-  | PastelGiven commit ->
-    let give() =
-      Pasteis.give(
-        props.Env,
-        {
-          KeyFile = props.Session.KeyFile
-          CommitId = commit.Id
-        }
-      )
-
-    { model with Error = None }, Cmd.OfAsync.perform give () PastelDone
-  | PastelDone result ->
-    match result with
-    | Ok pastel ->
-      {
-        model with
-            Items = replaceNode(model.Items, pastel.Commit)
-      },
-      Cmd.none
-    | Error error -> { model with Error = Some error }, Cmd.none
 
 /// One row of the log feed: a day separator, a commit on the rail, or
 /// a deletion marker.
@@ -232,123 +49,368 @@ type LogRow =
   | Node of Commit
   | TombstoneRow of Tombstone
 
-/// Interleaves day separators between the commits of different days,
-/// carrying the day across tombstones. A ranked log is score ordered,
-/// its days interleave, so it rides without separators the way the
-/// site's ranked feed does.
-let toRows(items: CommitNode list, ranked: bool) : LogRow list =
-  let now = DateTimeOffset.UtcNow
+/// The page's state logic: model, messages, update, and the
+/// subscriptions that feed it from outside.
+module State =
 
-  let nodeRow node =
-    match node with
-    | LiveCommit commit -> LogRow.Node commit
-    | Tombstone tombstone -> LogRow.TombstoneRow tombstone
+  type Model = {
+    Loading: bool
+    Error: AppError option
+    Items: CommitNode list
+    NextCursor: string option
+    Head: string option
+    NewCount: int option
+    Ranked: bool
+    Attached: bool
+    Now: DateTimeOffset
+    Pasteis: bool
+  }
 
-  if ranked then
-    [ for node in items -> nodeRow node ]
-  else
-    let dayOf node =
-      match node with
-      | LiveCommit commit -> Some(dayLabel(now, commit.CreatedAt))
-      | Tombstone _ -> None
+  type Msg =
+    | Fetched of Result<LogPage, AppError>
+    | ReloadRequested
+    | Appended of Result<LogPage, AppError>
+    | MoreRequested
+    | StarToggled of Commit
+    | StarDone of Result<Commit, AppError>
+    | PastelGiven of Commit
+    | PastelDone of Result<PastelResult, AppError>
+    | CheckNew
+    | NewChecked of Result<LogPage, AppError>
+    | NewRequested
+    | NewFetched of Result<LogPage, AppError>
+    | AttachedChanged of attached: bool
+    | ClockTicked of moment: DateTimeOffset
+    | SessionChanged of state: SessionState
 
-    // The day seen before each item, carried across tombstones: one
-    // carried state per item, seeded with the empty one.
-    let carry =
-      items
-      |> List.scan (fun day node -> dayOf node |> Option.orElse day) None
-      |> List.truncate items.Length
+  let initial = {
+    Loading = true
+    Error = None
+    Items = []
+    NextCursor = None
+    Head = None
+    NewCount = None
+    Ranked = false
+    Attached = false
+    Now = DateTimeOffset.UtcNow
+    Pasteis = false
+  }
 
+  /// The id of the newest commit in a page: the head the since-poll
+  /// checks against.
+  let headOf(items: CommitNode list) : string option =
+    items
+    |> List.tryPick(function
+      | LiveCommit commit -> Some commit.Id
+      | Tombstone _ -> None)
+
+  let fetch(props: Props<'env>, cursor: string option) =
+    Logs.get(
+      props.Env,
+      {
+        KeyFile = props.Session.KeyFile
+        Log = props.Log
+        Since = None
+        Cursor = cursor
+      }
+    )
+
+  let checkNew(props: Props<'env>, head: string) =
+    Logs.get(
+      props.Env,
+      {
+        KeyFile = props.Session.KeyFile
+        Log = props.Log
+        Since = Some head
+        Cursor = None
+      }
+    )
+
+  let init (props: Props<'env>) () =
+    {
+      initial with
+          Pasteis = props.Session.Session.PasteisMode
+    },
+    Cmd.OfAsync.perform fetch (props, None) Fetched
+
+  let replaceNode(items: CommitNode list, updated: Commit) : CommitNode list =
+    items
+    |> List.map(function
+      | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
+      | node -> node)
+
+  let update (props: Props<'env>) msg model =
+    match msg with
+    | Fetched result ->
+      match result with
+      | Ok page ->
+        {
+          model with
+              Loading = false
+              Error = None
+              Items = page.Page.Items
+              NextCursor = page.Page.NextCursor
+              Head = headOf page.Page.Items
+              NewCount = None
+              Ranked = page.IsRanked
+        },
+        Cmd.none
+      | Error error ->
+        {
+          model with
+              Loading = false
+              Error = Some error
+        },
+        Cmd.none
+    | CheckNew ->
+      // A ranked log is score ordered, so "newer than head" means
+      // nothing; the site skips the poll there too.
+      match model.Head, model.Ranked with
+      | Some head, false ->
+        model, Cmd.OfAsync.perform checkNew (props, head) NewChecked
+      | _ -> model, Cmd.none
+    | NewChecked result ->
+      match result with
+      | Ok page ->
+        // The since read answers the same first page; only its count is
+        // news. The commits themselves come with the pill's refresh.
+        {
+          model with
+              NewCount =
+                page.NewCommitsCount |> Option.filter(fun count -> count > 0)
+        },
+        Cmd.none
+      | Error _ -> model, Cmd.none
+    | NewRequested ->
+      { model with NewCount = None },
+      Cmd.OfAsync.perform fetch (props, None) NewFetched
+    | NewFetched result ->
+      match result with
+      | Ok page ->
+        // The pill's refresh replaces the feed with the fresh first page,
+        // the way the site reloads its log; no duplicate can survive.
+        {
+          model with
+              Items = page.Page.Items
+              NextCursor = page.Page.NextCursor
+              Head = headOf page.Page.Items
+              Ranked = page.IsRanked
+        },
+        Cmd.none
+      | Error error -> { model with Error = Some error }, Cmd.none
+    | ReloadRequested ->
+      {
+        model with
+            Loading = true
+            Error = None
+      },
+      Cmd.OfAsync.perform fetch (props, None) Fetched
+    | MoreRequested ->
+      model, Cmd.OfAsync.perform fetch (props, model.NextCursor) Appended
+    | Appended result ->
+      match result with
+      | Ok page ->
+        {
+          model with
+              Items = model.Items @ page.Page.Items
+              NextCursor = page.Page.NextCursor
+        },
+        Cmd.none
+      | Error error -> { model with Error = Some error }, Cmd.none
+    | StarToggled commit ->
+      { model with Error = None },
+      Cmd.OfAsync.perform
+        CommitActions.toggleStar
+        (props.Env, props.Session, commit)
+        StarDone
+    | StarDone result ->
+      match result with
+      | Ok updated ->
+        {
+          model with
+              Items = replaceNode(model.Items, updated)
+        },
+        Cmd.none
+      | Error error -> { model with Error = Some error }, Cmd.none
+    | PastelGiven commit ->
+      let give() =
+        Pasteis.give(
+          props.Env,
+          {
+            KeyFile = props.Session.KeyFile
+            CommitId = commit.Id
+          }
+        )
+
+      { model with Error = None }, Cmd.OfAsync.perform give () PastelDone
+    | PastelDone result ->
+      match result with
+      | Ok pastel ->
+        {
+          model with
+              Items = replaceNode(model.Items, pastel.Commit)
+        },
+        Cmd.none
+      | Error error -> { model with Error = Some error }, Cmd.none
+    | AttachedChanged attached -> { model with Attached = attached }, Cmd.none
+    | ClockTicked moment -> { model with Now = moment }, Cmd.none
+    | SessionChanged state ->
+      let pasteis =
+        match state with
+        | SignedIn entry -> entry.Session.PasteisMode
+        | SignedOut -> model.Pasteis
+
+      { model with Pasteis = pasteis }, Cmd.none
+
+  /// The page's inlets from outside: the shared clock, the session
+  /// store, and — while the page sits in the tree — the since-poll.
+  /// The keyed engine stops and starts sources as the model moves.
+  let subscribe (props: Props<'env>) (model: Model) : Sub<Msg> =
     [
-      for prevDay, node in List.zip carry items do
-        match node with
-        | LiveCommit commit ->
-          let day = dayLabel(now, commit.CreatedAt)
+      Sub.fromObservable
+        "clock"
+        (props.Env.UiClock.Minute |> Observable.map ClockTicked)
 
-          if prevDay <> Some day then
-            LogRow.Day day
-            LogRow.Node commit
-          else
-            LogRow.Node commit
-        | Tombstone tombstone -> LogRow.TombstoneRow tombstone
+      Sub.fromObservable
+        "session"
+        (props.Env.Session.Observe |> Observable.map SessionChanged)
+
+      if model.Attached then
+        Sub.interval "since-poll" (TimeSpan.FromMinutes 1.0) (fun () ->
+          CheckNew)
     ]
+    |> Sub.batch
 
-let keyOf(logRow: LogRow) : string =
-  match logRow with
-  | LogRow.Day label -> "day:" + label
-  | LogRow.Node commit -> commit.Id
-  | LogRow.TombstoneRow tombstone -> tombstone.Id
+  /// Interleaves day separators between the commits of different days,
+  /// carrying the day across tombstones. A ranked log is score ordered,
+  /// its days interleave, so it rides without separators the way the
+  /// site's ranked feed does.
+  let toRows(items: CommitNode list, ranked: bool) : LogRow list =
+    let now = DateTimeOffset.UtcNow
 
-let row
-  (props: Props<'env>, dispatch: Dispatch<Msg>)
-  (logRow: LogRow)
-  : Control =
-  match logRow with
-  | LogRow.Day label -> FeedParts.dayRow label
-  | LogRow.Node commit ->
-    CommitCard.view {
-      Commit = commit
-      OnEvent =
-        fun event ->
-          match event with
-          | CommitCard.Opened c ->
-            Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
-          | CommitCard.StarToggled c -> dispatch(StarToggled c)
-          | CommitCard.PastelGiven c -> dispatch(PastelGiven c)
-          | CommitCard.QuoteRequested c ->
-            Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
-      Pastels = props.Session.Session.PasteisMode
-      Dense = false
+    let nodeRow node =
+      match node with
+      | LiveCommit commit -> LogRow.Node commit
+      | Tombstone tombstone -> LogRow.TombstoneRow tombstone
+
+    if ranked then
+      [ for node in items -> nodeRow node ]
+    else
+      let dayOf node =
+        match node with
+        | LiveCommit commit -> Some(dayLabel(now, commit.CreatedAt))
+        | Tombstone _ -> None
+
+      // The day seen before each item, carried across tombstones: one
+      // carried state per item, seeded with the empty one.
+      let carry =
+        items
+        |> List.scan (fun day node -> dayOf node |> Option.orElse day) None
+        |> List.truncate items.Length
+
+      [
+        for prevDay, node in List.zip carry items do
+          match node with
+          | LiveCommit commit ->
+            let day = dayLabel(now, commit.CreatedAt)
+
+            if prevDay <> Some day then
+              LogRow.Day day
+              LogRow.Node commit
+            else
+              LogRow.Node commit
+          | Tombstone tombstone -> LogRow.TombstoneRow tombstone
+      ]
+
+  let keyOf(logRow: LogRow) : string =
+    match logRow with
+    | LogRow.Day label -> "day:" + label
+    | LogRow.Node commit -> commit.Id
+    | LogRow.TombstoneRow tombstone -> tombstone.Id
+
+/// The page's semantic regions; the view only composes these.
+module Parts =
+
+  /// The row context every log card shares: navigation for opens and
+  /// quotes, messages for the star and the pastel, the live flags.
+  let commitCtx
+    (
+      props: Props<'env>,
+      dispatch: Dispatch<State.Msg>,
+      model: IObservable<State.Model>
+    ) : CommitCard.RowProps = {
+    OnEvent =
+      function
+      | CommitCard.Opened c ->
+        Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
+      | CommitCard.QuoteRequested c ->
+        Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
+      | CommitCard.StarToggled c -> dispatch(State.StarToggled c)
+      | CommitCard.PastelGiven c -> dispatch(State.PastelGiven c)
+    Pasteis = model |> Observable.map _.Pasteis
+    Now = model |> Observable.map _.Now
+    Dense = false
+  }
+
+  /// One feed row: a separator, a commit card, or a deletion marker.
+  let row
+    (
+      props: Props<'env>,
+      dispatch: Dispatch<State.Msg>,
+      model: IObservable<State.Model>
+    )
+    (logRow: LogRow)
+    : Control =
+    let ctx = commitCtx(props, dispatch, model)
+
+    match logRow with
+    | LogRow.Day label -> FeedParts.dayRow label
+    | LogRow.Node commit -> CommitCard.feedRow ctx (LiveCommit commit)
+
+    | LogRow.TombstoneRow tombstone ->
+      CommitCard.feedRow ctx (Tombstone tombstone)
+
+  type Tab = {
+    Label: string
+    Kind: LogKind
+    Url: string
+  }
+
+  let logTabs: Tab list = [
+    {
+      Label = "Following"
+      Kind = Following
+      Url = "/log/following"
     }
-  | LogRow.TombstoneRow _ -> CommitCard.tombstone()
+    {
+      Label = "Latest"
+      Kind = Latest
+      Url = "/log/latest"
+    }
+    {
+      Label = "Trending"
+      Kind = Trending
+      Url = "/log/trending"
+    }
+  ]
 
-type Tab = {
-  Label: string
-  Kind: LogKind
-  Url: string
-}
+  /// One log tab: the page-tab shape, underlined while active.
+  let tab(active: LogKind, nav: INavigable, info: Tab) : Control =
+    let button =
+      Button()
+        .Classes(Theme.name Theme.TabButton)
+        .Content(info.Label)
+        .OnClickHandler(fun _ _ -> Navigation.go(nav, info.Url, ignore))
 
-let logTabs: Tab list = [
-  {
-    Label = "Following"
-    Kind = Following
-    Url = "/log/following"
-  }
-  {
-    Label = "Latest"
-    Kind = Latest
-    Url = "/log/latest"
-  }
-  {
-    Label = "Trending"
-    Kind = Trending
-    Url = "/log/trending"
-  }
-]
+    if active = info.Kind then
+      button.Classes.Add(Theme.name Theme.TabButtonActive) |> ignore
 
-/// One log tab: the page-tab shape, underlined while active.
-let tab(active: LogKind, nav: INavigable, info: Tab) : Control =
-  let button =
-    Button()
-      .Classes(Theme.name Theme.TabButton)
-      .Content(info.Label)
-      .OnClickHandler(fun _ _ -> Navigation.go(nav, info.Url, ignore))
+    button
 
-  if active = info.Kind then
-    button.Classes.Add(Theme.name Theme.TabButtonActive) |> ignore
-
-  button
-
-let view
-  (props: Props<'env>)
-  (model: IObservable<Model>)
-  (dispatch: Dispatch<Msg>)
-  : Control =
-
-  // The tabs run edge to edge of the reading column over a hairline,
-  // the way the site's log header does. The band sits above the client,
-  // so the strip clears it.
-  let tabStrip =
+  /// The three log tabs, edge to edge of the reading column over a
+  /// hairline, the way the site's log header does. The band sits above
+  /// the client, so the strip clears it.
+  let tabStrip(props: Props<'env>) : Control =
     let strip = Grid()
 
     strip.ColumnDefinitions <- ColumnDefinitions("*,*,*")
@@ -366,19 +428,25 @@ let view
         )
       )
 
-  let composer =
-    Composer.Page {
-      Env = props.Env
-      Session = props.Session
-      Target = Composer.Fresh
-      OnCommitted = fun _ -> dispatch ReloadRequested
-    }
+  /// The staged commit: the signed-in user's avatar rides the rail's
+  /// first row, ring and all, and the dashed line runs from it down
+  /// into the day separators — the site stages the next commit exactly
+  /// so. The input keeps the cards' right inset.
+  let composerRail
+    (props: Props<'env>, dispatch: Dispatch<State.Msg>)
+    : Control =
+    // The composer's program lives with the route, not with the page's
+    // visual tree: the cached log page detaches between visits, and a
+    // detach-owned lifetime would kill it on the first stash.
+    let composer =
+      Composer.Page {
+        Env = props.Env
+        Session = props.Session
+        Target = Composer.Fresh
+        OnCommitted = fun _ -> dispatch State.ReloadRequested
+        Register = ValueSome props.Context.AddDisposable
+      }
 
-  // The staged commit: the signed-in user's avatar rides the rail's
-  // first row, ring and all, and the dashed line runs from it down
-  // into the day separators — the site stages the next commit exactly
-  // so. The input keeps the cards' right inset.
-  let composerRow =
     let nodeTop = 9.0
 
     let line =
@@ -423,7 +491,10 @@ let view
       Border().Margin(0.0, 0.0, 16.0, 0.0).Child(composer).Column(1)
     )
 
-  let newPill =
+  /// The new-commits pill: a count over the feed, one click to take it.
+  let newPill
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : Control =
     Button()
       .Classes(Theme.name Theme.AccentButton)
       .CornerRadius(999.0)
@@ -448,33 +519,36 @@ let view
           )
       )
       .IsVisible(model |> Observable.map _.NewCount.IsSome)
-      .OnClickHandler(fun _ _ -> dispatch NewRequested)
+      .OnClickHandler(fun _ _ -> dispatch State.NewRequested)
 
-  let list =
+  /// The timeline itself: the virtualized feed over the page's rows.
+  let feed
+    (
+      props: Props<'env>,
+      dispatch: Dispatch<State.Msg>,
+      model: IObservable<State.Model>
+    ) : Control =
     Feed.view {
       Items =
         model
-        |> Observable.map(fun current -> toRows(current.Items, current.Ranked))
-      KeyOf = keyOf
-      Row = row(props, dispatch)
+        |> Observable.map(fun current ->
+          State.toRows(current.Items, current.Ranked))
+      KeyOf = State.keyOf
+      Row = row(props, dispatch, model)
       Footer =
         ValueSome(
           PageChrome.loadMore(
             model |> Observable.map _.NextCursor.IsSome,
-            fun () -> dispatch MoreRequested
+            fun () -> dispatch State.MoreRequested
           )
         )
     }
 
-  // The since-poll: once a minute, ask the server what landed after
-  // the head. It runs while the page is attached and stops with it.
-  let newTimer =
-    DispatcherTimer(
-      DispatcherPriority.Background,
-      Interval = TimeSpan.FromMinutes 1.0
-    )
-
-  newTimer.Tick.Add(fun _ -> dispatch CheckNew)
+let view
+  (props: Props<'env>)
+  (model: IObservable<State.Model>)
+  (dispatch: Dispatch<State.Msg>)
+  : Control =
 
   // The pinned area takes no horizontal inset: the composer's rail must
   // sit on the same line as the day separators and the cards below,
@@ -482,7 +556,7 @@ let view
   let pinnedPage =
     PageChrome.page {
       Model = model
-      Title = ""
+      TitleOf = fun _ -> ""
       Padding = Thickness(0.0, Theme.bandHeight + 8.0, 0.0, 0.0)
       ErrorOf = _.Error
       Busy = fun current -> current.Loading, "Loading the log…"
@@ -490,18 +564,25 @@ let view
         fun current ->
           not current.Loading && current.Error.IsNone && current.Items.IsEmpty,
           "Nothing here yet. Commit something."
-      Header = [ (fun () -> composerRow); fun () -> newPill ]
-      Body = fun () -> list
+      Header = [
+        Parts.composerRail(props, dispatch)
+        Parts.newPill(model, dispatch)
+      ]
+      Body = Parts.feed(props, dispatch, model)
     }
 
   let root = Grid()
   root.RowDefinitions <- RowDefinitions("Auto,*")
 
-  root.Children(tabStrip.Row(0), pinnedPage.Row(1)) |> ignore
+  root.Children(Parts.tabStrip(props).Row(0), pinnedPage.Row(1)) |> ignore
 
-  root.AttachedToVisualTree.Add(fun _ -> newTimer.Start())
+  // The cached log page reports its tree presence, so the since-poll
+  // subscription pauses while the page is stashed and resumes on the
+  // way back.
+  root.AttachedToVisualTree.Add(fun _ -> dispatch(State.AttachedChanged true))
 
-  root.DetachedFromVisualTree.Add(fun _ -> newTimer.Stop())
+  root.DetachedFromVisualTree.Add(fun _ ->
+    dispatch(State.AttachedChanged false))
 
   root
 
@@ -509,10 +590,17 @@ type Page<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
-  and 'env :> IProvideHttp>(props: Props<'env>) as this =
+  and 'env :> IProvideHttp
+  and 'env :> IProvideSession
+  and 'env :> IProvideUiClock>(props: Props<'env>) as this =
   inherit UserControl()
 
   do
-    let program = Program.mkProgram (init props) (update props) (view props)
+    let program =
+      Program.mkProgram (State.init props) (State.update props) (view props)
+      |> Program.withSubscription(State.subscribe props)
 
-    this.Content <- Program.runWith () program
+    let root, lifetime = Program.runWithLifecycle () program
+
+    this.Content <- root
+    props.Context.AddDisposable lifetime

@@ -8,6 +8,7 @@ open DevNull.Client.Icons
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
 open DevNull.Client.Unread
+open DevNull.Client.UiClock
 open Navs
 
 /// The one window of the app: the sidebar, the router outlet, and the
@@ -22,7 +23,8 @@ type Shell<'env
   and 'env :> IProvideSession
   and 'env :> IProvideSettings
   and 'env :> IProvideLogging
-  and 'env :> IProvideUnread> =
+  and 'env :> IProvideUnread
+  and 'env :> IProvideUiClock> =
   new: env: 'env * callback: string option -> Shell<'env>
   inherit Window
 

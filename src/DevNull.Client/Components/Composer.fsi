@@ -1,5 +1,6 @@
 module DevNull.Client.Components.Composer
 
+open System
 open Avalonia.Controls
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
@@ -24,6 +25,11 @@ type Props<'env
   Target: Target
   /// Runs with the created commit, on the UI thread.
   OnCommitted: Commit -> unit
+  /// Where the composer's program lifetime lands. A host whose page
+  /// is cached between visits (the log) registers the lifetime with
+  /// the route; every other host leaves it empty and the composer
+  /// stops itself when it leaves the visual tree.
+  Register: (IDisposable -> unit) voption
 }
 
 /// One composer, self-contained: mounts the MVUish program.

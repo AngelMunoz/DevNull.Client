@@ -32,129 +32,172 @@ type Props<'env
   Nav: INavigable
   /// Runs when the user asks to sign out; the caller drops the session.
   OnSignOut: unit -> unit
+  Context: RouteContext
 }
 
-type Model = {
-  Me: Me option
-  Error: AppError option
-  Note: string option
-  Busy: bool
-}
+/// The page's state logic: model, messages, update, and the settings
+/// subscription that feeds it from outside.
+module State =
 
-type Msg =
-  | LaneSet of index: int
-  | LaneAutomatic
-  | PasteisModeToggled
-  | GithubSyncRequested
-  | MeDone of Result<Me, AppError>
-  | MeNote of string
+  type Model = {
+    Me: Me option
+    Error: AppError option
+    Note: string option
+    Busy: bool
+    /// The local machine preferences, live from the settings store.
+    Settings: AppSettings
+  }
 
-let initial = {
-  Me = None
-  Error = None
-  Note = None
-  Busy = true
-}
+  type Msg =
+    | LaneSet of index: int
+    | LaneAutomatic
+    | PasteisModeToggled
+    | GithubSyncRequested
+    | MeDone of Result<Me, AppError>
+    | MeNote of string
+    | CloseToTraySet of enabled: bool
+    | ThemeChosen of choice: ThemeChoice
+    | SettingsChanged of settings: AppSettings
 
-let fetchMe(env, session: SignedInSession) =
-  Me.get(env, { KeyFile = session.KeyFile })
+  let initial = {
+    Me = None
+    Error = None
+    Note = None
+    Busy = true
+    Settings = { CloseToTray = false; Theme = System }
+  }
 
-let init (props: Props<'env>) () =
-  initial, Cmd.OfAsync.perform fetchMe (props.Env, props.Session) MeDone
+  let fetchMe(env, session: SignedInSession) =
+    Me.get(env, { KeyFile = session.KeyFile })
 
-let laneIndex(lane: Lane option) : int option =
-  lane
-  |> Option.bind(function
-    | LaneIndex index -> Some index
-    | LaneColor _ -> None)
+  let init (props: Props<'env>) () =
+    {
+      initial with
+          Settings = (props.Env :> IProvideSettings).Settings.Current
+    },
+    Cmd.OfAsync.perform fetchMe (props.Env, props.Session) MeDone
 
-let update (props: Props<'env>) msg model =
-  match msg with
-  | MeDone result ->
-    match result with
-    | Ok me ->
+  let laneIndex(lane: Lane option) : int option =
+    lane
+    |> Option.bind(function
+      | LaneIndex index -> Some index
+      | LaneColor _ -> None)
+
+  let update (props: Props<'env>) msg model =
+    match msg with
+    | MeDone result ->
+      match result with
+      | Ok me ->
+        {
+          model with
+              Busy = false
+              Error = None
+              Me = Some me
+        },
+        Cmd.none
+      | Error error ->
+        {
+          model with
+              Busy = false
+              Error = Some error
+        },
+        Cmd.none
+    | MeNote note -> { model with Note = Some note }, Cmd.none
+    | LaneSet index ->
+      let set() =
+        Me.setLane(
+          props.Env,
+          {
+            KeyFile = props.Session.KeyFile
+            Lane = Palette index
+          }
+        )
+
+      { model with Error = None }, Cmd.OfAsync.perform set () MeDone
+    | LaneAutomatic ->
+      let set() =
+        Me.setLane(
+          props.Env,
+          {
+            KeyFile = props.Session.KeyFile
+            Lane = Automatic
+          }
+        )
+
+      { model with Error = None }, Cmd.OfAsync.perform set () MeDone
+    | PasteisModeToggled ->
+      let toggle() =
+        let on =
+          model.Me |> Option.map(_.PasteisMode) |> Option.defaultValue false
+
+        Me.setPasteisMode(
+          props.Env,
+          {
+            KeyFile = props.Session.KeyFile
+            Enabled = not on
+          }
+        )
+
+      { model with Error = None }, Cmd.OfAsync.perform toggle () MeDone
+    | GithubSyncRequested ->
+      let sync() =
+        Me.syncGithub(props.Env, { KeyFile = props.Session.KeyFile })
+
+      { model with Error = None }, Cmd.OfAsync.perform sync () MeDone
+    | CloseToTraySet enabled ->
+      let settings = {
+        model.Settings with
+            CloseToTray = enabled
+      }
+
+      let cmd =
+        if enabled = model.Settings.CloseToTray then
+          Cmd.none
+        else
+          let store = (props.Env :> IProvideSettings).Settings
+          Cmd.ofAction(fun () -> store.SetCloseToTray enabled)
+
+      { model with Settings = settings }, cmd
+    | ThemeChosen choice ->
+      let store = (props.Env :> IProvideSettings).Settings
+
       {
         model with
-            Busy = false
-            Error = None
-            Me = Some me
+            Settings = { model.Settings with Theme = choice }
       },
-      Cmd.none
-    | Error error ->
-      {
-        model with
-            Busy = false
-            Error = Some error
-      },
-      Cmd.none
-  | MeNote note -> { model with Note = Some note }, Cmd.none
-  | LaneSet index ->
-    let set() =
-      Me.setLane(
-        props.Env,
-        {
-          KeyFile = props.Session.KeyFile
-          Lane = Palette index
-        }
-      )
+      Cmd.ofAction(fun () -> store.SetTheme choice)
+    | SettingsChanged settings -> { model with Settings = settings }, Cmd.none
 
-    { model with Error = None }, Cmd.OfAsync.perform set () MeDone
-  | LaneAutomatic ->
-    let set() =
-      Me.setLane(
-        props.Env,
-        {
-          KeyFile = props.Session.KeyFile
-          Lane = Automatic
-        }
-      )
+  /// The page's inlet from outside: the local settings store.
+  let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
+    Sub.fromObservable
+      "settings"
+      ((props.Env :> IProvideSettings).Settings.Observe
+       |> Observable.map SettingsChanged)
 
-    { model with Error = None }, Cmd.OfAsync.perform set () MeDone
-  | PasteisModeToggled ->
-    let toggle() =
-      let on =
-        model.Me |> Option.map(_.PasteisMode) |> Option.defaultValue false
+/// The page's semantic regions; the view only composes these.
+module Parts =
 
-      Me.setPasteisMode(
-        props.Env,
-        {
-          KeyFile = props.Session.KeyFile
-          Enabled = not on
-        }
-      )
+  /// The error card: one plain line per failure, in the danger tone.
+  let errorPanel(model: IObservable<State.Model>) : Control =
+    let errorText =
+      TextBlock()
+        .TextWrapping(TextWrapping.Wrap)
+        .Foreground(Brushes.danger)
+        .Text(
+          model
+          |> Observable.map(fun current ->
+            current.Error |> Option.map describe |> Option.defaultValue "")
+        )
 
-    { model with Error = None }, Cmd.OfAsync.perform toggle () MeDone
-  | GithubSyncRequested ->
-    let sync() =
-      Me.syncGithub(props.Env, { KeyFile = props.Session.KeyFile })
-
-    { model with Error = None }, Cmd.OfAsync.perform sync () MeDone
-
-let view
-  (props: Props<'env>)
-  (model: IObservable<Model>)
-  (dispatch: Dispatch<Msg>)
-  : Control =
-  let user = props.Session.Session.User
-
-  let errorText =
-    TextBlock()
-      .TextWrapping(TextWrapping.Wrap)
-      .Foreground(Brushes.danger)
-      .Text(
-        model
-        |> Observable.map(fun current ->
-          current.Error |> Option.map describe |> Option.defaultValue "")
-      )
-
-  let errorPanel =
     Border()
       .Classes(Theme.name Theme.Card)
       .Margin(0.0, 8.0, 0.0, 8.0)
       .Child(errorText)
       .IsVisible(model |> Observable.map(_.Error.IsSome))
 
-  let noteText =
+  /// The note line, when an action left a message.
+  let noteText(model: IObservable<State.Model>) : Control =
     TextBlock()
       .Classes(Theme.name Theme.Muted)
       .Text(
@@ -163,12 +206,16 @@ let view
       )
       .IsVisible(model |> Observable.map _.Note.IsSome)
 
-  let busy =
+  /// The busy line of the page.
+  let busy(model: IObservable<State.Model>) : Control =
     Status
       .busy("Loading the settings…")
       .IsVisible(model |> Observable.map _.Busy)
 
-  let laneRow =
+  /// The lane palette row.
+  let laneRow
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : Control =
     // The palette is rebuilt when the lane changes: the ring follows.
     let laneHost =
       let content: IObservable<Control> =
@@ -176,7 +223,7 @@ let view
         |> Observable.map(fun current ->
           match current.Me with
           | Some me ->
-            let current' = laneIndex me.PreferredLane
+            let current' = State.laneIndex me.PreferredLane
 
             let laneButton(index: int) : Control =
               Button()
@@ -191,13 +238,13 @@ let view
                     Brushes.border
                 )
                 .BorderThickness(2.0)
-                .OnClickHandler(fun _ _ -> dispatch(LaneSet index))
+                .OnClickHandler(fun _ _ -> dispatch(State.LaneSet index))
 
             let automatic =
               Button()
                 .Classes(Theme.name Theme.NavButton)
                 .Content("Automatic")
-                .OnClickHandler(fun _ _ -> dispatch LaneAutomatic)
+                .OnClickHandler(fun _ _ -> dispatch State.LaneAutomatic)
 
             if me.PreferredLane = None then
               automatic.Background(Brushes.card) |> ignore
@@ -229,23 +276,25 @@ let view
         laneHost
       )
 
-  // The appearance row rebuilds from the store, the way the lane row
-  // follows the server settings.
-  let themeRow =
-    let store = (props.Env :> IProvideSettings).Settings
+  /// The appearance row. It follows the model: a choice dispatches, the
+  /// update writes the store, and the store's emission returns through
+  /// the settings subscription.
+  let themeRow
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : Control =
     let themeHost = ContentControl()
 
     let choices =
-      store.Observe
+      model
       |> Observable.map(fun current ->
         let choiceButton(label: string, choice: ThemeChoice) : Control =
           let button =
             Button()
               .Classes(Theme.name Theme.NavButton)
               .Content(label)
-              .OnClickHandler(fun _ _ -> store.SetTheme choice)
+              .OnClickHandler(fun _ _ -> dispatch(State.ThemeChosen choice))
 
-          if current.Theme = choice then
+          if current.Settings.Theme = choice then
             button.BorderBrush(Brushes.accent) |> ignore
 
           button
@@ -273,43 +322,59 @@ let view
         themeHost
       )
 
-  let pasteisOn =
-    model
-    |> Observable.map(fun current ->
-      current.Me |> Option.map(_.PasteisMode) |> Option.defaultValue false)
+  /// The pastéis mode row: one button for each state.
+  let pasteisRow
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : Control =
+    let pasteisOn =
+      model
+      |> Observable.map(fun current ->
+        current.Me |> Option.map(_.PasteisMode) |> Option.defaultValue false)
 
-  let pasteisOffButton =
-    Button()
-      .Classes(Theme.name Theme.NavButton)
-      .Content("Turn pastéis mode on")
-      .IsVisible(pasteisOn |> Observable.map not)
-      .OnClickHandler(fun _ _ -> dispatch PasteisModeToggled)
+    let off =
+      Button()
+        .Classes(Theme.name Theme.NavButton)
+        .Content("Turn pastéis mode on")
+        .IsVisible(pasteisOn |> Observable.map not)
+        .OnClickHandler(fun _ _ -> dispatch State.PasteisModeToggled)
 
-  let pasteisOnButton =
-    Button()
-      .Classes(Theme.name Theme.NavButton)
-      .Content("Turn pastéis mode off")
-      .IsVisible(pasteisOn)
-      .OnClickHandler(fun _ _ -> dispatch PasteisModeToggled)
+    let on =
+      Button()
+        .Classes(Theme.name Theme.NavButton)
+        .Content("Turn pastéis mode off")
+        .IsVisible(pasteisOn)
+        .OnClickHandler(fun _ _ -> dispatch State.PasteisModeToggled)
 
-  let syncButton =
+    StackPanel()
+      .Orientation(Orientation.Horizontal)
+      .Spacing(8.0)
+      .Children(off, on)
+
+  /// The GitHub sync button.
+  let syncButton(dispatch: Dispatch<State.Msg>) : Control =
     Button()
       .Classes(Theme.name Theme.NavButton)
       .Content("Sync the GitHub profile")
-      .OnClickHandler(fun _ _ -> dispatch GithubSyncRequested)
+      .OnClickHandler(fun _ _ -> dispatch State.GithubSyncRequested)
 
-  // The application preferences live in the local store, off the MVUish
-  // loop: like the sign-out, they are machine state, not server state.
-  let applicationRow =
-    let store = (props.Env :> IProvideSettings).Settings
+  /// The application preferences row. It rides the MVU loop: the
+  /// toggle dispatches, the update writes the store, and the store's
+  /// emission comes back through the settings subscription.
+  let applicationRow
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : Control =
+    let settings = model |> Observable.map _.Settings
 
     let toggle =
       ToggleSwitch()
-        .IsChecked(store.Current.CloseToTray)
+        .IsChecked(
+          settings
+          |> Observable.map(fun current -> Nullable(current.CloseToTray))
+        )
         .OnIsCheckedChangedHandler(fun toggle _ ->
           toggle.IsChecked
           |> Option.ofNullable
-          |> Option.iter store.SetCloseToTray)
+          |> Option.iter(State.CloseToTraySet >> dispatch))
 
     toggle.Name <- "CloseToTrayToggle"
 
@@ -328,17 +393,19 @@ let view
           )
       )
 
-  let signOutButton =
+  /// The sign-out button; the caller owns the actual sign-out.
+  let signOutButton(props: Props<'env>) : Control =
     Button()
       .Classes(Theme.name Theme.DangerButton)
       .Content("Sign out")
       .OnClickHandler(fun _ _ -> props.OnSignOut())
 
-  let pasteisRow =
-    StackPanel()
-      .Orientation(Orientation.Horizontal)
-      .Spacing(8.0)
-      .Children(pasteisOffButton, pasteisOnButton)
+let view
+  (props: Props<'env>)
+  (model: IObservable<State.Model>)
+  (dispatch: Dispatch<State.Msg>)
+  : Control =
+  let user = props.Session.Session.User
 
   ScrollViewer()
     .Padding(Theme.pagePadding)
@@ -350,15 +417,15 @@ let view
         .Children(
           TextBlock().Classes(Theme.name Theme.Title).Text($"@{user.Username}"),
           TextBlock().Text(user.Name),
-          laneRow,
-          themeRow,
-          pasteisRow,
-          syncButton,
-          applicationRow,
-          signOutButton,
-          errorPanel,
-          noteText,
-          busy
+          Parts.laneRow(model, dispatch),
+          Parts.themeRow(model, dispatch),
+          Parts.pasteisRow(model, dispatch),
+          Parts.syncButton dispatch,
+          Parts.applicationRow(model, dispatch),
+          Parts.signOutButton props,
+          Parts.errorPanel model,
+          Parts.noteText model,
+          Parts.busy model
         )
     )
 
@@ -372,6 +439,11 @@ type Page<'env
   inherit UserControl()
 
   do
-    let program = Program.mkProgram (init props) (update props) (view props)
+    let program =
+      Program.mkProgram (State.init props) (State.update props) (view props)
+      |> Program.withSubscription(State.subscribe props)
 
-    this.Content <- Program.runWith () program
+    let root, lifetime = Program.runWithLifecycle () program
+
+    this.Content <- root
+    props.Context.AddDisposable lifetime

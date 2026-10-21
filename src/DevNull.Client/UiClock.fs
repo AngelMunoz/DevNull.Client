@@ -2,28 +2,29 @@ module DevNull.Client.UiClock
 
 open System
 open System.Reactive.Subjects
-open Avalonia.Threading
+open System.Timers
 
-let ticks = new Subject<DateTimeOffset>()
+/// The app's clock: one shared tick, owned by the env, so pages read
+/// time through their models instead of running timers of their own.
+/// The timer is a thread-pool one - the same kind MVUish's own
+/// Sub.interval starts: ticks reach pages through dispatch, and
+/// constructing the service never touches the UI dispatcher. A
+/// DispatcherTimer built off the session thread would instead claim
+/// the UI dispatcher before the headless session owns it.
+type UiClockService(interval: TimeSpan) =
 
-/// One shared minute tick, started on the UI thread the first time a
-/// view subscribes.
-let start() =
-  let timer =
-    DispatcherTimer(
-      DispatcherPriority.Background,
-      Interval = TimeSpan.FromMinutes 1.0
-    )
+  let ticks = new Subject<DateTimeOffset>()
 
-  timer.Tick.Add(fun _ -> ticks.OnNext(DateTimeOffset.UtcNow))
-  timer.Start()
+  let timer = new Timer(interval.TotalMilliseconds)
 
-let started = lazy (start())
+  do timer.Elapsed.Add(fun _ -> ticks.OnNext(DateTimeOffset.UtcNow))
 
-/// One shared per-minute tick on the UI thread, started lazily.
-let minute: IObservable<DateTimeOffset> = {
-  new IObservable<DateTimeOffset> with
-    member _.Subscribe(observer) =
-      started.Force()
-      ticks.Subscribe observer
-}
+  do timer.Start()
+
+  /// Every tick, each carrying the moment it fired.
+  member _.Minute: IObservable<DateTimeOffset> =
+    ticks :> IObservable<DateTimeOffset>
+
+/// Accessor for the clock capability.
+type IProvideUiClock =
+  abstract UiClock: UiClockService

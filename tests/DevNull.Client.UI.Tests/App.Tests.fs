@@ -303,7 +303,7 @@ let tests =
             | Error failure -> failwith $"page never decoded: {failure.Message}"
           | Error failure -> failwith $"request failed: {failure.Message}"
 
-        let rows = LogView.toRows(page.Page.Items, page.IsRanked)
+        let rows = LogView.State.toRows(page.Page.Items, page.IsRanked)
 
         let commitOf(node: CommitNode) =
           match node with
@@ -343,7 +343,7 @@ let tests =
 
         // Ranked order interleaves the days, so separators would repeat
         // their keys: the ranked feed rides without them.
-        let ranked = LogView.toRows(page.Page.Items, true)
+        let ranked = LogView.State.toRows(page.Page.Items, true)
 
         Expect.equal (ranked |> List.length) 3 "the ranked row count"
 
@@ -354,7 +354,7 @@ let tests =
              | _ -> false))
           "the ranked feed carried a day separator"
 
-        let keys = ranked |> List.map LogView.keyOf
+        let keys = ranked |> List.map LogView.State.keyOf
 
         Expect.equal
           (keys |> List.distinct |> List.length)
@@ -364,9 +364,9 @@ let tests =
         // The same commits on a newest-first reading interleave their
         // days: separators repeat their keys, which is why ranked rides
         // without them.
-        let unranked = LogView.toRows(page.Page.Items, false)
+        let unranked = LogView.State.toRows(page.Page.Items, false)
 
-        let unrankedKeys = unranked |> List.map LogView.keyOf
+        let unrankedKeys = unranked |> List.map LogView.State.keyOf
 
         Expect.isGreaterThan
           (unrankedKeys.Length - (unrankedKeys |> List.distinct |> List.length))
@@ -380,14 +380,19 @@ let tests =
           Log = Latest
           Session = signedInSession()
           Nav = Unchecked.defaultof<Navs.INavigable>
+          Context = Unchecked.defaultof<Navs.RouteContext>
         }
 
         let fetched, _ =
-          LogView.update props (LogView.Fetched(Ok page)) LogView.initial
+          LogView.State.update
+            props
+            (LogView.State.Fetched(Ok page))
+            LogView.State.initial
 
         Expect.isTrue fetched.Ranked "the fetch never took the ranked flag"
 
-        let polled, _ = LogView.update props LogView.CheckNew fetched
+        let polled, _ =
+          LogView.State.update props LogView.State.CheckNew fetched
 
         Expect.equal polled fetched "the ranked log staged a since-poll"
       })
@@ -741,9 +746,9 @@ let tests =
         // page must still hold on return.
         let! before = probeUiAsync(fun () -> feedOffset window)
 
-        do!
-          onUiAsync(fun () ->
-            buttonWithText(window, "Card 6.") |> Option.iter click)
+        // Realization follows the scroll a dispatcher turn later, so
+        // the click waits for the card the way a user would.
+        do! clickWhenShown(window, "Card 6.")
 
         let! thread = showsText(window, "Back to the log")
 
@@ -1136,23 +1141,12 @@ let tests =
 
         do! clickWhenShown(window, "Profile")
 
-        let! texts =
-          probeUiAsync(fun () ->
-            window.GetVisualDescendants()
-            |> Seq.filter(fun visual -> visual :? TextBlock)
-            |> Seq.map(fun visual ->
-              let textBlock = visual :?> TextBlock
+        // The 2.0 program loop renders through the dispatcher: the
+        // bio lands a dispatcher turn after the click, so the test
+        // waits for it instead of probing the tree synchronously.
+        let! bio = showsText(window, "Builds things.")
 
-              match textBlock.Text with
-              | null -> ""
-              | nonNull -> nonNull)
-            |> Seq.toList)
-
-        let visible = System.String.Join(" | ", texts)
-
-        Expect.isTrue
-          (texts |> List.contains "Builds things.")
-          $"the bio never rendered; visible: {visible}"
+        Expect.isTrue bio "the bio never rendered"
 
         let! commits = showsText(window, "It was DNS.")
 
@@ -1635,13 +1629,18 @@ let tests =
             |> Option.iter(fun control ->
               (control :?> ToggleSwitch).IsChecked <- Nullable true))
 
-        let! stored = probeUiAsync(fun () -> settings.Current.CloseToTray)
+        // The write rides the program loop: dispatch, update, command,
+        // store — each a dispatcher turn, so the assertions wait for
+        // the outcome instead of probing synchronously.
+        let! stored =
+          waitForAsync(5000, (fun () -> settings.Current.CloseToTray), id)
 
         Expect.isTrue stored "the store never took the flag"
 
-        let! saved = probeUiAsync(fun () -> saves.Count)
+        let! saved =
+          waitForAsync(5000, (fun () -> saves.Count), (fun count -> count = 1))
 
-        Expect.equal saved 1 "the save hook never ran"
+        Expect.isTrue saved "the save hook never ran"
       })
 
     testCaseAsync
@@ -1715,6 +1714,151 @@ let tests =
       })
 
     testCaseAsync
+      "a cached log page returns without a refetch"
+      (async {
+        let api = threadApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        let logReads() =
+          api.Requests
+          |> List.filter(fun request ->
+            request.Method = "GET" && request.Target.StartsWith "/api/v1/log/")
+          |> List.length
+
+        let! before = probeUiAsync logReads
+
+        do! clickWhenShown(window, "It was DNS.")
+
+        let! thread = showsText(window, "Back to the log")
+
+        Expect.isTrue thread "the thread never rendered"
+
+        do! clickWhenShown(window, "Back to the log")
+
+        let! back = showsText(window, "It was DNS.")
+
+        Expect.isTrue back "the cached log never came back"
+
+        // The cached page holds its items: returning asks the server
+        // for nothing. The count may not move by even one read.
+        let! after = waitForAsync(2000, logReads, (fun count -> count = before))
+
+        Expect.isTrue after "the cached page refetched on return"
+      })
+
+    testCaseAsync
+      "the inbox title follows a live session refresh"
+      (async {
+        let store = signedInStoreWithUnread 3
+        let! window = startShell(store, accountApi() :> IHttp)
+
+        do! clickWhenShown(window, "Notifications")
+
+        let! inbox = showsText(window, "Notifications · 3 unread")
+
+        Expect.isTrue inbox "the initial unread title never rendered"
+
+        let refreshed = {
+          sessionOf "octocat" with
+              UnreadNotificationsCount = 7
+        }
+
+        do! probeUiAsync(fun () -> store.Refresh refreshed) |> Async.Ignore
+
+        let! title = showsText(window, "Notifications · 7 unread")
+
+        Expect.isTrue title "the title never followed the refresh"
+      })
+
+    testCaseAsync
+      "a row's relative time follows the shared clock"
+      (async {
+        // Created 50 seconds ago: the row lands as "now", then flips
+        // to "1m" once the shared clock's ticks carry the model's Now
+        // past the minute boundary.
+        let created = DateTimeOffset.UtcNow - TimeSpan.FromSeconds 50.0
+
+        let stamp = created.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+
+        let freshNotification =
+          notificationJson.Replace(
+            "\"created_at\":\"2026-10-20T04:17:19Z\"",
+            $"\"created_at\":\"{stamp}\""
+          )
+
+        let inbox =
+          sprintf
+            "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"filters\":{\"type\":\"all\"},\"read_at\":\"2026-10-20T04:20:00Z\"}"
+            freshNotification
+
+        let api =
+          FakeApi(fun request ->
+            if request.Target.StartsWith "/api/v1/notifications" then
+              ok inbox
+            elif request.Target.StartsWith "/api/v1/log/" then
+              ok logPageJson
+            else
+              ok "{}")
+
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        do! clickWhenShown(window, "Notifications")
+
+        let! fresh = showsText(window, "now")
+
+        Expect.isTrue fresh "the fresh row never rendered"
+
+        // The flip can take up to a minute-budget of real time; the
+        // default showsText window is too short for it.
+        let! flipped =
+          waitForAsync(
+            25000,
+            (fun () -> window),
+            (fun root -> hasText(root, "1m"))
+          )
+
+        Expect.isTrue flipped "the relative time never followed the clock"
+      })
+
+    testCaseAsync
+      "the pastel controls appear when the session turns them on"
+      (async {
+        let store = signedInStoreWithoutPasteis()
+        let! window = startShell(store, threadApi() :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        let! hidden =
+          probeUiAsync(fun () -> controlByName(window, "PastelButton"))
+
+        Expect.isNone hidden "the pastel action leaked while off"
+
+        let refreshed = {
+          sessionOf "octocat" with
+              PasteisMode = true
+        }
+
+        do! probeUiAsync(fun () -> store.Refresh refreshed) |> Async.Ignore
+
+        // The session subscription flips the model's flag; the card's
+        // host rebuilds, so the named control enters the tree live.
+        let! appeared =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "PastelButton")),
+            Option.isSome
+          )
+
+        Expect.isTrue appeared "the pastel action never appeared"
+      })
+
+    testCaseAsync
       "the aside shows the profile card on wide windows"
       (async {
         let! window = startShell(signedInStore(), accountApi() :> IHttp)
@@ -1751,6 +1895,7 @@ let tests =
 
           // The pill messages never navigate, so the router stays out.
           Nav = Unchecked.defaultof<Navs.INavigable>
+          Context = Unchecked.defaultof<Navs.RouteContext>
         }
 
         let newer =
@@ -1762,7 +1907,7 @@ let tests =
         // The since read answers the same first page; only the envelope
         // count is news, so the items never stage behind the pill.
         let model = {
-          LogView.initial with
+          LogView.State.initial with
               Head = Some "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
               Items =
                 match newer.Page.Items with
@@ -1771,7 +1916,7 @@ let tests =
         }
 
         let staged, _ =
-          LogView.update props (LogView.NewChecked(Ok newer)) model
+          LogView.State.update props (LogView.State.NewChecked(Ok newer)) model
 
         Expect.equal staged.NewCount (Some 1) "the new count never staged"
 
@@ -1780,7 +1925,8 @@ let tests =
         // The pill fetches the fresh first page and replaces the feed:
         // every id lands once, so the keyed diff can never see a
         // repeated key.
-        let refreshed, _ = LogView.update props LogView.NewRequested staged
+        let refreshed, _ =
+          LogView.State.update props LogView.State.NewRequested staged
 
         Expect.isNone refreshed.NewCount "the pill never cleared"
 
@@ -1790,9 +1936,10 @@ let tests =
           (refreshed.Items
            |> List.map(fun node ->
              match node with
-             | LiveCommit commit -> LogView.keyOf(LogView.LogRow.Node commit)
+             | LiveCommit commit ->
+               LogView.State.keyOf(LogView.LogRow.Node commit)
              | Tombstone tombstone ->
-               LogView.keyOf(LogView.LogRow.TombstoneRow tombstone))
+               LogView.State.keyOf(LogView.LogRow.TombstoneRow tombstone))
            |> List.distinct
            |> List.length)
           (refreshed.Items |> List.length)

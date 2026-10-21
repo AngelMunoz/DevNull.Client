@@ -14,6 +14,7 @@ open DevNull.Client.Env
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
 open DevNull.Client.Navigation
+open DevNull.Client.UiClock
 open DevNull.Client.Theme
 open DevNull.Client.Views
 
@@ -58,7 +59,7 @@ let signedIn
 let logPage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideSession,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideSession & #IProvideUiClock,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -75,6 +76,7 @@ let logPage
           Log = kind
           Session = session
           Nav = nav
+          Context = context
         }
       | ValueNone -> Status.soon "Sign in to read the log."
   )
@@ -82,7 +84,7 @@ let logPage
 let commitPage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -92,14 +94,13 @@ let commitPage
     fun session ->
       match context.GetParam<string> "commitId" with
       | ValueSome commitId ->
-        CommitDetailView.Page(
-          {
-            Env = env
-            CommitId = commitId
-            Session = session
-            Nav = nav
-          }
-        )
+        CommitDetailView.Page {
+          Env = env
+          CommitId = commitId
+          Session = session
+          Nav = nav
+          Context = context
+        }
       | ValueNone -> Status.soon "Sign in to read the thread."
   )
 
@@ -114,14 +115,12 @@ let composePage
     env,
     "Sign in to commit.",
     fun session ->
-      ComposeView.Page(
-        {
-          Env = env
-          Session = session
-          Target = target
-          Nav = nav
-        }
-      )
+      ComposeView.Page {
+        Env = env
+        Session = session
+        Target = target
+        Nav = nav
+      }
   )
 
 let quotePage
@@ -144,100 +143,100 @@ let signInPage
   (
     env:
       #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession,
-    nav: INavigable
+    nav: INavigable,
+    context: RouteContext
   ) : Control =
-  SignInView.Page(
-    {
-      Env = env
-      Nav = nav
-      OnDone = fun () -> go(env, nav, "/log/latest")
-    }
-  )
+  SignInView.Page {
+    Env = env
+    Nav = nav
+    OnDone = fun () -> go(env, nav, "/log/latest")
+    Context = context
+  }
 
 let notificationsPage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession,
-    nav: INavigable
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock,
+    nav: INavigable,
+    context: RouteContext
   ) : Control =
   signedIn(
     env,
     "Sign in to read the inbox.",
     fun session ->
-      NotificationsView.Page(
-        {
-          Env = env
-          Session = session
-          Nav = nav
-        }
-      )
+      NotificationsView.Page {
+        Env = env
+        Session = session
+        Nav = nav
+        Context = context
+      }
   )
 
 let savedPage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession,
-    nav: INavigable
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock,
+    nav: INavigable,
+    context: RouteContext
   ) : Control =
   signedIn(
     env,
     "Sign in to read the saved list.",
     fun session ->
-      SavedView.Page(
-        {
-          Env = env
-          Session = session
-          Nav = nav
-        }
-      )
+      SavedView.Page {
+        Env = env
+        Session = session
+        Nav = nav
+        Context = context
+      }
   )
 
 let profilePage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession,
-    nav: INavigable
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock,
+    nav: INavigable,
+    context: RouteContext
   ) : Control =
   signedIn(
     env,
     "Sign in to read the profile.",
     fun session ->
-      ProfileView.Page(
-        {
-          Env = env
-          Username = session.Session.User.Username
-          Session = session
-          Nav = nav
-        }
-      )
+      ProfileView.Page {
+        Env = env
+        Username = session.Session.User.Username
+        Session = session
+        Nav = nav
+        Context = context
+      }
   )
 
 let settingsPage
   (
     env:
       #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideSettings,
-    nav: INavigable
+    nav: INavigable,
+    context: RouteContext
   ) : Control =
   signedIn(
     env,
     "Sign in to see the settings.",
     fun session ->
-      SettingsView.Page(
-        {
-          Env = env
-          Session = session
-          Nav = nav
-          OnSignOut =
-            fun () ->
-              env.Session.Leave()
-              go(env, nav, "/signin")
-        }
-      )
+      SettingsView.Page {
+        Env = env
+        Session = session
+        Nav = nav
+        OnSignOut =
+          fun () ->
+            env.Session.Leave()
+            go(env, nav, "/signin")
+        Context = context
+      }
   )
 
 let build
   (env:
-    #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideSettings & #IProvideLogging)
+    #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideSettings & #IProvideLogging)
   : RouterShell =
   let bootUrl =
     match env.Session.SignedIn with
@@ -265,7 +264,7 @@ let build
     Route.define<Control>(
       "signin",
       "/signin",
-      fun _ nav -> signInPage(env, nav)
+      fun context nav -> signInPage(env, nav, context)
     )
     |> signedOut
 
@@ -286,24 +285,28 @@ let build
     Route.define<Control>(
       "notifications",
       "/notifications",
-      fun _ nav -> notificationsPage(env, nav)
+      fun context nav -> notificationsPage(env, nav, context)
     )
     |> gated
 
-    Route.define<Control>("saved", "/saved", fun _ nav -> savedPage(env, nav))
+    Route.define<Control>(
+      "saved",
+      "/saved",
+      fun context nav -> savedPage(env, nav, context)
+    )
     |> gated
 
     Route.define<Control>(
       "profile",
       "/profile",
-      fun _ nav -> profilePage(env, nav)
+      fun context nav -> profilePage(env, nav, context)
     )
     |> gated
 
     Route.define<Control>(
       "settings",
       "/settings",
-      fun _ nav -> settingsPage(env, nav)
+      fun context nav -> settingsPage(env, nav, context)
     )
     |> gated
   ]

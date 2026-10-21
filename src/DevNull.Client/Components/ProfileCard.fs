@@ -25,62 +25,54 @@ type Props<'env
   and 'env :> IProvideHttp
   and 'env :> IProvideSession> = { Env: 'env; Session: SignedInSession }
 
-type Model = {
-  Details: ProfileDetails option
-  Busy: bool
-  Error: AppError option
-}
+/// The card's state logic: model, messages, and update.
+module State =
 
-type Msg = Fetched of Result<ProfileDetails, AppError>
+  type Model = {
+    Details: ProfileDetails option
+    Busy: bool
+    Error: AppError option
+  }
 
-let initial = {
-  Details = None
-  Busy = true
-  Error = None
-}
+  type Msg = Fetched of Result<ProfileDetails, AppError>
 
-let fetch(props: Props<'env>) =
-  Users.get(
-    props.Env,
-    {
-      KeyFile = props.Session.KeyFile
-      Username = props.Session.Session.User.Username
-    }
-  )
+  let initial = {
+    Details = None
+    Busy = true
+    Error = None
+  }
 
-let init (props: Props<'env>) () =
-  initial, Cmd.OfAsync.perform fetch props Fetched
-
-let update msg model =
-  match msg with
-  | Fetched result ->
-    match result with
-    | Ok details ->
+  let fetch(props: Props<'env>) =
+    Users.get(
+      props.Env,
       {
-        model with
-            Busy = false
-            Error = None
-            Details = Some details
-      },
-      Cmd.none
-    | Error error ->
-      {
-        model with
-            Busy = false
-            Error = Some error
-      },
-      Cmd.none
-
-let errorText(model: IObservable<Model>) : Control =
-  TextBlock()
-    .Foreground(Brushes.danger)
-    .TextWrapping(TextWrapping.Wrap)
-    .Text(
-      model
-      |> Observable.map(fun current ->
-        current.Error |> Option.map describe |> Option.defaultValue "")
+        KeyFile = props.Session.KeyFile
+        Username = props.Session.Session.User.Username
+      }
     )
-    .IsVisible(model |> Observable.map _.Error.IsSome)
+
+  let init (props: Props<'env>) () =
+    initial, Cmd.OfAsync.perform fetch props Fetched
+
+  let update msg model =
+    match msg with
+    | Fetched result ->
+      match result with
+      | Ok details ->
+        {
+          model with
+              Busy = false
+              Error = None
+              Details = Some details
+        },
+        Cmd.none
+      | Error error ->
+        {
+          model with
+              Busy = false
+              Error = Some error
+        },
+        Cmd.none
 
 /// The handle line: a lane dot beside the @handle, the way the site's
 /// aside marks the user's lane.
@@ -107,72 +99,91 @@ let statRow(count: int, label: string) : Control =
       TextBlock().Classes(Theme.name Theme.Muted).Text(label)
     )
 
-let view (model: IObservable<Model>) (_: Dispatch<Msg>) : Control =
-  let busy =
+/// The identity head: the avatar beside the name and the lane handle.
+let identityHead(profile: Profile) : Control =
+  StackPanel()
+    .Orientation(Orientation.Horizontal)
+    .Spacing(12.0)
+    .Children(
+      Avatar.view {
+        Name = profile.User.Name
+        Url = profile.User.AvatarUrl
+        Lane = profile.Lane
+        Size = 48.0
+      },
+      StackPanel()
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Spacing(2.0)
+        .Children(
+          TextBlock().Classes(Theme.name Theme.Subtitle).Text(profile.User.Name),
+          laneHandle(profile.Lane, profile.User.Username)
+        )
+    )
+
+/// The counts row: commits, following, followers.
+let stats(profile: Profile) : Control =
+  StackPanel()
+    .Orientation(Orientation.Horizontal)
+    .Spacing(16.0)
+    .Children(
+      statRow(profile.CommitsCount |> Option.defaultValue 0, "commits"),
+      statRow(profile.FollowingCount |> Option.defaultValue 0, "following"),
+      statRow(profile.FollowersCount |> Option.defaultValue 0, "followers")
+    )
+
+/// The bio line, when the profile carries one.
+let bioLine(profile: Profile) : Control =
+  TextBlock()
+    .Classes(Theme.name Theme.Muted)
+    .IsVisible(profile.Bio.IsSome)
+    .TextWrapping(TextWrapping.Wrap)
+    .Text(profile.Bio |> Option.defaultValue "")
+
+/// The card's semantic regions; the view only composes these.
+module Parts =
+
+  /// The error line under the card.
+  let errorText(model: IObservable<State.Model>) : Control =
+    TextBlock()
+      .Foreground(Brushes.danger)
+      .TextWrapping(TextWrapping.Wrap)
+      .Text(
+        model
+        |> Observable.map(fun current ->
+          current.Error |> Option.map describe |> Option.defaultValue "")
+      )
+      .IsVisible(model |> Observable.map _.Error.IsSome)
+
+  /// The loading line while the profile reads.
+  let busy(model: IObservable<State.Model>) : Control =
     Status.busy("Loading your card…").IsVisible(model |> Observable.map _.Busy)
 
-  let card: IObservable<Control> =
-    model
-    |> Observable.map(fun current ->
-      match current.Details with
-      | Some details ->
-        let user = details.Profile.User
+  /// The card itself, rebuilt whenever the profile changes.
+  let cardHost(model: IObservable<State.Model>) : Control =
+    let card: IObservable<Control> =
+      model
+      |> Observable.map(fun current ->
+        match current.Details with
+        | Some details ->
+          StackPanel()
+            .Spacing(16.0)
+            .Children(
+              identityHead details.Profile,
+              stats details.Profile,
+              bioLine details.Profile
+            )
+        | None -> Status.empty "")
 
-        let bio = details.Profile.Bio |> Option.defaultValue ""
+    let host = ContentControl()
 
-        StackPanel()
-          .Spacing(16.0)
-          .Children(
-            StackPanel()
-              .Orientation(Orientation.Horizontal)
-              .Spacing(12.0)
-              .Children(
-                Avatar.view {
-                  Name = user.Name
-                  Url = user.AvatarUrl
-                  Lane = details.Profile.Lane
-                  Size = 48.0
-                },
-                StackPanel()
-                  .VerticalAlignment(VerticalAlignment.Center)
-                  .Spacing(2.0)
-                  .Children(
-                    TextBlock()
-                      .Classes(Theme.name Theme.Subtitle)
-                      .Text(user.Name),
-                    laneHandle(details.Profile.Lane, user.Username)
-                  )
-              ),
-            StackPanel()
-              .Orientation(Orientation.Horizontal)
-              .Spacing(16.0)
-              .Children(
-                statRow(
-                  details.Profile.CommitsCount |> Option.defaultValue 0,
-                  "commits"
-                ),
-                statRow(
-                  details.Profile.FollowingCount |> Option.defaultValue 0,
-                  "following"
-                ),
-                statRow(
-                  details.Profile.FollowersCount |> Option.defaultValue 0,
-                  "followers"
-                )
-              ),
-            TextBlock()
-              .Classes(Theme.name Theme.Muted)
-              .IsVisible(details.Profile.Bio.IsSome)
-              .TextWrapping(TextWrapping.Wrap)
-              .Text(bio)
-          )
-      | None -> Status.empty "")
+    host.Content(card.ToBinding()) |> ignore
 
-  let host = ContentControl()
+    host
 
-  host.Content(card.ToBinding()) |> ignore
-
-  StackPanel().Spacing(8.0).Children(host, errorText model, busy)
+let view (model: IObservable<State.Model>) (_: Dispatch<State.Msg>) : Control =
+  StackPanel()
+    .Spacing(8.0)
+    .Children(Parts.cardHost model, Parts.errorText model, Parts.busy model)
 
 type Page<'env
   when 'env :> IProvideClock
@@ -183,6 +194,8 @@ type Page<'env
   inherit UserControl()
 
   do
-    let program = Program.mkProgram (init props) update view
+    let program = Program.mkProgram (State.init props) State.update view
 
-    this.Content <- Program.runWith () program
+    let root, _ = Program.runWithLifetime this () program
+
+    this.Content <- root

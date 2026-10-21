@@ -32,6 +32,7 @@ open DevNull.Client.Stores
 open DevNull.Client.Theme
 open DevNull.Client.Tray
 open DevNull.Client.Unread
+open DevNull.Client.UiClock
 open DevNull.Client.Views
 
 /// The window width under which the sidebar folds into a drawer.
@@ -373,6 +374,7 @@ let composeDialog
               Session = session
               Target = Composer.Fresh
               OnCommitted = fun _ -> close()
+              Register = ValueNone
             }
           )
       )
@@ -411,7 +413,8 @@ type Shell<'env
   and 'env :> IProvideSession
   and 'env :> IProvideSettings
   and 'env :> IProvideLogging
-  and 'env :> IProvideUnread>(env: 'env, callback: string option) as this =
+  and 'env :> IProvideUnread
+  and 'env :> IProvideUiClock>(env: 'env, callback: string option) as this =
   inherit Window()
 
   // The close bypass: `Quit` raises it, so the close-to-tray guard in

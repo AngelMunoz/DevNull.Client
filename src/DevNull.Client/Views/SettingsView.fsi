@@ -21,6 +21,8 @@ type Props<'env
   Session: SignedInSession
   Nav: INavigable
   OnSignOut: unit -> unit
+  /// The route the page lives in; owns the page's program lifetime.
+  Context: RouteContext
 }
 
 /// One settings page, self-contained: mounts the MVUish program.

@@ -12,6 +12,15 @@ val laneHandle: lane: Lane option * username: string -> Control
 /// One count-and-label pair of a stats row.
 val statRow: count: int * label: string -> Control
 
+/// The identity head: the avatar beside the name and the lane handle.
+val identityHead: profile: Profile -> Control
+
+/// The counts row: commits, following, followers.
+val stats: profile: Profile -> Control
+
+/// The bio line, when the profile carries one.
+val bioLine: profile: Profile -> Control
+
 /// One signed-in user's card for the shell aside: avatar, handle, bio,
 /// and counts, from the profile route. The env names every capability
 /// the fetch needs.

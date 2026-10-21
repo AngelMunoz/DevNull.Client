@@ -61,9 +61,9 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
   `ApiTypes` (the JSON shape and its decoders), `Api` (the signed
   surface; the create route accepts no images or poll), `Payload` and
   `Commit` (the CLI signing composite). Core never references the
-  app. The server contract source is the dev-null repository (read-only
-  reference at `E:\dev-null`); verify response shapes there before
-  changing `ApiTypes`.
+  app. The server contract source is the dev-null repository (usually
+  colocated in this repository's parent directory as `dev-null`);
+  verify response shapes there before changing `ApiTypes`.
 - `src/DevNull.Client/` - the Avalonia consumer, dark theme, NXUI in
   code, no XAML. Layers bottom-up:
   - `Errors.fs` - the `AppError` edge type (every Core IWSAM leaf) and
@@ -134,8 +134,9 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
 - `Directory.Packages.props` - central package management; every package
   version lives there, never in a project file. reference from the
   projects only what each uses. UI stack: Avalonia 12.0.5, NXUI 12.0.0,
-  Navs.Avalonia 2.0.1, MVUish.Avalonia 1.0.1 (sources at `E:\Navs` and
-  `E:\MVUish.Avalonia`).
+  Navs.Avalonia 2.0.1, MVUish.Avalonia 2.0.0. The sources of some of
+  these dependencies (Avalonia, Navs, MVUish.Avalonia) are usually
+  colocated in this repository's parent directory.
 
 ## Testing
 
@@ -143,5 +144,5 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
 2. **Regression tests prove both directions.** A regression test for a bug must fail before the fix and pass after it.
 3. **Fakes control their output.** Each fake worker (`FixedClock`, `FixedNonceSource`, `FixedSigner`, `FakeHttp`, `CapturingHttp`) returns exactly the canned value wrapped in `async { return ... }`; no test reaches a real process, network, or file.
 4. **The API is never shaped for tests.** Tests implement the same error interfaces the production edge implements; domain code gains nothing for testability.
-5. **Headless UI tests touch controls on the session thread only.** Windows are born inside `probeUi`; every control read or click goes through `onUi`, `probeUi`, or the `waitFor` helpers. A test that touches a control directly off the session thread fails with a cross-thread error at best and hangs at worst.
-6. **Never dispatch from inside a dispatch.** A `probeUi`/`onUi` call inside an `onUi` block queues a job the nested wait cannot serve, and the run freezes. Finders run plain inside `onUi`; only the outermost call dispatches. When a run stalls, rerun with `-- --sequenced --debug`: it names the test that never finished.
+5. **Headless UI tests touch controls on the session thread only.** Windows are born inside `probeUiAsync`; every control read or click goes through `onUiAsync`, `probeUiAsync`, or the `waitForAsync` helpers. A test that touches a control directly off the session thread fails with a cross-thread error at best and hangs at worst.
+6. **Never dispatch from inside a dispatch.** A `probeUiAsync`/`onUiAsync` call inside an `onUiAsync` block queues a job the nested wait cannot serve, and the run freezes. Finders run plain inside `onUiAsync`; only the outermost call dispatches. When a run stalls, rerun with `-- --sequenced --debug`: it names the test that never finished.

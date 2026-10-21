@@ -188,6 +188,50 @@ let ok(body: string) : HttpResponse = {
   Body = body
 }
 
+/// The signed-in account, as GET /api/v1/me returns it.
+let meJson =
+  """{"data":{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","username":"octocat","name":"The Octocat","avatar_url":null,"bio":"Builds things.","company":"GitHub","location":"San Francisco","website":"https://example.test","github_url":"https://github.com/octocat","html_url":"https://dev-null.sh/@octocat","feed_url":"https://dev-null.sh/@octocat/feed.atom","created_at":"2026-01-01T00:00:00Z","commits_count":7,"followers_count":11,"following_count":13,"lane":3,"pasteis_mode":true,"pasteis_remaining":7,"pasteis_resets_at":"2026-10-27T00:00:00Z","pasteis_received":12,"preferred_lane":null,"automatic_lane":4,"sponsors_url":null,"github_synced_at":null},"unread_notifications_count":3}"""
+
+/// The author of the canned commits, as a bare user.
+let apiUserJson =
+  """{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","username":"octocat","name":"The Octocat","avatar_url":null,"bio":"Builds things.","company":"GitHub","location":"San Francisco","website":"https://example.test","github_url":"https://github.com/octocat","html_url":"https://dev-null.sh/@octocat","feed_url":"https://dev-null.sh/@octocat/feed.atom","created_at":"2026-01-01T00:00:00Z","commits_count":7,"followers_count":11,"following_count":13,"lane":3}"""
+
+/// One profile with the viewer's relation, as GET /api/v1/users/{username} returns it.
+let profileJson =
+  sprintf
+    """{"data":%s,"is_following":false,"follows_you":true,"is_muting":false,"pasteis_received":7,"activity":null,"streaks":null,"achievements":null,"pinned_commit":null}"""
+    apiUserJson
+
+/// The same profile carrying its activity, streaks, and achievements.
+let profileWithStatsJson =
+  profileJson.Replace(
+    "\"activity\":null,\"streaks\":null,\"achievements\":null",
+    "\"activity\":{\"scale\":\"week\",\"buckets\":[{\"date\":\"2026-10-13\",\"count\":3},{\"date\":\"2026-10-14\",\"count\":5},{\"date\":\"2026-10-15\",\"count\":1}]},\"streaks\":{\"longest\":12,\"current\":3},\"achievements\":{\"level\":3,\"rank\":\"Wizard\",\"xp\":1234,\"next_level_xp\":2000,\"level_progress\":61,\"xp_breakdown\":{\"commits\":{\"count\":10,\"multiplier\":2,\"xp\":200},\"streak\":{\"count\":5,\"multiplier\":3,\"xp\":150},\"stars_received\":{\"count\":4,\"multiplier\":5,\"xp\":200},\"replies\":{\"count\":2,\"multiplier\":4,\"xp\":80},\"stars_given\":{\"count\":6,\"multiplier\":1,\"xp\":60},\"luddite\":{\"count\":1,\"multiplier\":2,\"xp\":20}},\"ranks\":[],\"badges\":[{\"id\":\"b1\",\"name\":\"First commit\",\"description\":\"You committed\",\"icon\":\"commit\",\"unlocked\":true,\"progress\":1,\"target\":1}]}"
+  )
+
+/// The account answers every fake serves: the shell's aside card asks
+/// for the profile on every page, so every fake must answer with the
+/// shape the real server sends — a wrong-shaped body here turns into
+/// decode noise the tests never asserted on. /me stays unanswered: the
+/// unread poll's failures are silent under the test logger, and a
+/// canned answer would overwrite each test's own session values.
+let accountAnswer(request: HttpRequest) : HttpResponse voption =
+  if
+    request.Target.StartsWith "/api/v1/users/"
+    && request.Target.Contains "/commits"
+  then
+    ValueSome(
+      ok(
+        sprintf
+          "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+          commitJson
+      )
+    )
+  elif request.Target.StartsWith "/api/v1/users/" then
+    ValueSome(ok profileJson)
+  else
+    ValueNone
+
 /// The api of the tests: log reads answer page one, then page two for
 /// the cursor; a commit post answers the created commit.
 let logApi() =
@@ -199,7 +243,9 @@ let logApi() =
     elif request.Target.StartsWith "/api/v1/log/" then
       ok logPageJson
     else
-      ok "{}")
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
 
 /// A reply to the first commit, for the thread page.
 let replyJson =
@@ -247,10 +293,16 @@ let threadApi() =
     then
       ok threadPageJson
     else
-      ok "{}")
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
 
 /// The api of the empty-log test.
-let emptyLogApi() = FakeApi(emptyLogPageJson)
+let emptyLogApi() =
+  FakeApi(fun request ->
+    match accountAnswer request with
+    | ValueSome answer -> answer
+    | ValueNone -> ok emptyLogPageJson)
 
 /// One commit pinned to a fixed 2020 date, so its day label is stable
 /// for decades: "Fri, Apr 3" and "Wed, Apr 1".
@@ -269,7 +321,7 @@ let datedCommitJson(id: string, hash: string, body: string, date: string) =
 
 /// The api of the day-separator test: two commits on two fixed days.
 let twoDaysLogApi() =
-  FakeApi(
+  let twoDays =
     sprintf
       "{\"data\":[%s,%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
       (datedCommitJson(
@@ -284,7 +336,14 @@ let twoDaysLogApi() =
         "The week before.",
         "2020-04-01T12:00:00Z"
       ))
-  )
+
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/log/" then
+      ok twoDays
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
 
 /// The signed-in session of the canned user.
 let signedInSession() = {
@@ -353,11 +412,9 @@ let manyCardsApi() =
     if request.Target.StartsWith "/api/v1/log/" then
       ok(manyCardsPageJson 6)
     else
-      ok "{}")
-
-/// The signed-in account, as GET /api/v1/me returns it.
-let meJson =
-  """{"data":{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","username":"octocat","name":"The Octocat","avatar_url":null,"bio":"Builds things.","company":"GitHub","location":"San Francisco","website":"https://example.test","github_url":"https://github.com/octocat","html_url":"https://dev-null.sh/@octocat","feed_url":"https://dev-null.sh/@octocat/feed.atom","created_at":"2026-01-01T00:00:00Z","commits_count":7,"followers_count":11,"following_count":13,"lane":3,"pasteis_mode":true,"pasteis_remaining":7,"pasteis_resets_at":"2026-10-27T00:00:00Z","pasteis_received":12,"preferred_lane":null,"automatic_lane":4,"sponsors_url":null,"github_synced_at":null},"unread_notifications_count":3}"""
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
 
 /// One notification row as the inbox returns it.
 let notificationJson =
@@ -419,24 +476,9 @@ let groupedInboxApi() =
     elif request.Target.StartsWith "/api/v1/log/" then
       ok logPageJson
     else
-      ok "{}")
-
-/// The author of the canned commits, as a bare user.
-let apiUserJson =
-  """{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","username":"octocat","name":"The Octocat","avatar_url":null,"bio":"Builds things.","company":"GitHub","location":"San Francisco","website":"https://example.test","github_url":"https://github.com/octocat","html_url":"https://dev-null.sh/@octocat","feed_url":"https://dev-null.sh/@octocat/feed.atom","created_at":"2026-01-01T00:00:00Z","commits_count":7,"followers_count":11,"following_count":13,"lane":3}"""
-
-/// One profile with the viewer's relation, as GET /api/v1/users/{username} returns it.
-let profileJson =
-  sprintf
-    """{"data":%s,"is_following":false,"follows_you":true,"is_muting":false,"pasteis_received":7,"activity":null,"streaks":null,"achievements":null,"pinned_commit":null}"""
-    apiUserJson
-
-/// The same profile carrying its activity, streaks, and achievements.
-let profileWithStatsJson =
-  profileJson.Replace(
-    "\"activity\":null,\"streaks\":null,\"achievements\":null",
-    "\"activity\":{\"scale\":\"week\",\"buckets\":[{\"date\":\"2026-10-13\",\"count\":3},{\"date\":\"2026-10-14\",\"count\":5},{\"date\":\"2026-10-15\",\"count\":1}]},\"streaks\":{\"longest\":12,\"current\":3},\"achievements\":{\"level\":3,\"rank\":\"Wizard\",\"xp\":1234,\"next_level_xp\":2000,\"level_progress\":61,\"xp_breakdown\":{\"commits\":{\"count\":10,\"multiplier\":2,\"xp\":200},\"streak\":{\"count\":5,\"multiplier\":3,\"xp\":150},\"stars_received\":{\"count\":4,\"multiplier\":5,\"xp\":200},\"replies\":{\"count\":2,\"multiplier\":4,\"xp\":80},\"stars_given\":{\"count\":6,\"multiplier\":1,\"xp\":60},\"luddite\":{\"count\":1,\"multiplier\":2,\"xp\":20}},\"ranks\":[],\"badges\":[{\"id\":\"b1\",\"name\":\"First commit\",\"description\":\"You committed\",\"icon\":\"commit\",\"unlocked\":true,\"progress\":1,\"target\":1}]}"
-  )
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
 
 /// The api of the profile stats test: the boot log and the carrying
 /// profile answer from cans.
@@ -447,7 +489,9 @@ let statsProfileApi() =
     elif request.Target = "/api/v1/users/octocat" then
       ok profileWithStatsJson
     else
-      ok "{}")
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
 
 /// The api of the account pages: the inbox, the profile, the saved
 /// list, and the account all answer from cans.
@@ -469,4 +513,6 @@ let accountApi() =
     elif request.Target = "/api/v1/me" then
       ok meJson
     else
-      ok "{}")
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))

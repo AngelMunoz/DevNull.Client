@@ -183,14 +183,19 @@ module State =
         (props.Env, props.Session, commit)
         StarDone
     | CardEvent(CommitCard.Opened commit) ->
-      Navigation.go(props.Nav, "/commit/" + commit.Id, ignore)
-      model, Cmd.none
+      // Navigation is a command, never an inline effect: navigating
+      // inside update disposes this very program before the loop can
+      // publish the model, and the loop logs an ObjectDisposedException.
+      model,
+      Cmd.ofEffect(fun _ ->
+        Navigation.go(props.Nav, "/commit/" + commit.Id, ignore))
     | CardEvent(CommitCard.PastelGiven commit) ->
       { model with Error = None; Note = None },
       Cmd.ofMsg(PastelRequested commit.Id)
     | CardEvent(CommitCard.QuoteRequested commit) ->
-      Navigation.go(props.Nav, "/quote/" + commit.Id, ignore)
-      model, Cmd.none
+      model,
+      Cmd.ofEffect(fun _ ->
+        Navigation.go(props.Nav, "/quote/" + commit.Id, ignore))
     | PastelRequested commitId ->
       let give() =
         Pasteis.give(
@@ -231,8 +236,8 @@ module State =
     | Deleted result ->
       match result with
       | Ok _ ->
-        Navigation.go(props.Nav, "/log/latest", ignore)
-        model, Cmd.none
+        model,
+        Cmd.ofEffect(fun _ -> Navigation.go(props.Nav, "/log/latest", ignore))
       | Error error -> { model with Error = Some error }, Cmd.none
     | ClockTicked moment -> { model with Now = moment }, Cmd.none
     | SessionChanged state ->

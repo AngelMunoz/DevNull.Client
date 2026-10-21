@@ -79,13 +79,14 @@ module State =
     | Committed result ->
       match result with
       | Ok commit ->
-        props.OnCommitted commit
-
+        // The host's callback (often a navigation) is a command, never
+        // an inline effect: running it inside update can dispose this
+        // very program before the loop publishes the model.
         {
           initial with
               Committed = model.Committed + 1
         },
-        Cmd.none
+        Cmd.ofEffect(fun _ -> props.OnCommitted commit)
       | Error error ->
         {
           model with

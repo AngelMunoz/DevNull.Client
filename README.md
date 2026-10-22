@@ -40,6 +40,24 @@ API can change at any time; expect breakage.
 Close the app before building after a run: a running instance locks
 the build output.
 
+### Linux: first login
+
+The `devnull://` callback is launched by the desktop session, and that
+session does not export `DOTNET_ROOT`. A framework-dependent Debug
+build therefore dies at the callback, and the browser looks like it
+cannot find the app. Sign in once with a self-contained build instead:
+
+    ./linux-login.sh
+
+The script publishes the app with its own runtime, runs it, and the
+app registers itself as the `devnull://` handler. The session, the
+device key, and the settings live in `~/.local/share/DevNull` and are
+shared with the Debug build: after this one login, `dotnet run` starts
+signed in. Whichever binary started last owns the `devnull://`
+registration, so run the script again whenever you need a new login.
+Alternatively, export `DOTNET_ROOT` for the whole session through
+`~/.config/environment.d/` and log in from any build.
+
 ## Going deeper
 
 - `AGENTS.md` — the architecture map and the working rules for this

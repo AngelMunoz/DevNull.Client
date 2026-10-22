@@ -35,5 +35,8 @@
     <PackageVersion Include="Serilog.Extensions.Logging" Version="10.0.0" />
     <PackageVersion Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
+
+    <!-- Build: the version of every assembly follows CHANGELOG.md -->
+    <PackageVersion Include="Ionide.KeepAChangelog.Tasks" Version="0.3.3" />
   </ItemGroup>
 </Project>

@@ -53,7 +53,9 @@ type IProvideHttp =
   abstract Http: IHttp
 
 /// The agent every request of this client wears, so the server tells
-/// our traffic from browsers and scripts.
+/// our traffic from browsers and scripts. The product is `DevNull.Client`,
+/// the version follows this assembly's version (the changelog stamps it
+/// at build time), and the comment carries the repository as the contact.
 val userAgent: string
 
 /// True when the status is 2xx.

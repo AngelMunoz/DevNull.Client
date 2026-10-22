@@ -119,6 +119,9 @@
     <PackageReference Include="Serilog.Extensions.Logging" />
     <PackageReference Include="Serilog.Sinks.Console" />
     <PackageReference Include="Serilog.Sinks.File" />
+
+    <!-- The assembly version follows CHANGELOG.md, like Core's -->
+    <PackageReference Include="Ionide.KeepAChangelog.Tasks" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>

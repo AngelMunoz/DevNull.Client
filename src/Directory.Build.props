@@ -1,0 +1,12 @@
+<Project>
+  <PropertyGroup>
+    <!-- The single source of the assembly versions and the release notes -->
+    <ChangelogFile>$(MSBuildThisFileDirectory)../CHANGELOG.md</ChangelogFile>
+  </PropertyGroup>
+
+  <!-- FSharp.Core's own AOT analysis warnings; the release workflow gates
+       on TreatWarningsAsErrors and still fails on this code's warnings -->
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+    <NoWarn>$(NoWarn);IL2104;IL3053</NoWarn>
+  </PropertyGroup>
+</Project>

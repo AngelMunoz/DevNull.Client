@@ -32,6 +32,8 @@
     <PackageReference Include="FsToolkit.ErrorHandling" />
     <PackageReference Include="IcedTasks" />
     <PackageReference Include="JDeck" />
+    <!-- The assembly version follows CHANGELOG.md; the user agent reads it -->
+    <PackageReference Include="Ionide.KeepAChangelog.Tasks" PrivateAssets="all" />
   </ItemGroup>
 
 </Project>

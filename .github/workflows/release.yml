@@ -114,17 +114,36 @@ jobs:
           -p:DebugType=none -p:DebugSymbols=false
           -o publish
 
-      - name: Package
+      - name: Package (tar.gz)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           cd publish
-          # the .dbg/.pdb symbols stay out of the bundles; the executable
-          # and the skia/harfbuzz natives are the runtime
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            tar -a -c -f "../DevNull.Client-${{ needs.prepare.outputs.version }}-${{ matrix.rid }}.zip" --exclude='*.pdb' --exclude='*.dbg' .
-          else
-            tar -czf "../DevNull.Client-${{ needs.prepare.outputs.version }}-${{ matrix.rid }}.tar.gz" --exclude='*.dbg' .
-          fi
+          # the .dbg symbols stay out of the bundle
+          tar -czf "../DevNull.Client-${{ needs.prepare.outputs.version }}-${{ matrix.rid }}.tar.gz" --exclude='*.dbg' .
+
+      # DebugType=none emits no symbols on Windows; the remove is the
+      # defensive guard. Publish output is flat, so root-level entries
+      # are the whole bundle.
+      - name: Package (zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Remove-Item publish\*.pdb, publish\*.dbg -ErrorAction SilentlyContinue
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::CreateFromDirectory("publish", "DevNull.Client-${{ needs.prepare.outputs.version }}-${{ matrix.rid }}.zip", "Optimal", $false)
+
+      - name: Verify the Windows bundle is a real zip
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead("DevNull.Client-${{ needs.prepare.outputs.version }}-${{ matrix.rid }}.zip")
+          try {
+            $exe = $zip.Entries | Where-Object { $_.Name -eq 'DevNull.Client.exe' }
+            if (-not $exe) { throw "DevNull.Client.exe missing from the bundle" }
+            "zip verified: $($zip.Entries.Count) entries"
+          } finally { $zip.Dispose() }
 
       - uses: actions/upload-artifact@v4
         with:

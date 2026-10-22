@@ -1458,43 +1458,43 @@ let inline decodeBlockResult
   parseBody body blockResultDecoder
 
 module Me =
-  let inline decode(body: string) = decodeMe body
+  let decode(body: string) = decodeMe body
 
 module Failure =
-  let inline decode(body: string) = decodeFailure body
+  let decode(body: string) = decodeFailure body
 
 module Commit =
   let decodeCreated(body: string) = decodeCreatedCommit body
 
 module CommitPage =
-  let inline decode(body: string) = decodeCommitPage body
+  let decode(body: string) = decodeCommitPage body
 
 module CommitNode =
-  let inline decodePage(body: string) = decodeCommitList body
+  let decodePage(body: string) = decodeCommitList body
 
 module User =
-  let inline decodePage(body: string) = decodeUserList body
+  let decodePage(body: string) = decodeUserList body
 
 module ProfileDetails =
-  let inline decode(body: string) = decodeProfileDetails body
+  let decode(body: string) = decodeProfileDetails body
 
 module LogPage =
-  let inline decode(body: string) = decodeLogPage body
+  let decode(body: string) = decodeLogPage body
 
 module PastelResult =
-  let inline decode(body: string) = decodePastelResult body
+  let decode(body: string) = decodePastelResult body
 
 module MuteResult =
-  let inline decode(body: string) = decodeMuteResult body
+  let decode(body: string) = decodeMuteResult body
 
 module BlockResult =
-  let inline decode(body: string) = decodeBlockResult body
+  let decode(body: string) = decodeBlockResult body
 
 module NotificationPage =
-  let inline decode(body: string) = decodeNotificationPage body
+  let decode(body: string) = decodeNotificationPage body
 
 module Notification =
-  let inline decodePage(body: string) = decodeNotificationList body
+  let decodePage(body: string) = decodeNotificationList body
 
 type TransportError<'e> =
   static abstract TransportFailed: message: string -> 'e

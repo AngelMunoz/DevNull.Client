@@ -404,11 +404,11 @@ type Failure = {
 
 module Me =
   /// Reads the signed-in account envelope, from GET /api/v1/me and the sign-in responses.
-  val inline decode: body: string -> Result<Me, DecodeFailure>
+  val decode: body: string -> Result<Me, DecodeFailure>
 
 module Failure =
   /// Reads the error envelope `{message, code}` of a signed API request.
-  val inline decode: body: string -> Result<Failure, DecodeFailure>
+  val decode: body: string -> Result<Failure, DecodeFailure>
 
 module Commit =
   /// Reads the `{data: commit}` envelope of POST /api/v1/commits.
@@ -416,44 +416,43 @@ module Commit =
 
 module CommitPage =
   /// Reads the `{data: commit, ancestors: [...]}` envelope of GET /api/v1/commits/{commit}.
-  val inline decode: body: string -> Result<CommitPage, DecodeFailure>
+  val decode: body: string -> Result<CommitPage, DecodeFailure>
 
 module CommitNode =
   /// Reads a cursor page of commits and tombstones.
-  val inline decodePage: body: string -> Result<Page<CommitNode>, DecodeFailure>
+  val decodePage: body: string -> Result<Page<CommitNode>, DecodeFailure>
 
 module User =
   /// Reads a cursor page of users.
-  val inline decodePage: body: string -> Result<Page<User>, DecodeFailure>
+  val decodePage: body: string -> Result<Page<User>, DecodeFailure>
 
 module ProfileDetails =
   /// Reads one profile and the signed viewer's relation to it.
-  val inline decode: body: string -> Result<ProfileDetails, DecodeFailure>
+  val decode: body: string -> Result<ProfileDetails, DecodeFailure>
 
 module LogPage =
   /// Reads one log page and its extras.
-  val inline decode: body: string -> Result<LogPage, DecodeFailure>
+  val decode: body: string -> Result<LogPage, DecodeFailure>
 
 module PastelResult =
   /// Reads the result of giving a pastel.
-  val inline decode: body: string -> Result<PastelResult, DecodeFailure>
+  val decode: body: string -> Result<PastelResult, DecodeFailure>
 
 module MuteResult =
   /// Reads the result of muting or unmuting.
-  val inline decode: body: string -> Result<MuteResult, DecodeFailure>
+  val decode: body: string -> Result<MuteResult, DecodeFailure>
 
 module BlockResult =
   /// Reads the result of blocking or unblocking.
-  val inline decode: body: string -> Result<BlockResult, DecodeFailure>
+  val decode: body: string -> Result<BlockResult, DecodeFailure>
 
 module NotificationPage =
   /// Reads a cursor page of notifications and its extras.
-  val inline decode: body: string -> Result<NotificationPage, DecodeFailure>
+  val decode: body: string -> Result<NotificationPage, DecodeFailure>
 
 module Notification =
   /// Reads a cursor page of notifications without the inbox extras.
-  val inline decodePage:
-    body: string -> Result<Page<Notification>, DecodeFailure>
+  val decodePage: body: string -> Result<Page<Notification>, DecodeFailure>
 
 /// The transport could not reach the server.
 type TransportError<'e> =

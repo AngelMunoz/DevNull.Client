@@ -1,0 +1,155 @@
+name: Create Release
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract.outputs.version }}
+      exists: ${{ steps.check_tag.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Extract Release Data
+        id: extract
+        run: |
+          VERSION_LINE=$(grep -n "^## \[[0-9]" CHANGELOG.md | head -n 1)
+
+          if [ -z "$VERSION_LINE" ]; then
+            echo "No version found in CHANGELOG.md"
+            exit 1
+          fi
+
+          LINE_NUM=$(echo "$VERSION_LINE" | cut -d: -f1)
+          VERSION=$(echo "$VERSION_LINE" | sed -E 's/.*## \[([^]]+)\].*/\1/')
+
+          echo "Found version: $VERSION at line $LINE_NUM"
+
+          NEXT_HEADER_LINE=$(tail -n +$((LINE_NUM + 1)) CHANGELOG.md | grep -n "^## \[" | head -n 1 | cut -d: -f1)
+
+          if [ -z "$NEXT_HEADER_LINE" ]; then
+            BODY=$(tail -n +$((LINE_NUM + 1)) CHANGELOG.md)
+          else
+            BODY=$(tail -n +$((LINE_NUM + 1)) CHANGELOG.md | head -n $((NEXT_HEADER_LINE - 1)))
+          fi
+
+          echo "$BODY" > RELEASE_NOTES.md
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if Tag Exists
+        id: check_tag
+        run: |
+          if git rev-parse "v${{ steps.extract.outputs.version }}" >/dev/null 2>&1; then
+            echo "Tag v${{ steps.extract.outputs.version }} already exists."
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Keep Release Notes
+        if: steps.check_tag.outputs.exists == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: RELEASE_NOTES.md
+
+  test:
+    needs: prepare
+    if: needs.prepare.outputs.exists == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Core tests
+        run: dotnet run --project tests/DevNull.Client.Core.Tests -- --summary
+
+      - name: UI tests
+        run: dotnet run --project tests/DevNull.Client.UI.Tests -- --summary
+
+  build:
+    needs: [prepare, test]
+    if: needs.prepare.outputs.exists == 'false'
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS waits: the scheme registration fails there by design, and a
+        # release needs an .app bundle plus codesigning first
+        include:
+          - runs-on: ubuntu-latest
+            rid: linux-x64
+          - runs-on: windows-latest
+            rid: win-x64
+    runs-on: ${{ matrix.runs-on }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Native AOT toolchain
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+
+      # CHANGELOG.md is the source of truth: KeepAChangelog.Tasks stamps the
+      # assemblies during publish. The NoWarn for FSharp.Core's AOT warnings
+      # lives in src/Directory.Build.props; this gate still fails on any
+      # warning located in this repository's code.
+      - name: Publish (Native AOT)
+        shell: bash
+        run: >
+          dotnet publish src/DevNull.Client -c Release -r ${{ matrix.rid }}
+          -p:PublishAot=true -p:TreatWarningsAsErrors=true
+          -p:DebugType=none -p:DebugSymbols=false
+          -o publish
+
+      - name: Package
+        shell: bash
+        run: |
+          cd publish
+          # the .dbg/.pdb symbols stay out of the bundles; the executable
+          # and the skia/harfbuzz natives are the runtime
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            tar -a -c -f "../DevNull.Client-${{ needs.prepare.outputs.version }}-${{ matrix.rid }}.zip" --exclude='*.pdb' --exclude='*.dbg' .
+          else
+            tar -czf "../DevNull.Client-${{ needs.prepare.outputs.version }}-${{ matrix.rid }}.tar.gz" --exclude='*.dbg' .
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.rid }}
+          path: DevNull.Client-*
+
+  release:
+    needs: [prepare, build]
+    if: needs.prepare.outputs.exists == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.prepare.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: v${{ needs.prepare.outputs.version }}
+          body_path: artifacts/RELEASE_NOTES.md
+          draft: false
+          prerelease: ${{ contains(needs.prepare.outputs.version, '-rc') || contains(needs.prepare.outputs.version, '-beta') || contains(needs.prepare.outputs.version, '-alpha') }}
+          files: artifacts/DevNull.Client-*

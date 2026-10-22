@@ -171,9 +171,11 @@ type PostingError<'e> =
 
 module CommitPosted =
 
-  let inline url posted = posted.Url
+  // Both accessors stay plain: the Release optimizer cannot expand them
+  // inside closures (FS1118 in the composer and the Expecto CE).
+  let url posted = posted.Url
 
-  let inline pendingReview posted = posted.PendingReview
+  let pendingReview posted = posted.PendingReview
 
   /// Reads the plain-text answer of POST /api/cli/commits.
   let fromResponse<'e when PostingError<'e>>

@@ -15,12 +15,15 @@ open MVUish.Avalonia.Collections
 open Navs
 open DevNull.Client
 open DevNull.Client.Components
+open DevNull.Client.Components.UserFlyout
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
+open DevNull.Client.ImageCache
 open DevNull.Client.Navigation
+open DevNull.Client.Profiles
 open DevNull.Client.Stores
 open DevNull.Client.Theme
 open DevNull.Client.UiClock
@@ -31,7 +34,9 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideSession
-  and 'env :> IProvideUiClock> = {
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideProfiles> = {
   Env: 'env
   Username: string
   Session: SignedInSession
@@ -564,11 +569,22 @@ module Parts =
       | None -> ()
     |]
 
+  /// What the identity header reads: the profile, the viewer's
+  /// relation to it, the dispatch, and the image cache.
+  [<Struct>]
+  type IdentityCtx = {
+    Images: ImageCacheService
+    Details: ProfileDetails
+    IsSelf: bool
+    Dispatch: Dispatch<State.Msg>
+  }
+
   /// The identity header: the avatar in its lane ring, the actions, the
   /// name, the handle row, the bio, the meta line, and the stats.
-  let identity
-    (details: ProfileDetails, isSelf: bool, dispatch: Dispatch<State.Msg>)
-    : Control =
+  let identity(ctx: IdentityCtx) : Control =
+    let details = ctx.Details
+    let isSelf = ctx.IsSelf
+    let dispatch = ctx.Dispatch
     let profile = details.Profile
     let user = profile.User
 
@@ -585,6 +601,7 @@ module Parts =
             Url = user.AvatarUrl
             Lane = profile.Lane
             Size = 80.0
+            Cache = ctx.Images
           }
         )
 
@@ -642,7 +659,14 @@ module Parts =
               .Spacing(16.0)
               .Children(
                 Array.append
-                  [| identity(details, isSelf, dispatch) |]
+                  [|
+                    identity {
+                      Images = props.Env.ImageCache
+                      Details = details
+                      IsSelf = isSelf
+                      Dispatch = dispatch
+                    }
+                  |]
                   (profileSections details)
               )
             :> Control
@@ -661,12 +685,29 @@ module Parts =
       function
       | CommitCard.Opened c ->
         Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
+      | CommitCard.ThreadRequested c ->
+        Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
+      | CommitCard.ReplyToggled c ->
+        Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
+      | CommitCard.MoreRepliesRequested c ->
+        Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
       | CommitCard.StarToggled c -> dispatch(State.StarToggled c)
       | CommitCard.PastelGiven c -> dispatch(State.PastelGiven c)
-      | CommitCard.QuoteRequested _ -> ()
+      | CommitCard.QuoteRequested c ->
+        Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
     Pasteis = model |> Observable.map _.Pasteis
+    ViewerId = props.Session.Session.User.Id
     Now = model |> Observable.map _.Now
     Dense = false
+    Images = props.Env.ImageCache
+    Flyout =
+      ValueSome {
+        UserFlyout.Fetch = props.Env.Profiles.Fetch
+        OnOpen =
+          fun username ->
+            Navigation.go(props.Nav, "/profile/" + username, ignore)
+        Cache = props.Env.ImageCache
+      }
   }
 
   /// The commits feed under the tabs.
@@ -676,10 +717,21 @@ module Parts =
       dispatch: Dispatch<State.Msg>,
       model: IObservable<State.Model>
     ) : Control =
+    let ctx = commitCtx(props, dispatch, model)
+
     Feed.view {
       Items = model |> Observable.map _.Commits
       KeyOf = FeedParts.nodeKey
-      Row = CommitCard.feedRow(commitCtx(props, dispatch, model))
+      Row =
+        fun node ->
+          let card = CommitCard.feedRow ctx node
+
+          match node with
+          | LiveCommit commit ->
+            StackPanel()
+              .Children(card, CommitCard.replyBlock(ctx, commit, ValueNone))
+            : Control
+          | Tombstone _ -> card
       Footer =
         ValueSome(
           PageChrome.loadMore(
@@ -770,7 +822,9 @@ type Page<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideSession
-  and 'env :> IProvideUiClock>(props: Props<'env>) as this =
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideProfiles>(props: Props<'env>) as this =
   inherit UserControl()
 
   do

@@ -36,6 +36,11 @@ type IHttp =
   abstract Send:
     request: HttpRequest -> Async<Result<HttpResponse, TransportFailure>>
 
+  /// Downloads one resource as raw bytes. Image payloads cannot travel
+  /// through the string body of `Send`.
+  abstract GetBytes:
+    target: string -> Async<Result<byte array, TransportFailure>>
+
 type IProvideHttp =
   abstract Http: IHttp
 

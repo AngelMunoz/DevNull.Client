@@ -157,16 +157,34 @@ type FakeHttp
           )
     }
 
+    member _.GetBytes(target: string) = async {
+      return
+        Error(
+          {
+            Message = $"unexpected bytes target {target}"
+          }
+          : TransportFailure
+        )
+    }
+
 /// One HTTP worker that records every request and returns a canned response.
 type CapturingHttp(response: Result<HttpResponse, TransportFailure>) =
   let requests = ResizeArray<HttpRequest>()
+  let byteRequests = ResizeArray<string>()
 
   member _.Requests = requests |> Seq.toList
+
+  member _.ByteRequests = byteRequests |> Seq.toList
 
   interface IHttp with
     member _.Send(request) = async {
       requests.Add request
       return response
+    }
+
+    member _.GetBytes(target: string) = async {
+      byteRequests.Add target
+      return Error({ Message = "no canned bytes" }: TransportFailure)
     }
 
 /// The capabilities the signed-request leaves name.

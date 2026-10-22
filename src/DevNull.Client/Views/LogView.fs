@@ -10,12 +10,15 @@ open Avalonia.Layout
 open Avalonia.Media
 open Avalonia.Threading
 open NXUI.Extensions
+open FSharp.Control.Reactive
 open IcedTasks
 open MVUish.Avalonia
 open MVUish.Avalonia.Collections
 open Navs
 open DevNull.Client
+open DevNull.Client.AttachmentSources
 open DevNull.Client.Components
+open DevNull.Client.Components.UserFlyout
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
@@ -23,7 +26,11 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.Icons
+open DevNull.Client.ImageCache
+open DevNull.Client.LastVisitStore
 open DevNull.Client.Navigation
+open DevNull.Client.Profiles
+open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.Theme
 open DevNull.Client.UiClock
@@ -34,7 +41,12 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideSession
-  and 'env :> IProvideUiClock> = {
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLastVisit
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideSshKeys> = {
   Env: 'env
   Log: LogKind
   Session: SignedInSession
@@ -42,16 +54,32 @@ type Props<'env
   Context: RouteContext
 }
 
-/// One row of the log feed: a day separator, a commit on the rail, or
-/// a deletion marker.
+/// One row of the log feed: a day separator, a commit on the rail, a
+/// deletion marker, or the last-visit separator.
 type LogRow =
   | Day of string
   | Node of Commit
   | TombstoneRow of Tombstone
+  | LastVisitRow
+
+/// The visit the marker reads: when it was and who is reading.
+[<Struct>]
+type VisitMarker = {
+  VisitedAt: DateTimeOffset
+  ViewerId: string
+}
 
 /// The page's state logic: model, messages, update, and the
 /// subscriptions that feed it from outside.
 module State =
+
+  /// One thread preview the page grew past the payload slice: the
+  /// replies shown and the cursor the next page asks for.
+  [<Struct>]
+  type PreviewState = {
+    Shown: CommitNode list
+    Cursor: string option
+  }
 
   type Model = {
     Loading: bool
@@ -64,6 +92,13 @@ module State =
     Attached: bool
     Now: DateTimeOffset
     Pasteis: bool
+    ReplyingTo: string option
+    /// The visit captured when the page mounted; the rendered marker
+    /// keeps pointing there for the session even as the store advances.
+    Marker: DateTimeOffset option
+    /// The thread previews the page grew past the payload slice, by
+    /// parent id.
+    Previews: Map<string, PreviewState>
   }
 
   type Msg =
@@ -82,6 +117,10 @@ module State =
     | AttachedChanged of attached: bool
     | ClockTicked of moment: DateTimeOffset
     | SessionChanged of state: SessionState
+    | ReplyToggled of Commit
+    | ReplyPosted of commitId: string
+    | PreviewMoreRequested of Commit
+    | PreviewLoaded of commitId: string * Result<Page<CommitNode>, AppError>
 
   let initial = {
     Loading = true
@@ -94,6 +133,9 @@ module State =
     Attached = false
     Now = DateTimeOffset.UtcNow
     Pasteis = false
+    ReplyingTo = None
+    Marker = None
+    Previews = Map.empty
   }
 
   /// The id of the newest commit in a page: the head the since-poll
@@ -127,11 +169,38 @@ module State =
     )
 
   let init (props: Props<'env>) () =
+    // The visit is read once per mount, the way the site holds the
+    // marker's position for the whole session.
+    let marker =
+      props.Env.LastVisit.LastVisit(
+        props.Session.Session.User.Id,
+        LogKinds.wire props.Log
+      )
+
     {
       initial with
           Pasteis = props.Session.Session.PasteisMode
+          Marker = marker
     },
     Cmd.OfAsync.perform fetch (props, None) Fetched
+
+  /// Records this visit's newest commit as the next marker, once the
+  /// feed has items to take it from.
+  let private markVisit(props: Props<'env>, items: CommitNode list) : Cmd<Msg> =
+    match items with
+    | [] -> Cmd.none
+    | first :: _ ->
+      let newest =
+        match first with
+        | LiveCommit commit -> commit.CreatedAt
+        | Tombstone _ -> DateTimeOffset.UtcNow
+
+      Cmd.ofEffect(fun _ ->
+        props.Env.LastVisit.Mark(
+          props.Session.Session.User.Id,
+          LogKinds.wire props.Log,
+          newest
+        ))
 
   let replaceNode(items: CommitNode list, updated: Commit) : CommitNode list =
     items
@@ -154,7 +223,7 @@ module State =
               NewCount = None
               Ranked = page.IsRanked
         },
-        Cmd.none
+        markVisit(props, page.Page.Items)
       | Error error ->
         {
           model with
@@ -205,6 +274,64 @@ module State =
             Error = None
       },
       Cmd.OfAsync.perform fetch (props, None) Fetched
+    | ReplyToggled commit ->
+      let replyingTo =
+        if model.ReplyingTo = Some commit.Id then
+          None
+        else
+          Some commit.Id
+
+      { model with ReplyingTo = replyingTo }, Cmd.none
+    | ReplyPosted _ ->
+      // A landed reply closes its composer and refreshes the feed, so
+      // the new reply arrives through the same read as everything
+      // else.
+      { model with ReplyingTo = None },
+      Cmd.ofEffect(fun dispatch' -> dispatch' ReloadRequested)
+    | PreviewMoreRequested commit ->
+      // The first ask reads the newest page whole, the way the site's
+      // preview does; the next ones walk the cursor it left.
+      let cursor =
+        model.Previews |> Map.tryFind commit.Id |> Option.bind _.Cursor
+
+      model,
+      Cmd.OfAsync.perform
+        Commits.replies
+        (props.Env,
+         {
+           KeyFile = props.Session.KeyFile
+           CommitId = commit.Id
+           Newest = true
+           Cursor = cursor
+         })
+        (fun page -> PreviewLoaded(commit.Id, page))
+    | PreviewLoaded(commitId, result) ->
+      match result with
+      | Ok page ->
+        let known =
+          model.Previews
+          |> Map.tryFind commitId
+          |> Option.map _.Shown
+          |> Option.defaultValue []
+
+        let seen = known |> List.map FeedParts.nodeKey |> Set.ofList
+
+        let fresh =
+          page.Items
+          |> List.filter(fun node ->
+            seen |> Set.contains(FeedParts.nodeKey node) |> not)
+
+        let grown = {
+          Shown = known @ fresh
+          Cursor = page.NextCursor
+        }
+
+        {
+          model with
+              Previews = model.Previews |> Map.add commitId grown
+        },
+        Cmd.none
+      | Error error -> { model with Error = Some error }, Cmd.none
     | MoreRequested ->
       model, Cmd.OfAsync.perform fetch (props, model.NextCursor) Appended
     | Appended result ->
@@ -284,8 +411,12 @@ module State =
   /// Interleaves day separators between the commits of different days,
   /// carrying the day across tombstones. A ranked log is score ordered,
   /// its days interleave, so it rides without separators the way the
-  /// site's ranked feed does.
-  let toRows(items: CommitNode list, ranked: bool) : LogRow list =
+  /// site's ranked feed does. The last-visit marker rides above the
+  /// first already-seen commit, and only when someone else's newer
+  /// commit sits above it — the site's own rules.
+  let toRows
+    (items: CommitNode list, ranked: bool, marker: VisitMarker option)
+    : LogRow list =
     let now = DateTimeOffset.UtcNow
 
     let nodeRow node =
@@ -293,43 +424,89 @@ module State =
       | LiveCommit commit -> LogRow.Node commit
       | Tombstone tombstone -> LogRow.TombstoneRow tombstone
 
-    if ranked then
-      [ for node in items -> nodeRow node ]
-    else
-      let dayOf node =
-        match node with
-        | LiveCommit commit -> Some(dayLabel(now, commit.CreatedAt))
-        | Tombstone _ -> None
-
-      // The day seen before each item, carried across tombstones: one
-      // carried state per item, seeded with the empty one.
-      let carry =
-        items
-        |> List.scan (fun day node -> dayOf node |> Option.orElse day) None
-        |> List.truncate items.Length
-
-      [
-        for prevDay, node in List.zip carry items do
+    let baseRows =
+      if ranked then
+        [ for node in items -> nodeRow node ]
+      else
+        let dayOf node =
           match node with
-          | LiveCommit commit ->
-            let day = dayLabel(now, commit.CreatedAt)
+          | LiveCommit commit -> Some(dayLabel(now, commit.CreatedAt))
+          | Tombstone _ -> None
 
-            if prevDay <> Some day then
-              LogRow.Day day
-              LogRow.Node commit
-            else
-              LogRow.Node commit
-          | Tombstone tombstone -> LogRow.TombstoneRow tombstone
-      ]
+        // The day seen before each item, carried across tombstones: one
+        // carried state per item, seeded with the empty one.
+        let carry =
+          items
+          |> List.scan (fun day node -> dayOf node |> Option.orElse day) None
+          |> List.truncate items.Length
+
+        [
+          for prevDay, node in List.zip carry items do
+            match node with
+            | LiveCommit commit ->
+              let day = dayLabel(now, commit.CreatedAt)
+
+              if prevDay <> Some day then
+                LogRow.Day day
+                LogRow.Node commit
+              else
+                LogRow.Node commit
+            | Tombstone tombstone -> LogRow.TombstoneRow tombstone
+        ]
+
+    let markerTarget =
+      match ranked, marker with
+      | false, Some visit ->
+        items
+        |> List.tryFindIndex(function
+          | LiveCommit commit -> commit.CreatedAt <= visit.VisitedAt
+          | Tombstone _ -> false)
+        |> Option.bind(fun seenAt ->
+          let newerFromOthers =
+            items
+            |> List.truncate seenAt
+            |> List.exists(function
+              | LiveCommit commit -> commit.Author.Id <> visit.ViewerId
+              | Tombstone _ -> false)
+
+          match newerFromOthers with
+          | true ->
+            (match List.item seenAt items with
+             | LiveCommit commit -> Some commit.Id
+             | Tombstone _ -> None)
+          | false -> None)
+      | _ -> None
+
+    match markerTarget with
+    | None -> baseRows
+    | Some seenId ->
+      baseRows
+      |> List.collect(fun row ->
+        match row with
+        | LogRow.Node commit when commit.Id = seenId -> [
+            LogRow.LastVisitRow
+            row
+          ]
+        | _ -> [ row ])
 
   let keyOf(logRow: LogRow) : string =
     match logRow with
     | LogRow.Day label -> "day:" + label
     | LogRow.Node commit -> commit.Id
     | LogRow.TombstoneRow tombstone -> tombstone.Id
+    | LogRow.LastVisitRow -> "last-visit"
 
 /// The page's semantic regions; the view only composes these.
 module Parts =
+
+  /// The hover card source every log card shares.
+  let flyoutOf(props: Props<'env>) : UserFlyout.Source voption =
+    ValueSome {
+      UserFlyout.Fetch = props.Env.Profiles.Fetch
+      OnOpen =
+        fun username -> Navigation.go(props.Nav, "/profile/" + username, ignore)
+      Cache = props.Env.ImageCache
+    }
 
   /// The row context every log card shares: navigation for opens and
   /// quotes, messages for the star and the pastel, the live flags.
@@ -343,16 +520,25 @@ module Parts =
       function
       | CommitCard.Opened c ->
         Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
+      | CommitCard.ThreadRequested c ->
+        Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
+      | CommitCard.MoreRepliesRequested c ->
+        dispatch(State.PreviewMoreRequested c)
       | CommitCard.QuoteRequested c ->
         Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
+      | CommitCard.ReplyToggled c -> dispatch(State.ReplyToggled c)
       | CommitCard.StarToggled c -> dispatch(State.StarToggled c)
       | CommitCard.PastelGiven c -> dispatch(State.PastelGiven c)
     Pasteis = model |> Observable.map _.Pasteis
+    ViewerId = props.Session.Session.User.Id
     Now = model |> Observable.map _.Now
     Dense = false
+    Images = props.Env.ImageCache
+    Flyout = flyoutOf props
   }
 
-  /// One feed row: a separator, a commit card, or a deletion marker.
+  /// One feed row: a separator, a commit card with its revealed reply
+  /// composer, or a deletion marker.
   let row
     (
       props: Props<'env>,
@@ -365,7 +551,47 @@ module Parts =
 
     match logRow with
     | LogRow.Day label -> FeedParts.dayRow label
-    | LogRow.Node commit -> CommitCard.feedRow ctx (LiveCommit commit)
+    | LogRow.LastVisitRow -> FeedParts.lastVisitRow()
+    | LogRow.Node commit ->
+      // The inline reply composer mounts once per realized row: a
+      // rebuild on every model change would wipe the typed text.
+      let composer =
+        Composer.Page {
+          Env = props.Env
+          Session = props.Session
+          Target = Composer.ReplyTo commit.Id
+          OnCommitted = fun _ -> dispatch(State.ReplyPosted commit.Id)
+          Register = ValueNone
+        }
+
+      let reply =
+        composer.IsVisible(
+          model
+          |> Observable.map(fun current -> current.ReplyingTo = Some commit.Id)
+        )
+
+      // The thread preview rides under the card: the payload slice,
+      // or the list the page grew. It rebuilds only when the shown
+      // list itself changed.
+      let preview =
+        match commit.ReplyPreview with
+        | None -> Panel() :> Control
+        | Some _ ->
+          ContentControl()
+            .Content(
+              model
+              |> Observable.map(fun current ->
+                current.Previews |> Map.tryFind commit.Id)
+              |> Observable.distinctUntilChanged
+              |> Observable.map(function
+                | Some grown ->
+                  CommitCard.replyBlock(ctx, commit, ValueSome grown.Shown)
+                | None -> CommitCard.replyBlock(ctx, commit, ValueNone))
+              |> _.ToBinding()
+            )
+
+      StackPanel()
+        .Children(CommitCard.feedRow ctx (LiveCommit commit), preview, reply)
 
     | LogRow.TombstoneRow tombstone ->
       CommitCard.feedRow ctx (Tombstone tombstone)
@@ -479,6 +705,7 @@ module Parts =
             Url = props.Session.Session.User.AvatarUrl
             Lane = None
             Size = 40.0
+            Cache = props.Env.ImageCache
           }
         )
 
@@ -532,7 +759,15 @@ module Parts =
       Items =
         model
         |> Observable.map(fun current ->
-          State.toRows(current.Items, current.Ranked))
+          State.toRows(
+            current.Items,
+            current.Ranked,
+            current.Marker
+            |> Option.map(fun visitedAt -> {
+              VisitedAt = visitedAt
+              ViewerId = props.Session.Session.User.Id
+            })
+          ))
       KeyOf = State.keyOf
       Row = row(props, dispatch, model)
       Footer =
@@ -592,7 +827,12 @@ type Page<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideSession
-  and 'env :> IProvideUiClock>(props: Props<'env>) as this =
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLastVisit
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideSshKeys>(props: Props<'env>) as this =
   inherit UserControl()
 
   do

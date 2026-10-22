@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <DebugType>embedded</DebugType>
@@ -17,6 +17,8 @@
     <Compile Include="Errors.fs" />
     <Compile Include="SettingsStore.fsi" />
     <Compile Include="SettingsStore.fs" />
+    <Compile Include="LastVisitStore.fsi" />
+    <Compile Include="LastVisitStore.fs" />
     <Compile Include="Theme.fsi" />
     <Compile Include="Theme.fs" />
     <Compile Include="Icons.fsi" />
@@ -31,6 +33,14 @@
     <Compile Include="SessionFiles.fs" />
     <Compile Include="Stores.fsi" />
     <Compile Include="Stores.fs" />
+    <Compile Include="ImageCache.fsi" />
+    <Compile Include="ImageCache.fs" />
+    <Compile Include="AttachmentSources.fsi" />
+    <Compile Include="AttachmentSources.fs" />
+    <Compile Include="Profiles.fsi" />
+    <Compile Include="Profiles.fs" />
+    <Compile Include="SshKeys.fsi" />
+    <Compile Include="SshKeys.fs" />
     <Compile Include="Unread.fsi" />
     <Compile Include="Unread.fs" />
     <Compile Include="Env.fsi" />
@@ -49,24 +59,28 @@
     <Compile Include="Components\PageChrome.fs" />
     <Compile Include="Components\FeedParts.fsi" />
     <Compile Include="Components\FeedParts.fs" />
+    <Compile Include="Components\AsyncImage.fsi" />
+    <Compile Include="Components\AsyncImage.fs" />
+    <Compile Include="Components\ImageViewer.fsi" />
+    <Compile Include="Components\ImageViewer.fs" />
     <Compile Include="Components\Avatar.fsi" />
     <Compile Include="Components\Avatar.fs" />
+    <Compile Include="Components\ProfileCard.fsi" />
+    <Compile Include="Components\ProfileCard.fs" />
+    <Compile Include="Components\UserFlyout.fsi" />
+    <Compile Include="Components\UserFlyout.fs" />
     <Compile Include="Components\CommitCard.fsi" />
     <Compile Include="Components\CommitCard.fs" />
     <Compile Include="Components\Composer.fsi" />
     <Compile Include="Components\Composer.fs" />
     <Compile Include="Components\Feed.fsi" />
     <Compile Include="Components\Feed.fs" />
-    <Compile Include="Components\ProfileCard.fsi" />
-    <Compile Include="Components\ProfileCard.fs" />
     <Compile Include="Views\CommitActions.fsi" />
     <Compile Include="Views\CommitActions.fs" />
     <Compile Include="Views\SignInView.fsi" />
     <Compile Include="Views\SignInView.fs" />
     <Compile Include="Views\LogView.fsi" />
     <Compile Include="Views\LogView.fs" />
-    <Compile Include="Views\ComposeView.fsi" />
-    <Compile Include="Views\ComposeView.fs" />
     <Compile Include="Views\CommitDetailView.fsi" />
     <Compile Include="Views\CommitDetailView.fs" />
     <Compile Include="Views\NotificationsView.fsi" />
@@ -77,6 +91,8 @@
     <Compile Include="Views\ProfileView.fs" />
     <Compile Include="Views\SettingsView.fsi" />
     <Compile Include="Views\SettingsView.fs" />
+    <Compile Include="Views\AboutView.fsi" />
+    <Compile Include="Views\AboutView.fs" />
     <Compile Include="Views\Routes.fsi" />
     <Compile Include="Views\Routes.fs" />
     <Compile Include="Shell.fsi" />

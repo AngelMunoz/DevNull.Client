@@ -1,11 +1,16 @@
 module DevNull.Client.Views.Routes
 
 open Avalonia.Controls
+open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Env
+open DevNull.Client.ImageCache
+open DevNull.Client.LastVisitStore
+open DevNull.Client.Profiles
 open DevNull.Client.SettingsStore
+open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
 open Navs
@@ -34,5 +39,10 @@ val build:
     and 'env :> IProvideHttp
     and 'env :> IProvideSession
     and 'env :> IProvideUiClock
+    and 'env :> IProvideImageCache
+    and 'env :> IProvideAttachmentSources
+    and 'env :> IProvideLastVisit
+    and 'env :> IProvideProfiles
+    and 'env :> IProvideSshKeys
     and 'env :> IProvideSettings
     and 'env :> IProvideLogging

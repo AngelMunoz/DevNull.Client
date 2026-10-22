@@ -2,10 +2,15 @@ module DevNull.Client.Views.LogView
 
 open System
 open Avalonia.Controls
+open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
+open DevNull.Client.ImageCache
+open DevNull.Client.LastVisitStore
+open DevNull.Client.Profiles
+open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
 open MVUish.Avalonia
@@ -19,7 +24,12 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideSession
-  and 'env :> IProvideUiClock> = {
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLastVisit
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideSshKeys> = {
   Env: 'env
   Log: LogKind
   Session: SignedInSession
@@ -30,16 +40,32 @@ type Props<'env
   Context: RouteContext
 }
 
-/// One row of the log feed: a day separator, a commit on the rail, or
-/// a deletion marker.
+/// One row of the log feed: a day separator, a commit on the rail, a
+/// deletion marker, or the last-visit separator.
 type LogRow =
   | Day of string
   | Node of Commit
   | TombstoneRow of Tombstone
+  | LastVisitRow
+
+/// The visit the marker reads: when it was and who is reading.
+[<Struct>]
+type VisitMarker = {
+  VisitedAt: DateTimeOffset
+  ViewerId: string
+}
 
 /// The page's state logic, exported so the update stays testable
 /// without a running page.
 module State =
+
+  /// One thread preview the page grew past the payload slice: the
+  /// replies shown and the cursor the next page asks for.
+  [<Struct>]
+  type PreviewState = {
+    Shown: CommitNode list
+    Cursor: string option
+  }
 
   /// The state of one log page: the loaded items, the pager cursor, the
   /// head the since-poll checks against, the new-commit count the pill
@@ -59,6 +85,13 @@ module State =
     Now: DateTimeOffset
     /// Whether the viewer's pastel controls show, live from the session.
     Pasteis: bool
+    /// The commit whose inline reply composer is open, by id.
+    ReplyingTo: string option
+    /// The visit captured when the page mounted, for the marker row.
+    Marker: DateTimeOffset option
+    /// The thread previews the page grew past the payload slice, by
+    /// parent id.
+    Previews: Map<string, PreviewState>
   }
 
   /// The messages of the log page, including the since-poll pair.
@@ -78,14 +111,21 @@ module State =
     | AttachedChanged of attached: bool
     | ClockTicked of moment: DateTimeOffset
     | SessionChanged of state: SessionState
+    | ReplyToggled of Commit
+    | ReplyPosted of commitId: string
+    | PreviewMoreRequested of Commit
+    | PreviewLoaded of commitId: string * Result<Page<CommitNode>, AppError>
 
   /// The fresh page state.
   val initial: Model
 
   /// Interleaves day separators between the commits of different days,
   /// carrying the day across tombstones. A ranked log is score ordered,
-  /// its days interleave, so it rides without separators.
-  val toRows: items: CommitNode list * ranked: bool -> LogRow list
+  /// its days interleave, so it rides without separators. The
+  /// last-visit marker rides above the first already-seen commit.
+  val toRows:
+    items: CommitNode list * ranked: bool * marker: VisitMarker option ->
+      LogRow list
 
   /// The stable identity of one feed row.
   val keyOf: logRow: LogRow -> string
@@ -99,6 +139,11 @@ module State =
       and 'env :> IProvideHttp
       and 'env :> IProvideSession
       and 'env :> IProvideUiClock
+      and 'env :> IProvideImageCache
+      and 'env :> IProvideAttachmentSources
+      and 'env :> IProvideLastVisit
+      and 'env :> IProvideProfiles
+      and 'env :> IProvideSshKeys
 
 /// One log timeline, self-contained: mounts the MVUish program.
 type Page<'env
@@ -107,6 +152,11 @@ type Page<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideSession
-  and 'env :> IProvideUiClock> =
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLastVisit
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideSshKeys> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

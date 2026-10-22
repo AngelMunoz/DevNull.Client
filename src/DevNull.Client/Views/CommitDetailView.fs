@@ -10,21 +10,31 @@ open Avalonia.Controls.Templates
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
+open FSharp.Control.Reactive
 open IcedTasks
 open MVUish.Avalonia
 open MVUish.Avalonia.Collections
 open Navs
 open DevNull.Client
+open DevNull.Client.AttachmentSources
 open DevNull.Client.Components
+open DevNull.Client.Components.UserFlyout
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
+open DevNull.Client.ImageCache
 open DevNull.Client.Navigation
+open DevNull.Client.Profiles
+open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.Theme
 open DevNull.Client.UiClock
+
+// The hover card source record; the alias keeps its long name out of
+// every use site.
+type HoverSource = DevNull.Client.Components.UserFlyout.Source
 
 type Props<'env
   when 'env :> IProvideClock
@@ -32,17 +42,32 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideSession
-  and 'env :> IProvideUiClock> = {
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideSshKeys> = {
   Env: 'env
   CommitId: string
   Session: SignedInSession
   Nav: INavigable
   Context: RouteContext
+  /// Whether the page opens with the quote composer armed: the
+  /// /quote/:id route renders this page over the quoted commit.
+  Quoting: bool
 }
 
 /// The page's state logic: model, messages, update, and the
 /// subscriptions that feed it from outside.
 module State =
+
+  /// One nested reply list the page grew past the payload's preview
+  /// slice: the replies shown and the cursor the next page asks for.
+  [<Struct>]
+  type PreviewState = {
+    Shown: CommitNode list
+    Cursor: string option
+  }
 
   type Model = {
     Loading: bool
@@ -53,6 +78,13 @@ module State =
     Note: string option
     Now: DateTimeOffset
     Pasteis: bool
+    Replying: bool
+    /// Whether the quote composer is armed: from the route, or from
+    /// the focused card's quote action.
+    Quoting: bool
+    /// The nested reply lists the page grew past their preview
+    /// slices, by parent id.
+    Expanded: Map<string, PreviewState>
   }
 
   type Msg =
@@ -68,6 +100,8 @@ module State =
     | Deleted of Result<unit, AppError>
     | ClockTicked of moment: DateTimeOffset
     | SessionChanged of state: SessionState
+    | NodeMoreRequested of Commit
+    | NodeRepliesLoaded of commitId: string * Result<Page<CommitNode>, AppError>
 
   let initial = {
     Loading = true
@@ -78,6 +112,9 @@ module State =
     Note = None
     Now = DateTimeOffset.UtcNow
     Pasteis = false
+    Replying = false
+    Quoting = false
+    Expanded = Map.empty
   }
 
   let thread(env, session: SignedInSession, commitId: string) =
@@ -106,6 +143,7 @@ module State =
     {
       initial with
           Pasteis = props.Session.Session.PasteisMode
+          Quoting = props.Quoting
     },
     Cmd.batch [
       Cmd.OfAsync.perform
@@ -193,9 +231,78 @@ module State =
       { model with Error = None; Note = None },
       Cmd.ofMsg(PastelRequested commit.Id)
     | CardEvent(CommitCard.QuoteRequested commit) ->
+      // The focused card quotes in place; any other card opens its own
+      // thread with the quote composer armed over it.
+      if commit.Id = props.CommitId then
+        {
+          model with
+              Quoting = true
+              Replying = false
+        },
+        Cmd.none
+      else
+        model,
+        Cmd.ofEffect(fun _ ->
+          Navigation.go(props.Nav, "/quote/" + commit.Id, ignore))
+    | CardEvent(CommitCard.ReplyToggled _) ->
+      {
+        model with
+            Replying = not model.Replying
+            Quoting = false
+      },
+      Cmd.none
+    | CardEvent(CommitCard.ThreadRequested commit) ->
       model,
       Cmd.ofEffect(fun _ ->
-        Navigation.go(props.Nav, "/quote/" + commit.Id, ignore))
+        Navigation.go(props.Nav, "/commit/" + commit.Id, ignore))
+    | CardEvent(CommitCard.MoreRepliesRequested commit) ->
+      model,
+      Cmd.ofEffect(fun _ ->
+        Navigation.go(props.Nav, "/commit/" + commit.Id, ignore))
+    | NodeMoreRequested commit ->
+      // The first ask reads the newest page whole, the way the site's
+      // preview does; the next ones walk the cursor it left.
+      let cursor =
+        model.Expanded |> Map.tryFind commit.Id |> Option.bind _.Cursor
+
+      model,
+      Cmd.OfAsync.perform
+        Commits.replies
+        (props.Env,
+         {
+           KeyFile = props.Session.KeyFile
+           CommitId = commit.Id
+           Newest = true
+           Cursor = cursor
+         })
+        (fun page -> NodeRepliesLoaded(commit.Id, page))
+    | NodeRepliesLoaded(commitId, result) ->
+      match result with
+      | Ok page ->
+        let known =
+          model.Expanded
+          |> Map.tryFind commitId
+          |> Option.map _.Shown
+          |> Option.defaultValue []
+
+        let seen = known |> List.map FeedParts.nodeKey |> Set.ofList
+
+        let fresh =
+          page.Items
+          |> List.filter(fun node ->
+            seen |> Set.contains(FeedParts.nodeKey node) |> not)
+
+        let grown = {
+          Shown = known @ fresh
+          Cursor = page.NextCursor
+        }
+
+        {
+          model with
+              Expanded = model.Expanded |> Map.add commitId grown
+        },
+        Cmd.none
+      | Error error -> { model with Error = Some error }, Cmd.none
     | PastelRequested commitId ->
       let give() =
         Pasteis.give(
@@ -265,45 +372,148 @@ module State =
 /// The page's semantic regions; the view only composes these.
 module Parts =
 
-  /// The card context every thread card shares: events route into the
-  /// page's card message.
-  let commitCtx
-    (dispatch: Dispatch<State.Msg>, model: IObservable<State.Model>, dense: bool) : CommitCard.RowProps = {
-    OnEvent = State.CardEvent >> dispatch
-    Pasteis = model |> Observable.map _.Pasteis
-    Now = model |> Observable.map _.Now
-    Dense = dense
+  /// The hover card source every thread card shares.
+  let flyoutOf<'env
+    when 'env :> IProvideClock
+    and 'env :> IProvideNonceSource
+    and 'env :> IProvideSigner
+    and 'env :> IProvideHttp
+    and 'env :> IProvideSession
+    and 'env :> IProvideUiClock
+    and 'env :> IProvideImageCache
+    and 'env :> IProvideAttachmentSources
+    and 'env :> IProvideProfiles
+    and 'env :> IProvideSshKeys>
+    (props: Props<'env>)
+    : HoverSource voption =
+    let source: HoverSource = {
+      Fetch = props.Env.Profiles.Fetch
+      OnOpen =
+        fun username -> Navigation.go(props.Nav, "/profile/" + username, ignore)
+      Cache = props.Env.ImageCache
+    }
+
+    ValueSome source
+
+  /// What every thread card reads: the page's dispatch, the live
+  /// model, the signed-in viewer, the image cache, and the hover card
+  /// source.
+  [<Struct>]
+  type Ctx = {
+    Dispatch: Dispatch<State.Msg>
+    Model: IObservable<State.Model>
+    ViewerId: string
+    Images: ImageCacheService
+    Flyout: HoverSource voption
   }
 
-  /// One reply row: indented off a dashed spine, dense card.
-  let replyRow
-    (
-      dispatch: Dispatch<State.Msg>,
-      model: IObservable<State.Model>,
-      node: CommitNode
-    ) : Control =
-    match node with
-    | LiveCommit commit ->
-      let spine =
-        Line(
-          StartPoint = Point(0.0, 0.0),
-          EndPoint = Point(0.0, 1.0),
-          Stretch = Stretch.Fill,
-          StrokeThickness = 2.0,
-          HorizontalAlignment = HorizontalAlignment.Center,
-          VerticalAlignment = VerticalAlignment.Stretch
-        )
-          .Stroke(Brushes.rail)
-          .StrokeDashArray(Avalonia.Collections.AvaloniaList<double>(2.0, 2.0))
+  /// The card context every thread card shares: events route into the
+  /// page's card message.
+  let commitCtx(ctx: Ctx, dense: bool) : CommitCard.RowProps = {
+    OnEvent = State.CardEvent >> ctx.Dispatch
+    Pasteis = ctx.Model |> Observable.map _.Pasteis
+    ViewerId = ctx.ViewerId
+    Now = ctx.Model |> Observable.map _.Now
+    Dense = dense
+    Images = ctx.Images
+    Flyout = ctx.Flyout
+  }
 
-      let grid = Grid()
+  /// The "Show N more" walk of one node's replies, the muted dot of
+  /// the site's continuation.
+  let moreNodeReplies
+    (dispatch: Dispatch<State.Msg>, commit: Commit, remaining: int)
+    : Control =
+    let label =
+      match remaining with
+      | 1 -> "Show the last reply"
+      | count -> $"Show {count} more replies"
 
-      grid.ColumnDefinitions <- ColumnDefinitions("32,*")
+    Button()
+      .Name("NodeMoreReplies")
+      .Classes(Theme.name Theme.GhostButton)
+      .Padding(4.0, 2.0, 4.0, 2.0)
+      .Margin(0.0, 2.0, 0.0, 2.0)
+      .HorizontalAlignment(HorizontalAlignment.Left)
+      .Content(
+        StackPanel()
+          .Orientation(Orientation.Horizontal)
+          .Spacing(6.0)
+          .Children(
+            Ellipse()
+              .Width(10.0)
+              .Height(10.0)
+              .StrokeThickness(1.5)
+              .StrokeDashArray(
+                Avalonia.Collections.AvaloniaList<double>(2.0, 2.0)
+              )
+              .Stroke(Brushes.muted),
+            TextBlock().Text(label)
+          )
+      )
+      .OnClickHandler(fun _ args ->
+        args.Handled <- true
+        dispatch(State.NodeMoreRequested commit))
 
-      let card = CommitCard.feedRow (commitCtx(dispatch, model, true)) node
+  /// Grows one parent's children on the thread page: the payload's
+  /// preview slice, or the list the page walked through the cursor,
+  /// plus the walk button while replies remain. The host rebuilds
+  /// only when the shown list changed.
+  let growChildren
+    (ctx: Ctx)
+    (child: CommitCard.ChainCtx)
+    (parent: Commit)
+    : Control =
+    ContentControl()
+      .Content(
+        ctx.Model
+        |> Observable.map(fun current ->
+          current.Expanded |> Map.tryFind parent.Id)
+        |> Observable.distinctUntilChanged
+        |> Observable.map(fun grown ->
+          match grown with
+          | Some state -> ValueSome state.Shown
+          | None ->
+            parent.ReplyPreview |> Option.map _.Data |> ValueOption.ofOption)
+        |> Observable.distinctUntilChanged
+        |> Observable.map(fun shown ->
+          let carried = shown |> ValueOption.defaultValue []
 
-      grid.Children(spine.Column(0), card.Column(1))
-    | Tombstone _ -> CommitCard.tombstone()
+          let remaining =
+            parent.RepliesCount
+            |> Option.map(fun count -> count - carried.Length)
+            |> Option.defaultValue 0
+
+          let children: Control array = [|
+            if not carried.IsEmpty then
+              CommitCard.chainRows(
+                {
+                  child with
+                      ParentLane = parent.Author.Lane
+                      ParentHandle = parent.Author.Username
+                },
+                carried
+              )
+
+            if remaining > 0 then
+              moreNodeReplies(ctx.Dispatch, parent, remaining)
+          |]
+
+          StackPanel().Children(children): Control)
+        |> _.ToBinding()
+      )
+
+  /// The chain context of the thread page: every parent grows its
+  /// children through the cursor.
+  let threadChain
+    (ctx: Ctx, lane: Lane option, handle: string)
+    : CommitCard.ChainCtx = {
+    Props = commitCtx(ctx, false)
+    Depth = 0
+    ParentLane = lane
+    ParentHandle = handle
+    Grow = ValueSome(growChildren ctx)
+  }
 
   /// One ancestor hop above the card: the author and a one-line body.
   let ancestorRow(props: Props<'env>, node: CommitNode) : Control =
@@ -359,17 +569,13 @@ module Parts =
 
   // The card is rebuilt whenever the commit changes: the snapshot keeps
   // the star visual honest.
-  let cardHost
-    (dispatch: Dispatch<State.Msg>, model: IObservable<State.Model>)
-    : Control =
+  let cardHost(ctx: Ctx) : Control =
     let content =
-      model
+      ctx.Model
       |> Observable.map(fun current ->
         match current.Page with
         | Some page ->
-          CommitCard.feedRow
-            (commitCtx(dispatch, model, false))
-            (LiveCommit page.Commit)
+          CommitCard.feedRow (commitCtx(ctx, false)) (LiveCommit page.Commit)
         | None -> Status.empty "")
 
     ContentControl().Content(content.ToBinding())
@@ -441,22 +647,34 @@ module Parts =
         FeedParts.nodeKey
       )
 
-  /// The reply column under the card.
-  let replies
-    (dispatch: Dispatch<State.Msg>, model: IObservable<State.Model>)
-    : Control =
-    ItemsControl()
-      .ItemTemplate(
-        FuncDataTemplate<CommitNode>(
-          (fun node _ -> replyRow(dispatch, model, node)),
-          false
-        )
-      )
-      .BindItemsSource(
-        model
+  /// The reply column under the card: the root replies as the site's
+  /// slim chain. The focused card runs its lane tail to its bottom
+  /// edge while replies show, so the first row's elbow starts exactly
+  /// at that boundary.
+  let replies(ctx: Ctx) : Control =
+    ContentControl()
+      .Content(
+        ctx.Model
         |> Observable.map(fun current ->
-          current.Replies :> IReadOnlyList<CommitNode>),
-        FeedParts.nodeKey
+          match current.Page with
+          | Some page ->
+            Some(
+              page.Commit.Author.Lane,
+              page.Commit.Author.Username,
+              current.Replies
+            )
+          | None -> None)
+        |> Observable.distinctUntilChanged
+        |> Observable.map(function
+          | Some(lane, handle, nodes) when not nodes.IsEmpty ->
+            StackPanel()
+              .Margin(40.0, 0.0, 0.0, 0.0)
+              .Children(
+                CommitCard.chainRows(threadChain(ctx, lane, handle), nodes)
+              )
+            : Control
+          | _ -> Status.empty "")
+        |> _.ToBinding()
       )
 
   /// The pager under the replies, while another page exists.
@@ -471,18 +689,52 @@ module Parts =
       .IsVisible(model |> Observable.map _.RepliesCursor.IsSome)
       .OnClickHandler(fun _ _ -> dispatch State.MoreReplies)
 
-  /// The reply composer under the thread; a landed reply reloads the
-  /// page.
-  let replyComposer
-    (props: Props<'env>, dispatch: Dispatch<State.Msg>)
-    : Control =
-    Composer.Page {
-      Env = props.Env
-      Session = props.Session
-      Target = Composer.ReplyTo props.CommitId
-      OnCommitted = fun _ -> dispatch State.ReloadRequested
-      Register = ValueNone
-    }
+  /// The answer composers under the thread. The reply composer hides
+  /// until the card's reply button reveals it; a landed reply reloads
+  /// the page. The quote composer arms from the route or the focused
+  /// card's quote action; a landed quote opens the new commit's
+  /// thread. Both mount once: a rebuild on every model change would
+  /// wipe the typed text.
+  let answerComposer
+    (
+      props: Props<'env>,
+      dispatch: Dispatch<State.Msg>,
+      model: IObservable<State.Model>
+    ) : Control =
+    let reply =
+      Composer.Page {
+        Env = props.Env
+        Session = props.Session
+        Target = Composer.ReplyTo props.CommitId
+        OnCommitted = fun _ -> dispatch State.ReloadRequested
+        Register = ValueNone
+      }
+
+    let quote =
+      Composer.Page {
+        Env = props.Env
+        Session = props.Session
+        Target = Composer.Quoting props.CommitId
+        OnCommitted =
+          function
+          | Composer.Created commit ->
+            Navigation.go(props.Nav, "/commit/" + commit.Id, ignore)
+          | Composer.PostedUrl url ->
+            // The CLI answer carries the commit page URL; its last
+            // segment is the commit id.
+            let id = url.Substring(url.LastIndexOf '/' + 1)
+
+            Navigation.go(props.Nav, "/commit/" + id, ignore)
+        Register = ValueNone
+      }
+
+    StackPanel()
+      .Children(
+        reply.IsVisible(
+          model |> Observable.map(fun current -> current.Replying)
+        ),
+        quote.IsVisible(model |> Observable.map(fun current -> current.Quoting))
+      )
 
 let view
   (props: Props<'env>)
@@ -499,11 +751,25 @@ let view
         Parts.noteLine model,
         Parts.busy model,
         Parts.ancestors(props, model),
-        Parts.cardHost(dispatch, model),
-        Parts.threadActions(props, dispatch, model),
-        Parts.replies(dispatch, model),
+        Parts.cardHost {
+          Dispatch = dispatch
+          Model = model
+          ViewerId = props.Session.Session.User.Id
+          Images = props.Env.ImageCache
+          Flyout = Parts.flyoutOf props
+        },
+        // The replies tie into the card's rail directly; the page-level
+        // affordances follow the chain, the way the site's thread does.
+        Parts.replies {
+          Dispatch = dispatch
+          Model = model
+          ViewerId = props.Session.Session.User.Id
+          Images = props.Env.ImageCache
+          Flyout = Parts.flyoutOf props
+        },
         Parts.moreReplies(dispatch, model),
-        Parts.replyComposer(props, dispatch)
+        Parts.threadActions(props, dispatch, model),
+        Parts.answerComposer(props, dispatch, model)
       )
 
   // The page scrolls one axis: a wrapped body and composer measure
@@ -519,7 +785,11 @@ type Page<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideSession
-  and 'env :> IProvideUiClock>(props: Props<'env>) as this =
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideSshKeys>(props: Props<'env>) as this =
   inherit UserControl()
 
   do

@@ -8,14 +8,24 @@ open System.Security.Cryptography
 open System.Text
 open System.Threading.Tasks
 open IcedTasks
+open Avalonia
+open Avalonia.Controls
+open Avalonia.Controls.ApplicationLifetimes
 open Microsoft.Extensions.Logging
+open DevNull.Client
+open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.Api
+open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
+open DevNull.Client.ImageCache
+open DevNull.Client.LastVisitStore
+open DevNull.Client.Profiles
 open DevNull.Client.SessionFiles
 open DevNull.Client.SettingsStore
 open DevNull.Client.SshKeygen
+open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
 open DevNull.Client.Unread
@@ -160,6 +170,28 @@ type HttpClientTransport(baseAddress: string) =
         return Error({ Message = ex.Message }: TransportFailure)
     }
 
+    member _.GetBytes
+      (target: string)
+      : Async<Result<byte array, TransportFailure>> = asyncEx {
+      let! ct = Async.CancellationToken
+
+      try
+        use message = new HttpRequestMessage(HttpMethod.Get, target)
+
+        message.Headers.TryAddWithoutValidation("User-Agent", userAgent)
+        |> ignore
+
+        // Image URLs are absolute, so the base address never applies.
+        let! response = client.SendAsync(message, ct)
+
+        use response = response
+        let! bytes = response.Content.ReadAsByteArrayAsync(ct)
+
+        return Ok bytes
+      with ex ->
+        return Error({ Message = ex.Message }: TransportFailure)
+    }
+
 type IProvideLogging =
   abstract LoggerFactory: ILoggerFactory
 
@@ -171,6 +203,34 @@ type AppEnv(baseAddress: string, session: SessionStore, logging: ILoggerFactory)
   let pkceSource = RandomPkceSource()
   let signer = SshKeygenSigner()
   let http = HttpClientTransport(baseAddress)
+
+  let imageCache =
+    ImageCacheService(
+      Path.Combine(
+        Environment.GetFolderPath(
+          Environment.SpecialFolder.LocalApplicationData
+        ),
+        "DevNull",
+        "cache",
+        "images"
+      ),
+      (http :> IHttp).GetBytes
+    )
+
+  // The attachment sources resolve the main window per call: the shell
+  // owns the window, the env outlives it.
+  let attachments =
+    AttachmentSources.desktop(fun () ->
+      match Avalonia.Application.Current with
+      | null -> ValueNone
+      | app ->
+        match app.ApplicationLifetime with
+        | :? IClassicDesktopStyleApplicationLifetime as desktop ->
+          match desktop.MainWindow with
+          | null -> ValueNone
+          | window -> ValueSome(window :> TopLevel)
+        | _ -> ValueNone)
+
   let logger = logging.CreateLogger "DevNull.Client.SettingsStore"
 
   let settings =
@@ -188,6 +248,30 @@ type AppEnv(baseAddress: string, session: SessionStore, logging: ILoggerFactory)
     )
 
   let uiClock = UiClockService(TimeSpan.FromMinutes 1.0)
+
+  let lastVisit = LastVisitStore()
+
+  let profiles = {
+    new IProfiles with
+      member _.Fetch(username: string) = asyncEx {
+        match session.SignedIn with
+        | ValueSome entry ->
+          let! result: Result<ProfileDetails, AppError> =
+            Users.get(
+              this,
+              {
+                KeyFile = entry.KeyFile
+                Username = username
+              }
+            )
+
+          return
+            match result with
+            | Ok details -> Some details
+            | Error _ -> None
+        | ValueNone -> return None
+      }
+  }
 
   let unread =
     UnreadService(
@@ -229,37 +313,17 @@ type AppEnv(baseAddress: string, session: SessionStore, logging: ILoggerFactory)
   interface IProvideUiClock with
     member _.UiClock = uiClock
 
-module KeyFiles =
+  interface IProvideImageCache with
+    member _.ImageCache = imageCache
 
-  let sshDirectory =
-    Path.Combine(
-      Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-      ".ssh"
-    )
+  interface IProvideAttachmentSources with
+    member _.Attachments = attachments
 
-  let firstLineOf(path: string) : string option =
-    try
-      File.ReadLines path |> Seq.tryHead
-    with _ ->
-      None
+  interface IProvideLastVisit with
+    member _.LastVisit = lastVisit
 
-  let candidates() : string array =
-    try
-      Directory.GetFiles(sshDirectory, "*.pub")
-      |> Array.choose firstLineOf
-      |> Array.filter(fun line ->
-        line.StartsWith "ssh-ed25519 " || line.StartsWith "ssh-rsa ")
-      |> Array.map(fun line ->
-        let parts = line.Split(' ')
-        parts[0] + " " + parts[1])
-      |> Array.distinct
-    with _ -> [||]
+  interface IProvideProfiles with
+    member _.Profiles = profiles
 
-  let privatePathOf(keyId: string) =
-    try
-      Directory.GetFiles(sshDirectory, "*.pub")
-      |> Array.tryFind(fun pub ->
-        firstLineOf pub |> Option.exists(fun line -> line.StartsWith keyId))
-      |> Option.map(fun pub -> pub.Substring(0, pub.Length - 4))
-    with _ ->
-      None
+  interface IProvideSshKeys with
+    member _.SshKeys = Desktop.sources()

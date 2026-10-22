@@ -1,9 +1,14 @@
 module DevNull.Client.Env
 
 open Microsoft.Extensions.Logging
+open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.ImageCache
+open DevNull.Client.LastVisitStore
+open DevNull.Client.Profiles
 open DevNull.Client.SettingsStore
+open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
 open DevNull.Client.Unread
@@ -15,7 +20,8 @@ type IProvideLogging =
 
 /// The production environment: system clock, crypto nonce source,
 /// ssh-keygen signer, http transport, the live session store, the
-/// local settings store, and the app services (unread poll, clock).
+/// local settings store, and the app services (unread poll, clock,
+/// image cache).
 type AppEnv =
   new:
     baseAddress: string * session: SessionStore * logging: ILoggerFactory ->
@@ -31,11 +37,8 @@ type AppEnv =
   interface IProvideLogging
   interface IProvideUnread
   interface IProvideUiClock
-
-module KeyFiles =
-
-  /// Public keys from ~/.ssh/*.pub, "type base64" lines, Ed25519 or RSA, distinct.
-  val candidates: unit -> string array
-
-  /// The private key file whose public key matches the given key id.
-  val privatePathOf: keyId: string -> string option
+  interface IProvideImageCache
+  interface IProvideAttachmentSources
+  interface IProvideLastVisit
+  interface IProvideProfiles
+  interface IProvideSshKeys

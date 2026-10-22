@@ -153,7 +153,7 @@ module Parts =
         |> Observable.map(fun current ->
           match current.Status with
           | State.Idle ->
-            "Sign in with the SSH key your devnull account knows."
+            "Sign in with the SSH key your /dev/null account knows."
           | State.Preparing -> "Preparing sign-in…"
           | State.AwaitingApproval _ ->
             "Waiting for approval in the browser. Approve this device to continue."

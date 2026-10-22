@@ -107,7 +107,6 @@ type StyleClass =
   | ChromeTitle
   | CaptionButton
   | Mono
-  | Wordmark
 
 /// The height of the drag band the shell lays over the drawn window
 /// chrome.

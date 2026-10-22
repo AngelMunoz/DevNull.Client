@@ -2,6 +2,7 @@ module DevNull.Client.Components.FeedParts
 
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.Shapes
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
@@ -41,3 +42,71 @@ let dayRow(label: string) : Control =
       )
 
   grid.Children(line.Column(0), label'.Column(1))
+
+/// The unread marker: the mono HEAD label beside a dashed rule, the
+/// site's separator between the new commits and the seen ones.
+let lastVisitRow() : Control =
+  let rule =
+    Line(
+      StartPoint = Point(0.0, 0.0),
+      EndPoint = Point(1.0, 0.0),
+      Stretch = Stretch.Uniform,
+      StrokeThickness = 1.0,
+      StrokeDashArray = Avalonia.Collections.AvaloniaList<double>(4.0, 4.0),
+      VerticalAlignment = VerticalAlignment.Center,
+      HorizontalAlignment = HorizontalAlignment.Stretch
+    )
+      .Stroke(Brushes.muted)
+
+  DockPanel()
+    .LastChildFill(true)
+    .Margin(64.0, 8.0, 16.0, 8.0)
+    .Children(
+      TextBlock()
+        .Classes(Theme.name Theme.Mono)
+        .Text("HEAD@{last visit}")
+        .Margin(0.0, 0.0, 8.0, 0.0)
+        .DockLeft(),
+      rule
+    )
+
+/// One dashed lane-colored vertical rail segment, centered at the
+/// given offset from its host's left edge. The thread rail chains row
+/// to row; every row draws its own segment.
+let laneSpineAt(lane: Lane option, x: float) : Line =
+  Line(
+    StartPoint = Point(0.0, 0.0),
+    EndPoint = Point(0.0, 1.0),
+    Stretch = Stretch.Fill,
+    StrokeThickness = 1.5,
+    StrokeDashArray = Avalonia.Collections.AvaloniaList<double>(2.0, 2.0),
+    HorizontalAlignment = HorizontalAlignment.Left,
+    VerticalAlignment = VerticalAlignment.Stretch
+  )
+    .Margin(x - 0.75, 0.0, 0.0, 0.0)
+    .Stroke(Brushes.laneOf lane)
+
+/// The dashed quarter-circle that branches one reply off its parent's
+/// rail, at the given offset: down from the parent's spine, then
+/// right onto the reply's avatar column.
+let laneElbowAt
+  (lane: Lane option, x: float, width: float, height: float)
+  : Path =
+  let bend = min (width / 2.0) height
+
+  let path =
+    System.FormattableString.Invariant(
+      $"M 0,0 L 0,{height - bend} Q 0,{height} {bend},{height} L {width},{height}"
+    )
+
+  Path()
+    .Name("ThreadElbow")
+    .Margin(x, 0.0, 0.0, 0.0)
+    .Width(width)
+    .Height(height)
+    .HorizontalAlignment(HorizontalAlignment.Left)
+    .VerticalAlignment(VerticalAlignment.Top)
+    .StrokeThickness(1.5)
+    .StrokeDashArray(Avalonia.Collections.AvaloniaList<double>(2.0, 2.0))
+    .Stroke(Brushes.laneOf lane)
+    .Data(Geometry.Parse path)

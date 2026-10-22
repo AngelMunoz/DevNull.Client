@@ -122,7 +122,6 @@ type StyleClass =
   | ChromeTitle
   | CaptionButton
   | Mono
-  | Wordmark
 
 /// The height of the drag band the shell lays over the drawn window
 /// chrome.
@@ -161,7 +160,6 @@ let name class' =
   | ChromeTitle -> "chrome-title"
   | CaptionButton -> "caption-button"
   | Mono -> "mono"
-  | Wordmark -> "wordmark"
 
 /// Moves one class on and off a control as the observable flips. The
 /// class list is the only thing the subscription touches.
@@ -477,19 +475,6 @@ let styleTable: (StyleClass * (unit -> Style)) list = [
         TextBlock.ForegroundProperty, themed Keys.muted
       |]
     )
-  Wordmark,
-  fun () ->
-    // The lowercase brand: bold, tight, with the second slash painted
-    // in the lane color by the shell.
-    styleOf(
-      (fun selector -> selector.OfType<TextBlock>().Class(name Wordmark)),
-      [|
-        TextBlock.FontSizeProperty, box 24.0
-        TextBlock.FontWeightProperty, box FontWeight.Bold
-        TextBlock.LetterSpacingProperty, box -0.6
-        TextBlock.ForegroundProperty, themed Keys.text
-      |]
-    )
   ChromeTitle,
   fun () ->
     // The drawn window chrome draws the window title over the client
@@ -670,6 +655,9 @@ let install(app: Application) =
   root.ThemeDictionaries[ThemeVariant.Light] <- lights()
   app.Resources.MergedDictionaries.Add root
 
+  // The starting variant: deterministic before any window shows, and
+  // replaced by the stored choice once the app is up (Program.start's
+  // AfterSetup). System maps back to the platform scheme.
   app.RequestedThemeVariant <- ThemeVariant.Dark
 
   app.Styles.Add(styles())

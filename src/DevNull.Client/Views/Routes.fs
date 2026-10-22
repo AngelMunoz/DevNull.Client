@@ -100,42 +100,35 @@ let commitPage
           Session = session
           Nav = nav
           Context = context
+          Quoting = false
         }
       | ValueNone -> Status.soon "Sign in to read the thread."
   )
 
-let composePage
-  (
-    env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession,
-    nav: INavigable,
-    target: Composer.Target
-  ) : Control =
-  signedIn(
-    env,
-    "Sign in to commit.",
-    fun session ->
-      ComposeView.Page {
-        Env = env
-        Session = session
-        Target = target
-        Nav = nav
-      }
-  )
-
+/// The quote flow reuses the thread: the page renders over the quoted
+/// commit, the composer below it armed in quote mode. The quoted
+/// commit is the card the reader already sees.
 let quotePage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock,
     nav: INavigable,
     context: RouteContext
   ) : Control =
   signedIn(
     env,
     "Sign in to quote.",
-    fun _ ->
+    fun session ->
       match context.GetParam<string> "commitId" with
-      | ValueSome commitId -> composePage(env, nav, Composer.Quoting commitId)
+      | ValueSome commitId ->
+        CommitDetailView.Page {
+          Env = env
+          CommitId = commitId
+          Session = session
+          Nav = nav
+          Context = context
+          Quoting = true
+        }
       | ValueNone -> Status.soon "Sign in to quote."
   )
 
@@ -202,9 +195,16 @@ let profilePage
     env,
     "Sign in to read the profile.",
     fun session ->
+      // A username in the path opens that user's profile; the bare
+      // path opens the viewer's own.
+      let username =
+        match context.GetParam<string> "username" with
+        | ValueSome named -> named
+        | ValueNone -> session.Session.User.Username
+
       ProfileView.Page {
         Env = env
-        Username = session.Session.User.Username
+        Username = username
         Session = session
         Nav = nav
         Context = context
@@ -304,11 +304,22 @@ let build
     |> gated
 
     Route.define<Control>(
+      "user-profile",
+      "/profile/:username",
+      fun context nav -> profilePage(env, nav, context)
+    )
+    |> gated
+
+    Route.define<Control>(
       "settings",
       "/settings",
       fun context nav -> settingsPage(env, nav, context)
     )
     |> gated
+
+    // The about page carries no session: it states what the project is
+    // and that it stands alone from the service.
+    Route.define<Control>("about", "/about", fun _ _ -> AboutView.view())
   ]
 
   let router =

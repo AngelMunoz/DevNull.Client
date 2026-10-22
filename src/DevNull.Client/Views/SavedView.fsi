@@ -4,6 +4,8 @@ open System
 open Avalonia.Controls
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.ImageCache
+open DevNull.Client.Profiles
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
 open Navs
@@ -15,7 +17,9 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideSession
-  and 'env :> IProvideUiClock> = {
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideProfiles> = {
   Env: 'env
   Session: SignedInSession
   Nav: INavigable
@@ -30,6 +34,8 @@ type Page<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideSession
-  and 'env :> IProvideUiClock> =
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideProfiles> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

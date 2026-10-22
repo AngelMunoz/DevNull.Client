@@ -86,6 +86,9 @@ let start argv =
   let env = AppEnv(baseAddress, store, logging)
 
   // The theme choice follows the store at app level, not window level.
+  // The store replays its current value here, but no application
+  // exists yet, so that first replay cannot land; the AfterSetup hook
+  // below applies the stored choice once the app is up.
   (env :> IProvideSettings).Settings.Observe
   |> Observable.add(fun value -> Theme.apply value.Theme)
 
@@ -108,6 +111,8 @@ let start argv =
     AppBuilder
       .Configure<App>()
       .UsePlatformDetect()
+      .AfterSetup(fun _ ->
+        Theme.apply((env :> IProvideSettings).Settings.Current.Theme))
       .StartWithClassicDesktopLifetime(
         (fun () -> Shell(env, callback) :> Window),
         argv

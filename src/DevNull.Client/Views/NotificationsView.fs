@@ -15,6 +15,7 @@ open MVUish.Avalonia.Collections
 open Navs
 open DevNull.Client
 open DevNull.Client.Components
+open DevNull.Client.Components.UserFlyout
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
@@ -22,7 +23,9 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.Icons
+open DevNull.Client.ImageCache
 open DevNull.Client.Navigation
+open DevNull.Client.Profiles
 open DevNull.Client.Stores
 open DevNull.Client.Theme
 open DevNull.Client.UiClock
@@ -33,7 +36,9 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideSession
-  and 'env :> IProvideUiClock> = {
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideProfiles> = {
   Env: 'env
   Session: SignedInSession
   Nav: INavigable
@@ -422,8 +427,13 @@ module Parts =
 
   /// The rail cell of one notification: the neutral rail with the
   /// actor's avatar (the types about their commit) or the type's icon in
-  /// a ring.
-  let railCell(notification: Notification) : Control =
+  /// a ring. The avatar carries the hover card.
+  let railCell
+    (
+      cache: ImageCacheService,
+      flyout: Source voption,
+      notification: Notification
+    ) : Control =
     let actorsCommit =
       match notification.Type with
       | "replied"
@@ -441,6 +451,21 @@ module Parts =
 
     let node: Control =
       if actorsCommit then
+        let plain =
+          Avatar.view {
+            Name = notification.Actor.Name
+            Url = notification.Actor.AvatarUrl
+            Lane = notification.Actor.Lane
+            Size = 40.0
+            Cache = cache
+          }
+
+        let avatar =
+          match flyout with
+          | ValueSome source ->
+            UserFlyout.attach(source, notification.Actor, plain)
+          | ValueNone -> plain
+
         Border()
           .Background(Brushes.card)
           .BorderBrush(Brushes.rail)
@@ -450,14 +475,7 @@ module Parts =
           .HorizontalAlignment(HorizontalAlignment.Center)
           .VerticalAlignment(VerticalAlignment.Top)
           .Margin(0.0, 11.0, 0.0, 0.0)
-          .Child(
-            Avatar.view {
-              Name = notification.Actor.Name
-              Url = notification.Actor.AvatarUrl
-              Lane = notification.Actor.Lane
-              Size = 40.0
-            }
-          )
+          .Child(avatar)
       else
         Border()
           .Background(Brushes.card)
@@ -518,8 +536,11 @@ module Parts =
   /// One expanded event inside a group: the actor, the action, and the
   /// excerpt, off a short spine.
   let eventRow
-    (notification: Notification, now: IObservable<DateTimeOffset>)
-    : Control =
+    (
+      cache: ImageCacheService,
+      notification: Notification,
+      now: IObservable<DateTimeOffset>
+    ) : Control =
     let identity =
       StackPanel()
         .Orientation(Orientation.Horizontal)
@@ -565,6 +586,7 @@ module Parts =
           Url = notification.Actor.AvatarUrl
           Lane = notification.Actor.Lane
           Size = 28.0
+          Cache = cache
         },
         StackPanel()
           .VerticalAlignment(VerticalAlignment.Center)
@@ -577,6 +599,8 @@ module Parts =
     Nav: INavigable
     Dispatch: Dispatch<State.Msg>
     Model: IObservable<State.Model>
+    Images: ImageCacheService
+    Flyout: Source voption
   }
 
   /// One group's expansion host: the toggle line and, while open, the
@@ -617,7 +641,7 @@ module Parts =
         group
         |> Observable.map(fun current ->
           StackPanel().Margin(24.0, 0.0, 0.0, 0.0).Children [|
-            for item in current.Items -> eventRow(item, now)
+            for item in current.Items -> eventRow(ctx.Images, item, now)
           |])
 
       ContentControl()
@@ -694,7 +718,10 @@ module Parts =
     Button()
       .Classes(Theme.name Theme.CommitRow)
       .Content(
-        grid.Children(railCell(notification).Column(0), contentColumn.Column(1))
+        grid.Children(
+          railCell(ctx.Images, ctx.Flyout, notification).Column(0),
+          contentColumn.Column(1)
+        )
       )
       .OnClickHandler(fun _ _ ->
         where |> Option.iter(fun url -> Navigation.go(ctx.Nav, url, ignore)))
@@ -710,6 +737,15 @@ module Parts =
       Nav = props.Nav
       Dispatch = dispatch
       Model = model
+      Images = props.Env.ImageCache
+      Flyout =
+        ValueSome {
+          Fetch = props.Env.Profiles.Fetch
+          OnOpen =
+            fun username ->
+              Navigation.go(props.Nav, "/profile/" + username, ignore)
+          Cache = props.Env.ImageCache
+        }
     }
 
     Feed.view {
@@ -755,7 +791,9 @@ type Page<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideSession
-  and 'env :> IProvideUiClock>(props: Props<'env>) as this =
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideProfiles>(props: Props<'env>) as this =
   inherit UserControl()
 
   do

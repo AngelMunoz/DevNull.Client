@@ -17,6 +17,7 @@ type AppError =
   | LookupUnreachable of message: string
   | LookupRefused of status: int * body: string
   | UnexpectedKey of key: string
+  | MissingPrivateKey of keyId: string
   | SigningFailed of message: string
   | PostUnreachable of message: string
   | PostRefused of status: int * body: string
@@ -103,6 +104,8 @@ let describe error =
     $"Could not reach dev-null.sh for the key lookup: {message.Trim()}"
   | LookupRefused(status, body) -> refused "key lookup" (status, body)
   | UnexpectedKey key -> $"Unexpected answer from the key lookup: {key}"
+  | MissingPrivateKey keyId ->
+    $"The ssh key the lookup matched has no private file under ~/.ssh: {keyId}"
   | SigningFailed message -> $"ssh-keygen failed: {message.Trim()}"
   | PostUnreachable message ->
     $"Could not reach dev-null.sh for the commit: {message.Trim()}"

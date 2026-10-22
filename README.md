@@ -3,10 +3,10 @@
 An unofficial desktop client for [dev-null.sh](https://dev-null.sh),
 built with F# and Avalonia.
 
-**We are not affiliated with dev-null in any way.** This is an
-independent project exploring their public API, with the goal of
-providing a simple client for desktop platforms. The service and its
-API can change at any time; expect breakage.
+**We are not affiliated with or endorsed by /dev/null in any way.**
+This is an independent project exploring their public API, with the
+goal of providing a simple client for desktop platforms. The service
+and its API can change at any time; expect breakage.
 
 ## What it is
 

@@ -7,6 +7,8 @@ module DevNull.Client.UI.Tests.App
 open System
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.Shapes
+open Avalonia.Headless
 open Avalonia.Input
 open Avalonia.Styling
 open Avalonia.VisualTree
@@ -16,6 +18,7 @@ open Expecto
 open DevNull.Client.Core
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Http
+open DevNull.Client.LastVisitStore
 open DevNull.Client.SettingsStore
 open DevNull.Client.Shell
 open DevNull.Client.Stores
@@ -71,6 +74,30 @@ let feedOffset(window: Window) : float =
 /// the UI thread: the headless platform only exists there.
 let startShell(store: SessionStore, http: IHttp) : Async<Window> =
   let env = TestEnv(store, http)
+
+  async {
+    let! window = probeUiAsync(fun () -> Shell(env, None) :> Window)
+    return! showAsync window
+  }
+
+/// Builds and shows the shell over one test env with the given fake
+/// attachment sources.
+let startShellWith
+  (store: SessionStore, http: IHttp, attachments: FakeAttachments)
+  : Async<Window> =
+  let env = TestEnv(store, http, attachments = attachments)
+
+  async {
+    let! window = probeUiAsync(fun () -> Shell(env, None) :> Window)
+    return! showAsync window
+  }
+
+/// Builds and shows the shell over one test env with a pre-seeded
+/// last-visit store.
+let startShellSeeded
+  (store: SessionStore, http: IHttp, lastVisit: LastVisitStore)
+  : Async<Window> =
+  let env = TestEnv(store, http, lastVisit = lastVisit)
 
   async {
     let! window = probeUiAsync(fun () -> Shell(env, None) :> Window)
@@ -303,7 +330,7 @@ let tests =
             | Error failure -> failwith $"page never decoded: {failure.Message}"
           | Error failure -> failwith $"request failed: {failure.Message}"
 
-        let rows = LogView.State.toRows(page.Page.Items, page.IsRanked)
+        let rows = LogView.State.toRows(page.Page.Items, page.IsRanked, None)
 
         let commitOf(node: CommitNode) =
           match node with
@@ -343,7 +370,7 @@ let tests =
 
         // Ranked order interleaves the days, so separators would repeat
         // their keys: the ranked feed rides without them.
-        let ranked = LogView.State.toRows(page.Page.Items, true)
+        let ranked = LogView.State.toRows(page.Page.Items, true, None)
 
         Expect.equal (ranked |> List.length) 3 "the ranked row count"
 
@@ -364,7 +391,7 @@ let tests =
         // The same commits on a newest-first reading interleave their
         // days: separators repeat their keys, which is why ranked rides
         // without them.
-        let unranked = LogView.State.toRows(page.Page.Items, false)
+        let unranked = LogView.State.toRows(page.Page.Items, false, None)
 
         let unrankedKeys = unranked |> List.map LogView.State.keyOf
 
@@ -732,6 +759,618 @@ let tests =
       })
 
     testCaseAsync
+      "a card image loads into its reserved box"
+      (async {
+        let api = logApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        let! loaded =
+          waitForAsync(
+            8000,
+            (fun () ->
+              window.GetVisualDescendants()
+              |> Seq.tryFind(fun visual -> visual.Name = "CardImage")),
+            (fun cell ->
+              cell
+              |> Option.bind(fun control ->
+                match control with
+                | :? ContentControl as host ->
+                  match host.Content with
+                  | :? Avalonia.Controls.Image as image ->
+                    Option.ofObj image.Source
+                  | _ -> None
+                | _ -> None)
+              |> Option.isSome)
+          )
+
+        Expect.isTrue loaded "the image never landed"
+
+        let fetched =
+          api.ByteRequests
+          |> List.exists(fun target -> target.Contains "/commit-images/")
+
+        Expect.isTrue fetched "the image bytes were never fetched"
+      })
+
+    testCaseAsync
+      "an image click opens the gallery over the window"
+      (async {
+        let! window = startShell(signedInStore(), logApi() :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        let! cell =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "CardImageButton")),
+            (fun found ->
+              found
+              |> Option.map(fun control -> control :? Button)
+              |> Option.defaultValue false)
+          )
+
+        Expect.isTrue cell "the image cell never became a button"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "CardImageButton")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let viewer() =
+          window.OwnedWindows
+          |> Seq.tryFind(fun open_ -> open_.Name = "ImageViewer")
+
+        let! opened = waitForAsync(5000, viewer, Option.isSome)
+
+        Expect.isTrue opened "the gallery never opened"
+
+        let! counted =
+          probeUiAsync(fun () ->
+            viewer()
+            |> Option.map(fun viewer -> hasText(viewer, "1 / 1"))
+            |> Option.defaultValue false)
+
+        Expect.isTrue counted "the gallery lost count of its photos"
+
+        do!
+          onUiAsync(fun () ->
+            viewer()
+            |> Option.iter(fun viewer ->
+              controlByName(viewer, "ViewerClose")
+              |> Option.iter(fun control ->
+                match control with
+                | :? Button as button -> click button
+                | _ -> ())))
+
+        let! closed = waitForAsync(5000, viewer, Option.isNone)
+
+        Expect.isTrue closed "the gallery never closed"
+      })
+
+    testCaseAsync
+      "an author's own commit carries no star toggle"
+      (async {
+        let! window = startShell(signedInStore(), ownLogApi() :> IHttp)
+
+        let! own = showsText(window, "My own commit.")
+
+        Expect.isTrue own "the viewer's commit never rendered"
+
+        let! foreign = showsText(window, "It was DNS.")
+
+        Expect.isTrue foreign "the other commit never rendered"
+
+        // The card row of one body: the star affordances live inside
+        // it, so the two commits answer separately.
+        let rowStarNames(body: string) =
+          window.GetVisualDescendants()
+          |> Seq.tryFind(function
+            | :? TextBlock as block when block.Text = body -> true
+            | _ -> false)
+          |> Option.bind(fun found ->
+            found.GetVisualAncestors()
+            |> Seq.tryPick(function
+              | :? Button as card when card.Classes.Contains(name CommitRow) ->
+                Some card
+              | _ -> None))
+          |> Option.map(fun card ->
+            card.GetVisualDescendants()
+            |> List.ofSeq
+            |> List.filter(fun visual ->
+              visual.Name = "StarButton" || visual.Name = "StarCount")
+            |> List.map _.Name)
+
+        let! stars = probeUiAsync(fun () -> rowStarNames "My own commit.")
+
+        Expect.isSome stars "the viewer's commit never drew its row"
+
+        Expect.equal
+          stars.Value
+          [ "StarCount" ]
+          "the own commit drew a star toggle"
+
+        let! theirs = probeUiAsync(fun () -> rowStarNames "It was DNS.")
+
+        Expect.isSome theirs "the other commit never drew its row"
+
+        Expect.equal
+          theirs.Value
+          [ "StarButton" ]
+          "the other commit lost its star toggle"
+      })
+
+    testCaseAsync
+      "a failed image keeps the placeholder and the app alive"
+      (async {
+        let offline target =
+          Error({ Message = $"offline {target}" }: TransportFailure)
+
+        let api = logApiWithBytes offline
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        let! attempted =
+          waitForAsync(
+            8000,
+            (fun () -> api.ByteRequests),
+            (fun targets ->
+              targets
+              |> List.exists(fun target -> target.Contains "/commit-images/"))
+          )
+
+        Expect.isTrue attempted "the image bytes were never requested"
+
+        let! settled =
+          waitForAsync(
+            2000,
+            (fun () ->
+              window.GetVisualDescendants()
+              |> Seq.tryFind(fun visual -> visual.Name = "CardImage")),
+            (fun cell ->
+              cell
+              |> Option.forall(fun control ->
+                match control with
+                | :? ContentControl as host ->
+                  match host.Content with
+                  | :? Avalonia.Controls.Image -> false
+                  | _ -> true
+                | _ -> true))
+          )
+
+        Expect.isTrue settled "the failed load replaced the placeholder"
+
+        let! alive = probeUiAsync(fun () -> hasText(window, "It was DNS."))
+
+        Expect.isTrue alive "the feed died with the failed image"
+      })
+
+    testCaseAsync
+      "an author avatar loads over the initial disc"
+      (async {
+        let api = avatarLogApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        let! loaded =
+          waitForAsync(
+            8000,
+            (fun () ->
+              window.GetVisualDescendants()
+              |> Seq.tryFind(fun visual -> visual.Name = "AvatarImage")),
+            (fun avatar ->
+              avatar
+              |> Option.bind(fun control ->
+                match control with
+                | :? ContentControl as host ->
+                  match host.Content with
+                  | :? Avalonia.Controls.Image as image ->
+                    Option.ofObj image.Source
+                  | _ -> None
+                | _ -> None)
+              |> Option.isSome)
+          )
+
+        Expect.isTrue loaded "the avatar never landed"
+      })
+
+    testCaseAsync
+      "staged images post through the CLI multipart route"
+      (async {
+        let api = logApi()
+        let attachments = FakeAttachments()
+        let keys = FakeSshKeys()
+
+        let env =
+          TestEnv(
+            signedInStore(),
+            api :> IHttp,
+            attachments = attachments,
+            sshKeys = keys
+          )
+
+        attachments.PickResponse <- [
+          stagedImage "one.png"
+          stagedImage "two.png"
+        ]
+
+        let! window = probeUiAsync(fun () -> Shell(env, None) :> Window)
+        let! _ = showAsync window
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        let! attachable =
+          waitForAsync(
+            5000,
+            (fun () ->
+              window.GetVisualDescendants()
+              |> Seq.tryFind(fun visual -> visual.Name = "AttachButton")),
+            Option.isSome
+          )
+
+        Expect.isTrue attachable "the attach button never appeared"
+
+        do!
+          onUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryFind(fun visual -> visual.Name = "AttachButton")
+            |> Option.iter(fun visual ->
+              match visual with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! staged =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "one.png"))
+          )
+
+        Expect.isTrue staged "the picked files never staged"
+
+        do!
+          onUiAsync(fun () ->
+            textBoxWithWatermark(window, "What did you ship?")
+            |> Option.iter(fun box ->
+              box.Text <- "Shipped with pictures"
+
+              buttonNear(box, "Commit") |> Option.iter click))
+
+        let! posted =
+          waitForAsync(
+            8000,
+            (fun () -> api.Requests),
+            (fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Method = "POST" && request.Target = "/api/cli/commits"))
+          )
+
+        Expect.isTrue posted "the CLI commit was never posted"
+
+        // The CLI route wants the user's ssh key, not the device key:
+        // the lookup runs first and the signature uses its private half.
+        let lookup =
+          api.Requests
+          |> List.tryFind(fun request ->
+            request.Method = "POST" && request.Target = "/api/cli/key-lookups")
+
+        Expect.isSome lookup "the key lookup never ran"
+
+        match lookup |> Option.map _.Body with
+        | Some(Http.HttpBody.Text offered) ->
+          Expect.equal offered lookupKey "the offered key lines"
+        | _ -> failtest "the key lookup had no text body"
+
+        Expect.isTrue
+          (keys.Asked |> List.contains lookupKey)
+          "the private half of the matched key was never asked for"
+
+        Expect.isTrue
+          (env.SignedRequests
+           |> List.exists(fun request -> request.KeyFile = keys.PrivatePath))
+          "the post signed with the matched key"
+
+        let post =
+          api.Requests
+          |> List.find(fun request ->
+            request.Method = "POST" && request.Target = "/api/cli/commits")
+
+        let form =
+          match post.Body with
+          | Http.HttpBody.Multipart form -> form
+          | _ -> failtest "expected a multipart body"
+
+        let partNames = form.Files |> List.map _.Name
+
+        Expect.equal
+          partNames
+          [ "payload"; "images[]"; "images[]" ]
+          "the form parts"
+
+        let payload = form.Files |> List.find(fun file -> file.Name = "payload")
+
+        let payloadText = System.Text.Encoding.UTF8.GetString payload.Content
+
+        Expect.stringContains
+          payloadText
+          "Shipped with pictures"
+          "the signed payload"
+
+        let reloads =
+          api.Requests
+          |> List.filter(fun request ->
+            request.Method = "GET"
+            && request.Target.StartsWith "/api/v1/log/latest")
+
+        Expect.isGreaterThan reloads.Length 1 "the log never reloaded"
+      })
+
+    testCaseAsync
+      "a fourth image is refused at stage time"
+      (async {
+        let api = logApi()
+        let attachments = FakeAttachments()
+
+        attachments.PickResponse <- [
+          stagedImage "a.png"
+          stagedImage "b.png"
+          stagedImage "c.png"
+          stagedImage "d.png"
+        ]
+
+        let! window = startShellWith(signedInStore(), api :> IHttp, attachments)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryFind(fun visual -> visual.Name = "AttachButton")
+            |> Option.iter(fun visual ->
+              match visual with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! refused =
+          showsText(window, "A commit allows at most 3 images, got 4.")
+
+        Expect.isTrue refused "the over-limit pick never said so"
+
+        let posted =
+          api.Requests
+          |> List.exists(fun request -> request.Target = "/api/cli/commits")
+
+        Expect.isFalse posted "a refused staging still posted"
+      })
+
+    testCaseAsync
+      "pasting a clipboard image stages it"
+      (async {
+        let api = logApi()
+        let attachments = FakeAttachments()
+
+        attachments.ClipboardImage <- Some(stagedImage "paste.png")
+
+        let! window = startShellWith(signedInStore(), api :> IHttp, attachments)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        let! typed =
+          waitForAsync(
+            5000,
+            (fun () -> textBoxWithWatermark(window, "What did you ship?")),
+            Option.isSome
+          )
+
+        Expect.isTrue typed "the composer never appeared"
+
+        do!
+          onUiAsync(fun () ->
+            textBoxWithWatermark(window, "What did you ship?")
+            |> Option.iter(fun box ->
+              let args =
+                KeyEventArgs(
+                  RoutedEvent = InputElement.KeyDownEvent,
+                  Key = Key.V,
+                  KeyModifiers = KeyModifiers.Control
+                )
+
+              box.RaiseEvent args))
+
+        let! staged =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "paste.png"))
+          )
+
+        Expect.isTrue staged "the pasted image never staged"
+      })
+
+    testCaseAsync
+      "a poll card offers the web vote"
+      (async {
+        let api = pollLogApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "poll · 3 votes")
+
+        Expect.isTrue shown "the poll never rendered"
+
+        let! vote =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "VoteOnWeb")),
+            (fun control ->
+              control
+              |> Option.map(fun found -> found :? Button)
+              |> Option.defaultValue false)
+          )
+
+        Expect.isTrue vote "the web vote never appeared"
+      })
+
+    testCaseAsync
+      "the log marks unseen commits at the last visit"
+      (async {
+        let api = strangerNewerLogApi()
+
+        // The visit sits between the stranger's newer commit and the
+        // viewer's older one, under the viewer's own key.
+        let seeded =
+          LastVisitStore(
+            Map [
+              "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d|latest",
+              DateTimeOffset(2020, 4, 2, 0, 0, 0, TimeSpan.Zero)
+            ],
+            ignore
+          )
+
+        let! window = startShellSeeded(signedInStore(), api :> IHttp, seeded)
+
+        let! marked = showsText(window, "HEAD@{last visit}")
+
+        Expect.isTrue marked "the last-visit marker never showed"
+      })
+
+    testCaseAsync
+      "the marker stays away when nothing is older than the visit"
+      (async {
+        let api = twoDaysLogApi()
+
+        // The visit sits after every canned commit, so nothing counts
+        // as already seen and no marker can land.
+        let seeded =
+          LastVisitStore(
+            Map [
+              "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d|latest",
+              DateTimeOffset(2020, 4, 5, 0, 0, 0, TimeSpan.Zero)
+            ],
+            ignore
+          )
+
+        let! window = startShellSeeded(signedInStore(), api :> IHttp, seeded)
+
+        let! shown = showsText(window, "First landing.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        let! probe =
+          probeUiAsync(fun () -> hasText(window, "HEAD@{last visit}"))
+
+        Expect.isFalse probe "the marker showed with nothing seen"
+      })
+
+    testCaseAsync
+      "the avatar opens the author's profile"
+      (async {
+        let api = logApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        let! avatar =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "AuthorAvatar")),
+            (fun control ->
+              control
+              |> Option.map(fun found -> found :? Button)
+              |> Option.defaultValue false)
+          )
+
+        Expect.isTrue avatar "the avatar trigger never appeared"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "AuthorAvatar")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! profile = showsText(window, "Builds things.")
+
+        Expect.isTrue profile "the author's profile never opened"
+      })
+
+    testCaseAsync
+      "the quote composer hides the attach button"
+      (async {
+        let api = threadApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "It was DNS.") |> Option.iter click)
+
+        let! thread = showsText(window, "Back to the log")
+
+        Expect.isTrue thread "the thread never rendered"
+
+        let! quoteable =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "QuoteButton")),
+            Option.map(fun control -> control :? Button)
+            >> Option.defaultValue false
+          )
+
+        Expect.isTrue quoteable "the quote action never appeared"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "QuoteButton")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "Add your take"))
+          )
+
+        Expect.isTrue opened "the quote composer never appeared"
+
+        let! attachable =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.exists(fun visual -> visual.Name = "AttachButton"))
+
+        Expect.isFalse attachable "the quote composer offered images"
+      })
+
+    testCaseAsync
       "a thread and back keeps the log's scroll"
       (async {
         let! window = startShell(signedInStore(), manyCardsApi() :> IHttp)
@@ -831,6 +1470,27 @@ let tests =
         let! thread = showsText(window, "Back to the log")
 
         Expect.isTrue thread "the thread never rendered"
+
+        // The composer stays hidden until the reply button reveals it.
+        let! revealed =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "ReplyButton")),
+            (fun control ->
+              control
+              |> Option.map(fun found -> found :? Button)
+              |> Option.defaultValue false)
+          )
+
+        Expect.isTrue revealed "the reply button never appeared"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "ReplyButton")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
 
         let! typed =
           waitForAsync(
@@ -967,9 +1627,190 @@ let tests =
       })
 
     testCaseAsync
-      "quote opens the quote composer"
+      "the log shows a feed card's replies and walks the rest"
       (async {
-        let! window = startShell(signedInStore(), threadApi() :> IHttp)
+        let api = previewLogApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        // The payload's preview slice renders as real reply cards under
+        // the card, with the count link behind it.
+        let! previewed = showsText(window, "Preview reply one.")
+
+        Expect.isTrue previewed "the preview replies never rendered"
+
+        let! counted = showsText(window, "Show 3 more replies")
+
+        Expect.isTrue counted "the count link never rendered"
+
+        do! clickWhenShown(window, "Show 3 more replies")
+
+        let! walked = showsText(window, "Expanded reply one.")
+
+        Expect.isTrue walked "the walked replies never rendered"
+
+        let repliesRead =
+          api.Requests
+          |> List.exists(fun request ->
+            request.Method = "GET"
+            && request.Target.StartsWith
+              "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d/replies")
+
+        Expect.isTrue repliesRead "the replies endpoint was never read"
+      })
+
+    testCaseAsync
+      "a reply-less commit draws no rail"
+      (async {
+        let! window = startShell(signedInStore(), previewLogApi() :> IHttp)
+
+        let! first = showsText(window, "It was DNS.")
+
+        Expect.isTrue first "the log never rendered"
+
+        // The reply-less commit rides under the replied one; scrolling
+        // realizes its row. The row — the card plus everything mounted
+        // under it — then holds no rail piece at all: the empty
+        // preview slice draws nothing.
+        do! scrollFeedToEndAsync window
+
+        let! drew =
+          probeUiAsync(fun () ->
+            let quiet =
+              window.GetVisualDescendants()
+              |> Seq.tryFind(function
+                | :? TextBlock as block when block.Text = "Quiet commit." ->
+                  true
+                | _ -> false)
+
+            let commitRow(visual: Visual) =
+              match visual with
+              | :? Button as card -> card.Classes.Contains(name CommitRow)
+              | _ -> false
+
+            quiet
+            |> Option.bind(fun body ->
+              body.GetVisualAncestors()
+              |> Seq.tryPick(fun ancestor ->
+                if commitRow ancestor then Some ancestor else None)
+              |> Option.bind(fun card ->
+                match card.Parent with
+                | :? Control as row ->
+                  Some(
+                    row.GetVisualDescendants()
+                    |> Seq.filter(fun visual -> visual.Name = "ThreadElbow")
+                    |> Seq.length
+                  )
+                | _ -> None)))
+
+        Expect.isSome drew "the quiet card never rendered"
+        Expect.equal drew.Value 0 "the reply-less card drew a rail"
+      })
+
+    testCaseAsync
+      "the elbow lands on the reply's avatar center"
+      (async {
+        let! window = startShell(signedInStore(), previewLogApi() :> IHttp)
+
+        let! shown = showsText(window, "Preview reply one.")
+
+        Expect.isTrue shown "the preview replies never rendered"
+
+        // Three facts of one rail: the elbow starts flush at the
+        // card's bottom edge (no gap), its horizontal lands on the
+        // ring's center, and the ring paints after the lines (the
+        // rail passes behind the avatar).
+        let! landing =
+          probeUiAsync(fun () ->
+            let first(name: string) =
+              window.GetVisualDescendants()
+              |> Seq.tryFind(fun visual -> visual.Name = name)
+
+            let cardBottom =
+              window.GetVisualDescendants()
+              |> Seq.tryFind(function
+                | :? TextBlock as block when block.Text = "It was DNS." -> true
+                | _ -> false)
+              |> Option.bind(fun body ->
+                body.GetVisualAncestors()
+                |> Seq.tryPick(fun ancestor ->
+                  match ancestor with
+                  | :? Button as card when
+                    card.Classes.Contains(name CommitRow)
+                    ->
+                    Some card
+                  | _ -> None))
+              |> Option.bind(fun card ->
+                let bottom =
+                  card.TranslatePoint(Point(0.0, card.Bounds.Height), window)
+
+                if bottom.HasValue then Some bottom.Value.Y else None)
+
+            match first "ThreadElbow", first "ReplyRing", cardBottom with
+            | Some elbowControl, Some ringControl, Some bottomY ->
+              let elbow = elbowControl :?> Path
+              let ring = ringControl :?> Border
+
+              let horizontal =
+                elbow.TranslatePoint(Point(0.0, elbow.Bounds.Height), window)
+
+              let elbowTop = elbow.TranslatePoint(Point(0.0, 0.0), window)
+
+              let center =
+                ring.TranslatePoint(
+                  Point(0.0, ring.Bounds.Height / 2.0),
+                  window
+                )
+
+              let ringBehind =
+                match ring.Parent with
+                | :? Panel as rail ->
+                  rail.Children.IndexOf ring > rail.Children.IndexOf elbow
+                | _ -> false
+
+              if
+                horizontal.HasValue && elbowTop.HasValue && center.HasValue
+              then
+                Some(
+                  abs(horizontal.Value.Y - center.Value.Y),
+                  abs(elbowTop.Value.Y - bottomY),
+                  ringBehind
+                )
+              else
+                None
+            | _ -> None)
+
+        Expect.isSome landing "the rail never rendered"
+
+        let landingError, gapError, ringBehind = landing.Value
+
+        Expect.isLessThanOrEqual landingError 2.0 "the elbow misses the ring"
+
+        Expect.isLessThanOrEqual
+          gapError
+          1.0
+          "the elbow leaves a gap below the card"
+
+        Expect.isTrue ringBehind "the rail draws over the avatar"
+      })
+
+    testCaseAsync
+      "the feed nests a reply's sub-thread"
+      (async {
+        let! window = startShell(signedInStore(), previewLogApi() :> IHttp)
+
+        let! nested = showsText(window, "Nested in the feed.")
+
+        Expect.isTrue nested "the nested reply never rendered"
+      })
+
+    testCaseAsync
+      "the thread rail elbows the nested chain"
+      (async {
+        let! window = startShell(signedInStore(), threadedApi() :> IHttp)
 
         let! shown = showsText(window, "It was DNS.")
 
@@ -983,17 +1824,220 @@ let tests =
 
         Expect.isTrue thread "the thread never rendered"
 
-        let! quote =
+        let! nested = showsText(window, "Nested under the root.")
+
+        Expect.isTrue nested "the nested reply never rendered"
+
+        // The rail ties the replies into the commit's lane: an elbow
+        // branches each level off its parent's spine.
+        let! elbows =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.filter(fun visual -> visual.Name = "ThreadElbow")
+            |> Seq.length)
+
+        Expect.isGreaterThan elbows 1 "the rail never drew its elbows"
+      })
+
+    testCaseAsync
+      "the thread walks a node's deeper replies"
+      (async {
+        let! window = startShell(signedInStore(), threadedApi() :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "It was DNS.") |> Option.iter click)
+
+        let! nested = showsText(window, "Nested under the root.")
+
+        Expect.isTrue nested "the nested reply never rendered"
+
+        do! clickWhenShown(window, "Show the last reply")
+
+        let! walked = showsText(window, "Deeper reply walked in.")
+
+        Expect.isTrue walked "the deeper reply never rendered"
+      })
+
+    testCaseAsync
+      "hovering a mention opens the hover card"
+      (async {
+        let! window = startShell(signedInStore(), mentionLogApi() :> IHttp)
+
+        // The body rides as inlines once it carries a mention, so the
+        // handle itself is the proof the log rendered.
+        let! handle =
           waitForAsync(
             5000,
-            (fun () -> controlByName(window, "QuoteButton")),
-            (fun control ->
-              control
-              |> Option.map(fun c -> c :? Button)
+            (fun () -> controlByName(window, "MentionHandle")),
+            Option.isSome
+          )
+
+        Expect.isTrue handle "the mention handle never rendered"
+
+        // A real pointer move over the handle: the flyout answers with
+        // its loading card after the open delay.
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "MentionHandle")
+            |> Option.iter(fun handle ->
+              let trigger =
+                handle.GetVisualAncestors()
+                |> Seq.tryPick(function
+                  | :? Button as button -> Some button
+                  | _ -> None)
+
+              trigger
+              |> Option.iter(fun button ->
+                let center =
+                  Point(
+                    button.Bounds.Width / 2.0,
+                    button.Bounds.Height / 2.0
+                  )
+
+                let moved = button.TranslatePoint(center, window)
+
+                if moved.HasValue then
+                  window.MouseMove moved.Value)))
+
+        let! card = showsText(window, "Reading the profile…")
+
+        Expect.isTrue card "the hover card never opened"
+      })
+
+    testCaseAsync
+      "the hover card opens the profile, not the commit"
+      (async {
+        let! window = startShell(signedInStore(), logApi() :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        // A real pointer move over the avatar opens the card after the
+        // open delay.
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "AuthorAvatar")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button ->
+                let center =
+                  Point(button.Bounds.Width / 2.0, button.Bounds.Height / 2.0)
+
+                let moved = button.TranslatePoint(center, window)
+
+                if moved.HasValue then
+                  window.MouseMove moved.Value
+              | _ -> ()))
+
+        let! card = showsText(window, "Reading the profile…")
+
+        Expect.isTrue card "the hover card never opened"
+
+        // The card is its own button: its click opens the profile, and
+        // the handled click never reaches the commit behind it. The
+        // opaque surface rides inside the button, so the theme's hover
+        // wash cannot turn the card translucent.
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "UserFlyout")
+            |> Option.iter(fun control ->
+              match control with
+              | :? ContentControl as host ->
+                match host.Content with
+                | :? Button as openCard ->
+                  Expect.isTrue
+                    (match openCard.Content with
+                     | :? Border -> true
+                     | _ -> false)
+                    "the card's surface left the button"
+
+                  click openCard
+                | _ -> ()
+              | _ -> ()))
+
+        let! shut =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> not(hasText(root, "Reading the profile…")))
+          )
+
+        Expect.isTrue shut "the card click never closed the flyout"
+
+        // The identity meta line only renders on the profile page;
+        // neither the aside card nor the hover card draws it. The
+        // viewer's own page carries no follow or mute buttons.
+        let! profile =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              hasText(
+                root,
+                "GitHub · San Francisco · example.test · Joined January 2026"
+              ))
+          )
+
+        Expect.isTrue profile "the profile never opened"
+
+        let! fellThrough =
+          probeUiAsync(fun () -> hasText(window, "Back to the log"))
+
+        Expect.isFalse fellThrough "the card click fell through to the commit"
+      })
+
+    testCaseAsync
+      "a link preview is its own surface, not the card's click"
+      (async {
+        let! window = startShell(signedInStore(), mentionLogApi() :> IHttp)
+
+        // The handled click never runs here: it would launch a real
+        // browser. The card being its own button, with the outside
+        // url on it, is the contract.
+        let! preview =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "LinkPreviewCard")),
+            (fun found ->
+              found
+              |> Option.map(fun control -> control :? Button)
               |> Option.defaultValue false)
           )
 
-        Expect.isTrue quote "the quote action never appeared"
+        Expect.isTrue preview "the link preview card never appeared"
+
+        let! titled = showsText(window, "The postmortem")
+
+        Expect.isTrue titled "the preview title never rendered"
+
+        let! addressed = showsText(window, "https://example.test/postmortem")
+
+        Expect.isTrue addressed "the preview address never rendered"
+      })
+
+    testCaseAsync
+      "the thread's quote action arms the composer over the commit"
+      (async {
+        let api = threadApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "It was DNS.") |> Option.iter click)
+
+        let! thread = showsText(window, "Back to the log")
+
+        Expect.isTrue thread "the thread never rendered"
 
         do!
           onUiAsync(fun () ->
@@ -1001,28 +2045,75 @@ let tests =
             |> Option.map(fun control -> control :?> Button)
             |> Option.iter click)
 
-        let! rendered =
+        // The quote composer opens in place, over the quoted commit:
+        // the thread stays on screen behind it.
+        let! armed = showsText(window, "Add your take")
+
+        Expect.isTrue armed "the quote composer never armed"
+
+        let! stayed = showsText(window, "Back to the log")
+
+        Expect.isTrue stayed "the thread left its own quote"
+
+        do!
+          onUiAsync(fun () ->
+            textBoxWithWatermark(window, "Add your take")
+            |> Option.iter(fun box ->
+              box.Text <- "My take on this"
+
+              buttonNear(box, "Commit") |> Option.iter click))
+
+        let! posted =
+          waitForAsync(
+            8000,
+            (fun () -> api.Requests),
+            (fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Method = "POST" && request.Target = "/api/v1/commits"))
+          )
+
+        Expect.isTrue posted "the quote never posted"
+
+        // The landed quote opens the created commit's thread.
+        let! left =
           waitForAsync(
             5000,
             (fun () -> window),
-            (fun root -> hasText(root, "Add your comment to the quote…"))
+            (fun root -> not(hasText(root, "Add your take")))
           )
 
-        if not rendered then
-          let! texts =
-            probeUiAsync(fun () ->
-              window.GetVisualDescendants()
-              |> Seq.choose(fun visual ->
-                match visual with
-                | :? TextBlock as textBlock -> Option.ofObj textBlock.Text
-                | _ -> None)
-              |> Seq.toList)
+        Expect.isTrue left "the quote composer never closed"
+      })
 
-          let visible = System.String.Join(" | ", texts)
+    testCaseAsync
+      "a quoted card opens the quoted commit's thread"
+      (async {
+        let api = quotedLogApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
 
-          Expect.isTrue
-            rendered
-            $"the quote composer never rendered; visible: {visible}"
+        // The quoted card rides under the quoting commit's body.
+        let! quoted = showsText(window, "Second commit.")
+
+        Expect.isTrue quoted "the quoted card never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "QuotedCard")
+            |> Option.map(fun control -> control :?> Button)
+            |> Option.iter click)
+
+        let! thread = showsText(window, "Back to the log")
+
+        Expect.isTrue thread "the quoted thread never opened"
+
+        let quotedRead =
+          api.Requests
+          |> List.exists(fun request ->
+            request.Target.StartsWith
+              "/api/v1/commits/018f4c1e-9999-7c3a-9b2d-5e6f7a8b9c0d")
+
+        Expect.isTrue quotedRead "the quoted commit was never read"
       })
 
     testCaseAsync
@@ -1240,6 +2331,51 @@ let tests =
           api.Requests
           (fun request -> request.Target.StartsWith "/api/v1/starred")
           "the starred request"
+      })
+
+    testCaseAsync
+      "the saved page's quote opens the quote experience"
+      (async {
+        let api = accountApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Saved")
+
+        let! saved = showsText(window, "It was DNS.")
+
+        Expect.isTrue saved "the saved commit never rendered"
+
+        let! quoteable =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "QuoteButton")),
+            (fun found ->
+              found
+              |> Option.map(fun control -> control :? Button)
+              |> Option.defaultValue false)
+          )
+
+        Expect.isTrue quoteable "the quote action never appeared"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "QuoteButton")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! armed = showsText(window, "Add your take")
+
+        Expect.isTrue armed "the quote composer never opened"
+
+        let! quoted = showsText(window, "It was DNS.")
+
+        Expect.isTrue quoted "the quoted commit never showed under the composer"
       })
 
     testCaseAsync
@@ -1704,13 +2840,80 @@ let tests =
       })
 
     testCaseAsync
-      "the wordmark renders the brand"
+      "the sidebar names the service in its one true form"
       (async {
         let! window = startShell(signedInStore(), logApi() :> IHttp)
 
-        let! shown = showsText(window, "/dev")
+        // The brand asks for the plain name: lowercase, both slashes,
+        // one run of text. The sidebar adds the unofficial line, so no
+        // endorsement is implied.
+        let! named = showsText(window, "/dev/null")
 
-        Expect.isTrue shown "the wordmark never rendered"
+        Expect.isTrue named "the name never rendered"
+
+        let! unofficial = showsText(window, "unofficial desktop client")
+
+        Expect.isTrue unofficial "the unofficial line never rendered"
+      })
+
+    testCaseAsync
+      "the about page states the project and its disclaimer"
+      (async {
+        let! window = startShell(signedInStore(), logApi() :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "About")
+
+        let! disclaimer =
+          showsText(
+            window,
+            "This project is not affiliated with or endorsed by /dev/null. "
+            + "The name appears here only to name the service. "
+            + "Every mark belongs to its owner."
+          )
+
+        Expect.isTrue disclaimer "the disclaimer never rendered"
+
+        let! stack = showsText(window, "Avalonia")
+
+        Expect.isTrue stack "the stack never rendered"
+
+        // The wrapped text must fit its box: the block never runs past
+        // the border that carries it.
+        let! fits =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryPick(function
+              | :? TextBlock as block ->
+                match block.Text with
+                | null -> None
+                | text when text.StartsWith "This project is not affiliated" ->
+                  Some block
+                | _ -> None
+              | _ -> None)
+            |> Option.bind(fun block ->
+              match block.Parent with
+              | :? Border as box ->
+                Some(
+                  block.Bounds.Width,
+                  box.Bounds.Width
+                  - box.Padding.Left
+                  - box.Padding.Right
+                  - 2.0
+                )
+              | _ -> None))
+
+        Expect.isSome fits "the disclaimer box never rendered"
+
+        let textWidth, boxWidth = fits.Value
+
+        Expect.isLessThanOrEqual
+          textWidth
+          (boxWidth + 0.5)
+          "the disclaimer runs past its box"
       })
 
     testCaseAsync

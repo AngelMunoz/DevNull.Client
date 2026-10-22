@@ -15,14 +15,60 @@ module CommitBodies =
 
   let inline value(body: string<CommitBody>) = UMX.untag body
 
+  /// The raw cap before any counting, as the server bounds the input.
+  let maxRawLength = 40000
+
+  /// The effective cap after normalization, as the server counts it.
+  let maxLength = 4000
+
+  /// The longest link that still counts, as the server takes it.
+  let maxLinkLength = 2048
+
+  /// How many characters one prose link counts as.
+  let linkCountsAs = 23
+
+  // The server collapses runs of blank lines in prose only; this leaf
+  // collapses the whole body, so a code-heavy body counts a little
+  // lower here than there. The server stays the authority, and a
+  // false accept fails loudly at the post, not silently here.
+  let normalize(body: string) =
+    let endings = body.Replace("\r\n", "\n").Replace("\r", "\n")
+
+    Regex.Replace(endings, "(?:[ \t]*\n){3,}", "\n\n")
+
+  let proseLink = Regex(@"https?://[^\s<>""]+", RegexOptions.IgnoreCase)
+
+  /// The server's count: every prose link counts as 23 characters.
+  let characterCount(body: string) =
+    let links =
+      proseLink.Matches body
+      |> Seq.sumBy(fun matched ->
+        let length = matched.Value.Length
+
+        if length <= maxLinkLength then
+          max 0 (length - linkCountsAs)
+        else
+          0)
+
+    body.Length - links
+
   let parse<'e when CommitBodyError<'e>>
     (raw: string)
     : Result<string<CommitBody>, 'e> =
     let length = raw.Length
 
-    if length < 1 then Error('e.BodyTooShort(raw, length))
-    elif length > 4000 then Error('e.BodyTooLong(raw, length))
-    else Ok(UMX.tag<CommitBody> raw)
+    if length < 1 then
+      Error('e.BodyTooShort(raw, length))
+    elif length > maxRawLength then
+      Error('e.BodyTooLong(raw, length))
+    else
+      let normalized = normalize raw
+      let counted = characterCount normalized
+
+      if counted > maxLength then
+        Error('e.BodyTooLong(raw, length))
+      else
+        Ok(UMX.tag<CommitBody> normalized)
 
 type ShortHashError<'e> =
   static abstract InvalidShortHash: raw: string -> 'e

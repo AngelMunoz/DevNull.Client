@@ -109,9 +109,10 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
     is total against the `null` recycle pass; list pages pin their
     headers and hand it rows plus a footer).
   - `Views/` - one MVUish page per route over `Program.mkProgram`
-    (sign-in, log, compose, thread, notifications, saved, profile,
-    settings), plus `Routes.fs` (the Navs table, the session guards,
-    and the boot URL).
+    (sign-in, log, thread, notifications, saved, profile, settings,
+    about), plus `Routes.fs` (the Navs table, the session guards,
+    and the boot URL). The `/quote/:id` route reuses the thread page
+    with the quote composer armed.
   - `Shell.fsi/fs` - the one window: sidebar with the unread badge,
     the router outlet, the extended client area (a drag band carrying
     the app-drawn caption row and the drawer hamburger; the drawn

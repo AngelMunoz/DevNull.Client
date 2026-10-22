@@ -4,6 +4,7 @@ open Avalonia.Controls
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.ImageCache
 open DevNull.Client.Stores
 
 /// The handle line: a lane dot beside the @handle.
@@ -13,7 +14,7 @@ val laneHandle: lane: Lane option * username: string -> Control
 val statRow: count: int * label: string -> Control
 
 /// The identity head: the avatar beside the name and the lane handle.
-val identityHead: profile: Profile -> Control
+val identityHead: cache: ImageCacheService * profile: Profile -> Control
 
 /// The counts row: commits, following, followers.
 val stats: profile: Profile -> Control
@@ -29,7 +30,8 @@ type Props<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideSession> = { Env: 'env; Session: SignedInSession }
+  and 'env :> IProvideSession
+  and 'env :> IProvideImageCache> = { Env: 'env; Session: SignedInSession }
 
 /// One profile card, self-contained: mounts the MVUish program.
 type Page<'env
@@ -37,6 +39,7 @@ type Page<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideSession> =
+  and 'env :> IProvideSession
+  and 'env :> IProvideImageCache> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

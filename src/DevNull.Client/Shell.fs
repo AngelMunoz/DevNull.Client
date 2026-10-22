@@ -18,6 +18,7 @@ open IcedTasks
 open Navs
 open Navs.Avalonia
 open DevNull.Client
+open DevNull.Client.AttachmentSources
 open DevNull.Client.Components
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
@@ -25,9 +26,13 @@ open DevNull.Client.DeviceAuth
 open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.Icons
+open DevNull.Client.ImageCache
+open DevNull.Client.LastVisitStore
 open DevNull.Client.Navigation
+open DevNull.Client.Profiles
 open DevNull.Client.SessionFiles
 open DevNull.Client.SettingsStore
+open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.Theme
 open DevNull.Client.Tray
@@ -178,8 +183,11 @@ let navItem
 /// The account row rebuilds on every sign-in state change, the way the
 /// shell's aside does.
 let footer
-  (navigate: string -> unit, session: IObservable<SessionState>)
-  : Control =
+  (
+    navigate: string -> unit,
+    session: IObservable<SessionState>,
+    images: ImageCacheService
+  ) : Control =
   let signedIn =
     session
     |> Observable.map(function
@@ -202,6 +210,7 @@ let footer
               Url = entry.Session.User.AvatarUrl
               Lane = None
               Size = 36.0
+              Cache = images
             },
             StackPanel()
               .VerticalAlignment(VerticalAlignment.Center)
@@ -414,7 +423,12 @@ type Shell<'env
   and 'env :> IProvideSettings
   and 'env :> IProvideLogging
   and 'env :> IProvideUnread
-  and 'env :> IProvideUiClock>(env: 'env, callback: string option) as this =
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLastVisit
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideSshKeys>(env: 'env, callback: string option) as this =
   inherit Window()
 
   // The close bypass: `Quit` raises it, so the close-to-tray guard in
@@ -535,6 +549,13 @@ type Shell<'env
         Url = "/settings"
         Badge = ValueNone
       }
+      {
+        Glyph = Glyph.Info
+        Label = "About"
+        Section = "settings"
+        Url = "/about"
+        Badge = ValueNone
+      }
     ]
 
     let item entry = navItem(navigate, activeSection, entry)
@@ -542,19 +563,11 @@ type Shell<'env
     // The sidebar: one tree for both modes, so no control lands in two
     // parents.
     let sidebarContent() : Control =
-      // The lowercase brand: the second slash wears the lane color, the
-      // wordmark's outlined slash.
-      let wordmark =
-        StackPanel()
-          .Orientation(Orientation.Horizontal)
-          .Children(
-            TextBlock().Classes(Theme.name Theme.Wordmark).Text("/dev"),
-            TextBlock()
-              .Classes(Theme.name Theme.Wordmark)
-              .Foreground(Brushes.lane 0)
-              .Text("/"),
-            TextBlock().Classes(Theme.name Theme.Wordmark).Text("null")
-          )
+      // The service's name as plain text, the one form the brand asks
+      // for: lowercase, both slashes. No retyped wordmark and no
+      // copied lockup; this is an unofficial client.
+      let heading =
+        TextBlock().Classes(Theme.name Theme.Title).Text("/dev/null")
 
       // The header clears the drag band the shell lays over the top
       // strip; the site's own py-6 keeps the same rhythm below it.
@@ -562,10 +575,10 @@ type Shell<'env
         StackPanel()
           .Margin(Thickness(14.0, Theme.bandHeight + 12.0, 14.0, 24.0))
           .Children(
-            wordmark,
+            heading,
             TextBlock()
               .Classes(Theme.name Theme.Muted)
-              .Text("a social network for devs")
+              .Text("unofficial desktop client")
           )
 
       let commitButton =
@@ -601,7 +614,11 @@ type Shell<'env
       DockPanel()
         .LastChildFill(true)
         .Children(
-          footer(navigate, session.Observe)
+          footer(
+            navigate,
+            session.Observe,
+            (env :> IProvideImageCache).ImageCache
+          )
             .DockBottom()
             .Margin(Thickness(14.0, 8.0, 14.0, 12.0)),
           navList

@@ -1,11 +1,16 @@
 module DevNull.Client.Shell
 
 open Avalonia.Controls
+open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Env
 open DevNull.Client.Icons
+open DevNull.Client.ImageCache
+open DevNull.Client.LastVisitStore
+open DevNull.Client.Profiles
 open DevNull.Client.SettingsStore
+open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.Unread
 open DevNull.Client.UiClock
@@ -24,7 +29,12 @@ type Shell<'env
   and 'env :> IProvideSettings
   and 'env :> IProvideLogging
   and 'env :> IProvideUnread
-  and 'env :> IProvideUiClock> =
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLastVisit
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideSshKeys> =
   new: env: 'env * callback: string option -> Shell<'env>
   inherit Window
 

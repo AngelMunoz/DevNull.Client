@@ -33,6 +33,58 @@ let tests =
       | _ -> failtest "expected BodyTooLong"
     }
 
+    test "a long link counts as 23 characters" {
+      // 3970 characters of text plus a 60-character link: 4030 raw,
+      // 3993 counted, so the server accepts what the old raw cap
+      // refused.
+      let padded =
+        String.replicate 3970 "x"
+        + " https://dev-null.sh/aaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+      let parsed: Result<string<CommitBody>, TestError> =
+        CommitBodies.parse padded
+
+      match parsed with
+      | Ok _ -> ()
+      | Error _ -> failtest "a body with one link was refused"
+    }
+
+    test "a run of blank lines collapses before the count" {
+      // 3997 characters plus four newlines plus one more: 4002 raw,
+      // 4000 after the collapse of the blank run.
+      let padded = String.replicate 3997 "x" + "\n\n\n\n" + "y"
+
+      let parsed: Result<string<CommitBody>, TestError> =
+        CommitBodies.parse padded
+
+      match parsed with
+      | Ok body ->
+        Expect.stringContains
+          (CommitBodies.value body)
+          "\n\n"
+          "the collapse kept one blank"
+      | Error _ -> failtest "a padded body was refused"
+    }
+
+    test "a body over the raw cap fails before any counting" {
+      let long = String.replicate 40001 "x"
+
+      match CommitBodies.parse long with
+      | Error(BodyTooLong(_, length)) ->
+        Expect.equal length 40001 "the length is exact"
+      | _ -> failtest "expected BodyTooLong"
+    }
+
+    test "carriage returns normalize to single line feeds" {
+      let parsed: Result<string<CommitBody>, TestError> =
+        CommitBodies.parse "a\r\nb\rc"
+
+      match parsed with
+      | Ok body ->
+        Expect.equal "a\nb\nc" (CommitBodies.value body) "the endings collapse"
+      | Error _ -> failtest "expected Ok"
+    }
+
     test "a valid body keeps its text" {
       let parsed: Result<string<CommitBody>, TestError> =
         CommitBodies.parse "It was DNS."

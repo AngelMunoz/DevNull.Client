@@ -15,6 +15,7 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
+open DevNull.Client.ImageCache
 open DevNull.Client.Stores
 open DevNull.Client.Theme
 
@@ -23,7 +24,8 @@ type Props<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideSession> = { Env: 'env; Session: SignedInSession }
+  and 'env :> IProvideSession
+  and 'env :> IProvideImageCache> = { Env: 'env; Session: SignedInSession }
 
 /// The card's state logic: model, messages, and update.
 module State =
@@ -100,7 +102,7 @@ let statRow(count: int, label: string) : Control =
     )
 
 /// The identity head: the avatar beside the name and the lane handle.
-let identityHead(profile: Profile) : Control =
+let identityHead(cache: ImageCacheService, profile: Profile) : Control =
   StackPanel()
     .Orientation(Orientation.Horizontal)
     .Spacing(12.0)
@@ -110,6 +112,7 @@ let identityHead(profile: Profile) : Control =
         Url = profile.User.AvatarUrl
         Lane = profile.Lane
         Size = 48.0
+        Cache = cache
       },
       StackPanel()
         .VerticalAlignment(VerticalAlignment.Center)
@@ -159,7 +162,9 @@ module Parts =
     Status.busy("Loading your card…").IsVisible(model |> Observable.map _.Busy)
 
   /// The card itself, rebuilt whenever the profile changes.
-  let cardHost(model: IObservable<State.Model>) : Control =
+  let cardHost
+    (cache: ImageCacheService, model: IObservable<State.Model>)
+    : Control =
     let card: IObservable<Control> =
       model
       |> Observable.map(fun current ->
@@ -168,7 +173,7 @@ module Parts =
           StackPanel()
             .Spacing(16.0)
             .Children(
-              identityHead details.Profile,
+              identityHead(cache, details.Profile),
               stats details.Profile,
               bioLine details.Profile
             )
@@ -180,21 +185,30 @@ module Parts =
 
     host
 
-let view (model: IObservable<State.Model>) (_: Dispatch<State.Msg>) : Control =
+let view
+  (props: Props<'env>)
+  (model: IObservable<State.Model>)
+  (_: Dispatch<State.Msg>)
+  : Control =
   StackPanel()
     .Spacing(8.0)
-    .Children(Parts.cardHost model, Parts.errorText model, Parts.busy model)
+    .Children(
+      Parts.cardHost(props.Env.ImageCache, model),
+      Parts.errorText model,
+      Parts.busy model
+    )
 
 type Page<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideSession>(props: Props<'env>) as this =
+  and 'env :> IProvideSession
+  and 'env :> IProvideImageCache>(props: Props<'env>) as this =
   inherit UserControl()
 
   do
-    let program = Program.mkProgram (State.init props) State.update view
+    let program = Program.mkProgram (State.init props) State.update (view props)
 
     let root, _ = Program.runWithLifetime this () program
 

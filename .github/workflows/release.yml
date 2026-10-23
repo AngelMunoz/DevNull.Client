@@ -75,8 +75,11 @@ jobs:
       - name: Core tests
         run: dotnet run --project tests/DevNull.Client.Core.Tests -- --summary
 
+      # Sequenced: Expecto's default parallel run puts other tests'
+      # allocations inside the memory-budget tests' measurement window,
+      # which drowns their signal in runner noise.
       - name: UI tests
-        run: dotnet run --project tests/DevNull.Client.UI.Tests -- --summary
+        run: dotnet run --project tests/DevNull.Client.UI.Tests -- --sequenced --summary
 
   build:
     needs: [prepare, test]

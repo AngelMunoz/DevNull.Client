@@ -25,6 +25,10 @@ type TimelineService =
   /// still scroll.
   member ForceReload: unit -> unit
 
+  /// Scrolls the open timeline to its top, without reloading it: the
+  /// answer a fresh first page gives its reader.
+  member ScrollToTop: unit -> unit
+
   /// Announces a landed commit; the open page reloads ungated, the way
   /// its own composer's post reloads it.
   member CommitLanded: unit -> unit

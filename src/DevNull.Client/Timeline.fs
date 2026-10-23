@@ -43,6 +43,10 @@ type TimelineService() =
       lastAccepted.OnNext(DateTimeOffset.UtcNow)
       requests.OnNext Reload
 
+  /// Scrolls the open timeline to its top, without reloading it: the
+  /// answer a fresh first page gives its reader.
+  member _.ScrollToTop() = requests.OnNext ScrollToTop
+
   /// Announces a landed commit; the open page reloads ungated, the way
   /// its own composer's post reloads it.
   member _.CommitLanded() = requests.OnNext CommitLanded

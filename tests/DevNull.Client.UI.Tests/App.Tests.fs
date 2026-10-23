@@ -15,6 +15,7 @@ open Avalonia.VisualTree
 
 open Expecto
 
+open DevNull.Client
 open DevNull.Client.Core
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Http
@@ -23,6 +24,7 @@ open DevNull.Client.SettingsStore
 open DevNull.Client.Shell
 open DevNull.Client.Stores
 open DevNull.Client.Theme
+open DevNull.Client.Timeline
 open DevNull.Client.UI.Tests.Fixtures
 open DevNull.Client.UI.Tests.Harness
 open DevNull.Client.Views
@@ -3446,5 +3448,28 @@ let tests =
            |> List.length)
           (refreshed.Items |> List.length)
           "the refreshed feed carries a repeated key"
+
+        // The landed page returns its reader to the top: the command
+        // the fresh page carries asks the timeline to scroll, the way
+        // the keyed feed's own diff never will.
+        let timeline =
+          (env :> DevNull.Client.Timeline.IProvideTimeline).Timeline
+
+        let scrolled = ResizeArray<Timeline.Request>()
+        let listen = timeline.Requests.Subscribe scrolled.Add
+
+        let _, landed =
+          LogView.State.update
+            props
+            (LogView.State.NewFetched(Ok newer))
+            refreshed
+
+        landed ignore ignore
+        listen.Dispose()
+
+        Expect.contains
+          scrolled
+          Timeline.ScrollToTop
+          "the fresh first page never scrolled the feed to its top"
       })
   ]

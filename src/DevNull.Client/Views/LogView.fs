@@ -261,16 +261,20 @@ module State =
     | NewFetched result ->
       match result with
       | Ok page ->
-        // The pill's refresh replaces the feed with the fresh first page,
-        // the way the site reloads its log; no duplicate can survive.
-        {
+        // The pill's refresh replaces the feed with the fresh first
+        // page, the way the site reloads its log; no duplicate can
+        // survive. The reader lands at the top with the new commits:
+        // the keyed diff keeps the scroller's old place, so the page
+        // itself must ask for the scroll.
+        let replaced = {
           model with
               Items = page.Page.Items
               NextCursor = page.Page.NextCursor
               Head = headOf page.Page.Items
               Ranked = page.IsRanked
-        },
-        Cmd.none
+        }
+
+        replaced, Cmd.ofEffect(fun _ -> props.Env.Timeline.ScrollToTop())
       | Error error -> { model with Error = Some error }, Cmd.none
     | ReloadRequested ->
       {

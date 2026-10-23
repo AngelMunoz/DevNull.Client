@@ -301,14 +301,16 @@ module Parts =
 
     box
 
-  /// The paste lane: the platform's paste gesture asks the attachment
-  /// sources first — a clipboard image stages, clipboard text lands in
-  /// the box. The gesture is always handled, so the box's own text
-  /// paste never races the image read.
-  let pasteInto
+  /// The box's key lane. The platform's paste gesture asks the
+  /// attachment sources first — a clipboard image stages, clipboard
+  /// text lands in the box — and the platform's commit pair
+  /// (Ctrl/Cmd+Enter) posts the body, the way the site's composer
+  /// does. Both are always handled, so the box's own text handling
+  /// never races them.
+  let keyLane
     (props: Props<'env>, dispatch: Dispatch<State.Msg>, body: TextBox)
     : unit =
-    let gestureMatches(args: KeyEventArgs) =
+    let pasteMatches(args: KeyEventArgs) =
       match Application.Current with
       | null -> false
       | app ->
@@ -318,10 +320,21 @@ module Parts =
           settings.HotkeyConfiguration.Paste
           |> Seq.exists(fun gesture -> gesture.Matches args)
 
+    let commitPair(args: KeyEventArgs) =
+      args.Key = Key.Enter
+      && args.KeyModifiers &&& (KeyModifiers.Control ||| KeyModifiers.Meta)
+         <> KeyModifiers.None
+
     body.AddHandler(
       InputElement.KeyDownEvent,
       (fun _ args ->
-        if gestureMatches args then
+        if commitPair args then
+          args.Handled <- true
+
+          let text = body.Text |> Option.ofObj |> Option.defaultValue ""
+
+          dispatch(State.Submitted text)
+        elif pasteMatches args then
           args.Handled <- true
 
           asyncEx {
@@ -695,7 +708,7 @@ let view
 
   let body = Parts.body(props, model, dispatch)
 
-  Parts.pasteInto(props, dispatch, body)
+  Parts.keyLane(props, dispatch, body)
 
   // No box: the composer rides the rail plain, the way the site's does
   // on the log and the thread; a host that wants a card wraps it.

@@ -7,6 +7,11 @@ open DevNull.Client.UI.Tests
 [<EntryPoint>]
 let main argv =
   let tests =
-    testList "devnull client ui" [ App.tests; Unread.tests; Leaks.tests ]
+    testList "devnull client ui" [
+      App.tests
+      Shortcuts.tests
+      Unread.tests
+      Leaks.tests
+    ]
 
   runTestsWithCLIArgs [] argv tests

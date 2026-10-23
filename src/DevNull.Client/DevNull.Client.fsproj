@@ -55,6 +55,8 @@
     <Compile Include="SchemeRegistration.fs" />
     <Compile Include="Navigation.fsi" />
     <Compile Include="Navigation.fs" />
+    <Compile Include="Shortcuts.fsi" />
+    <Compile Include="Shortcuts.fs" />
     <Compile Include="Tray.fsi" />
     <Compile Include="Tray.fs" />
     <Compile Include="Components\Status.fsi" />

@@ -671,6 +671,18 @@ let styles() =
     )
   )
 
+  // The focused commit row. The site outlines the focused card; the
+  // client's rows run edge to edge on the rail, where a border ring
+  // would shift the layout on every walk, so the focus rides as the
+  // same primary-soft wash the active navigation wears.
+  styles.Add(
+    styleOf(
+      (fun selector ->
+        selector.OfType<Button>().Class(name CommitRow).Class(":focus")),
+      [| Button.BackgroundProperty, themed Keys.primarySoft |]
+    )
+  )
+
   // The brush classes: one property per class, resolved as dynamic
   // resources the variant switch re-resolves. They follow the base and
   // hover styles, so they win any color tie. No control binds a brush

@@ -780,6 +780,7 @@ let view(props: Props) : Control =
 
   Button()
     .Classes(Theme.name Theme.CommitRow)
+    .Focusable(true)
     .Content(
       grid.Children(
         Parts.railCell(avatar, commit.Author.Lane, dense, continues).Column(0),
@@ -787,6 +788,24 @@ let view(props: Props) : Control =
       )
     )
     .OnClickHandler(fun _ _ -> props.OnEvent(Opened commit))
+    .OnKeyDownHandler(fun sender args ->
+      // The focused card answers its own quiet keys: the same events
+      // the row's buttons dispatch, the way the site's key shortcuts
+      // click the focused commit's buttons.
+      match args.Key, args.KeyModifiers with
+      | Key.Enter, KeyModifiers.None ->
+        args.Handled <- true
+        props.OnEvent(Opened commit)
+      | Key.R, KeyModifiers.None ->
+        args.Handled <- true
+        props.OnEvent(ReplyToggled commit)
+      | Key.Q, KeyModifiers.None ->
+        args.Handled <- true
+        props.OnEvent(QuoteRequested commit)
+      | Key.Y, KeyModifiers.None ->
+        args.Handled <- true
+        Parts.copyLink(sender, commit.HtmlUrl)
+      | _ -> ())
 
 let tombstone() : Control =
   let line =

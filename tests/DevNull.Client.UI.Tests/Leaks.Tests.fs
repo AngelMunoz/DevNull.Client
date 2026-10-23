@@ -9,6 +9,8 @@ module DevNull.Client.UI.Tests.Leaks
 open System
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Input
+open Avalonia.Interactivity
 open Avalonia.VisualTree
 
 open Expecto
@@ -73,6 +75,12 @@ let shrinkAsync(window: Window) : Async<unit> =
   onUiAsync(fun () ->
     window.Width <- 420.0
     window.Height <- 480.0)
+
+/// Presses one bare key through the routed event.
+let pressKey(source: Interactive, key: Key) : unit =
+  source.RaiseEvent(
+    KeyEventArgs(RoutedEvent = InputElement.KeyDownEvent, Key = key)
+  )
 
 let tests =
   testList "memory leaks" [
@@ -186,5 +194,87 @@ let tests =
           (after - before)
           15_000_000L
           $"the soak retained {after - before} bytes"
+      })
+
+    testCaseAsync
+      "the key table releases the page it leaves"
+      (async {
+        let! window = startShell(signedInStore(), soakApi 40)
+
+        let! shown =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "Card 1."))
+          )
+
+        Expect.isTrue shown "the first card never rendered"
+
+        // The row's body block, held weakly before anything can recycle
+        // the row.
+        let! weak =
+          probeUiAsync(fun () ->
+            textBlockWith(window, "Card 1.")
+            |> Option.map(fun block -> WeakReference(block)))
+
+        Expect.isSome weak "the first card's body never rendered"
+
+        // The table walks the cards before the page ends, so a handler
+        // that captured what it touched would hold it.
+        do!
+          onUiAsync(fun () ->
+            pressKey(window, Key.J)
+            pressKey(window, Key.J)
+            pressKey(window, Key.K))
+
+        do! settleAsync()
+
+        // Leaving the log ends its page program; the walked row must
+        // follow it out of memory.
+        do! clickWhenShown(window, "Settings")
+        do! settleAsync()
+        collect()
+
+        Expect.isFalse weak.Value.IsAlive "the walked row outlived its page"
+      })
+
+    testCaseAsync
+      "the bindings list releases its content on close"
+      (async {
+        let! window = startShell(signedInStore(), soakApi 40)
+
+        let! shown =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "Card 1."))
+          )
+
+        Expect.isTrue shown "the first card never rendered"
+
+        do! onUiAsync(fun () -> pressKey(window, Key.OemQuestion))
+
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "Keyboard shortcuts"))
+          )
+
+        Expect.isTrue opened "the bindings list never opened"
+
+        let! weak =
+          probeUiAsync(fun () ->
+            textBlockWith(window, "Keyboard shortcuts")
+            |> Option.map(fun block -> WeakReference(block)))
+
+        Expect.isSome weak "the bindings list never rendered"
+
+        do! onUiAsync(fun () -> pressKey(window, Key.Escape))
+        do! settleAsync()
+        do! settleAsync()
+        collect()
+
+        Expect.isFalse weak.Value.IsAlive "the closed list outlived its overlay"
       })
   ]

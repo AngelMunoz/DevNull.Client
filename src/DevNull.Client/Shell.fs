@@ -32,6 +32,7 @@ open DevNull.Client.Navigation
 open DevNull.Client.Profiles
 open DevNull.Client.SessionFiles
 open DevNull.Client.SettingsStore
+open DevNull.Client.Shortcuts
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.Theme
@@ -540,6 +541,34 @@ type Shell<'env
         .IsVisible(composeOpen :> IObservable<bool>)
         .Children(composeScrim, composeHost)
 
+    // The bindings list: the same overlay shape as the compose dialog,
+    // built on open and released on close.
+    let helpOpen = new BehaviorSubject<bool>(false)
+
+    let helpHost =
+      ContentControl()
+        .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+        .VerticalContentAlignment(VerticalAlignment.Stretch)
+
+    let closeHelp() = helpOpen.OnNext false
+
+    helpOpen
+    |> Observable.add(fun isOpen ->
+      if isOpen then
+        helpHost.Content <- Shortcuts.helpCard()
+      else
+        helpHost.Content <- null)
+
+    let helpScrim =
+      Border()
+        .Background(Brushes.solid "#8A000000")
+        .OnPointerPressedHandler(fun _ _ -> closeHelp())
+
+    let helpLayer =
+      Panel()
+        .IsVisible(helpOpen :> IObservable<bool>)
+        .Children(helpScrim, helpHost)
+
     let entries = [
       {
         Glyph = Glyph.Log
@@ -843,7 +872,7 @@ type Shell<'env
         Close = fun () -> this.Close()
       }
 
-    this.Content <- Panel().Children(split, composeLayer, bandPanel)
+    this.Content <- Panel().Children(split, composeLayer, helpLayer, bandPanel)
 
     // The inbox marks everything read as it lists, so the poller stops
     // while the inbox is on screen.
@@ -875,18 +904,28 @@ type Shell<'env
           this.Close()
     }
 
-    // F11 walks the window in and out of fullscreen; Esc leaves it, but
-    // never past an open compose dialog. The band hides its caption row
-    // while fullscreen holds.
-    this.KeyDown.Add(fun args ->
-      match args.Key with
-      | Key.F11 -> this.ToggleFullScreen()
-      | Key.Escape ->
-        if composeOpen.Value then
-          closeCompose()
-        else
-          this.ExitFullScreen()
-      | _ -> ())
+    // The one key table, tunneled ahead of every focused control. The
+    // handler captures nothing a page owns — navigation, the overlay
+    // subjects, and the window's own members — so no route outlives its
+    // page through it. Esc closes the top overlay first, then leaves
+    // fullscreen; F11 walks the window in and out of it.
+    Shortcuts.install {
+      Root = this
+      Actions = {
+        Compose = fun () -> composeOpen.OnNext true
+        Help = fun () -> helpOpen.OnNext true
+        Escape =
+          fun () ->
+            match helpOpen.Value, composeOpen.Value with
+            | true, _ -> closeHelp()
+            | _, true -> closeCompose()
+            | _, _ -> this.ExitFullScreen()
+        Navigate = navigate
+        ToggleFullScreen = this.ToggleFullScreen
+        WalkCards = fun step -> Shortcuts.moveCardFocus(this, step)
+      }
+      OverlayOpen = fun () -> composeOpen.Value || helpOpen.Value
+    }
 
     match callback with
     | Some uri ->

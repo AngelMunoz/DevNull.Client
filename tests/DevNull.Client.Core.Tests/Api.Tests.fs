@@ -391,6 +391,8 @@ let commitRequest: Commits.CreateRequest = {
   KeyFile = "key-file"
   Body = "It was DNS."
   Target = Commits.New
+  Images = []
+  Poll = None
 }
 
 let commitApiTests =
@@ -1404,5 +1406,309 @@ let actionApiTests =
         (fun http -> Notifications.group(envFor http, groupRequest))
         "GET"
         "/api/v1/notifications/01a151db-7fee-727b-a7ce-c911a7556242/group?type=all"
+    }
+  ]
+
+/// Minimal PNG bytes, so `CommitImages.parse` accepts the staged image.
+let pngBytes: byte array = [|
+  137uy
+  80uy
+  78uy
+  71uy
+  13uy
+  10uy
+  26uy
+  10uy
+  0uy
+  0uy
+  0uy
+  0uy
+|]
+
+let stagedImage(fileName: string) : ImageAttachment = {
+  FileName = fileName
+  Bytes = pngBytes
+}
+
+/// The SHA-256 of `pngBytes`, in the lowercase hex the server hashes.
+let pngHash =
+  pngBytes
+  |> System.Security.Cryptography.SHA256.HashData
+  |> Convert.ToHexString
+  |> _.ToLowerInvariant()
+
+/// Reads the value a parse produced, failing the test when it refused.
+let parsed<'a>(outcome: Result<'a, TestError>) : 'a =
+  match outcome with
+  | Ok value -> value
+  | Error error -> failtestf "%A" error
+
+let imageCommitTests =
+  testList "Api.image commits" [
+    testAsync "signs the images message under the images namespace" {
+      let signer =
+        signerWith(fun signed ->
+          Expect.equal "devnull-api-images" signed.Namespace "namespace"
+
+          Ok "signature")
+
+      let env =
+        createSignEnv
+          (FixedClock 1760000000L)
+          (FixedNonceSource "00112233445566778899aabbccddeeff")
+          signer
+
+      let imageRequest: Signing.ImageRequest = {
+        KeyFile = "key-file"
+        Method = "POST"
+        Target = "/api/v1/commits"
+        Body = "{\"body\":\"It was DNS.\"}"
+        Images =
+          parsed(
+            DevNull.Client.Core.Commit.CommitImages.parse [
+              stagedImage "a.png"
+            ]
+          )
+      }
+
+      let! (result: Result<HttpRequest, TestError>) =
+        Signing.signedImageRequest(env, imageRequest)
+
+      match result with
+      | Ok signed ->
+        Expect.equal "POST" signed.Method "method"
+
+        let form = multipartForm signed
+
+        let names = form.Files |> List.map _.Name
+        Expect.equal [ "payload"; "images[]" ] names "part names"
+
+        let payload = form.Files |> List.head
+        Expect.equal "application/json" payload.ContentType "payload type"
+
+        Expect.equal
+          "{\"body\":\"It was DNS.\"}"
+          (System.Text.Encoding.UTF8.GetString payload.Content)
+          "payload json"
+
+        Expect.isEmpty form.Fields "the multipart carries no fields"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "a commit with images posts as multipart v1" {
+      let http = CapturingHttp(ok createdResponse)
+
+      let signer =
+        signerWith(fun signed ->
+          Expect.equal "devnull-api-images" signed.Namespace "namespace"
+
+          Expect.equal
+            $"1760000000\n00112233445566778899aabbccddeeff\nPOST\n/api/v1/commits\n%s{pngHash}\n{{\"body\":\"It was DNS.\",\"parent_id\":\"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d\"}}"
+            signed.Payload
+            "signed message"
+
+          Ok "signature")
+
+      let request = {
+        commitRequest with
+            Target = Commits.ReplyTo "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+            Images = [ stagedImage "diagram.png" ]
+      }
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(redeemEnv http signer, request)
+
+      match result with
+      | Ok _ ->
+        let sent = http.Requests |> List.exactlyOne
+
+        let form = multipartForm sent
+        Expect.equal 2 (List.length form.Files) "the payload and one image"
+
+        let payload = form.Files |> List.head
+        Expect.equal "payload" payload.Name "payload part"
+
+        Expect.equal
+          "{\"body\":\"It was DNS.\",\"parent_id\":\"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d\"}"
+          (System.Text.Encoding.UTF8.GetString payload.Content)
+          "payload json"
+
+        let image = form.Files |> List.item 1
+        Expect.equal "images[]" image.Name "image part"
+        Expect.equal "diagram.png" image.FileName "image name"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "a commit with no images posts as plain signed json" {
+      let http = CapturingHttp(ok createdResponse)
+
+      let signer =
+        signerWith(fun signed ->
+          Expect.equal "devnull-api" signed.Namespace "namespace"
+          Ok "signature")
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(redeemEnv http signer, commitRequest)
+
+      match result with
+      | Ok _ ->
+        let sent = http.Requests |> List.exactlyOne
+        Expect.equal "{\"body\":\"It was DNS.\"}" (bodyText sent) "body"
+      | Error error -> failtestf "%A" error
+    }
+  ]
+
+let pollTests =
+  testList "Api.polls" [
+    testAsync "parses a poll of two to four distinct options" {
+      let spec = parsed(PollSpecs.parse([ "Yes"; "No" ], OneDay))
+
+      Expect.equal [ "Yes"; "No" ] (PollSpecs.options spec) "options"
+
+      Expect.equal 1440 (PollDurations.wire(PollSpecs.duration spec)) "duration"
+    }
+
+    testAsync "refuses fewer than two options" {
+      let parsedOutcome: Result<PollSpec, TestError> =
+        PollSpecs.parse([ "Only" ], OneHour)
+
+      Expect.equal (Error(TooFewPollOptions 1)) parsedOutcome "too few"
+    }
+
+    testAsync "refuses more than four options" {
+      let parsedOutcome: Result<PollSpec, TestError> =
+        PollSpecs.parse([ "a"; "b"; "c"; "d"; "e" ], OneHour)
+
+      Expect.equal (Error(TooManyPollOptions 5)) parsedOutcome "too many"
+    }
+
+    testAsync "refuses options that repeat ignoring case" {
+      let parsedOutcome: Result<PollSpec, TestError> =
+        PollSpecs.parse([ "Yes"; "yes" ], OneHour)
+
+      Expect.equal (Error(DuplicatePollOption "yes")) parsedOutcome "duplicate"
+    }
+
+    testAsync "refuses an option past fifty characters" {
+      let long = new String('x', 51)
+
+      let parsedOutcome: Result<PollSpec, TestError> =
+        PollSpecs.parse([ "Yes"; long ], OneHour)
+
+      Expect.equal (Error(PollOptionTooLong(long, 51))) parsedOutcome "too long"
+    }
+
+    testAsync "a commit with a poll carries the poll in its json" {
+      let http = CapturingHttp(ok createdResponse)
+
+      let poll = parsed(PollSpecs.parse([ "Ship it"; "Hold" ], ThreeDays))
+
+      let request = { commitRequest with Poll = Some poll }
+
+      let! (_: Result<Commit, TestError>) = Commits.create(envFor http, request)
+
+      let sent = http.Requests |> List.exactlyOne
+
+      Expect.equal
+        "{\"body\":\"It was DNS.\",\"poll\":{\"options\":[\"Ship it\",\"Hold\"],\"duration\":4320}}"
+        (bodyText sent)
+        "poll json"
+    }
+
+    testAsync "a poll on a reply is refused before any request" {
+      let http = CapturingHttp(ok createdResponse)
+
+      let poll = parsed(PollSpecs.parse([ "Yes"; "No" ], OneHour))
+
+      let request = {
+        commitRequest with
+            Target = Commits.ReplyTo "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+            Poll = Some poll
+      }
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(envFor http, request)
+
+      Expect.equal (Error(PollProhibited PollOnReply)) result "refused"
+      Expect.isEmpty http.Requests "no request left the client"
+    }
+
+    testAsync "a poll on a quote is refused before any request" {
+      let http = CapturingHttp(ok createdResponse)
+
+      let poll = parsed(PollSpecs.parse([ "Yes"; "No" ], OneHour))
+
+      let request = {
+        commitRequest with
+            Target = Commits.Quote "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+            Poll = Some poll
+      }
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(envFor http, request)
+
+      Expect.equal (Error(PollProhibited PollOnQuote)) result "refused"
+      Expect.isEmpty http.Requests "no request left the client"
+    }
+
+    testAsync "a poll with images is refused before any request" {
+      let http = CapturingHttp(ok createdResponse)
+
+      let poll = parsed(PollSpecs.parse([ "Yes"; "No" ], OneHour))
+
+      let request = {
+        commitRequest with
+            Images = [ stagedImage "a.png" ]
+            Poll = Some poll
+      }
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(envFor http, request)
+
+      Expect.equal (Error(PollProhibited PollWithImages)) result "refused"
+      Expect.isEmpty http.Requests "no request left the client"
+    }
+
+    testAsync "votes one option of a commit poll" {
+      let http = CapturingHttp(ok createdResponse)
+
+      let request: Commits.VoteRequest = {
+        KeyFile = "key-file"
+        CommitId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+        OptionId = "01a151db-7fee-727b-a7ce-c911a7556243"
+      }
+
+      let! (_: Result<Commit, TestError>) = Commits.vote(envFor http, request)
+
+      let sent = http.Requests |> List.exactlyOne
+
+      Expect.equal "POST" sent.Method "method"
+
+      Expect.equal
+        "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d/poll/votes"
+        sent.Target
+        "target"
+
+      Expect.equal
+        "{\"option\":\"01a151db-7fee-727b-a7ce-c911a7556243\"}"
+        (bodyText sent)
+        "body"
+    }
+
+    testAsync "reads the new posting error codes" {
+      Expect.equal TimedOut (ErrorCodes.parse "timed_out") "timed out"
+      Expect.equal Banned (ErrorCodes.parse "banned") "banned"
+
+      Expect.equal
+        CommitRulesRequired
+        (ErrorCodes.parse "commit_rules_required")
+        "commit rules"
+
+      Expect.equal
+        (Unknown "later")
+        (ErrorCodes.parse "later")
+        "unknown stays raw"
+
+      Expect.equal "timed_out" (ErrorCodes.wire TimedOut) "wire"
     }
   ]

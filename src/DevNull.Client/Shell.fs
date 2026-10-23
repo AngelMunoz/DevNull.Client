@@ -35,6 +35,7 @@ open DevNull.Client.SettingsStore
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.Theme
+open DevNull.Client.Timeline
 open DevNull.Client.Tray
 open DevNull.Client.Unread
 open DevNull.Client.UiClock
@@ -384,6 +385,7 @@ let composeDialog
               Target = Composer.Fresh
               OnCommitted = fun _ -> close()
               Register = ValueNone
+              Draft = ValueNone
             }
           )
       )
@@ -402,11 +404,24 @@ let composeDialog
 
 /// Focuses the composer on screen, when one is. The site's Commit
 /// button focuses the log's inline composer instead of opening the
-/// dialog over it.
+/// dialog over it. A hidden composer — the shared chrome off the log —
+/// never takes the focus.
 let focusInlineComposer(window: Window) : bool =
+  let onScreen(visual: Visual) =
+    match visual with
+    | :? Control as control ->
+      control.IsVisible
+      && (control.GetVisualAncestors()
+          |> Seq.forall(fun ancestor ->
+            match ancestor with
+            | :? Control as parent -> parent.IsVisible
+            | _ -> true))
+    | _ -> false
+
   match
     window.GetVisualDescendants()
-    |> Seq.tryFind(fun visual -> visual.Name = "ComposerBody")
+    |> Seq.tryFind(fun visual ->
+      visual.Name = "ComposerBody" && onScreen visual)
   with
   | Some(:? TextBox as box) ->
     box.Focus() |> ignore
@@ -428,6 +443,7 @@ type Shell<'env
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLastVisit
   and 'env :> IProvideProfiles
+  and 'env :> IProvideTimeline
   and 'env :> IProvideSshKeys>(env: 'env, callback: string option) as this =
   inherit Window()
 
@@ -684,16 +700,56 @@ type Shell<'env
     outlet.PageTransition <-
       ImmediatePageTransition() :> Animation.IPageTransition
 
+    // The route path cell, seeded with the boot url and fed by the
+    // router, so the log chrome knows the active tab from the first
+    // frame.
+    let path = new BehaviorSubject<string>(routes.BootUrl)
+
+    router.Changed
+    |> Observable.add(fun snapshot ->
+      snapshot.Route |> ValueOption.iter(fun route -> path.OnNext route.Path))
+
+    // The shared log chrome: the tabs and the composer every log page
+    // posts through. It rebuilds only when the signed-in user changes,
+    // so a poll's session refresh never touches the composer's draft.
+    let chromeHost = ContentControl()
+    let chromeUser = new BehaviorSubject<string>("")
+
+    session.Observe
+    |> Observable.add(fun state ->
+      match state with
+      | SignedIn entry when chromeUser.Value <> entry.Session.User.Id ->
+        chromeUser.OnNext entry.Session.User.Id
+
+        chromeHost.Content <-
+          LogChrome.view {
+            Env = env
+            Session = entry
+            Nav = router
+            Path = path
+          }
+      | SignedIn _ -> ()
+      | SignedOut ->
+        chromeUser.OnNext ""
+        chromeHost.Content <- null)
+
     // The reading column: the site's main — a card surface between two
-    // hairlines, never wider than the site's 620px column. Where the
-    // window leaves room, the column centers in it.
+    // hairlines, never wider than the site's 620px column. The log
+    // chrome rides above the outlet inside it; where the window leaves
+    // room, the column centers in it.
+    let mainColumn = Grid()
+
+    mainColumn.RowDefinitions <- RowDefinitions("Auto,*")
+
+    mainColumn.Children(chromeHost.Row(0), outlet.Row(1)) |> ignore
+
     let mainHost =
       Border()
         .Background(Brushes.card)
         .BorderBrush(Brushes.border)
         .BorderThickness(Thickness(1.0, 0.0, 1.0, 0.0))
         .MaxWidth(620.0)
-        .Child(outlet)
+        .Child(mainColumn)
 
     // The shell: the reading column and the aside — one strip that
     // never grows past the site's app row. Stretch with the cap fills

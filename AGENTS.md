@@ -32,49 +32,14 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
 25. **Operate on files, handle the failure.** Do the read, write, or delete under `try` with the failure case in hand. No `File.Exists` guard before an operation: the check races, and the operation repeats its answer. A probe that only picks between alternatives (which `ssh-keygen` to run, whether to generate a key) is the one allowed use.
 26. **Lean env constraints.** Function parameters take the intersection form `env: #IProvideClock & #IProvideNonceSource & ...`. A `when` wall stays only where the compiler requires it — type and class definitions (`type Props<'env when ...>`, the `Shell` class) — or where a named constraint factors a secondary mechanism (Core's env-and-error composition). Never restate on `init`/`update`/`view` a constraint `Props<'env>` already carries.
 
-## Commands
-
-- `dotnet build DevNull.Client.slnx` - builds everything; the build
-  must end with zero errors and zero warnings.
-- `dotnet run --project tests/DevNull.Client.Core.Tests` - runs the
-  Expecto suite; append `-- --summary` for a summary or `-- --filter <name>`
-  for a subset.
-- `dotnet run --project tests/DevNull.Client.UI.Tests` - runs the
-  headless UI suite (Avalonia.Headless + Expecto over the real shell,
-  routes and pages, every request answered by `FakeApi`).
-- `dotnet fantomas check .` / `dotnet fantomas .` - format check / format
-  (`dotnet tool restore` installs the tool).
-- `dotnet run --project src/DevNull.Client` - opens the window and uses
-  the real dev-null.sh. Never run it to "test" a change; the two test
-  projects are the check.
-
 ## Architecture
 
-- `src/DevNull.Client.Core/` - the protocol layer: the CLI protocol
-  under `/api/cli/*` with plain-text responses, and the signed JSON
-  API under `/api/v1/*`. `Measures` (UMX-measured strings: `CommitId`,
-  `CommitBody`, `ShortHash`, `Nonce`, `KeyId`; companion modules are
-  plural, e.g. `CommitIds`, so the measure stays usable), `Types`
-  (parse leaves and IWSAM error interfaces), `Pkce`, `Http` (`IHttp`
-  worker + `IProvideHttp` accessor), `Capabilities` (worker + accessor
-  pairs: clock, nonce source, PKCE verifier source, ssh-keygen signer),
-  `ApiTypes` (the JSON shape and its decoders), `Api` (the signed
-  surface; the create route accepts no images or poll), `Payload` and
-  `Commit` (the CLI signing composite). Core never references the
-  app. The server contract source is the dev-null repository (usually
-  colocated in this repository's parent directory as `dev-null`);
-  verify response shapes there before changing `ApiTypes`.
+- `src/DevNull.Client.Core/` - the protocol layer
 - `src/DevNull.Client/` - the Avalonia consumer, dark theme, NXUI in
   code, no XAML. Layers bottom-up:
   - `Errors.fs` - the `AppError` edge type (every Core IWSAM leaf) and
     its plain-text `describe`.
-  - `Theme.fsi/fs` - the themed resource dictionaries (the site's
-    light and dark tokens), the observable brushes that follow the
-    variant, the Geist fonts, and the closed style vocabulary
-    (`StyleClass`); views never style themselves, they bind a brush or
-    add classes. A nested child style on an app-level style stalls the
-    headless style system; hover states ride on sibling pseudo-class
-    styles.
+  - `Theme.fsi/fs` - the themed resource dictionaries
   - `SettingsStore.fsi/fs` - the local settings (`closeToTray`, the
     theme choice) in a JSON file under `%LOCALAPPDATA%\DevNull`; the
     store persists through an injected hook, so tests inject their
@@ -102,24 +67,9 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
     session store; pauses while the inbox is open; survives failures.
   - `Tray.fsi/fs` - the tray icon: menu, raise on click, unread
     tooltip.
-  - `Components/` - `Status`, `Avatar`, `CommitCard` (reports an
-    `Event` DU up to the page), `Composer`, and `Feed` (the
-    virtualized list: `ItemsControl` over a `VirtualizingStackPanel`
-    in its own scroll, bound through `BindItemsSource`; the template
-    is total against the `null` recycle pass; list pages pin their
-    headers and hand it rows plus a footer).
+  - `Components/`
   - `Views/` - one MVUish page per route over `Program.mkProgram`
-    (sign-in, log, thread, notifications, saved, profile, settings,
-    about), plus `Routes.fs` (the Navs table, the session guards,
-    and the boot URL). The `/quote/:id` route reuses the thread page
-    with the quote composer armed.
-  - `Shell.fsi/fs` - the one window: sidebar with the unread badge,
-    the router outlet, the extended client area (a drag band carrying
-    the app-drawn caption row and the drawer hamburger; the drawn
-    chrome stays at `BorderOnly`; Mica on Windows), F11/Esc
-    fullscreen, the close-to-tray guard and `Quit`, the narrow drawer
-    (sidebar folds below 640 width; minimum 380x640), tray and poller
-    wiring, and the forwarded sign-in callback.
+  - `Shell.fsi/fs`
   - `Program.fs` - Serilog (console plus one file per day under
     `%LOCALAPPDATA%\DevNull\logs`), the Fluent theme first, app styles
     after; single-instance mutex; the second instance completes the
@@ -127,17 +77,9 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
 - `tests/DevNull.Client.Core.Tests/` - Expecto over Core; `TestSupport`
   carries the fakes and builders. Tests never reach network, disk, or
   real processes.
-- `tests/DevNull.Client.UI.Tests/` - the headless suite over the real
-  shell: `Harness` (per-assembly session, `onUi`/`probeUi`, frame
-  pumps, finders, `scrollFeedToEnd`), `Fixtures` (`TestEnv`, `FakeApi`,
-  canned JSON), `App.Tests` (the shell and its pages), and
-  `Unread.Tests` (the poller).
+- `tests/DevNull.Client.UI.Tests/` - the headless suite over the real shell.
 - `Directory.Packages.props` - central package management; every package
-  version lives there, never in a project file. reference from the
-  projects only what each uses. UI stack: Avalonia 12.0.5, NXUI 12.0.0,
-  Navs.Avalonia 2.0.1, MVUish.Avalonia 2.0.0. The sources of some of
-  these dependencies (Avalonia, Navs, MVUish.Avalonia) are usually
-  colocated in this repository's parent directory.
+  version lives there, never in a project file.
 
 ## Testing
 
@@ -147,3 +89,65 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
 4. **The API is never shaped for tests.** Tests implement the same error interfaces the production edge implements; domain code gains nothing for testability.
 5. **Headless UI tests touch controls on the session thread only.** Windows are born inside `probeUiAsync`; every control read or click goes through `onUiAsync`, `probeUiAsync`, or the `waitForAsync` helpers. A test that touches a control directly off the session thread fails with a cross-thread error at best and hangs at worst.
 6. **Never dispatch from inside a dispatch.** A `probeUiAsync`/`onUiAsync` call inside an `onUiAsync` block queues a job the nested wait cannot serve, and the run freezes. Finders run plain inside `onUiAsync`; only the outermost call dispatches. When a run stalls, rerun with `-- --sequenced --debug`: it names the test that never finished.
+
+## Changelog Management
+
+We follow https://github.com/ionide/KeepAChangelog guidelines
+
+Changelog Format:
+
+```markdown
+# Changelog
+
+## [Unreleased]
+
+### Added
+
+- Instanced draws inside a `beginEffect`/`endEffect` scope are now shaded by the user shader when it opts into instancing (raylib: `in mat4 instanceTransform;`; MonoGame: an `Instanced` technique reading `TEXCOORD1..4`). Effects that don't opt in keep the previous PBR-instanced fallback. Skinned + instanced remains unsupported. See `docs/shader-uniforms.md` → "Instancing (opt-in)".
+
+## [1.0.0] - 2026.01.13
+
+### Added
+
+- Initial release
+```
+
+Each section may contain the following categories:
+
+- Added
+- Changed
+- Deprecated
+- Removed
+- Fixed
+- Security
+
+When adding entries to the changelog, make sure to follow format and categories.
+
+### Writing style
+
+The changelog is written for **developers upgrading their version**, not as a development
+journal. Keep these rules in mind:
+
+1. **Concise and reader-focused.** Each entry is one bullet that says what changed and why a
+   user cares — not how it's implemented internally. No internal module/file paths, no build/
+   milestone/phase numbers (e.g. "B12", "Phase 3"), no section references (e.g. "§6.2"), and no
+   "mirrors the canonical X" narration. A reader should understand the entry without reading the
+   code.
+
+2. **Group by user-facing concern, not by task.** One bullet per feature/fix area. If multiple
+   commits touch the same subsystem (e.g. several shadow-pass fixes), collapse them into one
+   bullet that names each fix briefly, rather than one bullet per commit.
+
+3. **Only released code can be Changed or Fixed.** Features that have never shipped belong in
+   `Added` — there is no prior version to change from or fix against. Design choices and
+   implementation details of a new feature are part of its `Added` description, not separate
+   `Fixed`/`Changed` entries. Use `Changed`/`Fixed` only for modifications to already-released
+   behavior (and mark breakage with **Breaking:** or **Breaking (behavioral):**).
+
+4. **Lead with the affected surface.** Bold-prefix each bullet with the area:
+   `**MonoGame 3D:**`, `**Core:**`, `**Raylib:**`, `**MonoGame 2D:**`, etc. — so a reader can
+   scan for their backend. Keep breaking changes at the top of their category.
+
+5. **Plain language.** Describe the user-visible effect ("shadows render correctly on scaled
+   objects"), not the code diff ("BoundingSphere.Transform now scales center and radius"). The
+   reader wants to know what they'll observe, not what line changed.

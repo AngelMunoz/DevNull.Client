@@ -12,6 +12,7 @@ open DevNull.Client.LastVisitStore
 open DevNull.Client.Profiles
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
+open DevNull.Client.Timeline
 open DevNull.Client.UiClock
 open MVUish.Avalonia
 open Navs
@@ -29,6 +30,7 @@ type Props<'env
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLastVisit
   and 'env :> IProvideProfiles
+  and 'env :> IProvideTimeline
   and 'env :> IProvideSshKeys> = {
   Env: 'env
   Log: LogKind
@@ -87,6 +89,9 @@ module State =
     Pasteis: bool
     /// The commit whose inline reply composer is open, by id.
     ReplyingTo: string option
+    /// The reply drafts the page holds for commits whose row recycled,
+    /// by commit id. An empty text never lands here.
+    ReplyDrafts: Map<string, string>
     /// The visit captured when the page mounted, for the marker row.
     Marker: DateTimeOffset option
     /// The thread previews the page grew past the payload slice, by
@@ -113,6 +118,9 @@ module State =
     | SessionChanged of state: SessionState
     | ReplyToggled of Commit
     | ReplyPosted of commitId: string
+    | ReplyDraftChanged of commitId: string * text: string
+    | PollVoteGiven of Commit * PollOption
+    | PollVotedDone of Result<Commit, AppError>
     | PreviewMoreRequested of Commit
     | PreviewLoaded of commitId: string * Result<Page<CommitNode>, AppError>
 
@@ -143,6 +151,7 @@ module State =
       and 'env :> IProvideAttachmentSources
       and 'env :> IProvideLastVisit
       and 'env :> IProvideProfiles
+      and 'env :> IProvideTimeline
       and 'env :> IProvideSshKeys
 
 /// One log timeline, self-contained: mounts the MVUish program.
@@ -157,6 +166,7 @@ type Page<'env
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLastVisit
   and 'env :> IProvideProfiles
+  and 'env :> IProvideTimeline
   and 'env :> IProvideSshKeys> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

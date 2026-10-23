@@ -28,6 +28,7 @@ open DevNull.Client.SshKeygen
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
+open DevNull.Client.Timeline
 open DevNull.Client.Unread
 
 type SystemClock() =
@@ -283,6 +284,8 @@ type AppEnv(baseAddress: string, session: SessionStore, logging: ILoggerFactory)
       logging.CreateLogger "DevNull.Client.Unread"
     )
 
+  let timeline = TimelineService()
+
   interface IProvideClock with
     member _.Clock = upcast clock
 
@@ -309,6 +312,9 @@ type AppEnv(baseAddress: string, session: SessionStore, logging: ILoggerFactory)
 
   interface IProvideUnread with
     member _.Unread = unread
+
+  interface IProvideTimeline with
+    member _.Timeline = timeline
 
   interface IProvideUiClock with
     member _.UiClock = uiClock

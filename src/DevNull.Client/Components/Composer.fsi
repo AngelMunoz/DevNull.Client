@@ -16,35 +16,44 @@ type Target =
   | ReplyTo of parentId: string
   | Quoting of quotedId: string
 
-/// What one landed post answers with: the created commit, when the v1
-/// route took it, or the posted URL, when the CLI route took the
-/// images.
-[<Struct>]
-type Posted =
-  | Created of Commit
-  | PostedUrl of url: string
+/// One poll being built: two to four options and the time it stays
+/// open. A poll rides a fresh commit only, never beside images.
+type PollDraft = {
+  Options: string list
+  Duration: PollDuration
+}
 
-/// The quick composer: one body, optional staged images, one commit
-/// button, one error line. A post without images goes through the
-/// signed v1 route; a post with images goes through the CLI composite,
-/// the only route the server gives images.
+/// Where a host whose row recycles keeps the draft alive: the text the
+/// composer starts from, and the sink every change reaches. A recycled
+/// row rebuilds the composer seeded with the last text.
+type DraftSource = {
+  Seed: string
+  Changed: string -> unit
+}
+
+/// The quick composer: one body, optional staged images or a poll, one
+/// commit button, one error line. Every post goes through the signed
+/// v1 route; images travel as a multipart post whose payload carries
+/// the JSON.
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideAttachmentSources
-  and 'env :> IProvideSshKeys> = {
+  and 'env :> IProvideAttachmentSources> = {
   Env: 'env
   Session: SignedInSession
   Target: Target
-  /// Runs with the post's outcome, on the UI thread.
-  OnCommitted: Posted -> unit
+  /// Runs with the created commit, on the UI thread.
+  OnCommitted: Commit -> unit
   /// Where the composer's program lifetime lands. A host whose page
   /// is cached between visits (the log) registers the lifetime with
   /// the route; every other host leaves it empty and the composer
   /// stops itself when it leaves the visual tree.
   Register: (IDisposable -> unit) voption
+  /// The draft contract for hosts whose row recycles: the seed the
+  /// composer starts from, and the sink every change reaches.
+  Draft: DraftSource voption
 }
 
 /// One composer, self-contained: mounts the MVUish program.
@@ -53,7 +62,6 @@ type Page<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideAttachmentSources
-  and 'env :> IProvideSshKeys> =
+  and 'env :> IProvideAttachmentSources> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

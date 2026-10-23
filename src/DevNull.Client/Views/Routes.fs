@@ -14,6 +14,7 @@ open DevNull.Client.Env
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
 open DevNull.Client.Navigation
+open DevNull.Client.Timeline
 open DevNull.Client.UiClock
 open DevNull.Client.Theme
 open DevNull.Client.Views
@@ -59,7 +60,7 @@ let signedIn
 let logPage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideSession & #IProvideUiClock,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideTimeline,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -236,7 +237,7 @@ let settingsPage
 
 let build
   (env:
-    #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideSettings & #IProvideLogging)
+    #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideTimeline & #IProvideSettings & #IProvideLogging)
   : RouterShell =
   let bootUrl =
     match env.Session.SignedIn with

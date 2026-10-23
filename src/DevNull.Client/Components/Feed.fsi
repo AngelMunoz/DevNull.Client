@@ -13,6 +13,9 @@ type Props<'T when 'T: equality> = {
   KeyOf: 'T -> string
   Row: 'T -> Control
   Footer: Control voption
+  /// Emits when the feed must return to its top, whatever scrolled it
+  /// down. The listener ends when the feed leaves the visual tree.
+  ScrollTop: IObservable<unit> voption
 }
 
 /// Builds the feed.

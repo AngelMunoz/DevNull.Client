@@ -27,8 +27,8 @@ open DevNull.Client.Theme
 type ApiImage = DevNull.Client.Core.ApiTypes.Image
 
 /// What one card reports up: open the thread, toggle the star, give a
-/// pastel, start a quote, reveal the reply composer, or walk more
-/// replies of a thread preview.
+/// pastel, start a quote, reveal the reply composer, vote a poll
+/// option, or walk more replies of a thread preview.
 [<Struct>]
 type Event =
   | Opened of Commit
@@ -38,6 +38,7 @@ type Event =
   | StarToggled of Commit
   | PastelGiven of Commit
   | QuoteRequested of Commit
+  | PollVoted of Commit * PollOption
 
 /// One commit row. `OnEvent` receives every interaction. Every card
 /// rides the graph rail with its author's avatar; dense rows (the
@@ -278,44 +279,86 @@ module Parts =
         .Text("quoting a deleted commit")
         .Margin(0.0, 6.0, 0.0, 0.0)
 
-  let pollOptionRow(option: PollOption) : Control =
+  /// Everything the poll block needs: the commit it rides, its poll,
+  /// the host's event routing, and the viewer — the author sees
+  /// results, never a vote.
+  [<Struct>]
+  type PollViewCtx = {
+    Commit: Commit
+    Poll: Poll
+    OnEvent: Event -> unit
+    ViewerId: string
+  }
+
+  /// One option while the poll is open and unvoted: one click takes it.
+  let votableOptionRow(ctx: PollViewCtx, option: PollOption) : Control =
+    Button()
+      .Name($"PollOption{option.Id}")
+      .Classes(Theme.name Theme.GhostButton)
+      .HorizontalAlignment(HorizontalAlignment.Stretch)
+      .HorizontalContentAlignment(HorizontalAlignment.Left)
+      .Padding(8.0, 4.0, 8.0, 4.0)
+      .Margin(0.0, 4.0, 0.0, 0.0)
+      .Content(option.Label)
+      .OnClickHandler(fun _ args ->
+        args.Handled <- true
+        ctx.OnEvent(PollVoted(ctx.Commit, option)))
+
+  /// One option once nobody may vote: the label, the viewer's own mark,
+  /// and the share the server publishes.
+  let resultOptionRow(option: PollOption) : Control =
     let share =
-      option.Percentage
-      |> Option.map(fun percentage -> $" · {percentage}%%")
-      |> Option.defaultValue ""
+      [
+        match option.Percentage with
+        | Some percentage -> $"{percentage}%%"
+        | None -> ()
+
+        match option.VotesCount with
+        | Some votes -> $"{votes}"
+        | None -> ()
+      ]
+      |> String.concat " · "
+
+    let label =
+      if option.Voted then
+        $"{option.Label} · yours"
+      else
+        option.Label
 
     StackPanel()
       .Spacing(2.0)
       .Margin(0.0, 4.0, 0.0, 0.0)
       .Children(
-        TextBlock().Text(option.Label),
+        TextBlock().Text(label),
         TextBlock().Classes(Theme.name Theme.Mono).Text(share)
       )
 
-  /// The poll block, read-only: the server holds no voting route for
-  /// this client, so the one affordance is the commit's web page.
-  let pollView(poll: Poll, webUrl: string) : Control =
-    let title =
-      poll.TotalVotes
-      |> Option.map(fun votes -> $"poll · {votes} votes")
-      |> Option.defaultValue "poll"
+  /// The poll block: votable while it is open, unvoted, and not the
+  /// viewer's own; the results the server publishes afterwards.
+  let pollView(ctx: PollViewCtx) : Control =
+    let canVote =
+      not ctx.Poll.IsClosed
+      && not ctx.Poll.HasVoted
+      && ctx.Commit.Author.Id <> ctx.ViewerId
 
-    let children: Control array = [|
+    let title =
+      let state = if ctx.Poll.IsClosed then " · closed" else ""
+
+      let votes =
+        ctx.Poll.TotalVotes
+        |> Option.map(fun count -> $" · {count} votes")
+        |> Option.defaultValue ""
+
+      $"poll{votes}{state}"
+
+    let rows: Control array = [|
       TextBlock().Classes(Theme.name Theme.Muted).Text(title)
 
-      for option in poll.Options do
-        pollOptionRow option
-
-      Button()
-        .Name("VoteOnWeb")
-        .Classes(Theme.name Theme.GhostButton)
-        .Padding(6.0, 2.0, 6.0, 2.0)
-        .Margin(0.0, 6.0, 0.0, 0.0)
-        .HorizontalAlignment(HorizontalAlignment.Left)
-        .Content("vote on the web")
-        .OnClickHandler(fun _ args ->
-          args.Handled <- true
-          DeviceAuth.startBrowser webUrl |> ignore)
+      for option in ctx.Poll.Options do
+        if canVote then
+          votableOptionRow(ctx, option)
+        else
+          resultOptionRow option
     |]
 
     Border()
@@ -324,7 +367,7 @@ module Parts =
       .CornerRadius(8.0)
       .Padding(10.0)
       .Margin(0.0, 6.0, 0.0, 0.0)
-      .Child(StackPanel().Children(children))
+      .Child(StackPanel().Children(rows))
 
   /// The link preview: its own surface, a click away from the card it
   /// rides in. The handled click opens the outside resource and never
@@ -666,7 +709,13 @@ let view(props: Props) : Control =
     | images -> Parts.imagesView(props.Images, images)
 
     match commit.Poll with
-    | Some poll -> Parts.pollView(poll, commit.HtmlUrl)
+    | Some poll ->
+      Parts.pollView {
+        Commit = commit
+        Poll = poll
+        OnEvent = props.OnEvent
+        ViewerId = props.ViewerId
+      }
     | None -> ()
 
     match commit.QuotedCommit with

@@ -1,6 +1,7 @@
 module DevNull.Client.Core.Api
 
 open System
+open System.Text
 open JDeck
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
@@ -10,8 +11,17 @@ open DevNull.Client.Core.Types
 open FsToolkit.ErrorHandling
 open IcedTasks
 
+/// One staged image as the CLI composite defines it: a name and raw bytes.
+type ImageAttachment = DevNull.Client.Core.Commit.ImageAttachment
+
+/// One parsed image: its bytes, its content type, and its SHA-256.
+type PostableImage = DevNull.Client.Core.Commit.Image
+
 [<Literal>]
 let NamespaceName = "devnull-api"
+
+[<Literal>]
+let ImagesNamespaceName = "devnull-api-images"
 
 module Signing =
 
@@ -20,6 +30,14 @@ module Signing =
     Method: string
     Target: string
     Body: string
+  }
+
+  type ImageRequest = {
+    KeyFile: string
+    Method: string
+    Target: string
+    Body: string
+    Images: PostableImage list
   }
 
   type Deps<'Env
@@ -71,6 +89,81 @@ module Signing =
     }
   }
 
+  let signUnder<'env, 'e when 'env :> IProvideSigner and SigningError<'e>>
+    (env: 'env, namespaceName: string, keyFile: string, message: string)
+    : Async<Result<string, 'e>> = asyncEx {
+    let! outcome =
+      env.Signer.Sign {
+        KeyFile = keyFile
+        Namespace = namespaceName
+        Payload = message
+      }
+
+    return
+      outcome
+      |> Result.mapError(fun failure -> 'e.SigningFailed failure.Message)
+  }
+
+  /// Signs one v1 request with images: the JSON body rides a payload
+  /// part, the images ride `images[]` files beside it, and the signed
+  /// message carries the comma-separated image hashes on one line
+  /// before the body, under the images namespace.
+  let signedImageRequest<'env, 'e
+    when Deps<'env> and NonceError<'e> and SigningError<'e>>
+    (env: 'env, request: ImageRequest)
+    : Async<Result<HttpRequest, 'e>> = asyncResult {
+    let timestamp = Clock.unixNow env
+    let! nonce = Nonces.parse(NonceSource.newHex env)
+    let method = request.Method.Trim().ToUpperInvariant()
+
+    let hashes = request.Images |> List.map _.Hash |> String.concat ","
+
+    let message =
+      String.concat "\n" [
+        string timestamp
+        Nonces.value nonce
+        method
+        request.Target
+        hashes
+        request.Body
+      ]
+
+    let! signature =
+      signUnder(env, ImagesNamespaceName, request.KeyFile, message)
+
+    let payload = {
+      Name = "payload"
+      FileName = "commit.json"
+      ContentType = "application/json"
+      Content = Encoding.UTF8.GetBytes request.Body
+    }
+
+    let imageFiles =
+      request.Images
+      |> List.map(fun image -> {
+        Name = "images[]"
+        FileName = image.FileName
+        ContentType = image.ContentType
+        Content = image.Bytes
+      })
+
+    return {
+      Method = method
+      Target = request.Target
+      Headers = [
+        "User-Agent", userAgent
+        "X-Devnull-Timestamp", string timestamp
+        "X-Devnull-Nonce", Nonces.value nonce
+        "X-SSH-Signature", signature
+      ]
+      Body =
+        Multipart {
+          Fields = []
+          Files = payload :: imageFiles
+        }
+    }
+  }
+
 module Internal =
 
   type SignedCall<'value> = {
@@ -81,11 +174,50 @@ module Internal =
     Decode: string -> Result<'value, DecodeFailure>
   }
 
+  type ImageCall<'value> = {
+    KeyFile: string
+    Method: string
+    Target: string
+    Body: string
+    Images: PostableImage list
+    Decode: string -> Result<'value, DecodeFailure>
+  }
+
   type SendSignedDeps<'Env
     when 'Env :> IProvideClock
     and 'Env :> IProvideNonceSource
     and 'Env :> IProvideSigner
     and 'Env :> IProvideHttp> = 'Env
+
+  /// Sends one signed request and decodes its answer, reading the
+  /// refusal envelope off every non-success status.
+  let deliver<'env, 'e, 'value
+    when 'env :> IProvideHttp
+    and TransportError<'e>
+    and Rejected<'e>
+    and DecodeError<'e>>
+    (
+      env: 'env,
+      signed: HttpRequest,
+      decode: string -> Result<'value, DecodeFailure>
+    ) : Async<Result<'value, 'e>> = asyncEx {
+    match! env.Http.Send signed with
+    | Error failure -> return Error('e.TransportFailed failure.Message)
+    | Ok response when isSuccess response.Status ->
+      return
+        decode response.Body
+        |> Result.mapError(fun failure -> 'e.DecodeFailed failure)
+    | Ok response ->
+      let fallback: Failure = {
+        Message = response.Body.Trim()
+        Code = None
+      }
+
+      let failure =
+        ApiTypes.Failure.decode response.Body |> Result.defaultValue fallback
+
+      return Error('e.Refused(response.Status, failure.Code, failure.Message))
+  }
 
   let sendSigned<'env, 'e, 'value
     when SendSignedDeps<'env>
@@ -108,23 +240,32 @@ module Internal =
       )
     with
     | Error error -> return Error error
-    | Ok signed ->
-      match! env.Http.Send signed with
-      | Error failure -> return Error('e.TransportFailed failure.Message)
-      | Ok response when isSuccess response.Status ->
-        return
-          call.Decode response.Body
-          |> Result.mapError(fun failure -> 'e.DecodeFailed failure)
-      | Ok response ->
-        let fallback: Failure = {
-          Message = response.Body.Trim()
-          Code = None
+    | Ok signed -> return! deliver(env, signed, call.Decode)
+  }
+
+  let sendSignedImage<'env, 'e, 'value
+    when SendSignedDeps<'env>
+    and NonceError<'e>
+    and SigningError<'e>
+    and TransportError<'e>
+    and Rejected<'e>
+    and DecodeError<'e>>
+    (env: 'env, call: ImageCall<'value>)
+    : Async<Result<'value, 'e>> = asyncEx {
+    match!
+      Signing.signedImageRequest(
+        env,
+        {
+          KeyFile = call.KeyFile
+          Method = call.Method
+          Target = call.Target
+          Body = call.Body
+          Images = call.Images
         }
-
-        let failure =
-          ApiTypes.Failure.decode response.Body |> Result.defaultValue fallback
-
-        return Error('e.Refused(response.Status, failure.Code, failure.Message))
+      )
+    with
+    | Error error -> return Error error
+    | Ok signed -> return! deliver(env, signed, call.Decode)
   }
 
   let withQuery(target: string, parameters: (string * string) list) =
@@ -536,6 +677,14 @@ module Commits =
     KeyFile: string
     Body: string
     Target: Target
+    Images: ImageAttachment list
+    Poll: PollSpec option
+  }
+
+  type VoteRequest = {
+    KeyFile: string
+    CommitId: string
+    OptionId: string
   }
 
   type ShowRequest = { KeyFile: string; CommitId: string }
@@ -564,6 +713,18 @@ module Commits =
       Error('e.ReportDetailsTooLong details.Length)
     | details -> Ok details
 
+  /// The server refuses a poll on a reply, a quote, or a commit with
+  /// images; the boundary states the rule before the post.
+  let checkPoll<'e when PollError<'e>>
+    (poll: PollSpec option, target: Target, images: ImageAttachment list)
+    : Result<PollSpec option, 'e> =
+    match poll, target, images with
+    | None, _, _ -> Ok None
+    | Some _, New, [] -> Ok poll
+    | Some _, ReplyTo _, _ -> Error('e.PollProhibited PollOnReply)
+    | Some _, Quote _, _ -> Error('e.PollProhibited PollOnQuote)
+    | Some _, New, _ -> Error('e.PollProhibited PollWithImages)
+
   let create(env, request: CreateRequest) = asyncResult {
     let! body = CommitBodies.parse request.Body
 
@@ -579,24 +740,69 @@ module Commits =
         |> Result.map(fun id ->
           Some("quoted_commit_id", Encode.string(CommitIds.value id)))
 
-    let body =
+    let! poll = checkPoll(request.Poll, request.Target, request.Images)
+
+    let! images = DevNull.Client.Core.Commit.CommitImages.parse request.Images
+
+    let pollJson =
+      poll
+      |> Option.map(fun spec ->
+        Json.object [
+          "options", Json.sequence(PollSpecs.options spec, Encode.string)
+          "duration", Encode.int(PollDurations.wire(PollSpecs.duration spec))
+        ])
+
+    let json =
       Json.object(
         [ "body", Encode.string(CommitBodies.value body) ]
         @ Option.toList target
+        @ Option.toList(pollJson |> Option.map(fun poll -> "poll", poll))
       )
       |> _.ToJsonString()
 
+    let baseCall: Internal.SignedCall<Commit> = {
+      KeyFile = request.KeyFile
+      Method = "POST"
+      Target = "/api/v1/commits"
+      Body = json
+      Decode = Commit.decodeCreated
+    }
+
     return!
-      Internal.sendSigned(
-        env,
-        {
-          KeyFile = request.KeyFile
-          Method = "POST"
-          Target = "/api/v1/commits"
-          Body = body
-          Decode = Commit.decodeCreated
-        }
-      )
+      match images with
+      | [] -> Internal.sendSigned(env, baseCall)
+      | staged ->
+        Internal.sendSignedImage(
+          env,
+          {
+            KeyFile = baseCall.KeyFile
+            Method = baseCall.Method
+            Target = baseCall.Target
+            Body = baseCall.Body
+            Images = staged
+            Decode = baseCall.Decode
+          }
+        )
+  }
+
+  /// Votes one poll option; the answer is the commit as its page shows
+  /// it, poll results included.
+  let vote(env, request: VoteRequest) = asyncResult {
+    let! path = Internal.commitPath("/poll/votes", request.CommitId)
+
+    let json =
+      Json.object [ "option", Encode.string request.OptionId ]
+      |> _.ToJsonString()
+
+    let call: Internal.SignedCall<Commit> = {
+      KeyFile = request.KeyFile
+      Method = "POST"
+      Target = path
+      Body = json
+      Decode = Commit.decodeCreated
+    }
+
+    return! Internal.sendSigned(env, call)
   }
 
   let show(env, request: ShowRequest) = asyncResult {

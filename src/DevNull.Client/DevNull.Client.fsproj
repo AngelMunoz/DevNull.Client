@@ -43,6 +43,8 @@
     <Compile Include="SshKeys.fs" />
     <Compile Include="Unread.fsi" />
     <Compile Include="Unread.fs" />
+    <Compile Include="Timeline.fsi" />
+    <Compile Include="Timeline.fs" />
     <Compile Include="Env.fsi" />
     <Compile Include="Env.fs" />
     <Compile Include="DeviceAuth.fsi" />
@@ -75,6 +77,8 @@
     <Compile Include="Components\Composer.fs" />
     <Compile Include="Components\Feed.fsi" />
     <Compile Include="Components\Feed.fs" />
+    <Compile Include="Components\LogChrome.fsi" />
+    <Compile Include="Components\LogChrome.fs" />
     <Compile Include="Views\CommitActions.fsi" />
     <Compile Include="Views\CommitActions.fs" />
     <Compile Include="Views\SignInView.fsi" />

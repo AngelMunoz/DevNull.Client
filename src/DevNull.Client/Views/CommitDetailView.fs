@@ -96,6 +96,7 @@ module State =
     | PastelRequested of commitId: string
     | DeleteRequested
     | StarDone of Result<Commit, AppError>
+    | PollVotedDone of Result<Commit, AppError>
     | PastelGiven of Result<PastelResult, AppError>
     | Deleted of Result<unit, AppError>
     | ClockTicked of moment: DateTimeOffset
@@ -251,6 +252,18 @@ module State =
             Quoting = false
       },
       Cmd.none
+    | CardEvent(CommitCard.PollVoted(commit, option)) ->
+      let vote() =
+        Commits.vote(
+          props.Env,
+          {
+            KeyFile = props.Session.KeyFile
+            CommitId = commit.Id
+            OptionId = option.Id
+          }
+        )
+
+      { model with Error = None }, Cmd.OfAsync.perform vote () PollVotedDone
     | CardEvent(CommitCard.ThreadRequested commit) ->
       model,
       Cmd.ofEffect(fun _ ->
@@ -327,6 +340,10 @@ module State =
 
       { model with Error = None }, Cmd.OfAsync.perform remove () Deleted
     | StarDone result ->
+      match result with
+      | Ok updated -> withCommit(updated, model), Cmd.none
+      | Error error -> { model with Error = Some error }, Cmd.none
+    | PollVotedDone result ->
       match result with
       | Ok updated -> withCommit(updated, model), Cmd.none
       | Error error -> { model with Error = Some error }, Cmd.none
@@ -708,6 +725,7 @@ module Parts =
         Target = Composer.ReplyTo props.CommitId
         OnCommitted = fun _ -> dispatch State.ReloadRequested
         Register = ValueNone
+        Draft = ValueNone
       }
 
     let quote =
@@ -716,16 +734,9 @@ module Parts =
         Session = props.Session
         Target = Composer.Quoting props.CommitId
         OnCommitted =
-          function
-          | Composer.Created commit ->
-            Navigation.go(props.Nav, "/commit/" + commit.Id, ignore)
-          | Composer.PostedUrl url ->
-            // The CLI answer carries the commit page URL; its last
-            // segment is the commit id.
-            let id = url.Substring(url.LastIndexOf '/' + 1)
-
-            Navigation.go(props.Nav, "/commit/" + id, ignore)
+          fun commit -> Navigation.go(props.Nav, "/commit/" + commit.Id, ignore)
         Register = ValueNone
+        Draft = ValueNone
       }
 
     StackPanel()

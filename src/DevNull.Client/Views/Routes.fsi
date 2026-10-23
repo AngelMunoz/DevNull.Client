@@ -12,6 +12,7 @@ open DevNull.Client.Profiles
 open DevNull.Client.SettingsStore
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
+open DevNull.Client.Timeline
 open DevNull.Client.UiClock
 open Navs
 
@@ -43,6 +44,7 @@ val build:
     and 'env :> IProvideAttachmentSources
     and 'env :> IProvideLastVisit
     and 'env :> IProvideProfiles
+    and 'env :> IProvideTimeline
     and 'env :> IProvideSshKeys
     and 'env :> IProvideSettings
     and 'env :> IProvideLogging

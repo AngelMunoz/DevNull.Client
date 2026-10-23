@@ -60,6 +60,8 @@ module State =
     | MoreRequested
     | StarToggled of Commit
     | StarDone of Result<Commit, AppError>
+    | PollVoteGiven of Commit * PollOption
+    | PollVotedDone of Result<Commit, AppError>
     | PastelGiven of Commit
     | PastelDone of Result<PastelResult, AppError>
     | ClockTicked of moment: DateTimeOffset
@@ -147,6 +149,27 @@ module State =
         },
         Cmd.none
       | Error error -> { model with Error = Some error }, Cmd.none
+    | PollVoteGiven(commit, option) ->
+      let vote() =
+        Commits.vote(
+          props.Env,
+          {
+            KeyFile = props.Session.KeyFile
+            CommitId = commit.Id
+            OptionId = option.Id
+          }
+        )
+
+      { model with Error = None }, Cmd.OfAsync.perform vote () PollVotedDone
+    | PollVotedDone result ->
+      match result with
+      | Ok updated ->
+        {
+          model with
+              Items = replaceNode(model.Items, updated)
+        },
+        Cmd.none
+      | Error error -> { model with Error = Some error }, Cmd.none
     | PastelGiven commit ->
       let give() =
         Pasteis.give(
@@ -212,6 +235,8 @@ module Parts =
         Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
       | CommitCard.StarToggled c -> dispatch(State.StarToggled c)
       | CommitCard.PastelGiven c -> dispatch(State.PastelGiven c)
+      | CommitCard.PollVoted(commit, option) ->
+        dispatch(State.PollVoteGiven(commit, option))
       | CommitCard.QuoteRequested c ->
         Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
     Pasteis = model |> Observable.map _.Pasteis
@@ -258,6 +283,7 @@ module Parts =
             fun () -> dispatch State.MoreRequested
           )
         )
+      ScrollTop = ValueNone
     }
 
 let view

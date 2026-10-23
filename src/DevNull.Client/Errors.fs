@@ -28,6 +28,11 @@ type AppError =
   | ReportDetailsTooLong of length: int
   | InvalidLaneIndex of index: int
   | InvalidLaneColor of color: string
+  | TooFewPollOptions of count: int
+  | TooManyPollOptions of count: int
+  | PollOptionTooLong of label: string * length: int
+  | DuplicatePollOption of label: string
+  | PollProhibited of conflict: PollConflict
   | SignInFailed of message: string
 
   interface CommitBodyError<AppError> with
@@ -81,6 +86,16 @@ type AppError =
     static member InvalidLaneIndex index = InvalidLaneIndex index
     static member InvalidLaneColor color = InvalidLaneColor color
 
+  interface PollError<AppError> with
+    static member TooFewPollOptions count = TooFewPollOptions count
+    static member TooManyPollOptions count = TooManyPollOptions count
+
+    static member PollOptionTooLong(label, length) =
+      PollOptionTooLong(label, length)
+
+    static member DuplicatePollOption label = DuplicatePollOption label
+    static member PollProhibited conflict = PollProhibited conflict
+
 /// One line of plain text per failure, for the app.
 let describe error =
   let refused (what: string) (status: int, body: string) =
@@ -123,4 +138,12 @@ let describe error =
     $"Report details allow at most 500 characters, got {length}."
   | InvalidLaneIndex index -> $"Lane index {index} is not between 0 and 5."
   | InvalidLaneColor color -> $"{color} is not a lowercase six-digit hex color."
+  | TooFewPollOptions count -> $"A poll needs at least 2 options, got {count}."
+  | TooManyPollOptions count -> $"A poll allows at most 4 options, got {count}."
+  | PollOptionTooLong(label, length) ->
+    $"{label} is longer than the 50 characters a poll option allows, got {length}."
+  | DuplicatePollOption label -> $"{label} repeats an earlier poll option."
+  | PollProhibited PollOnReply -> "A poll cannot answer another commit."
+  | PollProhibited PollOnQuote -> "A poll cannot quote another commit."
+  | PollProhibited PollWithImages -> "A poll cannot carry images."
   | SignInFailed message -> message

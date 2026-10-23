@@ -20,6 +20,7 @@ open DevNull.Client.Profiles
 open DevNull.Client.SettingsStore
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
+open DevNull.Client.Timeline
 open DevNull.Client.UiClock
 open DevNull.Client.Unread
 
@@ -218,6 +219,8 @@ type TestEnv
       NullLogger.Instance
     )
 
+  let timeline = TimelineService()
+
   interface IProvideClock with
     member _.Clock = clock
 
@@ -247,6 +250,9 @@ type TestEnv
 
   interface IProvideUnread with
     member _.Unread = unread
+
+  interface IProvideTimeline with
+    member _.Timeline = timeline
 
   interface IProvideUiClock with
     member _.UiClock = uiClock
@@ -698,6 +704,30 @@ let pollCommitJson =
     "\"starred\":false,\"poll\":{\"id\":\"018f4c1e-poll-7c3a-9b2d-5e6f7a8b9c0d\",\"closes_at\":null,\"is_closed\":false,\"has_voted\":false,\"total_votes\":3,\"options\":[{\"id\":\"o1\",\"label\":\"Yes\",\"votes_count\":2,\"voted\":false,\"percentage\":67},{\"id\":\"o2\",\"label\":\"No\",\"votes_count\":1,\"voted\":false,\"percentage\":33}]}"
   )
 
+/// One stranger's commit carrying an open unvoted poll, so the viewer
+/// may vote on it.
+let strangerPollCommitJson =
+  strangerCommitJson(
+    "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d",
+    "b8b9c0d",
+    "It was DNS.",
+    "2020-04-03T13:00:00Z"
+  )
+    .Replace(
+      "\"starred\":false",
+      "\"starred\":false,\"poll\":{\"id\":\"018f4c1e-poll-7c3a-9b2d-5e6f7a8b9c0d\",\"closes_at\":null,\"is_closed\":false,\"has_voted\":false,\"total_votes\":3,\"options\":[{\"id\":\"o1\",\"label\":\"Yes\",\"votes_count\":2,\"voted\":false,\"percentage\":67},{\"id\":\"o2\",\"label\":\"No\",\"votes_count\":1,\"voted\":false,\"percentage\":33}]}"
+    )
+
+/// The stranger's poll after the viewer took the first option.
+let strangerPollVotedJson =
+  strangerPollCommitJson
+    .Replace("\"has_voted\":false", "\"has_voted\":true")
+    .Replace(
+      "\"label\":\"Yes\",\"votes_count\":2,\"voted\":false,\"percentage\":67",
+      "\"label\":\"Yes\",\"votes_count\":3,\"voted\":true,\"percentage\":75"
+    )
+    .Replace("\"total_votes\":3", "\"total_votes\":4")
+
 /// The api of the poll test: the boot log answers the poll page.
 let pollLogApi() =
   FakeApi(
@@ -714,6 +744,24 @@ let pollLogApi() =
          | ValueNone -> ok "{}")),
     (fun _ -> Ok imageBytes)
   )
+
+/// The api of the voting test: the boot log answers the stranger's
+/// open poll, and a vote answers the poll with the viewer's vote in.
+let voteApi() =
+  let logPage =
+    sprintf
+      "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
+      strangerPollCommitJson
+
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/log/" then
+      ok logPage
+    elif request.Method = "POST" && request.Target.EndsWith "/poll/votes" then
+      ok(sprintf "{\"data\":%s}" strangerPollVotedJson)
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
 
 /// One notification row as the inbox returns it.
 let notificationJson =

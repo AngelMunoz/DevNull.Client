@@ -11,6 +11,7 @@ open Avalonia.Media.Imaging
 open Avalonia.Interactivity
 open Avalonia.Threading
 open NXUI.Extensions
+open FSharp.Control.Reactive
 open IcedTasks
 open MVUish.Avalonia
 open DevNull.Client
@@ -27,10 +28,6 @@ open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.Theme
 
-// The CLI composite lives under a name the API's commit record also
-// carries; the alias keeps both in reach.
-module Cli = DevNull.Client.Core.Commit.Commit
-
 /// What the composer answers to: a fresh commit, a reply, or a quote.
 [<Struct>]
 type Target =
@@ -38,24 +35,32 @@ type Target =
   | ReplyTo of parentId: string
   | Quoting of quotedId: string
 
-/// What one landed post answers with.
-[<Struct>]
-type Posted =
-  | Created of Commit
-  | PostedUrl of url: string
+/// One poll being built: two to four options and the time it stays
+/// open. A poll rides a fresh commit only, never beside images.
+type PollDraft = {
+  Options: string list
+  Duration: PollDuration
+}
+
+/// Where a host whose row recycles keeps the draft alive: the text the
+/// composer starts from, and the sink every change reaches.
+type DraftSource = {
+  Seed: string
+  Changed: string -> unit
+}
 
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideAttachmentSources
-  and 'env :> IProvideSshKeys> = {
+  and 'env :> IProvideAttachmentSources> = {
   Env: 'env
   Session: SignedInSession
   Target: Target
-  OnCommitted: Posted -> unit
+  OnCommitted: Commit -> unit
   Register: (IDisposable -> unit) voption
+  Draft: DraftSource voption
 }
 
 /// The composer's state logic: model, messages, and update.
@@ -65,22 +70,31 @@ module State =
     Busy: bool
     Error: AppError option
     Committed: int
+    Body: string
     Attachments: ImageAttachment list
+    Poll: PollDraft option
   }
 
   type Msg =
     | Submitted of body: string
+    | BodyChanged of text: string
     | AttachRequested
     | ImagesAdded of ImageAttachment list
     | ImageRemoved of index: int
+    | PollToggled
+    | PollOptionChanged of index: int * text: string
+    | PollOptionAdded
+    | PollOptionRemoved of index: int
+    | PollDurationPicked of PollDuration
     | Committed of Result<Commit, AppError>
-    | CliPosted of Result<CommitPosted, AppError>
 
   let initial = {
     Busy = false
     Error = None
     Committed = 0
+    Body = ""
     Attachments = []
+    Poll = None
   }
 
   let apiTarget(target: Target) : Commits.Target =
@@ -89,61 +103,31 @@ module State =
     | ReplyTo parentId -> Commits.ReplyTo parentId
     | Quoting quotedId -> Commits.Quote quotedId
 
-  /// What one CLI post needs from the composer: the body, the parent
-  /// it answers, and the staged images. The key file is resolved at
-  /// post time, never carried here.
-  [<Struct>]
-  type CliPost = {
-    Body: string
-    ReplyTo: string option
-    Images: ImageAttachment list
-  }
+  let init (props: Props<'env>) () =
+    let seeded =
+      match props.Draft with
+      | ValueSome draft -> draft.Seed
+      | ValueNone -> ""
 
-  /// The CLI route authenticates the ssh keys on the user's GitHub
-  /// account, not this app's device key: offer the local keys, keep
-  /// the one the lookup claims, and sign with its private half.
-  let commitViaCli<'env
-    when 'env :> IProvideClock
-    and 'env :> IProvideNonceSource
-    and 'env :> IProvideSigner
-    and 'env :> IProvideHttp
-    and 'env :> IProvideSshKeys>
-    (env: 'env, post: CliPost)
-    : Async<Result<CommitPosted, AppError>> = asyncEx {
-    let! found = Cli.findKey(env, String.concat "\n" (env.SshKeys.Candidates()))
+    { initial with Body = seeded }, Cmd.none
 
-    match found with
-    | Error error -> return Error error
-    | Ok keyId ->
-      let keyIdText = KeyIds.value keyId
-
-      match env.SshKeys.PrivateKeyOf keyIdText with
-      | Some keyFile ->
-        return!
-          Cli.commit(
-            env,
-            {
-              Body = post.Body
-              ReplyTo = post.ReplyTo
-              KeyFile = keyFile
-              Images = post.Images
-            }
-          )
-      | None -> return Error(MissingPrivateKey keyIdText)
-  }
-
-  let init (props: Props<'env>) () = initial, Cmd.none
-
-  let update (props: Props<'env>) msg model =
+  let update (props: Props<'env>) msg (model: Model) =
     match msg with
+    | BodyChanged text ->
+      let changed =
+        match props.Draft with
+        | ValueSome draft -> Cmd.ofEffect(fun _ -> draft.Changed text)
+        | ValueNone -> Cmd.none
+
+      { model with Body = text }, changed
     | AttachRequested ->
       // The picker is modal; the answer arrives as one message.
       model, Cmd.OfAsync.perform props.Env.Attachments.PickFiles () ImagesAdded
     | ImagesAdded staged ->
       let combined = model.Attachments @ staged
 
-      // The same parse the CLI composite runs, at stage time: the
-      // count, the size, and the content sniff speak before the post.
+      // The same parse the post runs, at stage time: the count, the
+      // size, and the content sniff speak before the post.
       match CommitImages.parse combined with
       | Ok _ -> { model with Attachments = combined }, Cmd.none
       | Error error -> { model with Error = Some error }, Cmd.none
@@ -155,32 +139,103 @@ module State =
         |> List.map snd
 
       { model with Attachments = attachments }, Cmd.none
+    | PollToggled ->
+      // A poll rides a fresh commit with no images; opening one puts
+      // the staged images back.
+      let poll =
+        match model.Poll with
+        | Some _ -> None
+        | None ->
+          Some {
+            Options = [ ""; "" ]
+            Duration = PollDuration.OneDay
+          }
+
+      {
+        model with
+            Poll = poll
+            Attachments = []
+      },
+      Cmd.none
+    | PollOptionChanged(index, text) ->
+      let changed =
+        model.Poll
+        |> Option.map(fun poll ->
+          let options =
+            poll.Options
+            |> List.indexed
+            |> List.map(fun (at, optionText) ->
+              if at = index then text else optionText)
+
+          { poll with Options = options })
+
+      { model with Poll = changed }, Cmd.none
+    | PollOptionAdded ->
+      let changed =
+        model.Poll
+        |> Option.bind(fun poll ->
+          if List.length poll.Options >= 4 then
+            None
+          else
+            Some {
+              poll with
+                  Options = poll.Options @ [ "" ]
+            })
+
+      { model with Poll = changed }, Cmd.none
+    | PollOptionRemoved index ->
+      let changed =
+        model.Poll
+        |> Option.bind(fun poll ->
+          if List.length poll.Options <= 2 then
+            None
+          else
+            Some {
+              poll with
+                  Options =
+                    poll.Options
+                    |> List.indexed
+                    |> List.filter(fun (at, _) -> at <> index)
+                    |> List.map snd
+            })
+
+      { model with Poll = changed }, Cmd.none
+    | PollDurationPicked duration ->
+      let changed =
+        model.Poll |> Option.map(fun poll -> { poll with Duration = duration })
+
+      { model with Poll = changed }, Cmd.none
     | Submitted body ->
-      { model with Busy = true; Error = None },
-      (match model.Attachments with
-       | [] ->
-         Cmd.OfAsync.perform
-           Commits.create
-           (props.Env,
-            {
-              KeyFile = props.Session.KeyFile
-              Body = body
-              Target = apiTarget props.Target
-            })
-           Committed
-       | images ->
-         Cmd.OfAsync.perform
-           commitViaCli
-           (props.Env,
-            {
-              Body = body
-              ReplyTo =
-                match props.Target with
-                | ReplyTo parentId -> Some parentId
-                | _ -> None
-              Images = images
-            })
-           CliPosted)
+      // The poll speaks at the post: the same parse the server runs,
+      // before the request leaves.
+      let pollSpec: Result<PollSpec option, AppError> =
+        match model.Poll with
+        | None -> Ok None
+        | Some draft ->
+          let trimmed =
+            draft.Options
+            |> List.map _.Trim()
+            |> List.filter(fun option -> option <> "")
+
+          PollSpecs.parse(trimmed, draft.Duration) |> Result.map Some
+
+      match pollSpec with
+      | Error error ->
+        // The refusal keeps the box open with what was typed.
+        { model with Error = Some error }, Cmd.none
+      | Ok spec ->
+        { model with Busy = true; Error = None },
+        Cmd.OfAsync.perform
+          Commits.create
+          (props.Env,
+           {
+             KeyFile = props.Session.KeyFile
+             Body = body
+             Target = apiTarget props.Target
+             Images = model.Attachments
+             Poll = spec
+           })
+          Committed
     | Committed result ->
       match result with
       | Ok commit ->
@@ -191,23 +246,7 @@ module State =
           initial with
               Committed = model.Committed + 1
         },
-        Cmd.ofEffect(fun _ -> props.OnCommitted(Created commit))
-      | Error error ->
-        {
-          model with
-              Busy = false
-              Error = Some error
-        },
-        Cmd.none
-    | CliPosted result ->
-      match result with
-      | Ok posted ->
-        {
-          initial with
-              Committed = model.Committed + 1
-        },
-        Cmd.ofEffect(fun _ ->
-          props.OnCommitted(PostedUrl(CommitPosted.url posted)))
+        Cmd.ofEffect(fun _ -> props.OnCommitted commit)
       | Error error ->
         {
           model with
@@ -220,21 +259,47 @@ module State =
 module Parts =
 
   /// The input: one line to start, the site's textarea rhythm; the
-  /// inner presenter takes over past the cap.
-  let body(props: Props<'env>) : TextBox =
+  /// inner presenter takes over past the cap. The text rides the
+  /// model: the one-way seed answers a recycled row's rebuild, and
+  /// every change reports back, so the draft outlives the box.
+  let body
+    (
+      props: Props<'env>,
+      model: IObservable<State.Model>,
+      dispatch: Dispatch<State.Msg>
+    ) : TextBox =
     let placeholder =
       match props.Target with
       | Fresh -> "What did you ship?"
       | ReplyTo _ -> "Write your reply…"
       | Quoting _ -> "Add your take"
 
-    TextBox()
-      .Name("ComposerBody")
-      .PlaceholderText(placeholder)
-      .AcceptsReturn(true)
-      .MinHeight(44.0)
-      .MaxHeight(300.0)
-      .TextWrapping(TextWrapping.Wrap)
+    let box =
+      TextBox()
+        .Name("ComposerBody")
+        .PlaceholderText(placeholder)
+        .AcceptsReturn(true)
+        .MinHeight(44.0)
+        .MaxHeight(300.0)
+        .TextWrapping(TextWrapping.Wrap)
+
+    box.Text(
+      model
+      |> Observable.map _.Body
+      |> Observable.distinctUntilChanged
+      |> _.ToBinding()
+    )
+    |> ignore
+
+    box.TextChanged.Add(fun _ ->
+      let text =
+        match box.Text with
+        | null -> ""
+        | typed -> typed
+
+      dispatch(State.BodyChanged text))
+
+    box
 
   /// The paste lane: the platform's paste gesture asks the attachment
   /// sources first — a clipboard image stages, clipboard text lands in
@@ -278,11 +343,8 @@ module Parts =
       RoutingStrategies.Tunnel
     )
 
-  /// Every landed commit leaves the box empty for the next one, so a
-  /// sent body never lingers to be cut or reposted.
-  let clearOnCommit(model: IObservable<State.Model>, body: TextBox) : unit =
-    model |> Observable.map _.Committed |> Observable.add(fun _ -> body.Clear())
-
+  /// Every landed commit leaves the box empty for the next one: the
+  /// model resets its body, and the box's one-way text binding follows.
   /// The error line under the input.
   let errorLine(model: IObservable<State.Model>) : Control =
     TextBlock()
@@ -369,7 +431,8 @@ module Parts =
 
   /// The attach button: the image glyph, a live count, disabled past
   /// three staged files. A quote target hides it — no route the server
-  /// gives us accepts a quote with images.
+  /// gives us accepts a quote with images — and an open poll hides it
+  /// too: the server takes a poll or images, never both.
   let attachButton
     (
       props: Props<'env>,
@@ -395,13 +458,205 @@ module Parts =
               TextBlock().Classes(Theme.name Theme.Mono).Text(count)
             )
         )
+        .IsVisible(model |> Observable.map(fun current -> current.Poll.IsNone))
         .IsEnabled(
           model |> Observable.map(fun current -> current.Attachments.Length < 3)
         )
         .OnClickHandler(fun _ _ -> dispatch State.AttachRequested)
 
-  /// The action row: the attach button and the commit button docked
-  /// right, the error line filling the rest.
+  /// The poll button: opens the builder. A poll rides a fresh commit
+  /// with no images, so replies, quotes, and staged images hide it.
+  let pollButton
+    (
+      props: Props<'env>,
+      model: IObservable<State.Model>,
+      dispatch: Dispatch<State.Msg>
+    ) : Control =
+    let offered =
+      model
+      |> Observable.map(fun current ->
+        match props.Target with
+        | Fresh -> current.Attachments.IsEmpty
+        | _ -> false)
+
+    Button()
+      .Name("PollButton")
+      .Classes(Theme.name Theme.GhostButton)
+      .Padding(6.0, 2.0, 6.0, 2.0)
+      .Content(
+        StackPanel()
+          .Orientation(Orientation.Horizontal)
+          .Spacing(4.0)
+          .Children(
+            Icons.iconAt(Glyph.Poll, 16.0),
+            TextBlock().Classes(Theme.name Theme.Mono).Text("poll")
+          )
+      )
+      .IsVisible(offered)
+      .OnClickHandler(fun _ _ -> dispatch State.PollToggled)
+
+  /// One option box of the poll builder: the text rides the model the
+  /// way the body does, so the structure rebuilds only when the option
+  /// count moves.
+  let pollOptionBox
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>, index: int)
+    : Control =
+    let optionText(current: State.Model) : string =
+      current.Poll
+      |> Option.bind(fun poll -> List.tryItem index poll.Options)
+      |> Option.defaultValue ""
+
+    let box =
+      TextBox()
+        .Name($"PollOption{index}")
+        .PlaceholderText($"Option {index + 1}")
+        .MinHeight(32.0)
+
+    box.Text(
+      model
+      |> Observable.map optionText
+      |> Observable.distinctUntilChanged
+      |> _.ToBinding()
+    )
+    |> ignore
+
+    box.TextChanged.Add(fun _ ->
+      let text =
+        match box.Text with
+        | null -> ""
+        | typed -> typed
+
+      dispatch(State.PollOptionChanged(index, text)))
+
+    box
+
+  /// The row of one poll option: its box and, past the first two, its
+  /// remove button.
+  let pollOptionRow
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>, index: int)
+    : Control =
+    DockPanel()
+      .LastChildFill(true)
+      .Children(
+        Button()
+          .Name($"PollOptionRemove{index}")
+          .Classes(Theme.name Theme.GhostButton)
+          .Padding(4.0, 0.0, 4.0, 0.0)
+          .VerticalAlignment(VerticalAlignment.Center)
+          .Content("remove")
+          .IsVisible(
+            model
+            |> Observable.map(fun current ->
+              current.Poll
+              |> Option.map(fun poll -> List.length poll.Options > 2)
+              |> Option.defaultValue false)
+          )
+          .DockRight()
+          .OnClickHandler(fun _ _ -> dispatch(State.PollOptionRemoved index)),
+        pollOptionBox(model, dispatch, index)
+      )
+
+  /// One duration pill of the picker; the picked one carries the
+  /// active look.
+  let durationPill
+    (
+      model: IObservable<State.Model>,
+      dispatch: Dispatch<State.Msg>,
+      duration: PollDuration
+    ) : Control =
+    let label =
+      match duration with
+      | OneHour -> "1 hour"
+      | OneDay -> "1 day"
+      | ThreeDays -> "3 days"
+      | SevenDays -> "7 days"
+
+    let picked =
+      model
+      |> Observable.map(fun current ->
+        current.Poll
+        |> Option.map(fun poll -> poll.Duration = duration)
+        |> Option.defaultValue false)
+      |> Observable.distinctUntilChanged
+
+    let pill =
+      Button()
+        .Classes(Theme.name Theme.FilterPill)
+        .Padding(8.0, 2.0, 8.0, 2.0)
+        .Content(label)
+        .OnClickHandler(fun _ _ -> dispatch(State.PollDurationPicked duration))
+
+    Theme.bindClass(pill, Theme.FilterPillActive, picked)
+
+    pill
+
+  /// The poll builder under the body: the option rows, the add button
+  /// under four, the duration picker, and the close that puts it away.
+  /// The structure rebuilds only when the option count moves, so the
+  /// boxes keep their carets while typing.
+  let pollPanel
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : Control =
+    let durations: PollDuration list = [ OneHour; OneDay; ThreeDays; SevenDays ]
+
+    let built(count: int) : Control =
+      match count with
+      | 0 -> Panel() :> Control
+      | _ ->
+        let children: Control array = [|
+          for index in 0 .. count - 1 do
+            pollOptionRow(model, dispatch, index)
+
+          Button()
+            .Name("PollOptionAdd")
+            .Classes(Theme.name Theme.GhostButton)
+            .Padding(6.0, 2.0, 6.0, 2.0)
+            .HorizontalAlignment(HorizontalAlignment.Left)
+            .Content("Add option")
+            .IsVisible(
+              model
+              |> Observable.map(fun current ->
+                current.Poll
+                |> Option.map(fun poll -> List.length poll.Options < 4)
+                |> Option.defaultValue false)
+            )
+            .OnClickHandler(fun _ _ -> dispatch State.PollOptionAdded)
+
+          StackPanel()
+            .Orientation(Orientation.Horizontal)
+            .Spacing(6.0)
+            .Children(
+              [|
+                for duration in durations ->
+                  durationPill(model, dispatch, duration)
+              |]
+            )
+
+          Button()
+            .Name("PollClose")
+            .Classes(Theme.name Theme.GhostButton)
+            .Padding(6.0, 2.0, 6.0, 2.0)
+            .HorizontalAlignment(HorizontalAlignment.Left)
+            .Content("Remove poll")
+            .OnClickHandler(fun _ _ -> dispatch State.PollToggled)
+        |]
+
+        StackPanel().Spacing(6.0).Children(children) :> Control
+
+    ContentControl()
+      .Content(
+        model
+        |> Observable.map(fun current ->
+          current.Poll
+          |> Option.map(fun poll -> List.length poll.Options)
+          |> Option.defaultValue 0)
+        |> Observable.distinctUntilChanged
+        |> Observable.map built
+        |> _.ToBinding()
+      )
+
+  /// The action row: the attach and poll buttons and the commit button
+  /// docked right, the error line filling the rest.
   let actionRow
     (
       props: Props<'env>,
@@ -424,6 +679,7 @@ module Parts =
             ))
           .DockRight(),
         attachButton(props, model, dispatch),
+        pollButton(props, model, dispatch),
         errorLine model
       )
 
@@ -433,9 +689,8 @@ let view
   (dispatch: Dispatch<State.Msg>)
   : Control =
 
-  let body = Parts.body props
+  let body = Parts.body(props, model, dispatch)
 
-  Parts.clearOnCommit(model, body)
   Parts.pasteInto(props, dispatch, body)
 
   // No box: the composer rides the rail plain, the way the site's does
@@ -446,6 +701,7 @@ let view
     .Children(
       body,
       Parts.attachmentStrip(model, dispatch),
+      Parts.pollPanel(model, dispatch),
       Parts.actionRow(props, model, dispatch, body)
     )
 
@@ -454,8 +710,7 @@ type Page<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideAttachmentSources
-  and 'env :> IProvideSshKeys>(props: Props<'env>) as this =
+  and 'env :> IProvideAttachmentSources>(props: Props<'env>) as this =
   inherit UserControl()
 
   do

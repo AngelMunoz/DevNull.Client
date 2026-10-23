@@ -12,6 +12,7 @@ open DevNull.Client.Profiles
 open DevNull.Client.SettingsStore
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
+open DevNull.Client.Timeline
 open DevNull.Client.Unread
 open DevNull.Client.UiClock
 open Navs
@@ -34,6 +35,7 @@ type Shell<'env
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLastVisit
   and 'env :> IProvideProfiles
+  and 'env :> IProvideTimeline
   and 'env :> IProvideSshKeys> =
   new: env: 'env * callback: string option -> Shell<'env>
   inherit Window

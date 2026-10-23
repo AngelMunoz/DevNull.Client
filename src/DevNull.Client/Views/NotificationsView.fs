@@ -763,6 +763,7 @@ module Parts =
             fun () -> dispatch State.MoreRequested
           )
         )
+      ScrollTop = ValueNone
     }
 
 let view

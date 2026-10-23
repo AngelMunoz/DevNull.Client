@@ -72,6 +72,8 @@ module State =
     | TabChosen of Tab
     | StarToggled of Commit
     | StarDone of Result<Commit, AppError>
+    | PollVoteGiven of Commit * PollOption
+    | PollVotedDone of Result<Commit, AppError>
     | PastelGiven of Commit
     | PastelDone of Result<PastelResult, AppError>
     | FollowToggled
@@ -226,6 +228,27 @@ module State =
         (props.Env, props.Session, commit)
         StarDone
     | StarDone result ->
+      match result with
+      | Ok updated ->
+        {
+          model with
+              Commits = replaceNode(model.Commits, updated)
+        },
+        Cmd.none
+      | Error error -> { model with Error = Some error }, Cmd.none
+    | PollVoteGiven(commit, option) ->
+      let vote() =
+        Commits.vote(
+          props.Env,
+          {
+            KeyFile = props.Session.KeyFile
+            CommitId = commit.Id
+            OptionId = option.Id
+          }
+        )
+
+      { model with Error = None }, Cmd.OfAsync.perform vote () PollVotedDone
+    | PollVotedDone result ->
       match result with
       | Ok updated ->
         {
@@ -693,6 +716,8 @@ module Parts =
         Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
       | CommitCard.StarToggled c -> dispatch(State.StarToggled c)
       | CommitCard.PastelGiven c -> dispatch(State.PastelGiven c)
+      | CommitCard.PollVoted(commit, option) ->
+        dispatch(State.PollVoteGiven(commit, option))
       | CommitCard.QuoteRequested c ->
         Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
     Pasteis = model |> Observable.map _.Pasteis
@@ -739,6 +764,7 @@ module Parts =
             fun () -> dispatch State.MoreCommits
           )
         )
+      ScrollTop = ValueNone
     }
 
   /// The Commits/Replies tab bar; the active tab carries the site's

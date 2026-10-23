@@ -56,6 +56,17 @@ let controlByName(root: Control, name: string) : Control option =
 let visibleOption(option: Button option) : bool =
   option |> Option.map effectiveVisible |> Option.defaultValue false
 
+/// The first effectively visible text box whose placeholder equals the
+/// text: hidden composers — the collapsed log chrome off the log —
+/// never match.
+let visibleBoxWithWatermark(root: Control, text: string) : TextBox option =
+  root.GetVisualDescendants()
+  |> Seq.choose(fun visual ->
+    match visual with
+    | :? TextBox as box when box.PlaceholderText = text -> Some box
+    | _ -> None)
+  |> Seq.tryFind effectiveVisible
+
 /// The feed's scroll offset, so a returning page can prove it kept its
 /// place. Small chrome viewers never qualify.
 let feedOffset(window: Window) : float =
@@ -476,7 +487,7 @@ let tests =
         let! typed =
           waitForAsync(
             5000,
-            (fun () -> textBoxWithWatermark(window, "What did you ship?")),
+            (fun () -> visibleBoxWithWatermark(window, "What did you ship?")),
             Option.isSome
           )
 
@@ -484,7 +495,7 @@ let tests =
 
         do!
           onUiAsync(fun () ->
-            textBoxWithWatermark(window, "What did you ship?")
+            visibleBoxWithWatermark(window, "What did you ship?")
             |> Option.iter(fun box ->
               box.Text <- "Committed from the dialog"
 
@@ -989,19 +1000,13 @@ let tests =
       })
 
     testCaseAsync
-      "staged images post through the CLI multipart route"
+      "staged images post through the signed v1 route"
       (async {
         let api = logApi()
         let attachments = FakeAttachments()
-        let keys = FakeSshKeys()
 
         let env =
-          TestEnv(
-            signedInStore(),
-            api :> IHttp,
-            attachments = attachments,
-            sshKeys = keys
-          )
+          TestEnv(signedInStore(), api :> IHttp, attachments = attachments)
 
         attachments.PickResponse <- [
           stagedImage "one.png"
@@ -1018,9 +1023,7 @@ let tests =
         let! attachable =
           waitForAsync(
             5000,
-            (fun () ->
-              window.GetVisualDescendants()
-              |> Seq.tryFind(fun visual -> visual.Name = "AttachButton")),
+            (fun () -> controlByName(window, "AttachButton")),
             Option.isSome
           )
 
@@ -1028,8 +1031,7 @@ let tests =
 
         do!
           onUiAsync(fun () ->
-            window.GetVisualDescendants()
-            |> Seq.tryFind(fun visual -> visual.Name = "AttachButton")
+            controlByName(window, "AttachButton")
             |> Option.iter(fun visual ->
               match visual with
               | :? Button as button -> click button
@@ -1046,7 +1048,7 @@ let tests =
 
         do!
           onUiAsync(fun () ->
-            textBoxWithWatermark(window, "What did you ship?")
+            visibleBoxWithWatermark(window, "What did you ship?")
             |> Option.iter(fun box ->
               box.Text <- "Shipped with pictures"
 
@@ -1059,38 +1061,29 @@ let tests =
             (fun requests ->
               requests
               |> List.exists(fun request ->
-                request.Method = "POST" && request.Target = "/api/cli/commits"))
+                request.Method = "POST" && request.Target = "/api/v1/commits"))
           )
 
-        Expect.isTrue posted "the CLI commit was never posted"
+        Expect.isTrue posted "the v1 commit was never posted"
 
-        // The CLI route wants the user's ssh key, not the device key:
-        // the lookup runs first and the signature uses its private half.
+        // The v1 route signs with the device key under the images
+        // namespace; the CLI key lookup never runs.
         let lookup =
           api.Requests
-          |> List.tryFind(fun request ->
-            request.Method = "POST" && request.Target = "/api/cli/key-lookups")
+          |> List.exists(fun request -> request.Target = "/api/cli/key-lookups")
 
-        Expect.isSome lookup "the key lookup never ran"
-
-        match lookup |> Option.map _.Body with
-        | Some(Http.HttpBody.Text offered) ->
-          Expect.equal offered lookupKey "the offered key lines"
-        | _ -> failtest "the key lookup had no text body"
-
-        Expect.isTrue
-          (keys.Asked |> List.contains lookupKey)
-          "the private half of the matched key was never asked for"
+        Expect.isFalse lookup "the CLI key lookup still ran"
 
         Expect.isTrue
           (env.SignedRequests
-           |> List.exists(fun request -> request.KeyFile = keys.PrivatePath))
-          "the post signed with the matched key"
+           |> List.exists(fun request ->
+             request.Namespace = "devnull-api-images"))
+          "the post signed under the images namespace"
 
         let post =
           api.Requests
           |> List.find(fun request ->
-            request.Method = "POST" && request.Target = "/api/cli/commits")
+            request.Method = "POST" && request.Target = "/api/v1/commits")
 
         let form =
           match post.Body with
@@ -1209,26 +1202,141 @@ let tests =
       })
 
     testCaseAsync
-      "a poll card offers the web vote"
+      "voting a poll option posts the vote and shows the results"
       (async {
-        let api = pollLogApi()
+        let api = voteApi()
         let! window = startShell(signedInStore(), api :> IHttp)
 
-        let! shown = showsText(window, "poll · 3 votes")
+        let! shown = showsText(window, "It was DNS.")
 
-        Expect.isTrue shown "the poll never rendered"
+        Expect.isTrue shown "the log never rendered"
 
-        let! vote =
+        let! offered =
           waitForAsync(
             5000,
-            (fun () -> controlByName(window, "VoteOnWeb")),
-            (fun control ->
-              control
-              |> Option.map(fun found -> found :? Button)
-              |> Option.defaultValue false)
+            (fun () -> controlByName(window, "PollOptiono1")),
+            Option.isSome
           )
 
-        Expect.isTrue vote "the web vote never appeared"
+        Expect.isTrue offered "the poll option never appeared"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "PollOptiono1")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! voted =
+          waitForAsync(
+            8000,
+            (fun () -> api.Requests),
+            (fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Method = "POST"
+                && request.Target.EndsWith "/poll/votes"))
+          )
+
+        Expect.isTrue voted "the vote was never posted"
+
+        let body =
+          let vote =
+            api.Requests
+            |> List.find(fun request ->
+              request.Method = "POST" && request.Target.EndsWith "/poll/votes")
+
+          match vote.Body with
+          | Http.HttpBody.Text text -> text
+          | _ -> failtest "the vote had no text body"
+
+        Expect.stringContains body "\"option\":\"o1\"" "the voted option"
+
+        let! results = showsText(window, "Yes · yours")
+
+        Expect.isTrue results "the voted mark never rendered"
+      })
+
+    testCaseAsync
+      "the composer builds a poll and posts it"
+      (async {
+        let api = logApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+        Expect.isTrue shown "the log never rendered"
+
+        let! pollable =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "PollButton")),
+            Option.isSome
+          )
+
+        Expect.isTrue pollable "the poll button never appeared"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "PollButton")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! firstOption =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "PollOption0")),
+            Option.isSome
+          )
+
+        Expect.isTrue firstOption "the poll builder never opened"
+
+        do!
+          onUiAsync(fun () ->
+            (controlByName(window, "PollOption0")
+             |> Option.iter(fun control -> (control :?> TextBox).Text <- "Yes"))
+
+            (controlByName(window, "PollOption1")
+             |> Option.iter(fun control -> (control :?> TextBox).Text <- "No"))
+
+            buttonWithText(window, "3 days") |> Option.iter click)
+
+        do!
+          onUiAsync(fun () ->
+            visibleBoxWithWatermark(window, "What did you ship?")
+            |> Option.iter(fun box ->
+              box.Text <- "Ship it?"
+
+              buttonNear(box, "Commit") |> Option.iter click))
+
+        let! posted =
+          waitForAsync(
+            8000,
+            (fun () -> api.Requests),
+            (fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Method = "POST" && request.Target = "/api/v1/commits"))
+          )
+
+        Expect.isTrue posted "the poll commit was never posted"
+
+        let body =
+          let post =
+            api.Requests
+            |> List.find(fun request ->
+              request.Method = "POST" && request.Target = "/api/v1/commits")
+
+          match post.Body with
+          | Http.HttpBody.Text text -> text
+          | _ -> failtest "the poll commit had no text body"
+
+        Expect.stringContains body "Ship it?" "the body"
+        Expect.stringContains body "\"poll\"" "the poll"
+        Expect.stringContains body "\"Yes\"" "the options"
+        Expect.stringContains body "4320" "the picked duration"
       })
 
     testCaseAsync
@@ -1365,9 +1473,200 @@ let tests =
         let! attachable =
           probeUiAsync(fun () ->
             window.GetVisualDescendants()
-            |> Seq.exists(fun visual -> visual.Name = "AttachButton"))
+            |> Seq.exists(fun visual ->
+              visual.Name = "AttachButton"
+              && (match visual with
+                  | :? Control as control -> effectiveVisible control
+                  | _ -> false)))
 
         Expect.isFalse attachable "the quote composer offered images"
+      })
+
+    testCaseAsync
+      "a second click on the active tab reloads the log"
+      (async {
+        let api = logApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+        Expect.isTrue shown "the log never rendered"
+
+        let logReads() =
+          api.Requests
+          |> List.filter(fun request ->
+            request.Method = "GET" && request.Target = "/api/v1/log/latest")
+          |> List.length
+
+        let! before = probeUiAsync logReads
+        Expect.isGreaterThanOrEqual before 1 "the boot never read the log"
+
+        do! clickWhenShown(window, "Latest")
+
+        let! reloaded =
+          waitForAsync(5000, logReads, fun count -> count > before)
+
+        Expect.isTrue reloaded "the second click never reloaded the log"
+      })
+
+    testCaseAsync
+      "rapid clicks on the active tab pass the gate"
+      (async {
+        let api = logApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+        Expect.isTrue shown "the log never rendered"
+
+        let logReads() =
+          api.Requests
+          |> List.filter(fun request ->
+            request.Method = "GET" && request.Target = "/api/v1/log/latest")
+          |> List.length
+
+        let! before = probeUiAsync logReads
+
+        // Four clicks inside the gate's window: one reload passes,
+        // the rest only scroll.
+        do!
+          onUiAsync(fun () ->
+            for _ in 1..4 do
+              buttonWithText(window, "Latest") |> Option.iter click)
+
+        do! Async.Sleep 200
+        do! pumpAsync()
+
+        let! after = probeUiAsync logReads
+        Expect.equal after (before + 1) "the gate let extra reloads through"
+      })
+
+    testCaseAsync
+      "a second click returns a deep feed to its top"
+      (async {
+        let! window = startShell(signedInStore(), manyCardsApi() :> IHttp)
+
+        let! shown = showsText(window, "Card 1.")
+        Expect.isTrue shown "the log never rendered"
+
+        do! scrollFeedToEndAsync window
+        do! settleAsync()
+
+        let! deep = probeUiAsync(fun () -> feedOffset window)
+        Expect.isGreaterThan deep 0.5 "the feed never scrolled"
+
+        do! clickWhenShown(window, "Latest")
+        do! settleAsync()
+
+        let! top = probeUiAsync(fun () -> feedOffset window)
+        Expect.isLessThanOrEqual top 0.5 "the feed never returned to its top"
+      })
+
+    testCaseAsync
+      "a reply draft survives the feed recycle"
+      (async {
+        let! window = startShell(signedInStore(), manyCardsApi() :> IHttp)
+
+        let! shown = showsText(window, "Card 1.")
+        Expect.isTrue shown "the log never rendered"
+
+        let! revealed =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "ReplyButton")),
+            Option.isSome
+          )
+
+        Expect.isTrue revealed "the reply action never appeared"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "ReplyButton")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! typed =
+          waitForAsync(
+            5000,
+            (fun () -> textBoxWithWatermark(window, "Write your reply…")),
+            Option.isSome
+          )
+
+        Expect.isTrue typed "the reply composer never appeared"
+
+        do!
+          onUiAsync(fun () ->
+            textBoxWithWatermark(window, "Write your reply…")
+            |> Option.iter(fun box -> box.Text <- "kept draft"))
+
+        do! settleAsync()
+        do! scrollFeedToEndAsync window
+        do! settleAsync()
+        do! scrollFeedToTopAsync window
+        do! settleAsync()
+
+        let! kept =
+          probeUiAsync(fun () ->
+            textBoxWithWatermark(window, "Write your reply…")
+            |> Option.map(fun box ->
+              match box.Text with
+              | null -> ""
+              | text -> text)
+            |> Option.defaultValue "")
+
+        Expect.equal kept "kept draft" "the recycle wiped the draft"
+      })
+
+    testCaseAsync
+      "the shared composer commits and reloads the open log"
+      (async {
+        let api = logApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+        Expect.isTrue shown "the log never rendered"
+
+        let logReads() =
+          api.Requests
+          |> List.filter(fun request ->
+            request.Method = "GET" && request.Target = "/api/v1/log/latest")
+          |> List.length
+
+        let! before = probeUiAsync logReads
+
+        let! typed =
+          waitForAsync(
+            5000,
+            (fun () -> textBoxWithWatermark(window, "What did you ship?")),
+            Option.isSome
+          )
+
+        Expect.isTrue typed "the shared composer never appeared"
+
+        do!
+          onUiAsync(fun () ->
+            textBoxWithWatermark(window, "What did you ship?")
+            |> Option.iter(fun box ->
+              box.Text <- "Committed from the chrome"
+
+              buttonNear(box, "Commit") |> Option.iter click))
+
+        let! posted =
+          waitForAsync(
+            8000,
+            (fun () -> api.Requests),
+            (fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Method = "POST" && request.Target = "/api/v1/commits"))
+          )
+
+        Expect.isTrue posted "the commit never left the composer"
+
+        let! reloaded =
+          waitForAsync(5000, logReads, fun count -> count > before)
+
+        Expect.isTrue reloaded "the landed commit never reloaded the log"
       })
 
     testCaseAsync

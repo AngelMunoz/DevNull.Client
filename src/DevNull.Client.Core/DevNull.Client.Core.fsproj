@@ -19,12 +19,12 @@
     <Compile Include="Capabilities.fs" />
     <Compile Include="ApiTypes.fsi" />
     <Compile Include="ApiTypes.fs" />
-    <Compile Include="Api.fsi" />
-    <Compile Include="Api.fs" />
     <Compile Include="Payload.fsi" />
     <Compile Include="Payload.fs" />
     <Compile Include="Commit.fsi" />
     <Compile Include="Commit.fs" />
+    <Compile Include="Api.fsi" />
+    <Compile Include="Api.fs" />
   </ItemGroup>
 
   <ItemGroup>

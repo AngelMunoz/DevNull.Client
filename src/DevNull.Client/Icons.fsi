@@ -34,6 +34,7 @@ type Glyph =
   | ChevronRight
   | Check
   | Pastel
+  | Poll
   | Info
 
 /// One icon ready to place: the glyph in the default size, 18 device

@@ -32,6 +32,11 @@ type TestError =
   | ReportDetailsTooLong of length: int
   | InvalidLaneIndex of index: int
   | InvalidLaneColor of color: string
+  | TooFewPollOptions of count: int
+  | TooManyPollOptions of count: int
+  | PollOptionTooLong of label: string * length: int
+  | DuplicatePollOption of label: string
+  | PollProhibited of conflict: PollConflict
 
   interface CommitBodyError<TestError> with
     static member BodyTooShort(raw, length) = BodyTooShort(raw, length)
@@ -83,6 +88,16 @@ type TestError =
   interface LaneError<TestError> with
     static member InvalidLaneIndex index = InvalidLaneIndex index
     static member InvalidLaneColor color = InvalidLaneColor color
+
+  interface PollError<TestError> with
+    static member TooFewPollOptions count = TooFewPollOptions count
+    static member TooManyPollOptions count = TooManyPollOptions count
+
+    static member PollOptionTooLong(label, length) =
+      PollOptionTooLong(label, length)
+
+    static member DuplicatePollOption label = DuplicatePollOption label
+    static member PollProhibited conflict = PollProhibited conflict
 
 type FixedClock(timestamp: int64) =
 

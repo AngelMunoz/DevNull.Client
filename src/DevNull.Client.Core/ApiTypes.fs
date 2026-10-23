@@ -331,6 +331,82 @@ module LaneChoices =
     | Custom color when Regex.IsMatch(color, "^#[0-9a-f]{6}$") -> Ok choice
     | Custom color -> Error('e.InvalidLaneColor color)
 
+type PollDuration =
+  | OneHour
+  | OneDay
+  | ThreeDays
+  | SevenDays
+
+module PollDurations =
+
+  let wire(duration: PollDuration) =
+    match duration with
+    | OneHour -> 60
+    | OneDay -> 1440
+    | ThreeDays -> 4320
+    | SevenDays -> 10080
+
+type PollConflict =
+  | PollOnReply
+  | PollOnQuote
+  | PollWithImages
+
+type PollError<'e> =
+  static abstract TooFewPollOptions: count: int -> 'e
+  static abstract TooManyPollOptions: count: int -> 'e
+  static abstract PollOptionTooLong: label: string * length: int -> 'e
+  static abstract DuplicatePollOption: label: string -> 'e
+  static abstract PollProhibited: conflict: PollConflict -> 'e
+
+type PollSpec = {
+  Options: string list
+  Duration: PollDuration
+}
+
+module PollSpecs =
+
+  let maxOptionLength = 50
+
+  let parse<'e when PollError<'e>>
+    (options: string list, duration: PollDuration)
+    : Result<PollSpec, 'e> =
+    let count = List.length options
+
+    if count < 2 then
+      Error('e.TooFewPollOptions count)
+    elif count > 4 then
+      Error('e.TooManyPollOptions count)
+    else
+      // The server refuses options that repeat ignoring case; the first
+      // of a repeated pair names the duplicate.
+      let rec duplicate(seen: Set<string>) =
+        function
+        | [] -> None
+        | (label: string) :: rest ->
+          let folded = label.ToLowerInvariant()
+
+          if Set.contains folded seen then
+            Some label
+          else
+            duplicate (Set.add folded seen) rest
+
+      match duplicate Set.empty options with
+      | Some label -> Error('e.DuplicatePollOption label)
+      | None ->
+        match
+          options |> List.tryFind(fun label -> label.Length > maxOptionLength)
+        with
+        | Some label -> Error('e.PollOptionTooLong(label, label.Length))
+        | None ->
+          Ok {
+            Options = options
+            Duration = duration
+          }
+
+  let options(spec: PollSpec) = spec.Options
+
+  let duration(spec: PollSpec) = spec.Duration
+
 type PastelResult = {
   Commit: Commit
   PasteisRemaining: int
@@ -375,6 +451,9 @@ type ErrorCode =
   | PasteisExhausted
   | RateLimited
   | GitHubSyncFailed
+  | TimedOut
+  | Banned
+  | CommitRulesRequired
   | Unknown of raw: string
 
 module ErrorCodes =
@@ -391,6 +470,9 @@ module ErrorCodes =
     | "pasteis_exhausted" -> PasteisExhausted
     | "rate_limited" -> RateLimited
     | "github_sync_failed" -> GitHubSyncFailed
+    | "timed_out" -> TimedOut
+    | "banned" -> Banned
+    | "commit_rules_required" -> CommitRulesRequired
     | raw -> Unknown raw
 
   let wire(code: ErrorCode) =
@@ -405,6 +487,9 @@ module ErrorCodes =
     | PasteisExhausted -> "pasteis_exhausted"
     | RateLimited -> "rate_limited"
     | GitHubSyncFailed -> "github_sync_failed"
+    | TimedOut -> "timed_out"
+    | Banned -> "banned"
+    | CommitRulesRequired -> "commit_rules_required"
     | Unknown raw -> raw
 
 /// One JSON value the decoder could not read.

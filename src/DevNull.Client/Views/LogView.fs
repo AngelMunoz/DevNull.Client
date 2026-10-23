@@ -2,6 +2,7 @@ module DevNull.Client.Views.LogView
 
 open System
 open System.Collections.Generic
+open System.Reactive.Subjects
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Shapes
@@ -33,6 +34,7 @@ open DevNull.Client.Profiles
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.Theme
+open DevNull.Client.Timeline
 open DevNull.Client.UiClock
 
 type Props<'env
@@ -46,6 +48,7 @@ type Props<'env
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLastVisit
   and 'env :> IProvideProfiles
+  and 'env :> IProvideTimeline
   and 'env :> IProvideSshKeys> = {
   Env: 'env
   Log: LogKind
@@ -93,6 +96,9 @@ module State =
     Now: DateTimeOffset
     Pasteis: bool
     ReplyingTo: string option
+    /// The reply drafts the page holds for commits whose row recycled,
+    /// by commit id. An empty text never lands here.
+    ReplyDrafts: Map<string, string>
     /// The visit captured when the page mounted; the rendered marker
     /// keeps pointing there for the session even as the store advances.
     Marker: DateTimeOffset option
@@ -119,6 +125,9 @@ module State =
     | SessionChanged of state: SessionState
     | ReplyToggled of Commit
     | ReplyPosted of commitId: string
+    | ReplyDraftChanged of commitId: string * text: string
+    | PollVoteGiven of Commit * PollOption
+    | PollVotedDone of Result<Commit, AppError>
     | PreviewMoreRequested of Commit
     | PreviewLoaded of commitId: string * Result<Page<CommitNode>, AppError>
 
@@ -134,6 +143,7 @@ module State =
     Now = DateTimeOffset.UtcNow
     Pasteis = false
     ReplyingTo = None
+    ReplyDrafts = Map.empty
     Marker = None
     Previews = Map.empty
   }
@@ -282,12 +292,47 @@ module State =
           Some commit.Id
 
       { model with ReplyingTo = replyingTo }, Cmd.none
-    | ReplyPosted _ ->
+    | ReplyPosted commitId ->
       // A landed reply closes its composer and refreshes the feed, so
       // the new reply arrives through the same read as everything
-      // else.
-      { model with ReplyingTo = None },
+      // else. Its draft is spent.
+      {
+        model with
+            ReplyingTo = None
+            ReplyDrafts = model.ReplyDrafts |> Map.remove commitId
+      },
       Cmd.ofEffect(fun dispatch' -> dispatch' ReloadRequested)
+    | ReplyDraftChanged(commitId, text) ->
+      // A recycled row rebuilds its composer from this map, so a draft
+      // outlives the row; an emptied text leaves no entry behind.
+      let drafts =
+        if text = "" then
+          model.ReplyDrafts |> Map.remove commitId
+        else
+          model.ReplyDrafts |> Map.add commitId text
+
+      { model with ReplyDrafts = drafts }, Cmd.none
+    | PollVoteGiven(commit, option) ->
+      let vote() =
+        Commits.vote(
+          props.Env,
+          {
+            KeyFile = props.Session.KeyFile
+            CommitId = commit.Id
+            OptionId = option.Id
+          }
+        )
+
+      { model with Error = None }, Cmd.OfAsync.perform vote () PollVotedDone
+    | PollVotedDone result ->
+      match result with
+      | Ok updated ->
+        {
+          model with
+              Items = replaceNode(model.Items, updated)
+        },
+        Cmd.none
+      | Error error -> { model with Error = Some error }, Cmd.none
     | PreviewMoreRequested commit ->
       // The first ask reads the newest page whole, the way the site's
       // preview does; the next ones walk the cursor it left.
@@ -390,9 +435,17 @@ module State =
       { model with Pasteis = pasteis }, Cmd.none
 
   /// The page's inlets from outside: the shared clock, the session
-  /// store, and — while the page sits in the tree — the since-poll.
-  /// The keyed engine stops and starts sources as the model moves.
+  /// store, and — while the page sits in the tree — the since-poll and
+  /// the shared chrome's requests. The keyed engine stops and starts
+  /// sources as the model moves.
   let subscribe (props: Props<'env>) (model: Model) : Sub<Msg> =
+    let chromeRequests =
+      props.Env.Timeline.Requests
+      |> Observable.choose(function
+        | Timeline.Reload
+        | Timeline.CommitLanded -> Some ReloadRequested
+        | Timeline.ScrollToTop -> None)
+
     [
       Sub.fromObservable
         "clock"
@@ -405,8 +458,22 @@ module State =
       if model.Attached then
         Sub.interval "since-poll" (TimeSpan.FromMinutes 1.0) (fun () ->
           CheckNew)
+
+      if model.Attached then
+        Sub.fromObservable "chrome" chromeRequests
     ]
     |> Sub.batch
+
+  /// The draft a recycled row's composer seeds from. The program's
+  /// model stream is the live subject, so the row build — which runs
+  /// on realize, between emissions — reads the page's current state.
+  let draftOf(model: IObservable<Model>, commitId: string) : string =
+    match box model with
+    | :? BehaviorSubject<Model> as subject ->
+      subject.Value.ReplyDrafts
+      |> Map.tryFind commitId
+      |> Option.defaultValue ""
+    | _ -> ""
 
   /// Interleaves day separators between the commits of different days,
   /// carrying the day across tombstones. A ranked log is score ordered,
@@ -529,6 +596,8 @@ module Parts =
       | CommitCard.ReplyToggled c -> dispatch(State.ReplyToggled c)
       | CommitCard.StarToggled c -> dispatch(State.StarToggled c)
       | CommitCard.PastelGiven c -> dispatch(State.PastelGiven c)
+      | CommitCard.PollVoted(commit, option) ->
+        dispatch(State.PollVoteGiven(commit, option))
     Pasteis = model |> Observable.map _.Pasteis
     ViewerId = props.Session.Session.User.Id
     Now = model |> Observable.map _.Now
@@ -553,8 +622,9 @@ module Parts =
     | LogRow.Day label -> FeedParts.dayRow label
     | LogRow.LastVisitRow -> FeedParts.lastVisitRow()
     | LogRow.Node commit ->
-      // The inline reply composer mounts once per realized row: a
-      // rebuild on every model change would wipe the typed text.
+      // The inline reply composer seeds from the page's draft map, so
+      // a recycled row rebuilds with the typed text. The program dies
+      // with its control on the first detach; the draft does not.
       let composer =
         Composer.Page {
           Env = props.Env
@@ -562,6 +632,12 @@ module Parts =
           Target = Composer.ReplyTo commit.Id
           OnCommitted = fun _ -> dispatch(State.ReplyPosted commit.Id)
           Register = ValueNone
+          Draft =
+            ValueSome {
+              Seed = State.draftOf(model, commit.Id)
+              Changed =
+                fun text -> dispatch(State.ReplyDraftChanged(commit.Id, text))
+            }
         }
 
       let reply =
@@ -596,128 +672,6 @@ module Parts =
     | LogRow.TombstoneRow tombstone ->
       CommitCard.feedRow ctx (Tombstone tombstone)
 
-  type Tab = {
-    Label: string
-    Kind: LogKind
-    Url: string
-  }
-
-  let logTabs: Tab list = [
-    {
-      Label = "Following"
-      Kind = Following
-      Url = "/log/following"
-    }
-    {
-      Label = "Latest"
-      Kind = Latest
-      Url = "/log/latest"
-    }
-    {
-      Label = "Trending"
-      Kind = Trending
-      Url = "/log/trending"
-    }
-  ]
-
-  /// One log tab: the page-tab shape, underlined while active.
-  let tab(active: LogKind, nav: INavigable, info: Tab) : Control =
-    let button =
-      Button()
-        .Classes(Theme.name Theme.TabButton)
-        .Content(info.Label)
-        .OnClickHandler(fun _ _ -> Navigation.go(nav, info.Url, ignore))
-
-    if active = info.Kind then
-      button.Classes.Add(Theme.name Theme.TabButtonActive) |> ignore
-
-    button
-
-  /// The three log tabs, edge to edge of the reading column over a
-  /// hairline, the way the site's log header does. The band sits above
-  /// the client, so the strip clears it.
-  let tabStrip(props: Props<'env>) : Control =
-    let strip = Grid()
-
-    strip.ColumnDefinitions <- ColumnDefinitions("*,*,*")
-
-    Border()
-      .BorderBrush(Brushes.border)
-      .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
-      .Margin(0.0, Theme.bandHeight, 0.0, 0.0)
-      .Child(
-        strip.Children(
-          [|
-            for index, info in List.indexed logTabs ->
-              tab(props.Log, props.Nav, info).Column(index)
-          |]
-        )
-      )
-
-  /// The staged commit: the signed-in user's avatar rides the rail's
-  /// first row, ring and all, and the dashed line runs from it down
-  /// into the day separators — the site stages the next commit exactly
-  /// so. The input keeps the cards' right inset.
-  let composerRail
-    (props: Props<'env>, dispatch: Dispatch<State.Msg>)
-    : Control =
-    // The composer's program lives with the route, not with the page's
-    // visual tree: the cached log page detaches between visits, and a
-    // detach-owned lifetime would kill it on the first stash.
-    let composer =
-      Composer.Page {
-        Env = props.Env
-        Session = props.Session
-        Target = Composer.Fresh
-        OnCommitted = fun _ -> dispatch State.ReloadRequested
-        Register = ValueSome props.Context.AddDisposable
-      }
-
-    let nodeTop = 9.0
-
-    let line =
-      Line(
-        StartPoint = Point(0.0, 0.0),
-        EndPoint = Point(0.0, 1.0),
-        Stretch = Stretch.Fill,
-        StrokeThickness = 2.0,
-        HorizontalAlignment = HorizontalAlignment.Center,
-        VerticalAlignment = VerticalAlignment.Stretch
-      )
-        .Stroke(Brushes.rail)
-        .StrokeDashArray(Avalonia.Collections.AvaloniaList<double>(2.0, 2.0))
-        .Margin(0.0, nodeTop + 46.0, 0.0, 0.0)
-
-    let avatar =
-      Border()
-        .Name("ComposerRailNode")
-        .Background(Brushes.card)
-        .BorderBrush(Brushes.laneFallback)
-        .BorderThickness(Thickness(2.0))
-        .CornerRadius(46.0)
-        .Padding(1.0)
-        .HorizontalAlignment(HorizontalAlignment.Center)
-        .VerticalAlignment(VerticalAlignment.Top)
-        .Margin(0.0, nodeTop, 0.0, 0.0)
-        .Child(
-          Avatar.view {
-            Name = props.Session.Session.User.Name
-            Url = props.Session.Session.User.AvatarUrl
-            Lane = None
-            Size = 40.0
-            Cache = props.Env.ImageCache
-          }
-        )
-
-    let grid = Grid()
-
-    grid.ColumnDefinitions <- ColumnDefinitions("64,*")
-
-    grid.Children(
-      Panel().Children(line, avatar).Column(0),
-      Border().Margin(0.0, 0.0, 16.0, 0.0).Child(composer).Column(1)
-    )
-
   /// The new-commits pill: a count over the feed, one click to take it.
   let newPill
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
@@ -749,6 +703,8 @@ module Parts =
       .OnClickHandler(fun _ _ -> dispatch State.NewRequested)
 
   /// The timeline itself: the virtualized feed over the page's rows.
+  /// The shared chrome's return-to-top signal reaches the feed's own
+  /// scroller.
   let feed
     (
       props: Props<'env>,
@@ -777,6 +733,13 @@ module Parts =
             fun () -> dispatch State.MoreRequested
           )
         )
+      ScrollTop =
+        ValueSome(
+          props.Env.Timeline.Requests
+          |> Observable.choose(function
+            | Timeline.ScrollToTop -> Some()
+            | _ -> None)
+        )
     }
 
 let view
@@ -785,41 +748,34 @@ let view
   (dispatch: Dispatch<State.Msg>)
   : Control =
 
-  // The pinned area takes no horizontal inset: the composer's rail must
-  // sit on the same line as the day separators and the cards below,
-  // which all start at the reading column's left edge.
+  // The pinned area takes no horizontal inset: the shared chrome above
+  // the outlet carries the band and the composer rail, so the page
+  // starts a hair under it, on the reading column's left edge.
   let pinnedPage =
     PageChrome.page {
       Model = model
       TitleOf = fun _ -> ""
-      Padding = Thickness(0.0, Theme.bandHeight + 8.0, 0.0, 0.0)
+      Padding = Thickness(0.0, 8.0, 0.0, 0.0)
       ErrorOf = _.Error
       Busy = fun current -> current.Loading, "Loading the log…"
       Empty =
         fun current ->
           not current.Loading && current.Error.IsNone && current.Items.IsEmpty,
           "Nothing here yet. Commit something."
-      Header = [
-        Parts.composerRail(props, dispatch)
-        Parts.newPill(model, dispatch)
-      ]
+      Header = [ Parts.newPill(model, dispatch) ]
       Body = Parts.feed(props, dispatch, model)
     }
 
-  let root = Grid()
-  root.RowDefinitions <- RowDefinitions("Auto,*")
-
-  root.Children(Parts.tabStrip(props).Row(0), pinnedPage.Row(1)) |> ignore
-
   // The cached log page reports its tree presence, so the since-poll
-  // subscription pauses while the page is stashed and resumes on the
-  // way back.
-  root.AttachedToVisualTree.Add(fun _ -> dispatch(State.AttachedChanged true))
+  // and the chrome subscription pause while the page is stashed and
+  // resume on the way back.
+  pinnedPage.AttachedToVisualTree.Add(fun _ ->
+    dispatch(State.AttachedChanged true))
 
-  root.DetachedFromVisualTree.Add(fun _ ->
+  pinnedPage.DetachedFromVisualTree.Add(fun _ ->
     dispatch(State.AttachedChanged false))
 
-  root
+  pinnedPage
 
 type Page<'env
   when 'env :> IProvideClock
@@ -832,6 +788,7 @@ type Page<'env
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLastVisit
   and 'env :> IProvideProfiles
+  and 'env :> IProvideTimeline
   and 'env :> IProvideSshKeys>(props: Props<'env>) as this =
   inherit UserControl()
 

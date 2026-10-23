@@ -6,6 +6,12 @@ open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Core.Types
 
+/// One staged image as the CLI composite defines it: a name and raw bytes.
+type ImageAttachment = DevNull.Client.Core.Commit.ImageAttachment
+
+/// One parsed image: its bytes, its content type, and its SHA-256.
+type PostableImage = DevNull.Client.Core.Commit.Image
+
 module Signing =
 
   /// The values one signed v1 request needs.
@@ -16,9 +22,31 @@ module Signing =
     Body: string
   }
 
+  /// The values one signed v1 request with images needs.
+  type ImageRequest = {
+    KeyFile: string
+    Method: string
+    Target: string
+    Body: string
+    Images: PostableImage list
+  }
+
   /// Signs one v1 request and returns it ready to send.
   val signedRequest:
     env: 'env * request: Request -> Async<Result<HttpRequest, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and NonceError<'e>
+      and SigningError<'e>
+
+  /// Signs one v1 request with images and returns it ready to send: the
+  /// JSON body rides a payload part, the images ride `images[]` files
+  /// beside it, and the signed message carries the comma-separated
+  /// image hashes on one line before the body, under the images
+  /// namespace.
+  val signedImageRequest:
+    env: 'env * request: ImageRequest -> Async<Result<HttpRequest, 'e>>
       when 'env :> IProvideClock
       and 'env :> IProvideNonceSource
       and 'env :> IProvideSigner
@@ -340,11 +368,15 @@ module Commits =
     | ReplyTo of parentId: string
     | Quote of quotedId: string
 
-  /// One commit to create through the signed API. The server accepts no images or poll here.
+  /// One commit to create through the signed API. A poll rides a fresh
+  /// commit with no images only, as the server takes it; images travel
+  /// as a multipart post whose payload part carries the JSON body.
   type CreateRequest = {
     KeyFile: string
     Body: string
     Target: Target
+    Images: ImageAttachment list
+    Poll: PollSpec option
   }
 
   /// One commit to read through the signed API.
@@ -369,6 +401,13 @@ module Commits =
     Details: string option
   }
 
+  /// One poll vote: the commit whose poll it is, and the option taken.
+  type VoteRequest = {
+    KeyFile: string
+    CommitId: string
+    OptionId: string
+  }
+
   /// Creates one commit.
   val create:
     env: 'env * request: CreateRequest -> Async<Result<Commit, 'e>>
@@ -377,6 +416,22 @@ module Commits =
       and 'env :> IProvideSigner
       and 'env :> IProvideHttp
       and CommitBodyError<'e>
+      and CommitIdError<'e>
+      and ImageError<'e>
+      and PollError<'e>
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Votes one poll option and returns the commit with the poll results.
+  val vote:
+    env: 'env * request: VoteRequest -> Async<Result<Commit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
       and CommitIdError<'e>
       and NonceError<'e>
       and SigningError<'e>

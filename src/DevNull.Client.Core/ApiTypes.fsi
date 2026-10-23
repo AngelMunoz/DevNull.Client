@@ -333,6 +333,49 @@ module LaneChoices =
   /// Accepts palette indexes 0 to 5 and lowercase six-digit hex colors.
   val validate: choice: LaneChoice -> Result<LaneChoice, 'e> when LaneError<'e>
 
+/// How long a poll stays open, as the server takes it.
+type PollDuration =
+  | OneHour
+  | OneDay
+  | ThreeDays
+  | SevenDays
+
+module PollDurations =
+  /// The wire value: whole minutes.
+  val wire: duration: PollDuration -> int
+
+/// What a poll may not ride with, as the server refuses it.
+type PollConflict =
+  | PollOnReply
+  | PollOnQuote
+  | PollWithImages
+
+type PollError<'e> =
+  static abstract TooFewPollOptions: count: int -> 'e
+  static abstract TooManyPollOptions: count: int -> 'e
+  static abstract PollOptionTooLong: label: string * length: int -> 'e
+  static abstract DuplicatePollOption: label: string -> 'e
+  static abstract PollProhibited: conflict: PollConflict -> 'e
+
+/// One poll on a new commit: two to four options and the time it stays
+/// open. A poll rides a fresh commit only.
+type PollSpec = private {
+  Options: string list
+  Duration: PollDuration
+}
+
+module PollSpecs =
+  /// Reads the options a poll offers. Accepts two to four options, each
+  /// at most fifty characters, distinct ignoring case.
+  val parse<'e when PollError<'e>> :
+    options: string list * duration: PollDuration -> Result<PollSpec, 'e>
+
+  /// The options the poll offers.
+  val options: spec: PollSpec -> string list
+
+  /// The time the poll stays open.
+  val duration: spec: PollSpec -> PollDuration
+
 /// The result of giving a pastel.
 type PastelResult = {
   Commit: Commit
@@ -383,6 +426,9 @@ type ErrorCode =
   | PasteisExhausted
   | RateLimited
   | GitHubSyncFailed
+  | TimedOut
+  | Banned
+  | CommitRulesRequired
   | Unknown of raw: string
 
 module ErrorCodes =

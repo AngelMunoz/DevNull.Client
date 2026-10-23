@@ -7,8 +7,8 @@ open DevNull.Client.ImageCache
 open DevNull.Client.Components.UserFlyout
 
 /// What one card reports up: open the thread, toggle the star, give a
-/// pastel, start a quote, reveal the reply composer, or walk more
-/// replies of a thread preview.
+/// pastel, start a quote, reveal the reply composer, vote a poll
+/// option, or walk more replies of a thread preview.
 [<Struct>]
 type Event =
   | Opened of Commit
@@ -18,6 +18,7 @@ type Event =
   | StarToggled of Commit
   | PastelGiven of Commit
   | QuoteRequested of Commit
+  | PollVoted of Commit * PollOption
 
 /// One commit row. `OnEvent` receives every interaction. Every card
 /// rides the graph rail with its author's avatar; dense rows (the

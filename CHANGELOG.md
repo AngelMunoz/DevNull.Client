@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-23
+
+### Added
+
+- **Shortcuts:** the site's keyboard shortcuts work across the window: `j`/`k` walk the commits (paging the feed past what is on screen), `Enter` opens the focused commit, `y`/`r`/`q` copy its link, reply, and quote, `c` composes, `g` then `l`/`e`/`p`/`s` jumps to the log, trending, profile, and settings, and `?` shows the full list. They pause while you type and while a dialog is open. Ctrl/Cmd+Enter posts straight from the composer. The commit under keyboard focus paints the accent wash, so the walk is always visible.
+
+### Fixed
+
+- **Log:** clicking "N new commits" returns the reading place to the top of the fresh page again. The scroll-place memory added in 0.1.1 kept the old offset across the refresh, so the new commits loaded above an unmoved viewport.
+
 ## [0.1.1] - 2026-10-23
 
 ### Fixed

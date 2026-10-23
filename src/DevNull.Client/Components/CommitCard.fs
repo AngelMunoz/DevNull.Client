@@ -111,7 +111,7 @@ module Parts =
       TextBlock()
         .Name("MentionHandle")
         .Text("@" + username)
-        .Foreground(Brushes.accent)
+        .Classes(Theme.name Theme.FgAccent)
 
     match flyout with
     | ValueSome source ->
@@ -146,7 +146,7 @@ module Parts =
     | TextSegment text -> textWithMentions(flyout, text, mentions)
     | CodeSegment code ->
       Border()
-        .Background(Brushes.surface)
+        .Classes(Theme.name Theme.SurfaceBack)
         .CornerRadius(6.0)
         .Padding(10.0)
         .Margin(0.0, 4.0, 0.0, 0.0)
@@ -158,7 +158,7 @@ module Parts =
         )
     | BlockSegment(_, html) ->
       Border()
-        .Background(Brushes.surface)
+        .Classes(Theme.name Theme.SurfaceBack)
         .CornerRadius(6.0)
         .Padding(10.0)
         .Margin(0.0, 4.0, 0.0, 0.0)
@@ -215,7 +215,7 @@ module Parts =
 
         let box =
           Border()
-            .Background(Brushes.surface)
+            .Classes(Theme.name Theme.SurfaceBack)
             .CornerRadius(8.0)
             .Height(height)
             .ClipToBounds(true)
@@ -247,8 +247,7 @@ module Parts =
     | LiveCommit commit ->
       Button()
         .Name("QuotedCard")
-        .Classes(Theme.name Theme.GhostButton)
-        .BorderBrush(Brushes.border)
+        .Classes(Theme.name Theme.GhostButton, Theme.name Theme.Hairline)
         .BorderThickness(Thickness(1.0))
         .CornerRadius(8.0)
         .Padding(10.0)
@@ -362,7 +361,7 @@ module Parts =
     |]
 
     Border()
-      .BorderBrush(Brushes.border)
+      .Classes(Theme.name Theme.Hairline)
       .BorderThickness(Thickness(1.0))
       .CornerRadius(8.0)
       .Padding(10.0)
@@ -375,8 +374,7 @@ module Parts =
   let linkPreviewView(preview: LinkPreview) : Control =
     Button()
       .Name("LinkPreviewCard")
-      .Classes(Theme.name Theme.GhostButton)
-      .BorderBrush(Brushes.border)
+      .Classes(Theme.name Theme.GhostButton, Theme.name Theme.Hairline)
       .BorderThickness(Thickness(1.0))
       .CornerRadius(8.0)
       .Padding(10.0)
@@ -508,12 +506,26 @@ module Parts =
     let tail =
       Border()
         .Width(2.0)
-        .Background(Brushes.laneOf lane)
         .HorizontalAlignment(HorizontalAlignment.Center)
         .VerticalAlignment(VerticalAlignment.Stretch)
         .Margin(0.0, nodeTop, 0.0, if continues then 0.0 else dotZone)
 
+    Theme.laneBack(tail, lane)
+
     // The dot: a lane core inside a card gap inside a lane ring.
+    let dotCore = Ellipse().Width(18.0).Height(18.0)
+
+    Theme.laneFill(dotCore, lane)
+
+    let dotGap =
+      Ellipse()
+        .Width(12.0)
+        .Height(12.0)
+        .StrokeThickness(3.0)
+        .Classes(Theme.name Theme.CardEdge)
+
+    Theme.laneFill(dotGap, lane)
+
     let dot =
       Grid()
         .Width(18.0)
@@ -521,20 +533,11 @@ module Parts =
         .HorizontalAlignment(HorizontalAlignment.Center)
         .VerticalAlignment(VerticalAlignment.Bottom)
         .Margin(0.0, 0.0, 0.0, dotZone - 9.0)
-        .Children(
-          Ellipse().Width(18.0).Height(18.0).Fill(Brushes.laneOf lane),
-          Ellipse()
-            .Width(12.0)
-            .Height(12.0)
-            .StrokeThickness(3.0)
-            .Stroke(Brushes.card)
-            .Fill(Brushes.laneOf lane)
-        )
+        .Children(dotCore, dotGap)
 
     let ring =
       Border()
-        .Background(Brushes.card)
-        .BorderBrush(Brushes.laneOf lane)
+        .Classes(Theme.name Theme.CardBack)
         .BorderThickness(Thickness(2.0))
         .CornerRadius(nodeSize)
         .Padding(1.0)
@@ -542,6 +545,8 @@ module Parts =
         .VerticalAlignment(VerticalAlignment.Top)
         .Margin(0.0, nodeTop - (nodeSize + 6.0) / 2.0, 0.0, 0.0)
         .Child(avatar)
+
+    Theme.laneBorder(ring, lane)
 
     let pieces: Control array = [|
       tail
@@ -561,8 +566,7 @@ module Parts =
     let ring =
       Border()
         .Name("ReplyRing")
-        .Background(Brushes.card)
-        .BorderBrush(Brushes.laneOf lane)
+        .Classes(Theme.name Theme.CardBack)
         .BorderThickness(Thickness(2.0))
         .CornerRadius(28.0)
         .Padding(1.0)
@@ -570,6 +574,8 @@ module Parts =
         .VerticalAlignment(VerticalAlignment.Top)
         .Margin(0.0, 3.0, 0.0, 0.0)
         .Child(avatar)
+
+    Theme.laneBorder(ring, lane)
 
     Panel().Width(48.0).Children(ring)
 
@@ -628,7 +634,7 @@ module Parts =
       if commit.Author.Id = props.ViewerId then
         iconAction("StarCount", Glyph.Star, starLabel, fun _ -> ())
           .IsEnabled(false)
-          .Foreground(Brushes.muted)
+          .Classes(Theme.name Theme.FgMuted)
       else
         iconAction(
           "StarButton",
@@ -636,7 +642,9 @@ module Parts =
           starLabel,
           fun _ -> onEvent(StarToggled commit)
         )
-          .Foreground(if starred then Brushes.accent else Brushes.muted)
+          .Classes(
+            Theme.name(if starred then Theme.FgAccent else Theme.FgMuted)
+          )
 
     let pastel =
       let count =
@@ -754,7 +762,7 @@ let view(props: Props) : Control =
   // The hairline stops at the rail column: the rail runs unbroken.
   let contentColumn =
     Border()
-      .BorderBrush(Brushes.border)
+      .Classes(Theme.name Theme.Hairline)
       .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
       .Child(content)
 
@@ -784,7 +792,7 @@ let tombstone() : Control =
   let line =
     Border()
       .Width(2.0)
-      .Background(Brushes.rail)
+      .Classes(Theme.name Theme.RailBack)
       .HorizontalAlignment(HorizontalAlignment.Center)
       .VerticalAlignment(VerticalAlignment.Stretch)
       .Margin(0.0, 32.0, 0.0, 0.0)
@@ -793,9 +801,8 @@ let tombstone() : Control =
     Ellipse()
       .Width(24.0)
       .Height(24.0)
-      .Fill(Brushes.card)
+      .Classes(Theme.name Theme.CardFill, Theme.name Theme.RailEdge)
       .StrokeThickness(2.0)
-      .Stroke(Brushes.rail)
       .HorizontalAlignment(HorizontalAlignment.Center)
       .VerticalAlignment(VerticalAlignment.Top)
       .Margin(0.0, 20.0, 0.0, 0.0)
@@ -805,7 +812,7 @@ let tombstone() : Control =
 
   let text =
     Border()
-      .BorderBrush(Brushes.border)
+      .Classes(Theme.name Theme.Hairline)
       .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
       .Child(
         StackPanel()
@@ -1114,7 +1121,7 @@ let replyBlock
                     .StrokeDashArray(
                       Avalonia.Collections.AvaloniaList<double>(2.0, 2.0)
                     )
-                    .Stroke(Brushes.muted),
+                    .Classes(Theme.name Theme.MutedEdge),
                   TextBlock().Text(label)
                 )
             )

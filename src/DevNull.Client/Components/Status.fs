@@ -8,20 +8,21 @@ open NXUI.Extensions
 open DevNull.Client
 open DevNull.Client.Theme
 
-let panel(text: string, brush: IObservable<IBrush>) : Control =
+/// One line of text in the given foreground class.
+let panel(text: string, fg: StyleClass) : Control =
   TextBlock()
     .Text(text)
     .TextWrapping(TextWrapping.Wrap)
     .TextAlignment(TextAlignment.Center)
-    .Foreground(brush)
+    .Classes(Theme.name fg)
     .Margin(24.0)
     .HorizontalAlignment(HorizontalAlignment.Stretch)
     .VerticalAlignment(VerticalAlignment.Center)
 
-let busy message = panel(message, Brushes.muted)
+let busy message = panel(message, Muted)
 
-let error message = panel(message, Brushes.danger)
+let error message = panel(message, FgDanger)
 
-let empty message = panel(message, Brushes.muted)
+let empty message = panel(message, Muted)
 
-let soon message = panel(message, Brushes.muted)
+let soon message = panel(message, Muted)

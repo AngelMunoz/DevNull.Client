@@ -36,6 +36,7 @@ open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.Theme
 open DevNull.Client.Timeline
+open DevNull.Client.RouteStore
 open DevNull.Client.Tray
 open DevNull.Client.Unread
 open DevNull.Client.UiClock
@@ -181,8 +182,8 @@ let navItem
   item
 
 /// The sidebar footer: the signed-in user's row, or the sign-in entry.
-/// The account row rebuilds on every sign-in state change, the way the
-/// shell's aside does.
+/// The account row rebuilds only when the signed-in user changes — an
+/// unread refresh keeps the built one.
 let footer
   (
     navigate: string -> unit,
@@ -197,10 +198,16 @@ let footer
 
   let host = ContentControl()
 
+  // The identity cell, the way the chrome's guard works: a poll's
+  // session refresh lands here without rebuilding the row.
+  let account = new BehaviorSubject<string>("")
+
   session
   |> Observable.add(fun state ->
     match state with
-    | SignedIn entry ->
+    | SignedIn entry when account.Value <> entry.Session.User.Id ->
+      account.OnNext entry.Session.User.Id
+
       host.Content <-
         StackPanel()
           .Orientation(Orientation.Horizontal)
@@ -224,7 +231,10 @@ let footer
                   .Text("@" + entry.Session.User.Username)
               )
           )
-    | SignedOut -> host.Content <- null)
+    | SignedIn _ -> ()
+    | SignedOut ->
+      account.OnNext ""
+      host.Content <- null)
 
   let account =
     Button()
@@ -444,6 +454,7 @@ type Shell<'env
   and 'env :> IProvideLastVisit
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
+  and 'env :> IProvideRoutes
   and 'env :> IProvideSshKeys>(env: 'env, callback: string option) as this =
   inherit Window()
 
@@ -674,18 +685,24 @@ type Shell<'env
     sidebarPane.Bind(Border.BorderThicknessProperty, paneHairline) |> ignore
 
     // The aside: the signed-in user's card, the way the site's right
-    // column does past its wide breakpoint. It rebuilds on every
-    // sign-in state change.
+    // column does past its wide breakpoint. It rebuilds only when the
+    // signed-in user changes, the way the chrome does.
     let asideHost = ContentControl()
 
     asideHost.Name <- "AsideHost"
 
+    let asideUser = new BehaviorSubject<string>("")
+
     session.Observe
     |> Observable.add(fun state ->
       match state with
-      | SignedIn entry ->
+      | SignedIn entry when asideUser.Value <> entry.Session.User.Id ->
+        asideUser.OnNext entry.Session.User.Id
         asideHost.Content <- ProfileCard.Page { Env = env; Session = entry }
-      | SignedOut -> asideHost.Content <- null)
+      | SignedIn _ -> ()
+      | SignedOut ->
+        asideUser.OnNext ""
+        asideHost.Content <- null)
 
     let aside =
       ScrollViewer()
@@ -700,14 +717,16 @@ type Shell<'env
     outlet.PageTransition <-
       ImmediatePageTransition() :> Animation.IPageTransition
 
-    // The route path cell, seeded with the boot url and fed by the
-    // router, so the log chrome knows the active tab from the first
-    // frame.
-    let path = new BehaviorSubject<string>(routes.BootUrl)
+    // The route store carries the live path to any chrome that follows
+    // the route; the shell feeds it once, for its own app lifetime.
+    // The boot navigation predates the subscription, so its route lands
+    // by hand.
+    env.Routes.Land routes.BootUrl
 
     router.Changed
     |> Observable.add(fun snapshot ->
-      snapshot.Route |> ValueOption.iter(fun route -> path.OnNext route.Path))
+      snapshot.Route
+      |> ValueOption.iter(fun route -> env.Routes.Land route.Path))
 
     // The shared log chrome: the tabs and the composer every log page
     // posts through. It rebuilds only when the signed-in user changes,
@@ -722,11 +741,10 @@ type Shell<'env
         chromeUser.OnNext entry.Session.User.Id
 
         chromeHost.Content <-
-          LogChrome.view {
+          LogChrome.Page {
             Env = env
             Session = entry
             Nav = router
-            Path = path
           }
       | SignedIn _ -> ()
       | SignedOut ->

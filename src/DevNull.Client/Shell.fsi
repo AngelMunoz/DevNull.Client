@@ -9,6 +9,7 @@ open DevNull.Client.Icons
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
 open DevNull.Client.Profiles
+open DevNull.Client.RouteStore
 open DevNull.Client.SettingsStore
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
@@ -36,6 +37,7 @@ type Shell<'env
   and 'env :> IProvideLastVisit
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
+  and 'env :> IProvideRoutes
   and 'env :> IProvideSshKeys> =
   new: env: 'env * callback: string option -> Shell<'env>
   inherit Window

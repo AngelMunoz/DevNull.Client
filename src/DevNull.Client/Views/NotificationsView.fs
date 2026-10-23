@@ -444,7 +444,7 @@ module Parts =
     let line =
       Border()
         .Width(2.0)
-        .Background(Brushes.rail)
+        .Classes(Theme.name Theme.RailBack)
         .HorizontalAlignment(HorizontalAlignment.Center)
         .VerticalAlignment(VerticalAlignment.Stretch)
         .Margin(0.0, 32.0, 0.0, 0.0)
@@ -467,8 +467,7 @@ module Parts =
           | ValueNone -> plain
 
         Border()
-          .Background(Brushes.card)
-          .BorderBrush(Brushes.rail)
+          .Classes(Theme.name Theme.CardBack, Theme.name Theme.RailEdge)
           .BorderThickness(Thickness(2.0))
           .CornerRadius(40.0)
           .Padding(1.0)
@@ -477,9 +476,12 @@ module Parts =
           .Margin(0.0, 11.0, 0.0, 0.0)
           .Child(avatar)
       else
+        let icon = Icons.iconAt(glyphOf notification.Type, 16.0)
+
+        Theme.laneForeground(icon, notification.Actor.Lane)
+
         Border()
-          .Background(Brushes.card)
-          .BorderBrush(Brushes.rail)
+          .Classes(Theme.name Theme.CardBack, Theme.name Theme.RailEdge)
           .BorderThickness(Thickness(2.0))
           .CornerRadius(20.0)
           .Width(38.0)
@@ -487,11 +489,7 @@ module Parts =
           .HorizontalAlignment(HorizontalAlignment.Center)
           .VerticalAlignment(VerticalAlignment.Top)
           .Margin(0.0, 13.0, 0.0, 0.0)
-          .Child(
-            Icons
-              .iconAt(glyphOf notification.Type, 16.0)
-              .Foreground(Brushes.laneOf notification.Actor.Lane)
-          )
+          .Child(icon)
 
     let rail = Panel()
 
@@ -510,7 +508,7 @@ module Parts =
       commitOf notification
       |> Option.map(fun commit ->
         Border()
-          .BorderBrush(Brushes.border)
+          .Classes(Theme.name Theme.Hairline)
           .BorderThickness(Thickness(1.0))
           .CornerRadius(8.0)
           .Padding(10.0)
@@ -707,7 +705,7 @@ module Parts =
 
     let contentColumn =
       Border()
-        .BorderBrush(Brushes.border)
+        .Classes(Theme.name Theme.Hairline)
         .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
         .Child(content)
 
@@ -764,6 +762,9 @@ module Parts =
           )
         )
       ScrollTop = ValueNone
+      Restore = ValueNone
+      OnScroll = ValueNone
+      OnNeedMore = ValueNone
     }
 
 let view

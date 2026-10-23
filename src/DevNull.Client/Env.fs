@@ -29,6 +29,7 @@ open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
 open DevNull.Client.Timeline
+open DevNull.Client.RouteStore
 open DevNull.Client.Unread
 
 type SystemClock() =
@@ -286,6 +287,8 @@ type AppEnv(baseAddress: string, session: SessionStore, logging: ILoggerFactory)
 
   let timeline = TimelineService()
 
+  let routes = RouteStore()
+
   interface IProvideClock with
     member _.Clock = upcast clock
 
@@ -318,6 +321,9 @@ type AppEnv(baseAddress: string, session: SessionStore, logging: ILoggerFactory)
 
   interface IProvideUiClock with
     member _.UiClock = uiClock
+
+  interface IProvideRoutes with
+    member _.Routes = routes
 
   interface IProvideImageCache with
     member _.ImageCache = imageCache

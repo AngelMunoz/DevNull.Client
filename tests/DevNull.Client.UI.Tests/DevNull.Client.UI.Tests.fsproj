@@ -12,6 +12,7 @@
     <Compile Include="Fixtures.fs" />
     <Compile Include="Unread.Tests.fs" />
     <Compile Include="App.Tests.fs" />
+    <Compile Include="Leaks.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

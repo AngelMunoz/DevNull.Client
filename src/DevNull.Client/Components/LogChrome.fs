@@ -9,6 +9,7 @@ open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
+open MVUish.Avalonia
 open Navs
 open DevNull.Client
 open DevNull.Client.Core.ApiTypes
@@ -19,6 +20,7 @@ open DevNull.Client.Components.Avatar
 open DevNull.Client.Components.Composer
 open DevNull.Client.ImageCache
 open DevNull.Client.Navigation
+open DevNull.Client.RouteStore
 open DevNull.Client.Stores
 open DevNull.Client.SshKeys
 open DevNull.Client.Theme
@@ -32,14 +34,20 @@ type Props<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideTimeline
+  and 'env :> IProvideRoutes
   and 'env :> IProvideSshKeys> = {
   Env: 'env
   Session: SignedInSession
   Nav: INavigable
-  /// The live route path, seeded with the boot url: the strip
-  /// underlines the tab it names and the chrome hides off the log.
-  Path: IObservable<string>
 }
+
+/// The chrome's state: the tab the route names.
+type Model = { Active: LogKind option }
+
+/// The chrome's messages: the route moved, a tab was clicked.
+type Msg =
+  | PathChanged of path: string
+  | TabClicked of kind: LogKind
 
 /// The shared log chrome: the three log tabs and the one composer
 /// every tab posts through, the way the site's log header does.
@@ -77,17 +85,13 @@ module Parts =
   /// on the active tab reloads through the service's gate and scrolls
   /// the feed home; every other click navigates.
   let tab
-    (active: BehaviorSubject<LogKind option>, props: Props<'env>, info: Tab)
+    (active: IObservable<LogKind option>, dispatch: Dispatch<Msg>, info: Tab)
     : Control =
     let button =
       Button()
         .Classes(Theme.name Theme.TabButton)
         .Content(info.Label)
-        .OnClickHandler(fun _ _ ->
-          if active.Value = Some info.Kind then
-            props.Env.Timeline.ForceReload()
-          else
-            Navigation.go(props.Nav, info.Url, ignore))
+        .OnClickHandler(fun _ _ -> dispatch(TabClicked info.Kind))
 
     Theme.bindClass(
       button,
@@ -101,21 +105,21 @@ module Parts =
   /// hairline, the way the site's log header does. The band sits above
   /// the client, so the strip clears it.
   let tabStrip
-    (active: BehaviorSubject<LogKind option>, props: Props<'env>)
+    (active: IObservable<LogKind option>, dispatch: Dispatch<Msg>)
     : Control =
     let strip = Grid()
 
     strip.ColumnDefinitions <- ColumnDefinitions("*,*,*")
 
     Border()
-      .BorderBrush(Brushes.border)
+      .Classes(Theme.name Theme.Hairline)
       .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
       .Margin(0.0, Theme.bandHeight, 0.0, 0.0)
       .Child(
         strip.Children(
           [|
             for index, info in List.indexed logTabs ->
-              tab(active, props, info).Column(index)
+              tab(active, dispatch, info).Column(index)
           |]
         )
       )
@@ -147,15 +151,14 @@ module Parts =
         HorizontalAlignment = HorizontalAlignment.Center,
         VerticalAlignment = VerticalAlignment.Stretch
       )
-        .Stroke(Brushes.rail)
+        .Classes(Theme.name Theme.RailEdge)
         .StrokeDashArray(Avalonia.Collections.AvaloniaList<double>(2.0, 2.0))
         .Margin(0.0, nodeTop + 46.0, 0.0, 12.0)
 
     let avatar =
       Border()
         .Name("ComposerRailNode")
-        .Background(Brushes.card)
-        .BorderBrush(Brushes.laneFallback)
+        .Classes(Theme.name Theme.CardBack)
         .BorderThickness(Thickness(2.0))
         .CornerRadius(46.0)
         .Padding(1.0)
@@ -172,6 +175,8 @@ module Parts =
           }
         )
 
+    avatar.Classes(Theme.laneClass(Theme.LaneBorder, None)) |> ignore
+
     let grid = Grid()
 
     grid.ColumnDefinitions <- ColumnDefinitions("64,*")
@@ -181,16 +186,48 @@ module Parts =
       Border().Margin(0.0, 0.0, 16.0, 0.0).Child(composer).Column(1)
     )
 
-let view(props: Props<'env>) : Control =
-  // The active tab cell, fed by the live path the way the shell's
-  // layout cell is fed by the client size. The path stream carries its
-  // current value on subscribe, so the underline and the visibility
-  // start correct.
-  let active = new BehaviorSubject<LogKind option>(None)
+/// The chrome's state logic: the active tab, fed by the route store.
+module State =
 
-  props.Path |> Observable.map Parts.kindOf |> Observable.add active.OnNext
+  let init (props: Props<'env>) () : Model * Cmd<Msg> =
+    {
+      Active = Parts.kindOf props.Env.Routes.Current
+    },
+    Cmd.none
 
-  let onLog = active |> Observable.map Option.isSome
+  let update (props: Props<'env>) (msg: Msg) (model: Model) : Model * Cmd<Msg> =
+    match msg with
+    | PathChanged path ->
+      {
+        model with
+            Active = Parts.kindOf path
+      },
+      Cmd.none
+    | TabClicked kind ->
+      // A click on the active tab reloads through the service's gate
+      // and scrolls the feed home; every other click navigates.
+      if model.Active = Some kind then
+        model, Cmd.ofEffect(fun _ -> props.Env.Timeline.ForceReload())
+      else
+        model,
+        Cmd.ofEffect(fun _ ->
+          Parts.logTabs
+          |> List.tryFind(fun tab -> tab.Kind = kind)
+          |> Option.iter(fun tab -> Navigation.go(props.Nav, tab.Url, ignore)))
+
+  /// The chrome's one inlet from outside: the route store.
+  let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
+    Sub.fromObservable
+      "path"
+      (props.Env.Routes.Path |> Observable.map PathChanged)
+
+let view
+  (props: Props<'env>)
+  (model: IObservable<Model>)
+  (dispatch: Dispatch<Msg>)
+  : Control =
+
+  let active = model |> Observable.map _.Active
 
   let root = Grid()
 
@@ -198,7 +235,30 @@ let view(props: Props<'env>) : Control =
 
   root
     .Children(
-      Parts.tabStrip(active, props).Row(0),
+      Parts.tabStrip(active, dispatch).Row(0),
       (Parts.composerRail props).Row(1)
     )
-    .IsVisible(onLog)
+    .IsVisible(active |> Observable.map Option.isSome)
+
+type Page<'env
+  when 'env :> IProvideClock
+  and 'env :> IProvideNonceSource
+  and 'env :> IProvideSigner
+  and 'env :> IProvideHttp
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideTimeline
+  and 'env :> IProvideRoutes
+  and 'env :> IProvideSshKeys>(props: Props<'env>) as this =
+  inherit UserControl()
+
+  do
+    let program =
+      Program.mkProgram (State.init props) (State.update props) (view props)
+      |> Program.withSubscription(State.subscribe props)
+
+    // The chrome is replaced, never re-shown, so its program ends on
+    // the first detach.
+    let root, _ = Program.runWithLifetime this () program
+
+    this.Content <- root

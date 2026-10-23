@@ -3216,7 +3216,7 @@ let tests =
       })
 
     testCaseAsync
-      "a cached log page returns without a refetch"
+      "a returning log page refetches and restores its place"
       (async {
         let api = threadApi()
         let! window = startShell(signedInStore(), api :> IHttp)
@@ -3243,13 +3243,13 @@ let tests =
 
         let! back = showsText(window, "It was DNS.")
 
-        Expect.isTrue back "the cached log never came back"
+        Expect.isTrue back "the log never came back"
 
-        // The cached page holds its items: returning asks the server
-        // for nothing. The count may not move by even one read.
-        let! after = waitForAsync(2000, logReads, (fun count -> count = before))
+        // The page that returns is fresh: it asks the server for its
+        // page again, and the timeline service hands back its place.
+        let! after = waitForAsync(2000, logReads, (fun count -> count > before))
 
-        Expect.isTrue after "the cached page refetched on return"
+        Expect.isTrue after "the returning page never refetched"
       })
 
     testCaseAsync

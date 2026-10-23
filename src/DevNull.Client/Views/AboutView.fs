@@ -38,7 +38,7 @@ module Parts =
   /// wrap width, and the border would cut the last glyph.
   let disclaimer() : Control =
     Border()
-      .BorderBrush(Brushes.border)
+      .Classes(Theme.name Theme.Hairline)
       .BorderThickness(Thickness(1.0))
       .CornerRadius(8.0)
       .Padding(12.0)

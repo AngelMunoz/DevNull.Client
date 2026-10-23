@@ -3,6 +3,8 @@ module DevNull.Client.Theme
 open System
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.Shapes
+open Avalonia.Controls.Primitives
 open Avalonia.Media
 open Avalonia.Styling
 open DevNull.Client.Core.ApiTypes
@@ -107,6 +109,20 @@ type StyleClass =
   | ChromeTitle
   | CaptionButton
   | Mono
+  | FgAccent
+  | FgMuted
+  | FgDanger
+  | FgOnAccent
+  | SurfaceBack
+  | CardBack
+  | RailBack
+  | Hairline
+  | AccentEdge
+  | TextEdge
+  | CardFill
+  | CardEdge
+  | RailEdge
+  | MutedEdge
 
 /// The height of the drag band the shell lays over the drawn window
 /// chrome.
@@ -126,6 +142,41 @@ val name: class': StyleClass -> string
 /// class list is the only thing the subscription touches.
 val bindClass:
   control: Control * class': StyleClass * active: IObservable<bool> -> unit
+
+/// The lane slot one control paints: the property the lane class
+/// styles. One slot per class keeps a lane-painted control from
+/// inheriting a second lane brush it never asked for.
+type LaneRole =
+  | LaneFill
+  | LaneStroke
+  | LaneBorder
+  | LaneBack
+  | LaneFg
+
+/// The lane class of one slot: the palette index, or the neutral
+/// fallback when the user carries no lane.
+val laneClass: role: LaneRole * lane: Lane option -> string
+
+/// Paints one shape's lane fill: the palette class for an index, the
+/// constant brush for a user hex, the fallback class for no lane.
+val laneFill: shape: Shapes.Shape * lane: Lane option -> unit
+
+/// Paints one shape's lane stroke, the same three ways.
+val laneStroke: shape: Shapes.Shape * lane: Lane option -> unit
+
+/// Paints one border's lane ring.
+val laneBorder: border: Border * lane: Lane option -> unit
+
+/// Paints one border's lane body.
+val laneBack: border: Border * lane: Lane option -> unit
+
+/// Paints one templated control's lane foreground: the rail icons and
+/// the level chip.
+val laneForeground:
+  control: Primitives.TemplatedControl * lane: Lane option -> unit
+
+/// Paints one text block's lane foreground.
+val laneText: block: TextBlock * lane: Lane option -> unit
 
 /// One app-level style: a selector plus its setters, as code.
 val styleOf:

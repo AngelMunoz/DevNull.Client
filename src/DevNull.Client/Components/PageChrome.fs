@@ -11,14 +11,13 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Errors
 open DevNull.Client.Theme
 
-/// One line of text that follows an observable source.
-let messagePanel
-  (text: IObservable<string>, brush: IObservable<IBrush>)
-  : Control =
+/// One line of text in the given foreground class, following an
+/// observable source.
+let messagePanel(text: IObservable<string>, fg: StyleClass) : Control =
   TextBlock()
     .TextWrapping(TextWrapping.Wrap)
     .TextAlignment(TextAlignment.Center)
-    .Foreground(brush)
+    .Classes(Theme.name fg)
     .Margin(24.0)
     .HorizontalAlignment(HorizontalAlignment.Stretch)
     .VerticalAlignment(VerticalAlignment.Center)
@@ -35,17 +34,17 @@ let errorPanel(error: IObservable<AppError option>) : Control =
   Border()
     .Classes(Theme.name Theme.Card)
     .Margin(0.0, 8.0, 0.0, 8.0)
-    .Child(messagePanel(text, Brushes.danger))
+    .Child(messagePanel(text, Theme.FgDanger))
     .IsVisible(error |> Observable.map Option.isSome)
 
 /// The busy line of a page.
 let busy(visible: IObservable<bool>, message: string) : Control =
-  messagePanel(System.Reactive.Linq.Observable.Return message, Brushes.muted)
+  messagePanel(System.Reactive.Linq.Observable.Return message, Theme.Muted)
     .IsVisible(visible)
 
 /// The empty line of a page.
 let empty(visible: IObservable<bool>, message: string) : Control =
-  messagePanel(System.Reactive.Linq.Observable.Return message, Brushes.muted)
+  messagePanel(System.Reactive.Linq.Observable.Return message, Theme.Muted)
     .IsVisible(visible)
 
 /// The feed's load-more button, shown while the page holds a cursor.
@@ -98,10 +97,9 @@ let page(props: PageProps<'m>) : Control =
   let emptyText =
     model |> Observable.map(fun current -> snd(props.Empty current))
 
-  let busyPanel = messagePanel(busyText, Brushes.muted).IsVisible(busyVisible)
+  let busyPanel = messagePanel(busyText, Theme.Muted).IsVisible(busyVisible)
 
-  let emptyPanel =
-    messagePanel(emptyText, Brushes.muted).IsVisible(emptyVisible)
+  let emptyPanel = messagePanel(emptyText, Theme.Muted).IsVisible(emptyVisible)
 
   let header: Control array = [| for piece in props.Header -> piece |]
 

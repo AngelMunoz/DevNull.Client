@@ -80,8 +80,8 @@ module State =
     Head: string option
     NewCount: int option
     Ranked: bool
-    /// Whether the page sits in the visual tree: the cached log page
-    /// pauses its since-poll while it is stashed.
+    /// Whether the page sits in the visual tree: the since-poll pauses
+    /// while it does not.
     Attached: bool
     /// The shared clock's last tick, for the relative times.
     Now: DateTimeOffset
@@ -89,9 +89,6 @@ module State =
     Pasteis: bool
     /// The commit whose inline reply composer is open, by id.
     ReplyingTo: string option
-    /// The reply drafts the page holds for commits whose row recycled,
-    /// by commit id. An empty text never lands here.
-    ReplyDrafts: Map<string, string>
     /// The visit captured when the page mounted, for the marker row.
     Marker: DateTimeOffset option
     /// The thread previews the page grew past the payload slice, by
@@ -118,7 +115,6 @@ module State =
     | SessionChanged of state: SessionState
     | ReplyToggled of Commit
     | ReplyPosted of commitId: string
-    | ReplyDraftChanged of commitId: string * text: string
     | PollVoteGiven of Commit * PollOption
     | PollVotedDone of Result<Commit, AppError>
     | PreviewMoreRequested of Commit

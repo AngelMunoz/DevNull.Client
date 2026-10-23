@@ -12,6 +12,7 @@ open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
 open DevNull.Client.Timeline
+open DevNull.Client.RouteStore
 open DevNull.Client.Unread
 
 /// The logging capability: one factory bridged to Serilog, so every
@@ -39,6 +40,7 @@ type AppEnv =
   interface IProvideUnread
   interface IProvideTimeline
   interface IProvideUiClock
+  interface IProvideRoutes
   interface IProvideImageCache
   interface IProvideAttachmentSources
   interface IProvideLastVisit

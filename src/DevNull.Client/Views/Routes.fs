@@ -251,15 +251,14 @@ let build
     route |> Route.canActivate(fun _ _ -> requiresSignedOut env)
 
   let table: RouteDefinition<Control> list = [
-    // The log keeps its page between visits: the cached instance holds
-    // the feed's scroll, so a thread and back never resets the
-    // timeline. Three entries cover the three log tabs.
+    // The log page parks its scroll place and reply drafts in the
+    // timeline service before it ends, so a thread and back returns to
+    // the same reading place without a cached page holding memory.
     Route.define<Control>(
       "log",
       "/log/:log",
       fun context nav -> logPage(env, nav, context)
     )
-    |> Route.cache(Cache(3, None))
     |> gated
 
     Route.define<Control>(

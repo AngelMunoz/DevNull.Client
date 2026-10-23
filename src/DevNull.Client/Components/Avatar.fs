@@ -34,13 +34,7 @@ let initial(name: string) =
 let view(props: Props) : Control =
   let disc = Ellipse().Width(props.Size).Height(props.Size)
 
-  let paint(element: Ellipse) =
-    match props.Lane with
-    | Some(LaneIndex index) -> element.Fill(Brushes.lane index)
-    | Some(LaneColor hex) -> element.Fill(Brushes.solid hex)
-    | None -> element.Fill(Brushes.laneFallback)
-
-  paint disc |> ignore
+  Theme.laneFill(disc, props.Lane)
 
   let children: Control array = [|
     disc
@@ -68,7 +62,7 @@ let view(props: Props) : Control =
         .Text(initial props.Name)
         .FontSize(props.Size * 0.42)
         .FontWeight(FontWeight.SemiBold)
-        .Foreground(Brushes.onAccent)
+        .Classes(Theme.name Theme.FgOnAccent)
         .HorizontalAlignment(HorizontalAlignment.Center)
         .VerticalAlignment(VerticalAlignment.Center)
   |]

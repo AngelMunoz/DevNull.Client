@@ -425,19 +425,25 @@ module Parts =
 
   /// The lane-tinted level chip the profile and the XP shelf carry.
   let levelChip(achievements: Achievements, lane: Lane option) : Control =
-    Border()
-      .BorderBrush(Brushes.laneOf lane)
-      .BorderThickness(Thickness(1.0))
-      .CornerRadius(999.0)
-      .Padding(8.0, 2.0, 8.0, 2.0)
-      .VerticalAlignment(VerticalAlignment.Center)
-      .Child(
-        TextBlock()
-          .Classes(Theme.name Theme.Mono)
-          .FontSize(11.0)
-          .Foreground(Brushes.laneOf lane)
-          .Text($"Lv. {achievements.Level} · {achievements.Rank}")
-      )
+    let label =
+      TextBlock()
+        .Classes(Theme.name Theme.Mono)
+        .FontSize(11.0)
+        .Text($"Lv. {achievements.Level} · {achievements.Rank}")
+
+    Theme.laneText(label, lane)
+
+    let chip =
+      Border()
+        .BorderThickness(Thickness(1.0))
+        .CornerRadius(999.0)
+        .Padding(8.0, 2.0, 8.0, 2.0)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Child(label)
+
+    Theme.laneBorder(chip, lane)
+
+    chip
 
   /// The joined-and-links line under the bio: company, location, the
   /// website host, and the join month.
@@ -495,16 +501,17 @@ module Parts =
       |> List.iteri(fun index bucket ->
         let height = 8.0 + float bucket.Count / float maxCount * 44.0
 
-        bars.Children(
+        let bar =
           Border()
             .Width(6.0)
             .Height(height)
             .CornerRadius(1.0)
-            .Background(Brushes.laneOf lane)
             .VerticalAlignment(VerticalAlignment.Bottom)
             .Column(index)
-        )
-        |> ignore)
+
+        Theme.laneBack(bar, lane)
+
+        bars.Children(bar) |> ignore)
 
       StackPanel().Spacing(6.0).Children(caption, bars)
 
@@ -525,8 +532,9 @@ module Parts =
       Border()
         .Height(6.0)
         .CornerRadius(3.0)
-        .Background(Brushes.laneOf lane)
         .VerticalAlignment(VerticalAlignment.Center)
+
+    Theme.laneBack(fill, lane)
 
     let track = Grid()
 
@@ -561,7 +569,10 @@ module Parts =
               .DockRight(),
             levelChip(achievements, lane)
           ),
-        Border().Background(Brushes.surface).CornerRadius(3.0).Child(track),
+        Border()
+          .Classes(Theme.name Theme.SurfaceBack)
+          .CornerRadius(3.0)
+          .Child(track),
         TextBlock().Classes(Theme.name Theme.Muted).Text(badges)
       )
 
@@ -613,8 +624,7 @@ module Parts =
 
     let ring =
       Border()
-        .Background(Brushes.card)
-        .BorderBrush(Brushes.laneOf profile.Lane)
+        .Classes(Theme.name Theme.CardBack)
         .BorderThickness(Thickness(2.0))
         .CornerRadius(44.0)
         .Padding(3.0)
@@ -627,6 +637,8 @@ module Parts =
             Cache = ctx.Images
           }
         )
+
+    Theme.laneBorder(ring, profile.Lane)
 
     let headerChildren: Control array = [|
       DockPanel()
@@ -765,6 +777,9 @@ module Parts =
           )
         )
       ScrollTop = ValueNone
+      Restore = ValueNone
+      OnScroll = ValueNone
+      OnNeedMore = ValueNone
     }
 
   /// The Commits/Replies tab bar; the active tab carries the site's
@@ -800,7 +815,7 @@ module Parts =
     |]
 
     Border()
-      .BorderBrush(Brushes.border)
+      .Classes(Theme.name Theme.Hairline)
       .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
       .Child(strip.Children(buttons))
 

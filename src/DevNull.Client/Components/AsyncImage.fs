@@ -26,7 +26,9 @@ type Props = {
 // needs a ready bitmap, and the feed recycles rows, so the load needs
 // a control-owned lifetime. The URL is fixed at construction because
 // every feed row rebuilds its content per item; no property system
-// machinery is needed for that.
+// machinery is needed for that. The decoded bitmap is native memory
+// the GC cannot weigh, so the control owns it: the previous bitmap
+// disposes on replace, the shown one on detach.
 type Loader(props: Props) as this =
   inherit ContentControl()
 
@@ -46,6 +48,19 @@ type Loader(props: Props) as this =
       source.Dispose()
       current <- None
     | None -> ()
+
+  // The shown bitmap rides the same lifecycle: one at a time, disposed
+  // by whoever drops it.
+  let mutable shown = None: Bitmap option
+
+  let drop() =
+    shown |> Option.iter(fun bitmap -> bitmap.Dispose())
+    shown <- None
+
+  let show(bitmap: Bitmap) =
+    drop()
+    shown <- Some bitmap
+    this.Content <- Image().Source(bitmap).Stretch(props.Stretch)
 
   let start() =
     stop()
@@ -72,8 +87,11 @@ type Loader(props: Props) as this =
         match decoded with
         | Ok bitmap ->
           Dispatcher.UIThread.Post(fun () ->
+            // A detach between the decode and this post already dropped
+            // and disposed; the token keeps the late bitmap out, and
+            // the control owns the one it takes.
             if not source.IsCancellationRequested then
-              this.Content <- Image().Source(bitmap).Stretch(props.Stretch))
+              show bitmap)
         | Error _ -> ()
     }
 
@@ -86,6 +104,7 @@ type Loader(props: Props) as this =
 
   override this.OnDetachedFromVisualTree(_: VisualTreeAttachmentEventArgs) =
     stop()
+    drop()
     this.Content <- placeholder
 
 let view(props: Props) : Control =

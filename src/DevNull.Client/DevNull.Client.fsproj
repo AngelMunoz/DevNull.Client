@@ -45,6 +45,8 @@
     <Compile Include="Unread.fs" />
     <Compile Include="Timeline.fsi" />
     <Compile Include="Timeline.fs" />
+    <Compile Include="RouteStore.fsi" />
+    <Compile Include="RouteStore.fs" />
     <Compile Include="Env.fsi" />
     <Compile Include="Env.fs" />
     <Compile Include="DeviceAuth.fsi" />

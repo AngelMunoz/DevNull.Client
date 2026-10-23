@@ -96,9 +96,6 @@ module State =
     Now: DateTimeOffset
     Pasteis: bool
     ReplyingTo: string option
-    /// The reply drafts the page holds for commits whose row recycled,
-    /// by commit id. An empty text never lands here.
-    ReplyDrafts: Map<string, string>
     /// The visit captured when the page mounted; the rendered marker
     /// keeps pointing there for the session even as the store advances.
     Marker: DateTimeOffset option
@@ -125,7 +122,6 @@ module State =
     | SessionChanged of state: SessionState
     | ReplyToggled of Commit
     | ReplyPosted of commitId: string
-    | ReplyDraftChanged of commitId: string * text: string
     | PollVoteGiven of Commit * PollOption
     | PollVotedDone of Result<Commit, AppError>
     | PreviewMoreRequested of Commit
@@ -143,7 +139,6 @@ module State =
     Now = DateTimeOffset.UtcNow
     Pasteis = false
     ReplyingTo = None
-    ReplyDrafts = Map.empty
     Marker = None
     Previews = Map.empty
   }
@@ -296,22 +291,8 @@ module State =
       // A landed reply closes its composer and refreshes the feed, so
       // the new reply arrives through the same read as everything
       // else. Its draft is spent.
-      {
-        model with
-            ReplyingTo = None
-            ReplyDrafts = model.ReplyDrafts |> Map.remove commitId
-      },
+      { model with ReplyingTo = None },
       Cmd.ofEffect(fun dispatch' -> dispatch' ReloadRequested)
-    | ReplyDraftChanged(commitId, text) ->
-      // A recycled row rebuilds its composer from this map, so a draft
-      // outlives the row; an emptied text leaves no entry behind.
-      let drafts =
-        if text = "" then
-          model.ReplyDrafts |> Map.remove commitId
-        else
-          model.ReplyDrafts |> Map.add commitId text
-
-      { model with ReplyDrafts = drafts }, Cmd.none
     | PollVoteGiven(commit, option) ->
       let vote() =
         Commits.vote(
@@ -378,7 +359,12 @@ module State =
         Cmd.none
       | Error error -> { model with Error = Some error }, Cmd.none
     | MoreRequested ->
-      model, Cmd.OfAsync.perform fetch (props, model.NextCursor) Appended
+      // A cursor means the next page; no cursor means the feed ended,
+      // so a restore chase past the end asks for nothing.
+      match model.NextCursor with
+      | Some _ ->
+        model, Cmd.OfAsync.perform fetch (props, model.NextCursor) Appended
+      | None -> model, Cmd.none
     | Appended result ->
       match result with
       | Ok page ->
@@ -463,17 +449,6 @@ module State =
         Sub.fromObservable "chrome" chromeRequests
     ]
     |> Sub.batch
-
-  /// The draft a recycled row's composer seeds from. The program's
-  /// model stream is the live subject, so the row build — which runs
-  /// on realize, between emissions — reads the page's current state.
-  let draftOf(model: IObservable<Model>, commitId: string) : string =
-    match box model with
-    | :? BehaviorSubject<Model> as subject ->
-      subject.Value.ReplyDrafts
-      |> Map.tryFind commitId
-      |> Option.defaultValue ""
-    | _ -> ""
 
   /// Interleaves day separators between the commits of different days,
   /// carrying the day across tombstones. A ranked log is score ordered,
@@ -622,21 +597,24 @@ module Parts =
     | LogRow.Day label -> FeedParts.dayRow label
     | LogRow.LastVisitRow -> FeedParts.lastVisitRow()
     | LogRow.Node commit ->
-      // The inline reply composer seeds from the page's draft map, so
-      // a recycled row rebuilds with the typed text. The program dies
-      // with its control on the first detach; the draft does not.
+      // The inline reply composer seeds from the timeline service's
+      // parked draft, so a recycled row rebuilds with the typed text,
+      // and the draft outlives the page the same way.
       let composer =
         Composer.Page {
           Env = props.Env
           Session = props.Session
           Target = Composer.ReplyTo commit.Id
-          OnCommitted = fun _ -> dispatch(State.ReplyPosted commit.Id)
+          OnCommitted =
+            fun _ ->
+              props.Env.Timeline.ForgetDraft commit.Id
+              dispatch(State.ReplyPosted commit.Id)
           Register = ValueNone
           Draft =
             ValueSome {
-              Seed = State.draftOf(model, commit.Id)
+              Seed = props.Env.Timeline.DraftOf commit.Id
               Changed =
-                fun text -> dispatch(State.ReplyDraftChanged(commit.Id, text))
+                fun text -> props.Env.Timeline.RememberDraft(commit.Id, text)
             }
         }
 
@@ -704,13 +682,16 @@ module Parts =
 
   /// The timeline itself: the virtualized feed over the page's rows.
   /// The shared chrome's return-to-top signal reaches the feed's own
-  /// scroller.
+  /// scroller, and the scroller's place parks in the timeline service,
+  /// so the next page of this log picks it back up.
   let feed
     (
       props: Props<'env>,
       dispatch: Dispatch<State.Msg>,
       model: IObservable<State.Model>
     ) : Control =
+    let place = props.Env.Timeline.OffsetOf props.Log
+
     Feed.view {
       Items =
         model
@@ -740,6 +721,10 @@ module Parts =
             | Timeline.ScrollToTop -> Some()
             | _ -> None)
         )
+      Restore = (if place > 0.0 then ValueSome place else ValueNone)
+      OnScroll =
+        ValueSome(fun offset -> props.Env.Timeline.Remember(props.Log, offset))
+      OnNeedMore = ValueSome(fun () -> dispatch State.MoreRequested)
     }
 
 let view

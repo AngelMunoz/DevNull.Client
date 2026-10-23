@@ -183,7 +183,7 @@ module Parts =
     let errorText =
       TextBlock()
         .TextWrapping(TextWrapping.Wrap)
-        .Foreground(Brushes.danger)
+        .Classes(Theme.name Theme.FgDanger)
         .Text(
           model
           |> Observable.map(fun current ->
@@ -230,15 +230,17 @@ module Parts =
                 .Width(34.0)
                 .Height(34.0)
                 .CornerRadius(17.0)
-                .Background(Brushes.lane index)
-                .BorderBrush(
-                  if current' = Some index then
-                    Brushes.text
-                  else
-                    Brushes.border
-                )
                 .BorderThickness(2.0)
                 .OnClickHandler(fun _ _ -> dispatch(State.LaneSet index))
+                .Classes(
+                  Theme.laneClass(Theme.LaneBack, Some(LaneIndex index)),
+                  Theme.name(
+                    if current' = Some index then
+                      Theme.TextEdge
+                    else
+                      Theme.Hairline
+                  )
+                )
 
             let automatic =
               Button()
@@ -247,7 +249,7 @@ module Parts =
                 .OnClickHandler(fun _ _ -> dispatch State.LaneAutomatic)
 
             if me.PreferredLane = None then
-              automatic.Background(Brushes.card) |> ignore
+              automatic.Classes(Theme.name Theme.CardBack) |> ignore
 
             let row: Control array = [|
               automatic
@@ -295,7 +297,7 @@ module Parts =
               .OnClickHandler(fun _ _ -> dispatch(State.ThemeChosen choice))
 
           if current.Settings.Theme = choice then
-            button.BorderBrush(Brushes.accent) |> ignore
+            button.Classes(Theme.name Theme.AccentEdge) |> ignore
 
           button
 

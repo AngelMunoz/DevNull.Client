@@ -284,6 +284,9 @@ module Parts =
           )
         )
       ScrollTop = ValueNone
+      Restore = ValueNone
+      OnScroll = ValueNone
+      OnNeedMore = ValueNone
     }
 
 let view

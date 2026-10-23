@@ -464,7 +464,7 @@ module Parts =
               .StrokeDashArray(
                 Avalonia.Collections.AvaloniaList<double>(2.0, 2.0)
               )
-              .Stroke(Brushes.muted),
+              .Classes(Theme.name Theme.MutedEdge),
             TextBlock().Text(label)
           )
       )

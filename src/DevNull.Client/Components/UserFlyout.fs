@@ -104,8 +104,7 @@ module Parts =
       .Padding(0.0)
       .Content(
         Border()
-          .Background(Brushes.card)
-          .BorderBrush(Brushes.border)
+          .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
           .BorderThickness(Thickness(1.0))
           .CornerRadius(8.0)
           .Padding(12.0)
@@ -117,6 +116,13 @@ module Parts =
 /// user's identity opens beside it; it closes 200 ms after the pointer
 /// leaves the trigger or the card, and a click on either opens the
 /// profile. Follow and mute stay on the profile page.
+///
+/// The flyout rides a TextBlock inline, and a TextBlock clears and
+/// rebuilds its inline children on every arrange pass, so the flyout
+/// detaches and re-attaches with layout: no lifecycle logic may key on
+/// the detach. The timers own the lifetime instead — every tick and
+/// every pointer path stops them — and a recycled row's popup closes
+/// with its tree.
 let attach(source: Source, user: User, child: Control) : Control =
   let card = ContentControl().Name("UserFlyout")
 
@@ -134,9 +140,7 @@ let attach(source: Source, user: User, child: Control) : Control =
     closeTimer.Stop()
     popup.IsOpen <- false
 
-  // One fetch per open: the card rebuilds when the details land. A
-  // landed rebuild after the close is harmless: the card content
-  // simply waits inside the popup for the next open.
+  // One fetch per open: the card rebuilds when the details land.
   let show(identity: ProfileDetails option) =
     card.Content <-
       Parts

@@ -5,10 +5,11 @@ open Avalonia
 open Avalonia.Controls
 open Avalonia.Media
 open DevNull.Client.Errors
+open DevNull.Client.Theme
 
-/// One line of text that follows an observable source.
-val messagePanel:
-  text: IObservable<string> * brush: IObservable<IBrush> -> Control
+/// One line of text in the given foreground class, following an
+/// observable source.
+val messagePanel: text: IObservable<string> * fg: StyleClass -> Control
 
 /// The page's error card: one plain line per failure, in the danger
 /// tone, shown only while the page carries an error.

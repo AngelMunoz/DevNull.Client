@@ -349,7 +349,7 @@ module Parts =
   let errorLine(model: IObservable<State.Model>) : Control =
     TextBlock()
       .TextWrapping(TextWrapping.Wrap)
-      .Foreground(Brushes.danger)
+      .Classes(Theme.name Theme.FgDanger)
       .Text(
         model
         |> Observable.map(fun current ->
@@ -363,12 +363,14 @@ module Parts =
     (dispatch: Dispatch<State.Msg>, index: int, staged: ImageAttachment)
     : Control =
     // The preview decodes the staged bytes on the UI thread: staging is
-    // a rare, user-driven act over at most three files.
-    let preview =
+    // a rare, user-driven act over at most three files. The decoded
+    // bitmap is native memory, so the chip image disposes it when the
+    // strip rebuilds and drops it.
+    let bitmap =
       use stream = new MemoryStream(staged.Bytes)
+      new Bitmap(stream)
 
-      let bitmap = new Bitmap(stream)
-
+    let preview =
       Avalonia.Controls
         .Image()
         .Source(bitmap)
@@ -376,8 +378,10 @@ module Parts =
         .Height(48.0)
         .Stretch(Stretch.UniformToFill)
 
+    preview.DetachedFromVisualTree.Add(fun _ -> bitmap.Dispose())
+
     Border()
-      .BorderBrush(Brushes.border)
+      .Classes(Theme.name Theme.Hairline)
       .BorderThickness(Thickness(1.0))
       .CornerRadius(8.0)
       .Padding(6.0)

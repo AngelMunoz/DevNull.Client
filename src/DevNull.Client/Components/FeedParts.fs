@@ -28,11 +28,11 @@ let dayRow(label: string) : Control =
       .Width(2.0)
       .HorizontalAlignment(HorizontalAlignment.Center)
       .VerticalAlignment(VerticalAlignment.Stretch)
-      .Background(Brushes.rail)
+      .Classes(Theme.name Theme.RailBack)
 
   let label' =
     Border()
-      .BorderBrush(Brushes.border)
+      .Classes(Theme.name Theme.Hairline)
       .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
       .Child(
         TextBlock()
@@ -56,7 +56,7 @@ let lastVisitRow() : Control =
       VerticalAlignment = VerticalAlignment.Center,
       HorizontalAlignment = HorizontalAlignment.Stretch
     )
-      .Stroke(Brushes.muted)
+      .Classes(Theme.name Theme.MutedEdge)
 
   DockPanel()
     .LastChildFill(true)
@@ -74,17 +74,20 @@ let lastVisitRow() : Control =
 /// given offset from its host's left edge. The thread rail chains row
 /// to row; every row draws its own segment.
 let laneSpineAt(lane: Lane option, x: float) : Line =
-  Line(
-    StartPoint = Point(0.0, 0.0),
-    EndPoint = Point(0.0, 1.0),
-    Stretch = Stretch.Fill,
-    StrokeThickness = 1.5,
-    StrokeDashArray = Avalonia.Collections.AvaloniaList<double>(2.0, 2.0),
-    HorizontalAlignment = HorizontalAlignment.Left,
-    VerticalAlignment = VerticalAlignment.Stretch
-  )
-    .Margin(x - 0.75, 0.0, 0.0, 0.0)
-    .Stroke(Brushes.laneOf lane)
+  let spine =
+    Line(
+      StartPoint = Point(0.0, 0.0),
+      EndPoint = Point(0.0, 1.0),
+      Stretch = Stretch.Fill,
+      StrokeThickness = 1.5,
+      StrokeDashArray = Avalonia.Collections.AvaloniaList<double>(2.0, 2.0),
+      HorizontalAlignment = HorizontalAlignment.Left,
+      VerticalAlignment = VerticalAlignment.Stretch
+    )
+      .Margin(x - 0.75, 0.0, 0.0, 0.0)
+
+  Theme.laneStroke(spine, lane)
+  spine
 
 /// The dashed quarter-circle that branches one reply off its parent's
 /// rail, at the given offset: down from the parent's spine, then
@@ -99,14 +102,17 @@ let laneElbowAt
       $"M 0,0 L 0,{height - bend} Q 0,{height} {bend},{height} L {width},{height}"
     )
 
-  Path()
-    .Name("ThreadElbow")
-    .Margin(x, 0.0, 0.0, 0.0)
-    .Width(width)
-    .Height(height)
-    .HorizontalAlignment(HorizontalAlignment.Left)
-    .VerticalAlignment(VerticalAlignment.Top)
-    .StrokeThickness(1.5)
-    .StrokeDashArray(Avalonia.Collections.AvaloniaList<double>(2.0, 2.0))
-    .Stroke(Brushes.laneOf lane)
-    .Data(Geometry.Parse path)
+  let elbow =
+    Path()
+      .Name("ThreadElbow")
+      .Margin(x, 0.0, 0.0, 0.0)
+      .Width(width)
+      .Height(height)
+      .HorizontalAlignment(HorizontalAlignment.Left)
+      .VerticalAlignment(VerticalAlignment.Top)
+      .StrokeThickness(1.5)
+      .StrokeDashArray(Avalonia.Collections.AvaloniaList<double>(2.0, 2.0))
+      .Data(Geometry.Parse path)
+
+  Theme.laneStroke(elbow, lane)
+  elbow

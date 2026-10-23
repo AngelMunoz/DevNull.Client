@@ -10,6 +10,27 @@ open NXUI.Extensions
 open MVUish.Avalonia
 open MVUish.Avalonia.Collections
 
+/// One remembered place coming back: lands once when the loaded extent
+/// reaches it, asks for more pages while it does not, then stays out of
+/// the way of the user's own scrolling.
+type Restore(target: float, needMore: (unit -> unit) voption) =
+  member _.Target = target
+
+  member val Landed = false with get, set
+
+  member this.Chase(scroller: ScrollViewer) =
+    if not this.Landed then
+      // The landing clamps until the panel has realized enough rows, so
+      // the place counts as reached only when the offset itself holds
+      // it; until then the extent keeps growing under the re-asserted
+      // offset and the chase keeps asking for pages.
+      if scroller.Offset.Y >= this.Target - 0.5 then
+        this.Landed <- true
+      elif scroller.Extent.Height - scroller.Viewport.Height >= this.Target then
+        scroller.Offset <- Vector(0.0, this.Target)
+      else
+        needMore |> ValueOption.iter(fun ask -> ask())
+
 type Props<'T when 'T: equality> = {
   Items: IObservable<'T list>
   KeyOf: 'T -> string
@@ -18,6 +39,13 @@ type Props<'T when 'T: equality> = {
   /// Emits when the feed must return to its top, whatever scrolled it
   /// down. The listener ends when the feed leaves the visual tree.
   ScrollTop: IObservable<unit> voption
+  /// The scroll place this feed picks up, or none for a fresh feed.
+  Restore: float voption
+  /// Reports every settled scroll place, so the host can park it.
+  OnScroll: (float -> unit) voption
+  /// Asks the host for the next page while a remembered place sits
+  /// beyond the loaded extent.
+  OnNeedMore: (unit -> unit) voption
 }
 
 let view(props: Props<'T>) : Control =
@@ -58,8 +86,22 @@ let view(props: Props<'T>) : Control =
       .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
       .Content(rows)
 
+  // A remembered place comes back through the chase; every settled
+  // place reports out so the host can park it. The handler is the
+  // scroller's own event, so it dies with the feed.
+  let restore =
+    match props.Restore with
+    | ValueSome target when target > 0.0 ->
+      Some(Restore(target, props.OnNeedMore))
+    | _ -> None
+
+  scroller.ScrollChanged.Add(fun _ ->
+    props.OnScroll |> ValueOption.iter(fun park -> park scroller.Offset.Y)
+
+    restore |> Option.iter(fun chase -> chase.Chase scroller))
+
   // A return-to-top signal reaches the feed's own scroller; the
-  // listener ends with the feed's detach, so a cached page's stashed
+  // listener ends with the feed's detach, so a parked page's stashed
   // scroller stops listening.
   match props.ScrollTop with
   | ValueNone -> ()

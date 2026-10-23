@@ -16,6 +16,13 @@ type Props<'T when 'T: equality> = {
   /// Emits when the feed must return to its top, whatever scrolled it
   /// down. The listener ends when the feed leaves the visual tree.
   ScrollTop: IObservable<unit> voption
+  /// The scroll place this feed picks up, or none for a fresh feed.
+  Restore: float voption
+  /// Reports every settled scroll place, so the host can park it.
+  OnScroll: (float -> unit) voption
+  /// Asks the host for the next page while a remembered place sits
+  /// beyond the loaded extent.
+  OnNeedMore: (unit -> unit) voption
 }
 
 /// Builds the feed.

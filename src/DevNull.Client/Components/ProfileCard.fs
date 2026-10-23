@@ -79,7 +79,9 @@ module State =
 /// The handle line: a lane dot beside the @handle, the way the site's
 /// aside marks the user's lane.
 let laneHandle(lane: Lane option, username: string) : Control =
-  let dot = Ellipse().Width(8.0).Height(8.0).Fill(Brushes.laneOf lane)
+  let dot = Ellipse().Width(8.0).Height(8.0)
+
+  Theme.laneFill(dot, lane)
 
   StackPanel()
     .Orientation(Orientation.Horizontal)
@@ -148,7 +150,7 @@ module Parts =
   /// The error line under the card.
   let errorText(model: IObservable<State.Model>) : Control =
     TextBlock()
-      .Foreground(Brushes.danger)
+      .Classes(Theme.name Theme.FgDanger)
       .TextWrapping(TextWrapping.Wrap)
       .Text(
         model

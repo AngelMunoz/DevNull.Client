@@ -17,6 +17,7 @@ open DevNull.Client.Errors
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
 open DevNull.Client.Profiles
+open DevNull.Client.RouteStore
 open DevNull.Client.SettingsStore
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
@@ -221,6 +222,8 @@ type TestEnv
 
   let timeline = TimelineService()
 
+  let routes = RouteStore()
+
   interface IProvideClock with
     member _.Clock = clock
 
@@ -253,6 +256,9 @@ type TestEnv
 
   interface IProvideTimeline with
     member _.Timeline = timeline
+
+  interface IProvideRoutes with
+    member _.Routes = routes
 
   interface IProvideUiClock with
     member _.UiClock = uiClock

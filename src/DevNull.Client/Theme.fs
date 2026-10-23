@@ -122,6 +122,20 @@ type StyleClass =
   | ChromeTitle
   | CaptionButton
   | Mono
+  | FgAccent
+  | FgMuted
+  | FgDanger
+  | FgOnAccent
+  | SurfaceBack
+  | CardBack
+  | RailBack
+  | Hairline
+  | AccentEdge
+  | TextEdge
+  | CardFill
+  | CardEdge
+  | RailEdge
+  | MutedEdge
 
 /// The height of the drag band the shell lays over the drawn window
 /// chrome.
@@ -160,6 +174,20 @@ let name class' =
   | ChromeTitle -> "chrome-title"
   | CaptionButton -> "caption-button"
   | Mono -> "mono"
+  | FgAccent -> "fg-accent"
+  | FgMuted -> "fg-muted"
+  | FgDanger -> "fg-danger"
+  | FgOnAccent -> "fg-on-accent"
+  | SurfaceBack -> "surface-back"
+  | CardBack -> "card-back"
+  | RailBack -> "rail-back"
+  | Hairline -> "hairline"
+  | AccentEdge -> "accent-edge"
+  | TextEdge -> "text-edge"
+  | CardFill -> "card-fill"
+  | CardEdge -> "card-edge"
+  | RailEdge -> "rail-edge"
+  | MutedEdge -> "muted-edge"
 
 /// Moves one class on and off a control as the observable flips. The
 /// class list is the only thing the subscription touches.
@@ -172,6 +200,74 @@ let bindClass
       control.Classes.Add(name class') |> ignore
     else
       control.Classes.Remove(name class') |> ignore)
+
+/// The lane slot one control paints. Each slot names the property the
+/// lane class styles, so no control ever inherits a second lane brush
+/// it never asked for.
+type LaneRole =
+  | LaneFill
+  | LaneStroke
+  | LaneBorder
+  | LaneBack
+  | LaneFg
+
+/// The lane class of one slot: the palette index, or the neutral
+/// fallback when the user carries no lane.
+let laneClass(role: LaneRole, lane: Lane option) : string =
+  let slot =
+    match role with
+    | LaneFill -> "lane-fill"
+    | LaneStroke -> "lane-stroke"
+    | LaneBorder -> "lane-border"
+    | LaneBack -> "lane-back"
+    | LaneFg -> "lane-fg"
+
+  let key =
+    match lane with
+    | Some(LaneIndex index) -> string index
+    | _ -> "fallback"
+
+  $"{slot}-{key}"
+
+/// Paints one shape's lane fill: the palette class for an index, the
+/// constant brush for a user hex, the fallback class for no lane.
+let laneFill(shape: Shapes.Shape, lane: Lane option) : unit =
+  match lane with
+  | Some(LaneColor hex) -> shape.Fill(Brushes.solid hex) |> ignore
+  | _ -> shape.Classes(laneClass(LaneFill, lane)) |> ignore
+
+/// Paints one shape's lane stroke, the same three ways.
+let laneStroke(shape: Shapes.Shape, lane: Lane option) : unit =
+  match lane with
+  | Some(LaneColor hex) -> shape.Stroke(Brushes.solid hex) |> ignore
+  | _ -> shape.Classes(laneClass(LaneStroke, lane)) |> ignore
+
+/// Paints one border's lane ring.
+let laneBorder(border: Border, lane: Lane option) : unit =
+  match lane with
+  | Some(LaneColor hex) -> border.BorderBrush(Brushes.solid hex) |> ignore
+  | _ -> border.Classes(laneClass(LaneBorder, lane)) |> ignore
+
+/// Paints one border's lane body.
+let laneBack(border: Border, lane: Lane option) : unit =
+  match lane with
+  | Some(LaneColor hex) -> border.Background(Brushes.solid hex) |> ignore
+  | _ -> border.Classes(laneClass(LaneBack, lane)) |> ignore
+
+/// Paints one templated control's lane foreground: the rail icons and
+/// the level chip.
+let laneForeground
+  (control: Primitives.TemplatedControl, lane: Lane option)
+  : unit =
+  match lane with
+  | Some(LaneColor hex) -> control.Foreground(Brushes.solid hex) |> ignore
+  | _ -> control.Classes(laneClass(LaneFg, lane)) |> ignore
+
+/// Paints one text block's lane foreground.
+let laneText(block: TextBlock, lane: Lane option) : unit =
+  match lane with
+  | Some(LaneColor hex) -> block.Foreground(Brushes.solid hex) |> ignore
+  | _ -> block.Classes(laneClass(LaneFg, lane)) |> ignore
 
 /// One app-level style: a selector plus its setters, as code.
 let styleOf
@@ -574,6 +670,205 @@ let styles() =
       [| Button.BackgroundProperty, themed Keys.surface |]
     )
   )
+
+  // The brush classes: one property per class, resolved as dynamic
+  // resources the variant switch re-resolves. They follow the base and
+  // hover styles, so they win any color tie. No control binds a brush
+  // observable, so no control is rooted from the app's resource event.
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<TextBlock>().Class(name FgAccent)),
+      [| TextBlock.ForegroundProperty, themed Keys.accent |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<Button>().Class(name FgAccent)),
+      [| Button.ForegroundProperty, themed Keys.accent |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<Button>().Class(name FgMuted)),
+      [| Button.ForegroundProperty, themed Keys.muted |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<TextBlock>().Class(name FgDanger)),
+      [| TextBlock.ForegroundProperty, themed Keys.danger |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<TextBlock>().Class(name FgOnAccent)),
+      [| TextBlock.ForegroundProperty, themed Keys.onAccent |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<Border>().Class(name SurfaceBack)),
+      [| Border.BackgroundProperty, themed Keys.surface |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<Border>().Class(name CardBack)),
+      [| Border.BackgroundProperty, themed Keys.card |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<Border>().Class(name RailBack)),
+      [| Border.BackgroundProperty, themed Keys.rail |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<Border>().Class(name Hairline)),
+      [| Border.BorderBrushProperty, themed Keys.border |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<Button>().Class(name Hairline)),
+      [| Button.BorderBrushProperty, themed Keys.border |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<Button>().Class(name AccentEdge)),
+      [| Button.BorderBrushProperty, themed Keys.accent |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<Button>().Class(name TextEdge)),
+      [| Button.BorderBrushProperty, themed Keys.text |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<Shapes.Ellipse>().Class(name CardFill)),
+      [| Shapes.Ellipse.FillProperty, themed Keys.card |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<Shapes.Ellipse>().Class(name CardEdge)),
+      [| Shapes.Ellipse.StrokeProperty, themed Keys.card |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<Shapes.Ellipse>().Class(name RailEdge)),
+      [| Shapes.Ellipse.StrokeProperty, themed Keys.rail |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<Shapes.Line>().Class(name MutedEdge)),
+      [| Shapes.Line.StrokeProperty, themed Keys.muted |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<Shapes.Ellipse>().Class(name MutedEdge)),
+      [| Shapes.Ellipse.StrokeProperty, themed Keys.muted |]
+    )
+  )
+
+  // The lane classes: one block of generated rows per palette slot, so
+  // every lane-painted control resolves its brush the same dynamic
+  // resource way.
+  let laneKeys: (string * string) list = [
+    for index in 0..5 -> string index, Keys.lane index
+    yield "fallback", Keys.laneFallback
+  ]
+
+  for key, resource in laneKeys do
+    styles.Add(
+      styleOf(
+        (fun selector ->
+          selector.OfType<Shapes.Ellipse>().Class($"lane-fill-{key}")),
+        [| Shapes.Ellipse.FillProperty, themed resource |]
+      )
+    )
+
+    styles.Add(
+      styleOf(
+        (fun selector ->
+          selector.OfType<Shapes.Ellipse>().Class($"lane-stroke-{key}")),
+        [| Shapes.Ellipse.StrokeProperty, themed resource |]
+      )
+    )
+
+    styles.Add(
+      styleOf(
+        (fun selector ->
+          selector.OfType<Shapes.Line>().Class($"lane-stroke-{key}")),
+        [| Shapes.Line.StrokeProperty, themed resource |]
+      )
+    )
+
+    styles.Add(
+      styleOf(
+        (fun selector ->
+          selector.OfType<Shapes.Path>().Class($"lane-stroke-{key}")),
+        [| Shapes.Path.StrokeProperty, themed resource |]
+      )
+    )
+
+    styles.Add(
+      styleOf(
+        (fun selector -> selector.OfType<Border>().Class($"lane-border-{key}")),
+        [| Border.BorderBrushProperty, themed resource |]
+      )
+    )
+
+    styles.Add(
+      styleOf(
+        (fun selector -> selector.OfType<Border>().Class($"lane-back-{key}")),
+        [| Border.BackgroundProperty, themed resource |]
+      )
+    )
+
+    styles.Add(
+      styleOf(
+        (fun selector -> selector.OfType<Button>().Class($"lane-back-{key}")),
+        [| Button.BackgroundProperty, themed resource |]
+      )
+    )
+
+    styles.Add(
+      styleOf(
+        (fun selector -> selector.OfType<TextBlock>().Class($"lane-fg-{key}")),
+        [| TextBlock.ForegroundProperty, themed resource |]
+      )
+    )
+
+    styles.Add(
+      styleOf(
+        (fun selector -> selector.OfType<PathIcon>().Class($"lane-fg-{key}")),
+        [| Primitives.TemplatedControl.ForegroundProperty, themed resource |]
+      )
+    )
 
   styles
 

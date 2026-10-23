@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-23
+
+### Fixed
+
+- **Memory:** scrolling and navigating no longer grows memory without bound. Themed colors now resolve through style classes instead of per-control observable bindings, so every control that leaves the screen is collected; a scrolling session that retained tens of megabytes now stays inside a fixed budget.
+- **Memory:** the log page is no longer kept alive between visits. Returning to a log reloads fresh content and restores the reading place and open reply drafts through the timeline service, so leaving the page releases it completely instead of holding every row ever rendered.
+- **Memory:** decoded images are released when they leave the screen (feed images, avatars, staged previews), cutting the native memory the garbage collector cannot see.
+- **Shell:** the account sidebar and profile aside rebuild only when the signed-in user changes; unread updates no longer rebuild them.
+- **Log:** the tab strip and shared composer follow the route through the state loop; a signed-in session refresh no longer touches the composer's draft.
+
 ## [0.1.0] - 2026-10-22
 
 ### Added

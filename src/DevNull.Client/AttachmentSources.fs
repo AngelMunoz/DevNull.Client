@@ -2,13 +2,12 @@ module DevNull.Client.AttachmentSources
 
 open System
 open System.IO
-open System.Threading.Tasks
 open Avalonia.Controls
 open Avalonia.Input
 open Avalonia.Input.Platform
-open Avalonia.Media.Imaging
 open Avalonia.Platform.Storage
 open IcedTasks
+open Serilog
 open DevNull.Client.Core.Commit
 
 /// Worker: the two ways images enter the composer — the file picker
@@ -31,71 +30,21 @@ let imageTypes =
     Patterns = [ "*.jpg"; "*.jpeg"; "*.png"; "*.webp" ]
   )
 
-/// The largest image dimension the composer stages. The server
-/// re-encodes every post well under a megabyte, so a phone-camera
-/// original only bloats the model, the multipart copy, and the upload.
-let maxDimension = 1600
-
-/// The staging bound: payloads this small already match what the
-/// server keeps, so they pass through untouched.
-let stagingBound = 1024 * 1024
-
-/// One staged image, shrunk to the staging bound: a larger original
-/// decodes down off the UI thread and re-encodes to PNG. A payload
-/// that fails to decode passes through untouched; the sniffing parser
-/// and the size cap still speak after it.
-let shrink(attachment: ImageAttachment) : Async<ImageAttachment> =
-  if attachment.Bytes.Length <= stagingBound then
-    async { return attachment }
-  else
-    asyncEx {
-      let! decoded =
-        Task.Run(fun () ->
-          try
-            // The first decode caps the width; a portrait taller than
-            // the bound needs the height cap instead.
-            use wideStream = new MemoryStream(attachment.Bytes)
-            let wide = Bitmap.DecodeToWidth(wideStream, maxDimension)
-
-            if wide.PixelSize.Height <= maxDimension then
-              ValueSome wide
-            else
-              wide.Dispose()
-              use tallStream = new MemoryStream(attachment.Bytes)
-
-              Bitmap.DecodeToHeight(tallStream, maxDimension) |> ValueSome
-          with _ ->
-            ValueNone)
-        |> Async.AwaitTask
-
-      match decoded with
-      | ValueSome bitmap ->
-        use saved = bitmap
-        use buffer = new MemoryStream()
-        saved.Save buffer
-
-        return {
-          attachment with
-              Bytes = buffer.ToArray()
-        }
-      | ValueNone -> return attachment
-    }
-
-/// One picked file read to bytes. An unreadable file is skipped, so
-/// one bad pick never blocks the rest.
+/// One picked file read to bytes. An unreadable file is skipped, so one
+/// bad pick never blocks the rest. The bytes stage as picked: the
+/// service re-encodes every post itself, and the commit parse caps what
+/// leaves the client, so staging never decodes or re-encodes a photo.
 let readOf(file: IStorageFile) : Async<ImageAttachment option> = asyncEx {
   try
     use! stream = file.OpenReadAsync()
     use buffer = new MemoryStream()
     do! stream.CopyToAsync buffer
 
-    let! staged =
-      shrink {
+    return
+      Some {
         FileName = file.Name
         Bytes = buffer.ToArray()
       }
-
-    return Some staged
   with :? IOException ->
     return None
 }
@@ -114,28 +63,76 @@ let desktop(resolve: unit -> TopLevel voption) : IAttachmentSources =
     return candidates |> Array.choose id |> List.ofArray
   }
 
-  // The clipboard bitmap re-encodes to PNG bytes, so the sniffing
-  // parser treats a paste like any other file; the staging bound then
-  // shrinks a full-resolution screenshot paste like a picked one.
+  // The clipboard carries the image bytes the owning app put there, in
+  // the same three types the picker offers. Asking for those bytes
+  // stages a paste like a picked file: no full-resolution decode and no
+  // re-encode, so a large photo costs its file size, not its pixels.
+  let rawImage
+    (clipboard: IClipboard, imageType: string, extension: string)
+    : Async<ImageAttachment option> = asyncEx {
+    let! bytes =
+      clipboard.TryGetValueAsync(DataFormat.CreateBytesPlatformFormat imageType)
+
+    return
+      Option.ofObj bytes
+      |> Option.map(fun payload -> {
+        FileName = $"paste-{Guid.NewGuid():N}.{extension}"
+        Bytes = payload
+      })
+  }
+
+  /// The first image format the clipboard offers, in preference order.
+  let rec firstRawImage
+    (clipboard: IClipboard, formats: (string * string) list)
+    : Async<ImageAttachment option> = asyncEx {
+    match formats with
+    | [] -> return None
+    | (imageType, extension) :: rest ->
+      match! rawImage(clipboard, imageType, extension) with
+      | Some staged -> return Some staged
+      | None -> return! firstRawImage(clipboard, rest)
+  }
+
+  // The same three types under the names each platform uses: X11 and
+  // Wayland ask for MIME types, Windows registers PNG and JFIF, and
+  // macOS publishes public.jpeg. A name the platform lacks answers
+  // null, and the next one runs.
+  let rawImageFormats: (string * string) list = [
+    "image/png", "png"
+    "PNG", "png"
+    "image/jpeg", "jpg"
+    "JFIF", "jpg"
+    "public.jpeg", "jpg"
+    "image/webp", "webp"
+  ]
+
+  // A platform that exposes no image bytes falls back to the decoded
+  // bitmap; the bitmap owns its native pixels, so it disposes here.
   let clipboardImage(top: TopLevel) = asyncEx {
     match top.Clipboard with
     | null -> return None
     | clipboard ->
-      let! bitmap = clipboard.TryGetValueAsync(DataFormat.Bitmap)
+      match! firstRawImage(clipboard, rawImageFormats) with
+      | Some staged -> return Some staged
+      | None ->
+        Log.Warning(
+          "The clipboard offers no raw image bytes; falling back to a decoded bitmap."
+        )
 
-      match bitmap with
-      | null -> return None
-      | pasted ->
-        use buffer = new MemoryStream()
-        pasted.Save buffer
+        let! decoded = clipboard.TryGetValueAsync(DataFormat.Bitmap)
 
-        let! staged =
-          shrink {
-            FileName = $"paste-{Guid.NewGuid():N}.png"
-            Bytes = buffer.ToArray()
-          }
+        match decoded with
+        | null -> return None
+        | pasted ->
+          use bitmap = pasted
+          use buffer = new MemoryStream()
+          bitmap.Save buffer
 
-        return Some staged
+          return
+            Some {
+              FileName = $"paste-{Guid.NewGuid():N}.png"
+              Bytes = buffer.ToArray()
+            }
   }
 
   let clipboardText(top: TopLevel) = asyncEx {

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-24
+
+### Changed
+
+- **Composer:** attaching a photo sends the file as-is, and the server re-encodes the post. **Breaking (behavioral):** a photo over the 10 MB staging cap is now refused instead of being downscaled on the desktop first.
+
+### Fixed
+
+- **Composer:** removing an image, opening a poll, posting, or leaving the page returns the staged photos' memory to the OS, so an attach-and-remove session no longer stays above the app's resting footprint. Pasting a photo costs its file size in memory, not a full-resolution copy.
+
 ## [0.3.0] - 2026-10-24
 
 ### Added

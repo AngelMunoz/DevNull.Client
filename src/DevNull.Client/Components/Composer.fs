@@ -2,6 +2,7 @@ module DevNull.Client.Components.Composer
 
 open System
 open System.IO
+open System.Runtime
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Input
@@ -97,6 +98,30 @@ module State =
     Poll = None
   }
 
+  /// The staging path allocates large-object arrays an idle composer
+  /// never generates enough churn to collect: the picker's transients
+  /// and every staged copy wait for a generation the resting app does
+  /// not run. Each transition below is where that memory dies. The
+  /// collection posts at background priority, after the new model
+  /// published and the bindings dropped the old lists. Aggressive is
+  /// the mode that returns the emptied regions to the OS: a Forced
+  /// compaction reclaims the arrays but leaves their committed regions
+  /// mapped, so the resting app keeps their footprint.
+  let collectStaged() : unit =
+    Dispatcher.UIThread.Post(
+      (fun () ->
+        GCSettings.LargeObjectHeapCompactionMode <-
+          GCLargeObjectHeapCompactionMode.CompactOnce
+
+        GC.Collect(
+          2,
+          GCCollectionMode.Aggressive,
+          blocking = true,
+          compacting = true
+        )),
+      DispatcherPriority.Background
+    )
+
   let apiTarget(target: Target) : Commits.Target =
     match target with
     | Fresh -> Commits.New
@@ -125,12 +150,13 @@ module State =
       model, Cmd.OfAsync.perform props.Env.Attachments.PickFiles () ImagesAdded
     | ImagesAdded staged ->
       let combined = model.Attachments @ staged
+      let reclaim = Cmd.ofEffect(fun _ -> collectStaged())
 
       // The same parse the post runs, at stage time: the count, the
       // size, and the content sniff speak before the post.
       match CommitImages.parse combined with
-      | Ok _ -> { model with Attachments = combined }, Cmd.none
-      | Error error -> { model with Error = Some error }, Cmd.none
+      | Ok _ -> { model with Attachments = combined }, reclaim
+      | Error error -> { model with Error = Some error }, reclaim
     | ImageRemoved index ->
       let attachments =
         model.Attachments
@@ -138,7 +164,8 @@ module State =
         |> List.filter(fun (at, _) -> at <> index)
         |> List.map snd
 
-      { model with Attachments = attachments }, Cmd.none
+      { model with Attachments = attachments },
+      Cmd.ofEffect(fun _ -> collectStaged())
     | PollToggled ->
       // A poll rides a fresh commit with no images; opening one puts
       // the staged images back.
@@ -151,12 +178,19 @@ module State =
             Duration = PollDuration.OneDay
           }
 
+      // Opening a poll drops staged images, so the transition collects
+      // only when images were staged.
+      let reclaim =
+        match model.Attachments with
+        | [] -> Cmd.none
+        | _ -> Cmd.ofEffect(fun _ -> collectStaged())
+
       {
         model with
             Poll = poll
             Attachments = []
       },
-      Cmd.none
+      reclaim
     | PollOptionChanged(index, text) ->
       let changed =
         model.Poll
@@ -246,7 +280,9 @@ module State =
           initial with
               Committed = model.Committed + 1
         },
-        Cmd.ofEffect(fun _ -> props.OnCommitted commit)
+        Cmd.ofEffect(fun _ ->
+          props.OnCommitted commit
+          collectStaged())
       | Error error ->
         {
           model with
@@ -778,4 +814,14 @@ type Page<'env
     | ValueSome register ->
       let root, lifetime = Program.runWithLifecycle () program
       this.Content <- root
-      register lifetime
+
+      // A cached page ends without touching the composer's branches
+      // above, so the lifetime's end is the one transition that covers
+      // a page left with staged images.
+      register
+        {
+          new IDisposable with
+            member _.Dispose() =
+              lifetime.Dispose()
+              State.collectStaged()
+        }

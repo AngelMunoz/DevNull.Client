@@ -16,6 +16,7 @@ open Avalonia.VisualTree
 open Expecto
 
 open DevNull.Client.Components
+open DevNull.Client.Core.Commit
 open DevNull.Client.Core.Http
 open DevNull.Client.Shell
 open DevNull.Client.Stores
@@ -49,6 +50,12 @@ let textBlockWith(root: Control, text: string) : TextBlock option =
     match visual with
     | :? TextBlock as block when block.Text = text -> Some block
     | _ -> None)
+
+/// The first control under the root carrying the name.
+let controlByName(root: Control, name: string) : Control option =
+  root.GetVisualDescendants()
+  |> Seq.tryFind(fun visual -> visual.Name = name)
+  |> Option.map(fun visual -> visual :?> Control)
 
 /// Clicks one button by its text once it shows up.
 let clickWhenShown(window: Window, text: string) : Async<unit> = async {
@@ -276,5 +283,85 @@ let tests =
         collect()
 
         Expect.isFalse weak.Value.IsAlive "the closed list outlived its overlay"
+      })
+
+    testCaseAsync
+      "a removed staged image collects on the transition"
+      (async {
+        // Two-megabyte payloads cross the large-object threshold the
+        // way real photos do; the PNG head passes the sniffing parser.
+        let staged(name: string) : ImageAttachment = {
+          stagedImage(name) with
+              Bytes =
+                Array.append
+                  [| 137uy; 80uy; 78uy; 71uy; 13uy; 10uy; 26uy; 10uy |]
+                  (Array.create (2 * 1024 * 1024) 0uy)
+        }
+
+        let attachments = FakeAttachments()
+
+        attachments.PickResponse <- [ staged "leak-a.png"; staged "leak-b.png" ]
+
+        let env = TestEnv(signedInStore(), logApi(), attachments = attachments)
+        let! window = probeUiAsync(fun () -> Shell(env, None) :> Window)
+        let! _ = showAsync window
+
+        let! shown =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "It was DNS."))
+          )
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "AttachButton")
+            |> Option.iter(fun visual ->
+              match visual with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! landed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "leak-a.png"))
+          )
+
+        Expect.isTrue landed "the picked files never staged"
+
+        // The weak reference is taken while the canned answer still
+        // holds the payload; a WeakReference keeps no strong path, so
+        // only the composer's model can hold the array alive next.
+        let! weak =
+          probeUiAsync(fun () ->
+            attachments.PickResponse
+            |> List.tryHead
+            |> Option.map(fun current -> WeakReference(current.Bytes)))
+
+        Expect.isSome weak "the staged payload never became reachable"
+
+        // The fake's property outlives the pick, so it must stop holding
+        // the arrays before the removal can be the last reference.
+        attachments.PickResponse <- []
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "RemoveImage0")
+            |> Option.iter(fun visual ->
+              match visual with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        do! settleAsync()
+        do! settleAsync()
+
+        // No forced collection here: the removal transition itself must
+        // collect the staged bytes, or the resting app never will.
+        Expect.isFalse
+          weak.Value.IsAlive
+          "the removed image outlived its transition"
       })
   ]

@@ -22,5 +22,7 @@ type IProvideAttachmentSources =
   abstract Attachments: IAttachmentSources
 
 /// The desktop sources over the window the resolver finds: the
-/// storage provider's picker and the clipboard's universal formats.
+/// storage provider's picker and the clipboard's formats. A clipboard
+/// image stages its original PNG, JPEG, or WebP bytes; only a platform
+/// that exposes no image bytes falls back to a decoded bitmap.
 val desktop: resolve: (unit -> TopLevel voption) -> IAttachmentSources

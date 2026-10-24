@@ -332,6 +332,14 @@ let commitJson =
 let secondCommitJson =
   """{"id":"018f4c1e-9999-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"c0d1e2f","body":"Second commit.","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":null,"quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-9999-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:18:19Z","stars_count":0,"replies_count":0,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null},"images":[]}"""
 
+/// One commit whose highlighted shell block carries the escaped quotes
+/// the server writes into the segment html.
+let codeBlockCommitJson =
+  commitJson.Replace(
+    "\"body_segments\":[]",
+    "\"body_segments\":[{\"type\":\"block\",\"language\":\"shell\",\"html\":\"<span>figlet &quot;HAVE A GREAT DAY GUYS&quot; | lolcat</span>\"}]"
+  )
+
 /// One log page with the commit above and a cursor for the next page.
 let logPageJson =
   sprintf
@@ -428,6 +436,25 @@ let logApiWithBytes(bytes: string -> Result<byte array, TransportFailure>) =
 /// The api of the tests: log reads answer page one, then page two for
 /// the cursor; a commit post answers the created commit.
 let logApi() = logApiWithBytes(fun _ -> Ok imageBytes)
+
+/// The api of the code-block test: the boot log carries the commit whose
+/// segment html holds the escaped quotes.
+let codeBlockLogApi() =
+  let page =
+    sprintf
+      "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
+      codeBlockCommitJson
+
+  FakeApi(
+    (fun request ->
+      if request.Target.StartsWith "/api/v1/log/" then
+        ok page
+      else
+        (match accountAnswer request with
+         | ValueSome answer -> answer
+         | ValueNone -> ok "{}")),
+    (fun _ -> Ok imageBytes)
+  )
 
 /// A commit authored by the signed-in viewer: the star can only ever
 /// be the count, never the toggle, because the server refuses a star
@@ -703,47 +730,199 @@ let avatarLogApi() =
        | ValueSome answer -> answer
        | ValueNone -> ok "{}"))
 
-/// One commit carrying an open poll, so the card shows the web vote.
-let pollCommitJson =
-  commitJson.Replace(
+/// One poll option as the API returns it. The server sends null counts
+/// and shares until the viewer votes, owns the poll, or the poll closes.
+[<Struct>]
+type PollOptionShape = {
+  Id: string
+  Label: string
+  Votes: int option
+  Voted: bool
+  Percentage: int option
+}
+
+/// One poll as the API returns it.
+[<Struct>]
+type PollShape = {
+  ClosesAt: DateTimeOffset option
+  IsClosed: bool
+  HasVoted: bool
+  TotalVotes: int option
+  Options: PollOptionShape list
+}
+
+let pollOptionJson(option: PollOptionShape) : string =
+  let count = option.Votes |> Option.map string |> Option.defaultValue "null"
+
+  let share =
+    option.Percentage |> Option.map string |> Option.defaultValue "null"
+
+  sprintf
+    "{\"id\":\"%s\",\"label\":\"%s\",\"votes_count\":%s,\"voted\":%b,\"percentage\":%s}"
+    option.Id
+    option.Label
+    count
+    option.Voted
+    share
+
+let pollJson(poll: PollShape) : string =
+  let closes =
+    match poll.ClosesAt with
+    | Some at -> "\"" + at.ToString("o") + "\""
+    | None -> "null"
+
+  let total = poll.TotalVotes |> Option.map string |> Option.defaultValue "null"
+
+  let options = poll.Options |> List.map pollOptionJson |> String.concat ","
+
+  sprintf
+    "{\"id\":\"018f4c1e-poll-7c3a-9b2d-5e6f7a8b9c0d\",\"closes_at\":%s,\"is_closed\":%b,\"has_voted\":%b,\"total_votes\":%s,\"options\":[%s]}"
+    closes
+    poll.IsClosed
+    poll.HasVoted
+    total
+    options
+
+/// The moment a canned poll closes: two days and an hour from the test
+/// start, so the card shows "2d left" with headroom.
+let pollClosesAt = DateTimeOffset.UtcNow.AddDays 2.0 + TimeSpan.FromHours 1.0
+
+/// An open poll the viewer did not vote in: the server hides the counts.
+let openPoll: PollShape = {
+  ClosesAt = Some pollClosesAt
+  IsClosed = false
+  HasVoted = false
+  TotalVotes = None
+  Options = [
+    {
+      Id = "o1"
+      Label = "Yes"
+      Votes = None
+      Voted = false
+      Percentage = None
+    }
+    {
+      Id = "o2"
+      Label = "No"
+      Votes = None
+      Voted = false
+      Percentage = None
+    }
+  ]
+}
+
+/// The same poll after the viewer took the first option.
+let votedPoll: PollShape = {
+  openPoll with
+      HasVoted = true
+      TotalVotes = Some 4
+      Options = [
+        {
+          Id = "o1"
+          Label = "Yes"
+          Votes = Some 3
+          Voted = true
+          Percentage = Some 75
+        }
+        {
+          Id = "o2"
+          Label = "No"
+          Votes = Some 1
+          Voted = false
+          Percentage = Some 25
+        }
+      ]
+}
+
+/// One poll that closed with its final counts.
+let closedPoll: PollShape = {
+  ClosesAt = Some(DateTimeOffset.UtcNow.AddDays -1.0)
+  IsClosed = true
+  HasVoted = false
+  TotalVotes = Some 12
+  Options = [
+    {
+      Id = "o1"
+      Label = "Yes"
+      Votes = Some 9
+      Voted = false
+      Percentage = Some 75
+    }
+    {
+      Id = "o2"
+      Label = "No"
+      Votes = Some 3
+      Voted = false
+      Percentage = Some 25
+    }
+  ]
+}
+
+/// The viewer's own poll: the server reveals the counts, the card shows
+/// the results without a vote.
+let ownPoll: PollShape = {
+  ClosesAt = Some pollClosesAt
+  IsClosed = false
+  HasVoted = false
+  TotalVotes = Some 0
+  Options = [
+    {
+      Id = "o1"
+      Label = "Yes"
+      Votes = Some 0
+      Voted = false
+      Percentage = Some 0
+    }
+    {
+      Id = "o2"
+      Label = "No"
+      Votes = Some 0
+      Voted = false
+      Percentage = Some 0
+    }
+  ]
+}
+
+/// A poll whose commit is not approved yet: no clock has started.
+let pendingPoll: PollShape = { openPoll with ClosesAt = None }
+
+/// A poll whose close time passed while the page sat open.
+let expiredPoll: PollShape = {
+  openPoll with
+      ClosesAt = Some(DateTimeOffset.UtcNow.AddMinutes -1.0)
+}
+
+let withPoll(commit: string, poll: PollShape) : string =
+  commit.Replace(
     "\"starred\":false",
-    "\"starred\":false,\"poll\":{\"id\":\"018f4c1e-poll-7c3a-9b2d-5e6f7a8b9c0d\",\"closes_at\":null,\"is_closed\":false,\"has_voted\":false,\"total_votes\":3,\"options\":[{\"id\":\"o1\",\"label\":\"Yes\",\"votes_count\":2,\"voted\":false,\"percentage\":67},{\"id\":\"o2\",\"label\":\"No\",\"votes_count\":1,\"voted\":false,\"percentage\":33}]}"
+    "\"starred\":false,\"poll\":" + pollJson poll
   )
 
-/// One stranger's commit carrying an open unvoted poll, so the viewer
-/// may vote on it.
-let strangerPollCommitJson =
-  strangerCommitJson(
-    "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d",
-    "b8b9c0d",
-    "It was DNS.",
-    "2020-04-03T13:00:00Z"
+let strangerPollCommit(poll: PollShape) : string =
+  withPoll(
+    strangerCommitJson(
+      "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d",
+      "b8b9c0d",
+      "It was DNS.",
+      "2020-04-03T13:00:00Z"
+    ),
+    poll
   )
-    .Replace(
-      "\"starred\":false",
-      "\"starred\":false,\"poll\":{\"id\":\"018f4c1e-poll-7c3a-9b2d-5e6f7a8b9c0d\",\"closes_at\":null,\"is_closed\":false,\"has_voted\":false,\"total_votes\":3,\"options\":[{\"id\":\"o1\",\"label\":\"Yes\",\"votes_count\":2,\"voted\":false,\"percentage\":67},{\"id\":\"o2\",\"label\":\"No\",\"votes_count\":1,\"voted\":false,\"percentage\":33}]}"
-    )
 
-/// The stranger's poll after the viewer took the first option.
-let strangerPollVotedJson =
-  strangerPollCommitJson
-    .Replace("\"has_voted\":false", "\"has_voted\":true")
-    .Replace(
-      "\"label\":\"Yes\",\"votes_count\":2,\"voted\":false,\"percentage\":67",
-      "\"label\":\"Yes\",\"votes_count\":3,\"voted\":true,\"percentage\":75"
-    )
-    .Replace("\"total_votes\":3", "\"total_votes\":4")
+let ownPollCommit(poll: PollShape) : string = withPoll(ownCommitJson, poll)
 
-/// The api of the poll test: the boot log answers the poll page.
-let pollLogApi() =
+/// The api of a poll page: the boot log answers the commit, and the
+/// account answers the shell's aside.
+let pollLogApiWith(commit: string) : FakeApi =
+  let page =
+    sprintf
+      "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
+      commit
+
   FakeApi(
     (fun request ->
       if request.Target.StartsWith "/api/v1/log/" then
-        ok(
-          sprintf
-            "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
-            pollCommitJson
-        )
+        ok page
       else
         (match accountAnswer request with
          | ValueSome answer -> answer
@@ -751,23 +930,27 @@ let pollLogApi() =
     (fun _ -> Ok imageBytes)
   )
 
-/// The api of the voting test: the boot log answers the stranger's
-/// open poll, and a vote answers the poll with the viewer's vote in.
-let voteApi() =
-  let logPage =
+/// The api of the voting test: the boot log answers the open poll, and
+/// a vote answers the poll with the viewer's vote in.
+let voteApiWith(initialCommit: string, votedCommit: string) : FakeApi =
+  let page =
     sprintf
       "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
-      strangerPollCommitJson
+      initialCommit
 
   FakeApi(fun request ->
     if request.Target.StartsWith "/api/v1/log/" then
-      ok logPage
+      ok page
     elif request.Method = "POST" && request.Target.EndsWith "/poll/votes" then
-      ok(sprintf "{\"data\":%s}" strangerPollVotedJson)
+      ok(sprintf "{\"data\":%s}" votedCommit)
     else
       (match accountAnswer request with
        | ValueSome answer -> answer
        | ValueNone -> ok "{}"))
+
+/// The api of the voting test over a stranger's poll.
+let voteApi() =
+  voteApiWith(strangerPollCommit openPoll, strangerPollCommit votedPoll)
 
 /// One notification row as the inbox returns it.
 let notificationJson =

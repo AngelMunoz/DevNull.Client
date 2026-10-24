@@ -7,6 +7,7 @@ module DevNull.Client.UI.Tests.App
 open System
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.Primitives
 open Avalonia.Controls.Shapes
 open Avalonia.Headless
 open Avalonia.Input
@@ -52,6 +53,14 @@ let controlByName(root: Control, name: string) : Control option =
   root.GetVisualDescendants()
   |> Seq.tryFind(fun visual -> visual.Name = name)
   |> Option.map(fun visual -> visual :?> Control)
+
+/// The open pane length of the named split view.
+let splitWidth(root: Control, name: string) : float option =
+  controlByName(root, name)
+  |> Option.bind(fun control ->
+    match control with
+    | :? SplitView as split -> Some split.OpenPaneLength
+    | _ -> None)
 
 /// The visible-state probe for the finder helpers: an option-aware
 /// `effectiveVisible`.
@@ -121,6 +130,15 @@ let startShellSeeded
 let showsText(window: Window, text: string) : Async<bool> =
   waitForAsync(5000, (fun () -> window), (fun root -> hasText(root, text)))
 
+/// True when an effectively visible TextBlock under the root carries the
+/// text, so a hidden rail mark never counts.
+let visibleText(root: Control, text: string) : bool =
+  root.GetVisualDescendants()
+  |> Seq.exists(fun visual ->
+    match visual with
+    | :? TextBlock as block -> block.Text = text && effectiveVisible block
+    | _ -> false)
+
 /// Clicks one button by its text once it shows up.
 let clickWhenShown(window: Window, text: string) : Async<unit> = async {
   let! appeared =
@@ -171,6 +189,31 @@ let tests =
         let! shown = showsText(window, "Nothing here yet. Commit something.")
 
         Expect.isTrue shown "the empty state never rendered"
+      })
+
+    testCaseAsync
+      "a code block shows the characters the highlighter escaped"
+      (async {
+        let! window = startShell(signedInStore(), codeBlockLogApi() :> IHttp)
+
+        let! decoded =
+          showsText(window, "figlet \"HAVE A GREAT DAY GUYS\" | lolcat")
+
+        Expect.isTrue decoded "the block never showed its quotes"
+
+        let! escaped =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.exists(fun visual ->
+              match visual with
+              | :? TextBlock as block ->
+                block.Text
+                |> Option.ofObj
+                |> Option.exists(fun text ->
+                  text.Contains("&quot;", StringComparison.Ordinal))
+              | _ -> false))
+
+        Expect.isFalse escaped "the block kept the escaped entity"
       })
 
     testCaseAsync
@@ -1204,7 +1247,7 @@ let tests =
       })
 
     testCaseAsync
-      "voting a poll option posts the vote and shows the results"
+      "a poll waits for a choice and the Vote button, then shows the bars"
       (async {
         let api = voteApi()
         let! window = startShell(signedInStore(), api :> IHttp)
@@ -1216,19 +1259,44 @@ let tests =
         let! offered =
           waitForAsync(
             5000,
-            (fun () -> controlByName(window, "PollOptiono1")),
+            (fun () -> controlByName(window, "PollChoiceo1")),
             Option.isSome
           )
 
-        Expect.isTrue offered "the poll option never appeared"
+        Expect.isTrue offered "the poll choice never appeared"
+
+        let! waiting = showsText(window, "2d left")
+
+        Expect.isTrue waiting "the time left never rendered"
 
         do!
           onUiAsync(fun () ->
-            controlByName(window, "PollOptiono1")
+            controlByName(window, "PollChoiceo1")
             |> Option.iter(fun control ->
-              match control with
-              | :? Button as button -> click button
-              | _ -> ()))
+              (control :?> ToggleButton).IsChecked <- Nullable true))
+
+        let! postedEarly =
+          probeUiAsync(fun () ->
+            api.Requests
+            |> List.exists(fun request ->
+              request.Method = "POST" && request.Target.EndsWith "/poll/votes"))
+
+        Expect.isFalse postedEarly "a choice posted without the Vote button"
+
+        let! ready =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "PollVote")),
+            (fun control ->
+              control |> Option.exists(fun value -> value.IsEnabled))
+          )
+
+        Expect.isTrue ready "the Vote button never armed"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "PollVote")
+            |> Option.iter(fun control -> click(control :?> Button)))
 
         let! voted =
           waitForAsync(
@@ -1255,9 +1323,106 @@ let tests =
 
         Expect.stringContains body "\"option\":\"o1\"" "the voted option"
 
-        let! results = showsText(window, "Yes · yours")
+        let! summary = showsText(window, "4 votes · 2d left")
 
-        Expect.isTrue results "the voted mark never rendered"
+        Expect.isTrue summary "the result summary never rendered"
+
+        let! share = showsText(window, "75%")
+
+        Expect.isTrue share "the result share never rendered"
+
+        let! marked =
+          probeUiAsync(fun () ->
+            controlByName(window, "PollCheckYes") |> Option.isSome)
+
+        Expect.isTrue marked "the voted check never rendered"
+
+        let! voteGone =
+          probeUiAsync(fun () ->
+            controlByName(window, "PollVote")
+            |> Option.forall(fun control -> not(effectiveVisible control)))
+
+        Expect.isTrue voteGone "the Vote button stayed after the vote"
+      })
+
+    testCaseAsync
+      "a closed poll shows the final results without a Vote button"
+      (async {
+        let api = pollLogApiWith(strangerPollCommit closedPoll)
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        let! summary = showsText(window, "12 votes · Final results")
+
+        Expect.isTrue summary "the final summary never rendered"
+
+        let! share = showsText(window, "75%")
+
+        Expect.isTrue share "the final share never rendered"
+
+        let! voteGone =
+          probeUiAsync(fun () ->
+            controlByName(window, "PollVote")
+            |> Option.forall(fun control -> not(effectiveVisible control)))
+
+        Expect.isTrue voteGone "a closed poll offered a vote"
+      })
+
+    testCaseAsync
+      "the viewer's own poll shows its results without a Vote button"
+      (async {
+        let api = pollLogApiWith(ownPollCommit ownPoll)
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! summary = showsText(window, "0 votes · 2d left")
+
+        Expect.isTrue summary "the own poll summary never rendered"
+
+        let! voteGone =
+          probeUiAsync(fun () ->
+            controlByName(window, "PollVote")
+            |> Option.forall(fun control -> not(effectiveVisible control)))
+
+        Expect.isTrue voteGone "the author was offered a vote"
+      })
+
+    testCaseAsync
+      "a poll before approval waits for the commit"
+      (async {
+        let api = pollLogApiWith(strangerPollCommit pendingPoll)
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! status = showsText(window, "Voting opens once approved")
+
+        Expect.isTrue status "the pending poll status never rendered"
+
+        let! voteGone =
+          probeUiAsync(fun () ->
+            controlByName(window, "PollVote")
+            |> Option.forall(fun control -> not(effectiveVisible control)))
+
+        Expect.isTrue voteGone "a pending poll offered a vote"
+      })
+
+    testCaseAsync
+      "a poll past its close time shows the closed state"
+      (async {
+        let api = pollLogApiWith(strangerPollCommit expiredPoll)
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! status = showsText(window, "Poll closed")
+
+        Expect.isTrue status "the expired poll status never rendered"
+
+        let! voteGone =
+          probeUiAsync(fun () ->
+            controlByName(window, "PollVote")
+            |> Option.forall(fun control -> not(effectiveVisible control)))
+
+        Expect.isTrue voteGone "an expired poll offered a vote"
       })
 
     testCaseAsync
@@ -1295,6 +1460,14 @@ let tests =
 
         Expect.isTrue firstOption "the poll builder never opened"
 
+        let! capped =
+          probeUiAsync(fun () ->
+            controlByName(window, "PollOption0")
+            |> Option.map(fun control -> (control :?> TextBox).MaxLength = 50)
+            |> Option.defaultValue false)
+
+        Expect.isTrue capped "the option box has no 50-character cap"
+
         do!
           onUiAsync(fun () ->
             (controlByName(window, "PollOption0")
@@ -1303,11 +1476,13 @@ let tests =
             (controlByName(window, "PollOption1")
              |> Option.iter(fun control -> (control :?> TextBox).Text <- "No"))
 
-            buttonWithText(window, "3 days") |> Option.iter click)
+            (controlByName(window, "PollLength")
+             |> Option.iter(fun control ->
+               (control :?> ComboBox).SelectedIndex <- 2)))
 
         do!
           onUiAsync(fun () ->
-            visibleBoxWithWatermark(window, "What did you ship?")
+            visibleBoxWithWatermark(window, "Ask a question")
             |> Option.iter(fun box ->
               box.Text <- "Ship it?"
 
@@ -2811,6 +2986,164 @@ let tests =
       })
 
     testCaseAsync
+      "the sidebar collapses to the rail and expands again"
+      (async {
+        let! window = startShell(signedInStore(), logApi() :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        let! collapse =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "NavCollapse")),
+            Option.isSome
+          )
+
+        Expect.isTrue collapse "the collapse row never appeared"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "NavCollapse")
+            |> Option.iter(fun control -> click(control :?> Button)))
+
+        let! rail =
+          waitForAsync(
+            5000,
+            (fun () -> splitWidth(window, "SidebarSplit")),
+            (fun width -> width = Some 80.0)
+          )
+
+        Expect.isTrue rail "the pane never took the rail width"
+
+        let! mark =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> visibleText(root, "/dev"))
+          )
+
+        Expect.isTrue mark "the rail mark never rendered"
+
+        let! labelsGone =
+          probeUiAsync(fun () ->
+            [ "Log"; "Notifications"; "Profile"; "Saved"; "Settings"; "About" ]
+            |> List.forall(fun label -> not(visibleText(window, label))))
+
+        Expect.isTrue labelsGone "a navigation label stayed in the rail"
+
+        let! wordmarkGone =
+          probeUiAsync(fun () -> not(visibleText(window, "/dev/null")))
+
+        Expect.isTrue wordmarkGone "the wordmark stayed in the rail"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "NavCollapse")
+            |> Option.iter(fun control -> click(control :?> Button)))
+
+        let! expanded =
+          waitForAsync(
+            5000,
+            (fun () -> splitWidth(window, "SidebarSplit")),
+            (fun width -> width = Some 256.0)
+          )
+
+        Expect.isTrue expanded "the pane never expanded"
+
+        let! wordmark =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> visibleText(root, "/dev/null"))
+          )
+
+        Expect.isTrue wordmark "the wordmark never came back"
+      })
+
+    testCaseAsync
+      "the rail band hides the labels and the toggle"
+      (async {
+        let! window = startShell(signedInStore(), logApi() :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! onUiAsync(fun () -> window.Width <- 900.0)
+        do! settleAsync()
+
+        let! rail =
+          waitForAsync(
+            5000,
+            (fun () -> splitWidth(window, "SidebarSplit")),
+            (fun width -> width = Some 80.0)
+          )
+
+        Expect.isTrue rail "the rail band never narrowed the pane"
+
+        let! toggleGone =
+          probeUiAsync(fun () ->
+            controlByName(window, "NavCollapse")
+            |> Option.forall(fun control -> not(effectiveVisible control)))
+
+        Expect.isTrue toggleGone "the toggle showed below the label breakpoint"
+
+        let! mark =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> visibleText(root, "/dev"))
+          )
+
+        Expect.isTrue mark "the rail mark never rendered"
+
+        let! labelsGone =
+          probeUiAsync(fun () ->
+            [ "Log"; "Notifications"; "Profile"; "Saved"; "Settings"; "About" ]
+            |> List.forall(fun label -> not(visibleText(window, label))))
+
+        Expect.isTrue labelsGone "a navigation label stayed in the rail"
+
+        let! accountWidth =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "SidebarAccount")),
+            (fun control ->
+              control |> Option.exists(fun value -> value.Bounds.Width >= 79.0))
+          )
+
+        Expect.isTrue
+          accountWidth
+          "the account row stayed narrower than the rail"
+
+        do! onUiAsync(fun () -> window.Width <- 700.0)
+        do! settleAsync()
+
+        let! hamburger =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "MenuButton")),
+            (fun control ->
+              control
+              |> Option.exists(fun value ->
+                match value with
+                | :? Button as button -> effectiveVisible button
+                | _ -> false))
+          )
+
+        Expect.isTrue hamburger "the hamburger never showed at 700"
+
+        let! paneHidden =
+          probeUiAsync(fun () ->
+            controlByName(window, "SidebarPane")
+            |> Option.forall(fun control -> not(effectiveVisible control)))
+
+        Expect.isTrue paneHidden "the docked pane stayed at 700"
+      })
+
+    testCaseAsync
       "the copy-link action puts the commit URL on the clipboard"
       (async {
         let! window = startShell(signedInStore(), logApi() :> IHttp)
@@ -3120,6 +3453,27 @@ let tests =
         store.SetTheme System
 
         Expect.equal store.Current.Theme System "the store never came back"
+      })
+
+    testCaseAsync
+      "the settings store publishes the sidebar choice"
+      (async {
+        let saves = ResizeArray<AppSettings>()
+        let store = AppSettingsStore(None, fun value -> saves.Add value)
+
+        store.SetSidebarExpanded false
+
+        Expect.isFalse
+          store.Current.SidebarExpanded
+          "the store never took the sidebar choice"
+
+        let! saved = probeUiAsync(fun () -> saves.Count)
+
+        Expect.equal saved 1 "the save hook never ran"
+
+        Expect.isFalse
+          saves[0].SidebarExpanded
+          "the save hook kept the old sidebar choice"
       })
 
     testCaseAsync

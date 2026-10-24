@@ -64,7 +64,11 @@ module State =
     Error = None
     Note = None
     Busy = true
-    Settings = { CloseToTray = false; Theme = System }
+    Settings = {
+      CloseToTray = false
+      Theme = System
+      SidebarExpanded = true
+    }
   }
 
   let fetchMe(env, session: SignedInSession) =

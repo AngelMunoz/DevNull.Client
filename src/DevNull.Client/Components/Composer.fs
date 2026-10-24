@@ -258,6 +258,12 @@ module State =
 /// The composer's semantic regions; the view only composes these.
 module Parts =
 
+  /// Sets one control's tooltip and returns it, so the composition stays
+  /// one expression.
+  let withTip (text: string) (control: Control) : Control =
+    ToolTip.SetTip(control, text)
+    control
+
   /// The input: one line to start, the site's textarea rhythm; the
   /// inner presenter takes over past the cap. The text rides the
   /// model: the one-way seed answers a recycled row's rebuild, and
@@ -274,32 +280,32 @@ module Parts =
       | ReplyTo _ -> "Write your reply…"
       | Quoting _ -> "Add your take"
 
-    let box =
-      TextBox()
-        .Name("ComposerBody")
-        .PlaceholderText(placeholder)
-        .AcceptsReturn(true)
-        .MinHeight(44.0)
-        .MaxHeight(300.0)
-        .TextWrapping(TextWrapping.Wrap)
-
-    box.Text(
-      model
-      |> Observable.map _.Body
-      |> Observable.distinctUntilChanged
-      |> _.ToBinding()
-    )
-    |> ignore
-
-    box.TextChanged.Add(fun _ ->
-      let text =
-        match box.Text with
-        | null -> ""
-        | typed -> typed
-
-      dispatch(State.BodyChanged text))
-
-    box
+    TextBox()
+      .Name("ComposerBody")
+      .AcceptsReturn(true)
+      .MinHeight(44.0)
+      .MaxHeight(300.0)
+      .TextWrapping(TextWrapping.Wrap)
+      .PlaceholderText(
+        model
+        |> Observable.map(fun current ->
+          match props.Target, current.Poll with
+          | Fresh, Some _ -> "Ask a question"
+          | _ -> placeholder)
+        |> Observable.distinctUntilChanged
+      )
+      .Text(
+        model
+        |> Observable.map _.Body
+        |> Observable.distinctUntilChanged
+        |> _.ToBinding()
+      )
+      .OnTextChangedHandler(fun box _ ->
+        box.Text
+        |> Option.ofObj
+        |> Option.defaultValue ""
+        |> State.BodyChanged
+        |> dispatch)
 
   /// The box's key lane. The platform's paste gesture asks the
   /// attachment sources first — a clipboard image stages, clipboard
@@ -375,13 +381,14 @@ module Parts =
   let chip
     (dispatch: Dispatch<State.Msg>, index: int, staged: ImageAttachment)
     : Control =
-    // The preview decodes the staged bytes on the UI thread: staging is
-    // a rare, user-driven act over at most three files. The decoded
+    // The preview decodes to the chip's own width: staged photos run
+    // phone-camera resolutions, and one full decode costs tens of
+    // megabytes of native pixels for 48 on-screen ones. The decoded
     // bitmap is native memory, so the chip image disposes it when the
     // strip rebuilds and drops it.
     let bitmap =
       use stream = new MemoryStream(staged.Bytes)
-      new Bitmap(stream)
+      Bitmap.DecodeToWidth(stream, 96)
 
     let preview =
       Avalonia.Controls
@@ -422,15 +429,19 @@ module Parts =
           )
       )
 
-  /// The staged strip above the action row.
+  /// The staged strip above the action row. It rebuilds only when the
+  /// attachment list itself moves: every keystroke changes the model,
+  /// and re-decoding every chip per keystroke was tens of megabytes of
+  /// native churn per key.
   let attachmentStrip
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =
     ContentControl()
       .Content(
         model
-        |> Observable.map(fun current ->
-          match current.Attachments with
+        |> Observable.map _.Attachments
+        |> Observable.distinctUntilChanged
+        |> Observable.map(function
           | [] -> Panel() :> Control
           | staged ->
             StackPanel()
@@ -447,9 +458,8 @@ module Parts =
       )
 
   /// The attach button: the image glyph, a live count, disabled past
-  /// three staged files. A quote target hides it — no route the server
-  /// gives us accepts a quote with images — and an open poll hides it
-  /// too: the server takes a poll or images, never both.
+  /// three staged files and while a poll is open — the server takes a
+  /// poll or images, never both. A quote target hides it.
   let attachButton
     (
       props: Props<'env>,
@@ -475,14 +485,16 @@ module Parts =
               TextBlock().Classes(Theme.name Theme.Mono).Text(count)
             )
         )
-        .IsVisible(model |> Observable.map(fun current -> current.Poll.IsNone))
         .IsEnabled(
-          model |> Observable.map(fun current -> current.Attachments.Length < 3)
+          model
+          |> Observable.map(fun current ->
+            current.Attachments.Length < 3 && current.Poll.IsNone)
         )
         .OnClickHandler(fun _ _ -> dispatch State.AttachRequested)
 
-  /// The poll button: opens the builder. A poll rides a fresh commit
-  /// with no images, so replies, quotes, and staged images hide it.
+  /// The poll button: the site's icon-only entry that opens the builder.
+  /// A poll rides a fresh commit with no images, so images disable it
+  /// and a reply or quote hides it.
   let pollButton
     (
       props: Props<'env>,
@@ -490,31 +502,29 @@ module Parts =
       dispatch: Dispatch<State.Msg>
     ) : Control =
     let offered =
-      model
-      |> Observable.map(fun current ->
-        match props.Target with
-        | Fresh -> current.Attachments.IsEmpty
-        | _ -> false)
+      match props.Target with
+      | Fresh -> true
+      | _ -> false
 
     Button()
       .Name("PollButton")
       .Classes(Theme.name Theme.GhostButton)
-      .Padding(6.0, 2.0, 6.0, 2.0)
-      .Content(
-        StackPanel()
-          .Orientation(Orientation.Horizontal)
-          .Spacing(4.0)
-          .Children(
-            Icons.iconAt(Glyph.Poll, 16.0),
-            TextBlock().Classes(Theme.name Theme.Mono).Text("poll")
-          )
-      )
+      .Width(32.0)
+      .Height(32.0)
+      .Padding(Thickness(0.0))
+      .Content(Icons.iconAt(Glyph.Poll, 20.0))
       .IsVisible(offered)
+      .IsEnabled(
+        model
+        |> Observable.map(fun current ->
+          current.Attachments.IsEmpty && current.Poll.IsNone)
+      )
       .OnClickHandler(fun _ _ -> dispatch State.PollToggled)
+    |> withTip "Add poll"
 
   /// One option box of the poll builder: the text rides the model the
   /// way the body does, so the structure rebuilds only when the option
-  /// count moves.
+  /// count moves. The site caps an option at 50 characters.
   let pollOptionBox
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>, index: int)
     : Control =
@@ -523,113 +533,123 @@ module Parts =
       |> Option.bind(fun poll -> List.tryItem index poll.Options)
       |> Option.defaultValue ""
 
-    let box =
-      TextBox()
-        .Name($"PollOption{index}")
-        .PlaceholderText($"Option {index + 1}")
-        .MinHeight(32.0)
+    TextBox()
+      .Name($"PollOption{index}")
+      .PlaceholderText($"Option {index + 1}")
+      .MinHeight(36.0)
+      .FontSize(15.0)
+      .MaxLength(50)
+      .Text(
+        model
+        |> Observable.map optionText
+        |> Observable.distinctUntilChanged
+        |> _.ToBinding()
+      )
+      .OnTextChangedHandler(fun box _ ->
+        let text = box.Text |> Option.ofObj |> Option.defaultValue ""
 
-    box.Text(
-      model
-      |> Observable.map optionText
-      |> Observable.distinctUntilChanged
-      |> _.ToBinding()
-    )
-    |> ignore
+        dispatch(State.PollOptionChanged(index, text)))
 
-    box.TextChanged.Add(fun _ ->
-      let text =
-        match box.Text with
-        | null -> ""
-        | typed -> typed
-
-      dispatch(State.PollOptionChanged(index, text)))
-
-    box
-
-  /// The row of one poll option: its box and, past the first two, its
-  /// remove button.
+  /// The row of one poll option: its box and, past the first two, the
+  /// remove button the site draws as an X.
   let pollOptionRow
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>, index: int)
     : Control =
+    let remove =
+      Button()
+        .Name($"PollOptionRemove{index}")
+        .Classes(Theme.name Theme.GhostButton)
+        .Width(28.0)
+        .Height(28.0)
+        .Padding(Thickness(0.0))
+        .Margin(8.0, 0.0, 0.0, 0.0)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Content(Icons.iconAt(Glyph.Close, 16.0))
+        .IsVisible(
+          model
+          |> Observable.map(fun current ->
+            current.Poll
+            |> Option.map(fun poll -> List.length poll.Options > 2)
+            |> Option.defaultValue false)
+        )
+        .DockRight()
+        .OnClickHandler(fun _ _ -> dispatch(State.PollOptionRemoved index))
+      |> withTip $"Remove option {index + 1}"
+
     DockPanel()
       .LastChildFill(true)
-      .Children(
-        Button()
-          .Name($"PollOptionRemove{index}")
-          .Classes(Theme.name Theme.GhostButton)
-          .Padding(4.0, 0.0, 4.0, 0.0)
-          .VerticalAlignment(VerticalAlignment.Center)
-          .Content("remove")
-          .IsVisible(
-            model
-            |> Observable.map(fun current ->
-              current.Poll
-              |> Option.map(fun poll -> List.length poll.Options > 2)
-              |> Option.defaultValue false)
-          )
-          .DockRight()
-          .OnClickHandler(fun _ _ -> dispatch(State.PollOptionRemoved index)),
-        pollOptionBox(model, dispatch, index)
-      )
+      .Children(remove, pollOptionBox(model, dispatch, index))
 
-  /// One duration pill of the picker; the picked one carries the
-  /// active look.
-  let durationPill
-    (
-      model: IObservable<State.Model>,
-      dispatch: Dispatch<State.Msg>,
-      duration: PollDuration
-    ) : Control =
-    let label =
+  /// The poll length picker: the site's select, with its four
+  /// durations, and the model's pick as the selected item.
+  let pollLength
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : Control =
+    let labels = [| "1 hour"; "1 day"; "3 days"; "7 days" |]
+
+    let indexOf(duration: PollDuration) : int =
       match duration with
-      | OneHour -> "1 hour"
-      | OneDay -> "1 day"
-      | ThreeDays -> "3 days"
-      | SevenDays -> "7 days"
+      | OneHour -> 0
+      | OneDay -> 1
+      | ThreeDays -> 2
+      | SevenDays -> 3
 
-    let picked =
-      model
-      |> Observable.map(fun current ->
-        current.Poll
-        |> Option.map(fun poll -> poll.Duration = duration)
-        |> Option.defaultValue false)
-      |> Observable.distinctUntilChanged
+    let durationAt(index: int) : PollDuration =
+      match index with
+      | 0 -> OneHour
+      | 1 -> OneDay
+      | 2 -> ThreeDays
+      | _ -> SevenDays
 
-    let pill =
-      Button()
-        .Classes(Theme.name Theme.FilterPill)
-        .Padding(8.0, 2.0, 8.0, 2.0)
-        .Content(label)
-        .OnClickHandler(fun _ _ -> dispatch(State.PollDurationPicked duration))
+    ComboBox()
+      .Name("PollLength")
+      .Width(128.0)
+      .MinHeight(32.0)
+      .ItemsSource(labels)
+      .SelectedIndex(
+        model
+        |> Observable.map(fun current ->
+          current.Poll
+          |> Option.map(fun poll -> indexOf poll.Duration)
+          |> Option.defaultValue 1)
+        |> Observable.distinctUntilChanged
+      )
+      .OnSelectionChangedHandler(fun picker _ ->
+        if picker.SelectedIndex >= 0 then
+          dispatch(State.PollDurationPicked(durationAt picker.SelectedIndex)))
 
-    Theme.bindClass(pill, Theme.FilterPillActive, picked)
-
-    pill
-
-  /// The poll builder under the body: the option rows, the add button
-  /// under four, the duration picker, and the close that puts it away.
-  /// The structure rebuilds only when the option count moves, so the
-  /// boxes keep their carets while typing.
+  /// The poll builder under the body: the bordered fieldset of the
+  /// site, its option rows, the add button, and the footer with the
+  /// length select and the remove action. The structure rebuilds only
+  /// when the option count moves, so the boxes keep their carets while
+  /// typing.
   let pollPanel
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =
-    let durations: PollDuration list = [ OneHour; OneDay; ThreeDays; SevenDays ]
-
     let built(count: int) : Control =
       match count with
       | 0 -> Panel() :> Control
       | _ ->
-        let children: Control array = [|
+        let optionRows: Control array = [|
           for index in 0 .. count - 1 do
             pollOptionRow(model, dispatch, index)
+        |]
 
+        let add =
           Button()
             .Name("PollOptionAdd")
-            .Classes(Theme.name Theme.GhostButton)
+            .Classes(Theme.name Theme.GhostButton, Theme.name Theme.FgAccent)
             .Padding(6.0, 2.0, 6.0, 2.0)
             .HorizontalAlignment(HorizontalAlignment.Left)
-            .Content("Add option")
+            .Content(
+              StackPanel()
+                .Orientation(Orientation.Horizontal)
+                .Spacing(6.0)
+                .Children(
+                  Icons.iconAt(Glyph.Plus, 16.0),
+                  TextBlock().Text("Add option")
+                )
+            )
             .IsVisible(
               model
               |> Observable.map(fun current ->
@@ -639,26 +659,43 @@ module Parts =
             )
             .OnClickHandler(fun _ _ -> dispatch State.PollOptionAdded)
 
+        let length =
           StackPanel()
             .Orientation(Orientation.Horizontal)
-            .Spacing(6.0)
+            .Spacing(8.0)
             .Children(
-              [|
-                for duration in durations ->
-                  durationPill(model, dispatch, duration)
-              |]
+              TextBlock()
+                .Classes(Theme.name Theme.Muted)
+                .Text("Poll length")
+                .VerticalAlignment(VerticalAlignment.Center),
+              pollLength(model, dispatch)
             )
 
+        let remove =
           Button()
             .Name("PollClose")
-            .Classes(Theme.name Theme.GhostButton)
+            .Classes(Theme.name Theme.GhostButton, Theme.name Theme.PollRemove)
             .Padding(6.0, 2.0, 6.0, 2.0)
-            .HorizontalAlignment(HorizontalAlignment.Left)
             .Content("Remove poll")
+            .DockRight()
             .OnClickHandler(fun _ _ -> dispatch State.PollToggled)
-        |]
 
-        StackPanel().Spacing(6.0).Children(children) :> Control
+        let footer =
+          Border()
+            .Classes(Theme.name Theme.Hairline)
+            .BorderThickness(Thickness(0.0, 1.0, 0.0, 0.0))
+            .Padding(Thickness(0.0, 12.0, 0.0, 0.0))
+            .Child(DockPanel().LastChildFill(true).Children(remove, length))
+
+        let children: Control array = [| yield! optionRows; add; footer |]
+
+        Border()
+          .Classes(Theme.name Theme.Hairline)
+          .BorderThickness(Thickness(1.0))
+          .CornerRadius(8.0)
+          .Padding(12.0)
+          .Child(StackPanel().Spacing(8.0).Children(children))
+        :> Control
 
     ContentControl()
       .Content(

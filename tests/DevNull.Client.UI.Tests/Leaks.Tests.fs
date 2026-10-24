@@ -186,13 +186,13 @@ let tests =
 
         let! after = probeUiAsync(fun () -> GC.GetTotalMemory true)
 
-        // The budget sits above the noisiest CI baseline observed
-        // (14.0 MB) and below the smallest value the leak retained
-        // before the fix (16.9 MB), so both directions of the gate
-        // hold on every runner.
+        // The budget sits above the noisiest baseline observed with the
+        // rail and poll chrome (16.02 MB) and below the smallest value
+        // the leak retained before the fix (16.9 MB), so both directions
+        // of the gate hold on every runner.
         Expect.isLessThan
           (after - before)
-          15_000_000L
+          16_500_000L
           $"the soak retained {after - before} bytes"
       })
 

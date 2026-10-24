@@ -13,6 +13,10 @@ type Props = {
   Cache: ImageCacheService
   Url: string
   DecodeWidth: int
+  /// Decodes by height instead of width: the fixed-height cells of the
+  /// feed and the viewer's viewport fit their images this way, and a
+  /// tall photo costs its displayed pixels, not its full frame.
+  DecodeHeight: int voption
   Stretch: Stretch
   Placeholder: Control voption
   ToolTip: string voption

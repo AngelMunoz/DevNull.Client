@@ -2,6 +2,7 @@ module DevNull.Client.AttachmentSources
 
 open System
 open System.IO
+open System.Threading.Tasks
 open Avalonia.Controls
 open Avalonia.Input
 open Avalonia.Input.Platform
@@ -30,6 +31,56 @@ let imageTypes =
     Patterns = [ "*.jpg"; "*.jpeg"; "*.png"; "*.webp" ]
   )
 
+/// The largest image dimension the composer stages. The server
+/// re-encodes every post well under a megabyte, so a phone-camera
+/// original only bloats the model, the multipart copy, and the upload.
+let maxDimension = 1600
+
+/// The staging bound: payloads this small already match what the
+/// server keeps, so they pass through untouched.
+let stagingBound = 1024 * 1024
+
+/// One staged image, shrunk to the staging bound: a larger original
+/// decodes down off the UI thread and re-encodes to PNG. A payload
+/// that fails to decode passes through untouched; the sniffing parser
+/// and the size cap still speak after it.
+let shrink(attachment: ImageAttachment) : Async<ImageAttachment> =
+  if attachment.Bytes.Length <= stagingBound then
+    async { return attachment }
+  else
+    asyncEx {
+      let! decoded =
+        Task.Run(fun () ->
+          try
+            // The first decode caps the width; a portrait taller than
+            // the bound needs the height cap instead.
+            use wideStream = new MemoryStream(attachment.Bytes)
+            let wide = Bitmap.DecodeToWidth(wideStream, maxDimension)
+
+            if wide.PixelSize.Height <= maxDimension then
+              ValueSome wide
+            else
+              wide.Dispose()
+              use tallStream = new MemoryStream(attachment.Bytes)
+
+              Bitmap.DecodeToHeight(tallStream, maxDimension) |> ValueSome
+          with _ ->
+            ValueNone)
+        |> Async.AwaitTask
+
+      match decoded with
+      | ValueSome bitmap ->
+        use saved = bitmap
+        use buffer = new MemoryStream()
+        saved.Save buffer
+
+        return {
+          attachment with
+              Bytes = buffer.ToArray()
+        }
+      | ValueNone -> return attachment
+    }
+
 /// One picked file read to bytes. An unreadable file is skipped, so
 /// one bad pick never blocks the rest.
 let readOf(file: IStorageFile) : Async<ImageAttachment option> = asyncEx {
@@ -38,11 +89,13 @@ let readOf(file: IStorageFile) : Async<ImageAttachment option> = asyncEx {
     use buffer = new MemoryStream()
     do! stream.CopyToAsync buffer
 
-    return
-      Some {
+    let! staged =
+      shrink {
         FileName = file.Name
         Bytes = buffer.ToArray()
       }
+
+    return Some staged
   with :? IOException ->
     return None
 }
@@ -62,7 +115,8 @@ let desktop(resolve: unit -> TopLevel voption) : IAttachmentSources =
   }
 
   // The clipboard bitmap re-encodes to PNG bytes, so the sniffing
-  // parser treats a paste like any other file.
+  // parser treats a paste like any other file; the staging bound then
+  // shrinks a full-resolution screenshot paste like a picked one.
   let clipboardImage(top: TopLevel) = asyncEx {
     match top.Clipboard with
     | null -> return None
@@ -75,11 +129,13 @@ let desktop(resolve: unit -> TopLevel voption) : IAttachmentSources =
         use buffer = new MemoryStream()
         pasted.Save buffer
 
-        return
-          Some {
+        let! staged =
+          shrink {
             FileName = $"paste-{Guid.NewGuid():N}.png"
             Bytes = buffer.ToArray()
           }
+
+        return Some staged
   }
 
   let clipboardText(top: TopLevel) = asyncEx {

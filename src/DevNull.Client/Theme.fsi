@@ -15,6 +15,9 @@ open DevNull.Client.SettingsStore
 /// as the variant changes, so views bind it once and never re-style.
 module Brushes =
 
+  /// The themed brush of one resource key, following the theme variant.
+  val themed: key: string -> IObservable<IBrush>
+
   /// The window background.
   val background: IObservable<IBrush>
 
@@ -88,6 +91,7 @@ type StyleClass =
   | NavItem
   | NavItemActive
   | NavCommit
+  | RailItem
   | Card
   | Title
   | Headline
@@ -100,6 +104,8 @@ type StyleClass =
   | NavButton
   | CodeBlock
   | Chip
+  | PollOption
+  | PollRemove
   | FilterPill
   | FilterPillActive
   | TabButton
@@ -114,6 +120,8 @@ type StyleClass =
   | FgDanger
   | FgOnAccent
   | SurfaceBack
+  | PrimarySoftBack
+  | AccentBack
   | CardBack
   | RailBack
   | Hairline

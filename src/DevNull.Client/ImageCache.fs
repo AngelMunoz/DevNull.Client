@@ -21,17 +21,38 @@ type ImageCacheService
   let order = List<string>()
   let memoryCapacity = 64
 
+  // The byte budget, sized from what the server really serves: PNG
+  // payloads averaging ~60 KB with a ~800 KB worst case (measured over
+  // 370 cached entries), and a visible window of 6-9 images. The disk
+  // tier serves every eviction with one local read, so the memory tier
+  // only needs the visible window's worth.
+  let memoryBudget = 5L * 1024L * 1024L
+
+  let budgeted() =
+    memory.Values |> Seq.sumBy(fun bytes -> int64 bytes.Length)
+
+  let forget(url: string) =
+    order.Remove url |> ignore
+    memory.Remove url |> ignore
+
+  let overCaps() =
+    order.Count > memoryCapacity
+    || (budgeted() > memoryBudget && order.Count > 0)
+
   let remember(url: string, bytes: byte array) =
     lock gate (fun () ->
       if memory.ContainsKey url then
-        order.Remove url |> ignore
+        forget url
 
-      order.Add url
-      memory[url] <- bytes
+      // A payload over the whole budget never enters: caching it would
+      // evict everything else for one image.
+      if int64 bytes.Length <= memoryBudget then
+        order.Add url
+        memory[url] <- bytes
 
-      while order.Count > memoryCapacity do
-        memory.Remove(order[0]) |> ignore
-        order.RemoveAt 0)
+        // Evict oldest first until both caps hold: entries, bytes.
+        while overCaps() do
+          forget order[0])
 
   let tryMemory(url: string) =
     lock gate (fun () ->

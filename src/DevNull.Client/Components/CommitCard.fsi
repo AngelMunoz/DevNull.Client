@@ -7,8 +7,8 @@ open DevNull.Client.ImageCache
 open DevNull.Client.Components.UserFlyout
 
 /// What one card reports up: open the thread, toggle the star, give a
-/// pastel, start a quote, reveal the reply composer, vote a poll
-/// option, or walk more replies of a thread preview.
+/// pastel, start a quote, reveal the reply composer, choose a poll
+/// option, ask for the vote, or walk more replies of a thread preview.
 [<Struct>]
 type Event =
   | Opened of Commit
@@ -18,7 +18,8 @@ type Event =
   | StarToggled of Commit
   | PastelGiven of Commit
   | QuoteRequested of Commit
-  | PollVoted of Commit * PollOption
+  | PollChoiceChanged of Commit * PollOption * chosen: bool
+  | PollVoteRequested of Commit
 
 /// One commit row. `OnEvent` receives every interaction. Every card
 /// rides the graph rail with its author's avatar; dense rows (the
@@ -29,6 +30,8 @@ type Event =
 /// under a built card; `Now` is the clock the relative time follows;
 /// `Images` loads the author avatar and the commit's images; `Flyout`
 /// is the hover card source for the author, when the host has one.
+/// `Voting` names the commit whose vote is in flight; `PollChoice` is
+/// the option the page model holds for this commit.
 [<Struct>]
 type Props = {
   Commit: Commit
@@ -36,6 +39,8 @@ type Props = {
   ViewerId: string
   Pastels: IObservable<bool>
   Now: IObservable<DateTimeOffset>
+  Voting: IObservable<string option>
+  PollChoice: IObservable<string option>
   Dense: bool
   Images: ImageCacheService
   Flyout: Source voption
@@ -44,18 +49,37 @@ type Props = {
 /// Renders one commit as a row of the log.
 val view: props: Props -> Control
 
+/// One poll choice change, in the shape the page model stores it.
+[<Struct>]
+type ChoiceChange = {
+  Choices: Map<string, string>
+  CommitId: string
+  OptionId: string
+  Chosen: bool
+}
+
+/// The choice map after one row reports its checked state.
+val choose: change: ChoiceChange -> Map<string, string>
+
+/// The option a page still holds for a commit, when the poll carries it.
+val selectedOption:
+  choices: Map<string, string> * commit: Commit -> PollOption option
+
 /// Renders a deleted commit placeholder.
 val tombstone: unit -> Control
 
 /// Everything one card row needs from its host page: where its events
-/// go, the signed-in viewer, the live pastéis flag and clock, the
-/// row's density, the image cache, and the hover card source.
+/// go, the signed-in viewer, the live pastéis flag and clock, the poll
+/// choices, the row's density, the image cache, and the hover card
+/// source.
 [<Struct>]
 type RowProps = {
   OnEvent: Event -> unit
   ViewerId: string
   Pasteis: IObservable<bool>
   Now: IObservable<DateTimeOffset>
+  Voting: IObservable<string option>
+  PollChoices: IObservable<Map<string, string>>
   Dense: bool
   Images: ImageCacheService
   Flyout: Source voption

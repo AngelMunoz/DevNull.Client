@@ -28,6 +28,7 @@ let themeString(choice: ThemeChoice) : string =
 type AppSettings = {
   CloseToTray: bool
   Theme: ThemeChoice
+  SidebarExpanded: bool
 }
 
 type AppSettingsStore(settings: AppSettings, persist: AppSettings -> unit) =
@@ -40,7 +41,12 @@ type AppSettingsStore(settings: AppSettings, persist: AppSettings -> unit) =
 
   new(settings: AppSettings option, persist: AppSettings -> unit) =
     AppSettingsStore(
-      settings |> Option.defaultValue { CloseToTray = false; Theme = System },
+      settings
+      |> Option.defaultValue {
+        CloseToTray = false
+        Theme = System
+        SidebarExpanded = true
+      },
       persist
     )
 
@@ -64,6 +70,15 @@ type AppSettingsStore(settings: AppSettings, persist: AppSettings -> unit) =
     persist next
     emit next
 
+  member _.SetSidebarExpanded(expanded: bool) : unit =
+    let next = {
+      subject.Value with
+          SidebarExpanded = expanded
+    }
+
+    persist next
+    emit next
+
 type IProvideSettings =
   abstract Settings: AppSettingsStore
 
@@ -81,6 +96,7 @@ let save(settings: AppSettings) : Result<unit, string> =
     let json = JsonObject()
     json.["close_to_tray"] <- JsonValue.Create settings.CloseToTray
     json.["theme"] <- JsonValue.Create(themeString settings.Theme)
+    json.["sidebar_expanded"] <- JsonValue.Create settings.SidebarExpanded
     File.WriteAllText(settingsPath, json.ToJsonString())
     Ok()
   with ex ->
@@ -105,10 +121,16 @@ let load() : Result<AppSettings option, string> =
       | _ -> None
       |> Option.defaultValue System
 
+    let sidebarExpanded =
+      match root.TryGetProperty "sidebar_expanded" with
+      | true, value when value.ValueKind = JsonValueKind.False -> false
+      | _ -> true
+
     Ok(
       Some {
         CloseToTray = closeToTray
         Theme = theme
+        SidebarExpanded = sidebarExpanded
       }
     )
   with

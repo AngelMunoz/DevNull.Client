@@ -15,6 +15,7 @@ open Avalonia.Threading
 open Avalonia.VisualTree
 open NXUI.Extensions
 open IcedTasks
+open FSharp.Control.Reactive
 open Navs
 open Navs.Avalonia
 open DevNull.Client
@@ -43,8 +44,13 @@ open DevNull.Client.Unread
 open DevNull.Client.UiClock
 open DevNull.Client.Views
 
-/// The window width under which the sidebar folds into a drawer.
-let narrowWidth = 640.0
+/// The window width under which the sidebar folds into a drawer, the
+/// site's `md` breakpoint.
+let narrowWidth = 768.0
+
+/// The window width from which the sidebar can show its labels, the
+/// site's `lg` breakpoint.
+let toggleWidth = 1024.0
 
 /// The window width from which the aside column opens, the site's
 /// wide breakpoint.
@@ -55,15 +61,18 @@ let asideWidth = 1280.0
 /// middle instead of hugging the sidebar.
 let stripWidth = 1264.0
 
-/// The three width bands of the shell: the folded drawer, the docked
-/// sidebar without the aside, and the full strip with the aside.
+/// The four width bands of the shell: the folded drawer, the forced
+/// icon rail, the collapsible sidebar without the aside, and the full
+/// strip with the aside.
 type Layout =
   | Narrow
+  | Rail
   | Standard
   | Wide
 
 let layoutOf(width: float) : Layout =
   if width < narrowWidth then Narrow
+  elif width < toggleWidth then Rail
   elif width >= asideWidth then Wide
   else Standard
 
@@ -78,8 +87,10 @@ type NavEntry = {
   Badge: IObservable<int> voption
 }
 
-// The client surface fills the window behind the caption row. Only
-// Windows answers the Mica chain; every backdrop follows the theme.
+// The client surface fills the window behind the caption row. The
+// window paints the themed background to its edges: a transparency hint
+// left the resize border transparent, and the desktop showed through
+// beside the rail.
 /// A page transition that swaps immediately. The outlet's default
 /// cross-fade never finishes under a headless clock, which keeps the
 /// previous page attached — and its buttons steal clicks from the
@@ -101,98 +112,98 @@ let applyWindowChrome(window: Window) : unit =
 
   match Application.Current with
   | null -> ()
-  | app ->
-    // A Mica miss falls back to the themed background, never to black.
-    if OperatingSystem.IsWindows() then
-      window.TransparencyLevelHint <-
-        ResizeArray [
-          WindowTransparencyLevel.Mica
-          WindowTransparencyLevel.AcrylicBlur
-          WindowTransparencyLevel.Transparent
-        ]
+  | _ ->
+    window.TransparencyLevelHint <- ResizeArray [ WindowTransparencyLevel.None ]
 
-      window.Bind(
-        TopLevel.TransparencyBackgroundFallbackProperty,
-        app.GetResourceObservable Keys.background
-      )
-      |> ignore
+    window.Background(Brushes.themed Keys.background) |> ignore
 
-      window.Background <- Brushes.Transparent
-    else
-      window.Bind(
-        Window.BackgroundProperty,
-        app.GetResourceObservable Keys.background
-      )
-      |> ignore
+/// What one sidebar entry reads: where it goes, which section is
+/// active, and whether the labels are hidden.
+[<Struct>]
+type NavContext = {
+  Navigate: string -> unit
+  Active: BehaviorSubject<string voption>
+  Compact: IObservable<bool>
+}
 
-let navItem
-  (
-    navigate: string -> unit,
-    activeSection: BehaviorSubject<string voption>,
-    entry: NavEntry
-  ) : Control =
+let navItem(context: NavContext, entry: NavEntry) : Control =
   let active =
-    activeSection
+    context.Active
     |> Observable.map(fun current -> current = ValueSome entry.Section)
 
-  let label =
-    StackPanel()
-      .Orientation(Orientation.Horizontal)
-      .Spacing(10.0)
-      .Children(Icons.icon entry.Glyph, TextBlock().Text(entry.Label))
-
-  let content: Control =
+  // One icon for both widths. The unread count rides its top corner as
+  // a small pill, the way the site's badge sits on the icon.
+  let icon: Control =
     match entry.Badge with
-    | ValueNone -> label
+    | ValueNone -> Icons.icon entry.Glyph
     | ValueSome unread ->
-      let grid = Grid()
-
-      grid.ColumnDefinitions <- ColumnDefinitions("Auto,*,Auto")
-
       let badge =
         Border()
           .Background(Brushes.accent)
-          .CornerRadius(9.0)
-          .Padding(6.0, 1.0, 6.0, 1.0)
-          .VerticalAlignment(VerticalAlignment.Center)
+          .CornerRadius(8.0)
+          .MinWidth(16.0)
+          .Height(16.0)
+          .Padding(4.0, 0.0, 4.0, 0.0)
+          .HorizontalAlignment(HorizontalAlignment.Right)
+          .VerticalAlignment(VerticalAlignment.Top)
+          .Margin(0.0, -4.0, -6.0, 0.0)
           .IsVisible(unread |> Observable.map(fun count -> count > 0))
           .Child(
             TextBlock()
-              .FontSize(11.0)
+              .FontSize(10.0)
               .Foreground(Brushes.onAccent)
-              .Text(unread |> Observable.map string)
+              .Text(
+                unread
+                |> Observable.map(fun count ->
+                  if count > 99 then "99+" else string count)
+              )
           )
 
-      grid.Children(label.Column(0), badge.Column(2)) |> ignore
+      Panel().Width(18.0).Height(18.0).Children(Icons.icon entry.Glyph, badge)
 
-      grid
+  let label =
+    TextBlock()
+      .Text(entry.Label)
+      .VerticalAlignment(VerticalAlignment.Center)
+      .IsVisible(context.Compact |> Observable.map not)
+
+  let content =
+    StackPanel()
+      .Orientation(Orientation.Horizontal)
+      .Spacing(10.0)
+      .Children(icon, label)
 
   let item =
     Button()
       .Classes(Theme.name Theme.NavItem)
       .Content(content)
-      .OnClickHandler(fun _ _ -> navigate entry.Url)
+      .OnClickHandler(fun _ _ -> context.Navigate entry.Url)
+
+  ToolTip.SetTip(item, entry.Label)
 
   // The active look lives in the NavItemActive class, whose colors are
   // themed resources; the subscription only moves the class.
   Theme.bindClass(item, Theme.NavItemActive, active)
-
-  if entry.Badge.IsSome then
-    item.HorizontalContentAlignment <- HorizontalAlignment.Stretch
+  Theme.bindClass(item, Theme.RailItem, context.Compact)
 
   item
+
+/// What the sidebar footer reads: where it goes, the session, the
+/// avatar cache, and whether the labels are hidden.
+[<Struct>]
+type FooterContext = {
+  Navigate: string -> unit
+  Session: IObservable<SessionState>
+  Images: ImageCacheService
+  Compact: IObservable<bool>
+}
 
 /// The sidebar footer: the signed-in user's row, or the sign-in entry.
 /// The account row rebuilds only when the signed-in user changes — an
 /// unread refresh keeps the built one.
-let footer
-  (
-    navigate: string -> unit,
-    session: IObservable<SessionState>,
-    images: ImageCacheService
-  ) : Control =
+let footer(context: FooterContext) : Control =
   let signedIn =
-    session
+    context.Session
     |> Observable.map(function
       | SignedIn _ -> true
       | SignedOut -> false)
@@ -203,7 +214,7 @@ let footer
   // session refresh lands here without rebuilding the row.
   let account = new BehaviorSubject<string>("")
 
-  session
+  context.Session
   |> Observable.add(fun state ->
     match state with
     | SignedIn entry when account.Value <> entry.Session.User.Id ->
@@ -219,10 +230,11 @@ let footer
               Url = entry.Session.User.AvatarUrl
               Lane = None
               Size = 36.0
-              Cache = images
+              Cache = context.Images
             },
             StackPanel()
               .VerticalAlignment(VerticalAlignment.Center)
+              .IsVisible(context.Compact |> Observable.map not)
               .Children(
                 TextBlock()
                   .Classes(Theme.name Theme.Subtitle)
@@ -243,7 +255,10 @@ let footer
       .HorizontalAlignment(HorizontalAlignment.Stretch)
       .Content(host)
       .IsVisible(signedIn)
-      .OnClickHandler(fun _ _ -> navigate "/profile")
+      .OnClickHandler(fun _ _ -> context.Navigate "/profile")
+
+  account.Name <- "SidebarAccount"
+  Theme.bindClass(account, Theme.RailItem, context.Compact)
 
   let signIn =
     Button()
@@ -251,7 +266,9 @@ let footer
       .HorizontalAlignment(HorizontalAlignment.Stretch)
       .Content("Sign in")
       .IsVisible(signedIn |> Observable.map not)
-      .OnClickHandler(fun _ _ -> navigate "/signin")
+      .OnClickHandler(fun _ _ -> context.Navigate "/signin")
+
+  Theme.bindClass(signIn, Theme.RailItem, context.Compact)
 
   StackPanel().Children(account, signIn)
 
@@ -510,6 +527,30 @@ type Shell<'env
     this.GetObservable(TopLevel.ClientSizeProperty)
     |> Observable.add(fun size -> layout.OnNext(layoutOf size.Width))
 
+    // The sidebar's own width choice. The site stores it in a cookie;
+    // the client stores it in the settings file. The choice applies
+    // only from the label breakpoint up: the rail band and the drawer
+    // decide their width themselves.
+    let settings = (env :> IProvideSettings).Settings
+    let expanded = new BehaviorSubject<bool>(settings.Current.SidebarExpanded)
+    let compact = new BehaviorSubject<bool>(false)
+
+    let updateCompact() =
+      let next =
+        match layout.Value with
+        | Narrow -> false
+        | Rail -> true
+        | Standard
+        | Wide -> not expanded.Value
+
+      if compact.Value <> next then
+        compact.OnNext next
+
+    let toggleSidebar() =
+      let next = not expanded.Value
+      settings.SetSidebarExpanded next
+      expanded.OnNext next
+
     // The compose dialog: one overlay above the panes, below the band
     // so the caption stays reachable. It opens only signed in.
     let composeOpen = new BehaviorSubject<bool>(false)
@@ -614,28 +655,49 @@ type Shell<'env
       }
     ]
 
-    let item entry = navItem(navigate, activeSection, entry)
+    let item entry =
+      navItem(
+        {
+          Navigate = navigate
+          Active = activeSection
+          Compact = compact
+        },
+        entry
+      )
 
     // The sidebar: one tree for both modes, so no control lands in two
     // parents.
     let sidebarContent() : Control =
       // The service's name as plain text, the one form the brand asks
       // for: lowercase, both slashes. No retyped wordmark and no
-      // copied lockup; this is an unofficial client.
-      let heading =
-        TextBlock().Classes(Theme.name Theme.Title).Text("/dev/null")
+      // copied lockup; this is an unofficial client. The rail keeps
+      // the first form of the name, because the full one cannot fit.
+      let wordmark =
+        TextBlock()
+          .Classes(Theme.name Theme.Title)
+          .Text("/dev/null")
+          .IsVisible(compact |> Observable.map not)
+
+      let mark =
+        TextBlock()
+          .Classes(Theme.name Theme.Title)
+          .Text("/dev")
+          .FontSize(20.0)
+          .HorizontalAlignment(HorizontalAlignment.Center)
+          .IsVisible(compact)
+
+      let tagline =
+        TextBlock()
+          .Classes(Theme.name Theme.Muted)
+          .Text("unofficial desktop client")
+          .IsVisible(compact |> Observable.map not)
 
       // The header clears the drag band the shell lays over the top
       // strip; the site's own py-6 keeps the same rhythm below it.
       let header =
         StackPanel()
           .Margin(Thickness(14.0, Theme.bandHeight + 12.0, 14.0, 24.0))
-          .Children(
-            heading,
-            TextBlock()
-              .Classes(Theme.name Theme.Muted)
-              .Text("unofficial desktop client")
-          )
+          .Children(mark, wordmark, tagline)
 
       let commitButton =
         Button()
@@ -645,7 +707,12 @@ type Shell<'env
             StackPanel()
               .Orientation(Orientation.Horizontal)
               .Spacing(12.0)
-              .Children(Icons.icon Glyph.Commit, TextBlock().Text("Commit"))
+              .Children(
+                Icons.icon Glyph.Commit,
+                TextBlock()
+                  .Text("Commit")
+                  .IsVisible(compact |> Observable.map not)
+              )
           )
           .OnClickHandler(fun _ _ ->
             // The site focuses the log's own composer when one is on
@@ -657,37 +724,89 @@ type Shell<'env
               composeOpen.OnNext true)
 
       commitButton.Name <- "NavCommitButton"
+      Theme.bindClass(commitButton, Theme.RailItem, compact)
+
+      // The site's collapse row, under Commit: the labels show only
+      // while the sidebar can expand.
+      let collapse =
+        let iconLeft =
+          Icons
+            .iconAt(Glyph.PanelLeftClose, 18.0)
+            .IsVisible(compact |> Observable.map not)
+
+        let iconRight =
+          Icons.iconAt(Glyph.PanelLeftOpen, 18.0).IsVisible(compact)
+
+        let label =
+          TextBlock().Text("Collapse").IsVisible(compact |> Observable.map not)
+
+        let button =
+          Button()
+            .Name("NavCollapse")
+            .Classes(Theme.name Theme.NavItem)
+            .Content(
+              StackPanel()
+                .Orientation(Orientation.Horizontal)
+                .Spacing(10.0)
+                .Children(iconLeft, iconRight, label)
+            )
+            .IsVisible(
+              layout
+              |> Observable.map(fun current ->
+                match current with
+                | Standard
+                | Wide -> true
+                | _ -> false)
+            )
+            .OnClickHandler(fun _ _ -> toggleSidebar())
+
+        ToolTip.SetTip(button, "Toggle navigation")
+        Theme.bindClass(button, Theme.RailItem, compact)
+        button
 
       let navChildren: Control array = [|
         header
         for entry in entries do
           item entry
         commitButton
+        collapse
       |]
 
       let navList = ScrollViewer().Content(StackPanel().Children(navChildren))
 
-      DockPanel()
-        .LastChildFill(true)
-        .Children(
-          footer(
-            navigate,
-            session.Observe,
-            (env :> IProvideImageCache).ImageCache
-          )
-            .DockBottom()
-            .Margin(Thickness(14.0, 8.0, 14.0, 12.0)),
-          navList
+      // The rail keeps the footer's full width: the old page margin
+      // plus the nav row padding clipped the 36px avatar.
+      let footerMargin =
+        compact
+        |> Observable.map(fun isCompact ->
+          if isCompact then
+            Thickness(0.0, 8.0, 0.0, 12.0)
+          else
+            Thickness(14.0, 8.0, 14.0, 12.0))
+
+      let sidebarFooter =
+        footer(
+          {
+            Navigate = navigate
+            Session = session.Observe
+            Images = (env :> IProvideImageCache).ImageCache
+            Compact = compact
+          }
         )
+          .DockBottom()
+          .Margin(footerMargin)
+
+      DockPanel().LastChildFill(true).Children(sidebarFooter, navList)
 
     // The pane keeps one look per mode: the drawer fills with the
     // surface and wears a hairline under the band; the docked pane
-    // stays bare, so Mica shows through.
+    // paints the app background, so the desktop behind the window never
+    // shows through the rail.
     let paneBackground =
       narrow
       |> Observable.map(fun isNarrow ->
-        if isNarrow then Brushes.surface else Brushes.transparent)
-      |> System.Reactive.Linq.Observable.Switch
+        if isNarrow then Brushes.surface else Brushes.background)
+      |> Observable.bind id
 
     let paneMargin =
       narrow
@@ -706,12 +825,14 @@ type Shell<'env
           Thickness(0.0))
 
     let sidebarPane =
-      Border().Child(sidebarContent()).BorderBrush(Brushes.border)
+      Border()
+        .Child(sidebarContent())
+        .BorderBrush(Brushes.border)
+        .Background(paneBackground)
+        .Margin(paneMargin)
+        .BorderThickness(paneHairline)
 
-    sidebarPane.Bind(Border.BackgroundProperty, paneBackground) |> ignore
-    sidebarPane.Bind(Layoutable.MarginProperty, paneMargin) |> ignore
-
-    sidebarPane.Bind(Border.BorderThicknessProperty, paneHairline) |> ignore
+    sidebarPane.Name <- "SidebarPane"
 
     // The aside: the signed-in user's card, the way the site's right
     // column does past its wide breakpoint. It rebuilds only when the
@@ -781,21 +902,33 @@ type Shell<'env
         chromeHost.Content <- null)
 
     // The reading column: the site's main — a card surface between two
-    // hairlines, never wider than the site's 620px column. The log
-    // chrome rides above the outlet inside it; where the window leaves
-    // room, the column centers in it.
+    // hairlines, 620px wide while the labels show, 796px once the rail
+    // collapses. The log chrome rides above the outlet inside it; where
+    // the window leaves room, the column centers in it.
     let mainColumn = Grid()
 
     mainColumn.RowDefinitions <- RowDefinitions("Auto,*")
 
     mainColumn.Children(chromeHost.Row(0), outlet.Row(1)) |> ignore
 
+    // The site's reading column: 620px while the sidebar shows its
+    // labels, 796px once the desktop sidebar collapses. The forced rail
+    // below the label breakpoint keeps 620px, as the site's `md` rule
+    // does there.
+    let mainWidth =
+      Observable.combineLatest layout expanded
+      |> Observable.map(fun (current, isExpanded) ->
+        match current with
+        | Standard
+        | Wide when not isExpanded -> 796.0
+        | _ -> 620.0)
+
     let mainHost =
       Border()
         .Background(Brushes.card)
         .BorderBrush(Brushes.border)
         .BorderThickness(Thickness(1.0, 0.0, 1.0, 0.0))
-        .MaxWidth(620.0)
+        .MaxWidth(mainWidth)
         .Child(mainColumn)
 
     // The shell: the reading column and the aside — one strip that
@@ -812,13 +945,15 @@ type Shell<'env
 
       grid
 
-    // One Fluent SplitView owns the sidebar: docked Inline past the
-    // narrow line, an Overlay drawer below it. The pane content binds
-    // `IsPaneOpen` because the template never hides it while the pane
-    // width animates to zero.
+    // One Fluent SplitView owns the sidebar: a docked Inline pane past
+    // the narrow line, an Overlay drawer below it. The docked pane has
+    // two widths, the site's 256px labels and 80px rail; the drawer is
+    // always 256px. The pane content binds `IsPaneOpen` because the
+    // template never hides it while the pane width animates to zero.
     let split = SplitView()
 
-    split.OpenPaneLength <- 260.0
+    split.Name <- "SidebarSplit"
+    split.OpenPaneLength <- 256.0
     split.PaneBackground <- Avalonia.Media.Brushes.Transparent
     split.UseLightDismissOverlayMode <- true
 
@@ -830,26 +965,46 @@ type Shell<'env
     split.Pane <- sidebarPane
     split.Content <- shell
 
-    sidebarPane.Bind(
-      Visual.IsVisibleProperty,
-      split.GetObservable(SplitView.IsPaneOpenProperty)
-    )
+    sidebarPane.IsVisible(split.GetObservable(SplitView.IsPaneOpenProperty))
     |> ignore
 
-    // The mode drives the pane, and every navigation closes only the
-    // drawer: a wide Inline pane must stay docked.
-    let applyMode(isNarrow: bool) =
-      split.DisplayMode <-
-        if isNarrow then
-          SplitViewDisplayMode.Overlay
-        else
-          SplitViewDisplayMode.Inline
+    // The mode and the width choice drive the pane. Every navigation
+    // closes only the drawer: a desktop pane must stay docked.
+    let applyMode() =
+      match layout.Value with
+      | Narrow ->
+        split.DisplayMode <- SplitViewDisplayMode.Overlay
+        split.OpenPaneLength <- 256.0
+      | Rail ->
+        split.DisplayMode <- SplitViewDisplayMode.Inline
+        split.IsPaneOpen <- true
+        split.OpenPaneLength <- 80.0
+      | Standard
+      | Wide ->
+        split.DisplayMode <- SplitViewDisplayMode.Inline
+        split.IsPaneOpen <- true
+        split.OpenPaneLength <- if compact.Value then 80.0 else 256.0
 
-      split.IsPaneOpen <- not isNarrow
+    updateCompact()
+    applyMode()
+    split.IsPaneOpen <- layout.Value <> Narrow
 
-    narrow |> Observable.add applyMode
+    let previous = new BehaviorSubject<Layout>(layout.Value)
 
-    applyMode(layout.Value = Narrow)
+    layout
+    |> Observable.add(fun current ->
+      let prior = previous.Value
+      previous.OnNext current
+      updateCompact()
+      applyMode()
+
+      if current = Narrow && prior <> Narrow then
+        split.IsPaneOpen <- false)
+
+    expanded
+    |> Observable.add(fun _ ->
+      updateCompact()
+      applyMode())
 
     router.Changed
     |> Observable.add(fun _ ->
@@ -887,8 +1042,6 @@ type Shell<'env
 
     // Close-to-tray: the flag turns a close into a hide, so the tray
     // and the poller keep the app alive. `Quit` marks the bypass first.
-    let settings = (env :> IProvideSettings).Settings
-
     this.Closing.Add(fun args ->
       if not quitRequested.Value && settings.Current.CloseToTray then
         args.Cancel <- true

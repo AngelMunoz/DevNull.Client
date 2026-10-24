@@ -79,6 +79,10 @@ module State =
     Now: DateTimeOffset
     Pasteis: bool
     Replying: bool
+    /// The commit whose poll vote is in flight, so its buttons disable.
+    Voting: string option
+    /// The option a viewer picked in each open poll, by commit id.
+    PollChoices: Map<string, string>
     /// Whether the quote composer is armed: from the route, or from
     /// the focused card's quote action.
     Quoting: bool
@@ -114,6 +118,8 @@ module State =
     Now = DateTimeOffset.UtcNow
     Pasteis = false
     Replying = false
+    Voting = None
+    PollChoices = Map.empty
     Quoting = false
     Expanded = Map.empty
   }
@@ -252,18 +258,38 @@ module State =
             Quoting = false
       },
       Cmd.none
-    | CardEvent(CommitCard.PollVoted(commit, option)) ->
-      let vote() =
-        Commits.vote(
-          props.Env,
-          {
-            KeyFile = props.Session.KeyFile
-            CommitId = commit.Id
-            OptionId = option.Id
-          }
-        )
+    | CardEvent(CommitCard.PollChoiceChanged(commit, option, chosen)) ->
+      {
+        model with
+            PollChoices =
+              CommitCard.choose {
+                Choices = model.PollChoices
+                CommitId = commit.Id
+                OptionId = option.Id
+                Chosen = chosen
+              }
+      },
+      Cmd.none
+    | CardEvent(CommitCard.PollVoteRequested commit) ->
+      match CommitCard.selectedOption(model.PollChoices, commit) with
+      | None -> model, Cmd.none
+      | Some option ->
+        let vote() =
+          Commits.vote(
+            props.Env,
+            {
+              KeyFile = props.Session.KeyFile
+              CommitId = commit.Id
+              OptionId = option.Id
+            }
+          )
 
-      { model with Error = None }, Cmd.OfAsync.perform vote () PollVotedDone
+        {
+          model with
+              Error = None
+              Voting = Some commit.Id
+        },
+        Cmd.OfAsync.perform vote () PollVotedDone
     | CardEvent(CommitCard.ThreadRequested commit) ->
       model,
       Cmd.ofEffect(fun _ ->
@@ -345,8 +371,20 @@ module State =
       | Error error -> { model with Error = Some error }, Cmd.none
     | PollVotedDone result ->
       match result with
-      | Ok updated -> withCommit(updated, model), Cmd.none
-      | Error error -> { model with Error = Some error }, Cmd.none
+      | Ok updated ->
+        {
+          withCommit(updated, model) with
+              Voting = None
+              PollChoices = model.PollChoices |> Map.remove updated.Id
+        },
+        Cmd.none
+      | Error error ->
+        {
+          model with
+              Error = Some error
+              Voting = None
+        },
+        Cmd.none
     | PastelGiven result ->
       match result with
       | Ok pastel ->
@@ -431,6 +469,8 @@ module Parts =
     Pasteis = ctx.Model |> Observable.map _.Pasteis
     ViewerId = ctx.ViewerId
     Now = ctx.Model |> Observable.map _.Now
+    Voting = ctx.Model |> Observable.map _.Voting
+    PollChoices = ctx.Model |> Observable.map _.PollChoices
     Dense = dense
     Images = ctx.Images
     Flyout = ctx.Flyout

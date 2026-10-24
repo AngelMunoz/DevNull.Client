@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-24
+
+### Added
+
+- **Sidebar:** the desktop navigation collapses to the site's 80 px icon rail and expands again from a Collapse/Expand row under Commit. The rail centers its icons, unread badge, and avatar; the choice persists between runs, the labels become tooltips, and the reading column grows into the freed width.
+
+### Changed
+
+- **Log:** polls follow the site's design. An open poll shows one choice plus a Vote button, and the results show a fill bar per option, the viewer's check, the share, and the time left or `Final results` under the options. Counts stay hidden until the server publishes them, a poll before approval waits for the commit, and a poll past its close stops taking votes.
+- **Composer:** the poll editor is a bordered fieldset with a 50-character option cap, X remove buttons, a `Poll length` select, and an icon-only Add poll button that disables while images are staged.
+
+### Fixed
+
+- **Memory:** attaching large photos costs their posting size, not their camera size. Pasted and picked images re-encode to the service's posting bound before staging, so staging and uploads shrink about eightfold; previews decode at thumbnail size, feed images decode to their displayed height, and the viewer decodes to the window. An attach-and-view session that ratcheted the working set by over a hundred megabytes now stays nearly flat.
+- **Memory:** the image memory cache carries a 5 MB budget sized from what the service actually serves (PNG payloads averaging ~60 KB), with the on-disk cache serving every eviction — image browsing no longer parks tens of megabytes of payloads in memory.
+- **Composer:** the staged-image strip no longer rebuilds on every keystroke of the reply box; it rebuilds only when the staged list itself changes.
+- **Shell:** the window paints the themed background to its edges. The desktop no longer shows through beside the sidebar, and the account avatar is no longer clipped in the rail.
+- **Log:** a fenced code block now shows the characters the server escaped in its highlighted HTML. Quotes, angle brackets, and ampersands no longer appear as `&quot;`, `&lt;`, `&gt;`, and `&amp;`.
+
 ## [0.2.0] - 2026-10-23
 
 ### Added

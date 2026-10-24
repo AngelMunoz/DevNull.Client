@@ -48,6 +48,7 @@ let view(props: Props) : Control =
           Cache = props.Cache
           Url = url
           DecodeWidth = int(props.Size * 2.0)
+          DecodeHeight = ValueNone
           Stretch = Stretch.UniformToFill
           Placeholder = ValueNone
           ToolTip = ValueNone

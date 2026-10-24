@@ -17,6 +17,10 @@ type Props = {
   Cache: ImageCacheService
   Url: string
   DecodeWidth: int
+  /// Decodes by height instead of width: the fixed-height cells of the
+  /// feed and the viewer's viewport fit their images this way, and a
+  /// tall photo costs its displayed pixels, not its full frame.
+  DecodeHeight: int voption
   Stretch: Stretch
   Placeholder: Control voption
   ToolTip: string voption
@@ -80,7 +84,12 @@ type Loader(props: Props) as this =
             try
               use stream = new MemoryStream(bytes)
 
-              Ok(Bitmap.DecodeToWidth(stream, props.DecodeWidth))
+              let bitmap =
+                match props.DecodeHeight with
+                | ValueSome height -> Bitmap.DecodeToHeight(stream, height)
+                | ValueNone -> Bitmap.DecodeToWidth(stream, props.DecodeWidth)
+
+              Ok bitmap
             with ex ->
               Error ex.Message)
 

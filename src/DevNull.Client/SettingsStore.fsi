@@ -20,6 +20,8 @@ val themeString: choice: ThemeChoice -> string
 type AppSettings = {
   CloseToTray: bool
   Theme: ThemeChoice
+  /// Whether the desktop sidebar shows its labels.
+  SidebarExpanded: bool
 }
 
 /// The live local settings: one subject, persists through the `persist`
@@ -45,6 +47,9 @@ type AppSettingsStore =
 
   /// Persists the choice, then publishes it.
   member SetTheme: choice: ThemeChoice -> unit
+
+  /// Persists the sidebar width choice, then publishes it.
+  member SetSidebarExpanded: expanded: bool -> unit
 
 /// Accessor for the settings store capability.
 type IProvideSettings =

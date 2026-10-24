@@ -12,6 +12,7 @@ open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
 open IcedTasks
+open FSharp.Control.Reactive
 open DevNull.Client
 open DevNull.Client.Components.AsyncImage
 open DevNull.Client.Components.UserFlyout
@@ -27,8 +28,8 @@ open DevNull.Client.Theme
 type ApiImage = DevNull.Client.Core.ApiTypes.Image
 
 /// What one card reports up: open the thread, toggle the star, give a
-/// pastel, start a quote, reveal the reply composer, vote a poll
-/// option, or walk more replies of a thread preview.
+/// pastel, start a quote, reveal the reply composer, choose a poll
+/// option, ask for the vote, or walk more replies of a thread preview.
 [<Struct>]
 type Event =
   | Opened of Commit
@@ -38,11 +39,15 @@ type Event =
   | StarToggled of Commit
   | PastelGiven of Commit
   | QuoteRequested of Commit
-  | PollVoted of Commit * PollOption
+  | PollChoiceChanged of Commit * PollOption * chosen: bool
+  | PollVoteRequested of Commit
 
 /// One commit row. `OnEvent` receives every interaction. Every card
 /// rides the graph rail with its author's avatar; dense rows (the
-/// replies of a thread) shrink the node.
+/// replies of a thread) shrink the node. `Now` is the clock the poll's
+/// status follows; `Voting` names the commit whose vote is in flight,
+/// so the button disables; `PollChoice` is the option the page model
+/// holds for this commit.
 [<Struct>]
 type Props = {
   Commit: Commit
@@ -50,17 +55,54 @@ type Props = {
   ViewerId: string
   Pastels: IObservable<bool>
   Now: IObservable<DateTimeOffset>
+  Voting: IObservable<string option>
+  PollChoice: IObservable<string option>
   Dense: bool
   Images: ImageCacheService
   Flyout: Source voption
 }
 
+/// One poll choice change, in the shape the page model stores it.
+[<Struct>]
+type ChoiceChange = {
+  Choices: Map<string, string>
+  CommitId: string
+  OptionId: string
+  Chosen: bool
+}
+
+/// The choice map after one row reports its checked state. Clearing
+/// removes only the option that was actually chosen, so the model's
+/// uncheck of another row cannot clear the new choice.
+let choose(change: ChoiceChange) : Map<string, string> =
+  match change.Chosen, change.Choices |> Map.tryFind change.CommitId with
+  | true, _ -> change.Choices |> Map.add change.CommitId change.OptionId
+  | false, Some current when current = change.OptionId ->
+    change.Choices |> Map.remove change.CommitId
+  | false, _ -> change.Choices
+
+/// The option a page still holds for a commit, when the poll carries it.
+let selectedOption
+  (choices: Map<string, string>, commit: Commit)
+  : PollOption option =
+  choices
+  |> Map.tryFind commit.Id
+  |> Option.bind(fun optionId ->
+    commit.Poll
+    |> Option.bind(fun poll ->
+      poll.Options |> List.tryFind(fun candidate -> candidate.Id = optionId)))
+
 /// The card's semantic regions; the view only composes these.
 module Parts =
 
   /// The server renders code blocks as html; the client shows the text
-  /// with the tags off.
-  let plainText(html: string) : string = Regex.Replace(html, "<[^>]+>", "")
+  /// with the tags off and the entities the highlighter escaped put back:
+  /// tags go first, so an escaped `<` survives as the character it is.
+  let plainText(html: string) : string =
+    Regex.Replace(html, "<[^>]+>", "")
+    |> System.Net.WebUtility.HtmlDecode
+    |> Option.ofObj
+    |> Option.defaultValue ""
 
   /// One piece of a text run after the mentions split: plain prose,
   /// or one interactive handle.
@@ -207,7 +249,11 @@ module Parts =
           AsyncImage.view {
             Cache = cache
             Url = image.Url
+            // The cell clips to a fixed height, so the decode pays for
+            // the pixels it shows: a tall phone photo costs its cell,
+            // not its full frame at the column's width.
             DecodeWidth = 720
+            DecodeHeight = ValueSome(int height)
             Stretch = stretch
             Placeholder = ValueNone
             ToolTip = image.Description |> ValueOption.ofOption
@@ -279,94 +325,333 @@ module Parts =
         .Margin(0.0, 6.0, 0.0, 0.0)
 
   /// Everything the poll block needs: the commit it rides, its poll,
-  /// the host's event routing, and the viewer — the author sees
-  /// results, never a vote.
+  /// the host's event routing, the viewer, the clock, the vote in
+  /// flight, the hover source, and the parked choice.
   [<Struct>]
   type PollViewCtx = {
     Commit: Commit
     Poll: Poll
     OnEvent: Event -> unit
     ViewerId: string
+    Now: IObservable<DateTimeOffset>
+    Voting: IObservable<string option>
+    PollChoice: IObservable<string option>
+    Flyout: Source voption
   }
 
-  /// One option while the poll is open and unvoted: one click takes it.
-  let votableOptionRow(ctx: PollViewCtx, option: PollOption) : Control =
-    Button()
-      .Name($"PollOption{option.Id}")
-      .Classes(Theme.name Theme.GhostButton)
-      .HorizontalAlignment(HorizontalAlignment.Stretch)
-      .HorizontalContentAlignment(HorizontalAlignment.Left)
-      .Padding(8.0, 4.0, 8.0, 4.0)
-      .Margin(0.0, 4.0, 0.0, 0.0)
-      .Content(option.Label)
-      .OnClickHandler(fun _ args ->
-        args.Handled <- true
-        ctx.OnEvent(PollVoted(ctx.Commit, option)))
+  /// The facts one vote decision reads.
+  [<Struct>]
+  type VoteGate = {
+    Now: DateTimeOffset
+    Commit: Commit
+    Poll: Poll
+    ViewerId: string
+  }
 
-  /// One option once nobody may vote: the label, the viewer's own mark,
-  /// and the share the server publishes.
-  let resultOptionRow(option: PollOption) : Control =
-    let share =
-      [
-        match option.Percentage with
-        | Some percentage -> $"{percentage}%%"
-        | None -> ()
+  /// A poll stops taking votes once its author closes it or its clock
+  /// passes the close time the server published.
+  let hasExpired(now: DateTimeOffset, poll: Poll) : bool =
+    poll.IsClosed
+    || (match poll.ClosesAt with
+        | Some closesAt -> closesAt <= now
+        | None -> false)
 
-        match option.VotesCount with
-        | Some votes -> $"{votes}"
-        | None -> ()
-      ]
-      |> String.concat " · "
+  /// The viewer may vote now: the commit is approved, the poll has
+  /// opened, the viewer has not voted, it is not the viewer's poll, and
+  /// the clock has not passed the close time.
+  let canVote(gate: VoteGate) : bool =
+    gate.Commit.Status = Approved
+    && gate.Poll.ClosesAt.IsSome
+    && not gate.Poll.HasVoted
+    && not(hasExpired(gate.Now, gate.Poll))
+    && gate.Commit.Author.Id <> gate.ViewerId
+
+  /// The site's time-left wording: days, hours, then minutes, never
+  /// below one minute.
+  let timeLeft(now: DateTimeOffset, closesAt: DateTimeOffset) : string =
+    let minutes = Math.Ceiling((closesAt - now).TotalMinutes)
+
+    if minutes >= 1440.0 then $"{int(minutes / 1440.0)}d left"
+    elif minutes >= 60.0 then $"{int(minutes / 60.0)}h left"
+    else $"{max (int minutes) 1}m left"
+
+  /// The line under the options: why the poll takes no vote, or how
+  /// long it stays open, or what the final result is.
+  let pollStatus(now: DateTimeOffset, poll: Poll) : string =
+    match poll.ClosesAt with
+    | None -> "Voting opens once approved"
+    | Some closesAt when hasExpired(now, poll) ->
+      match poll.TotalVotes with
+      | Some _ -> "Final results"
+      | None -> "Poll closed"
+    | Some closesAt -> timeLeft(now, closesAt)
+
+  /// One count with the site's singular and plural.
+  let votesLabel(count: int) : string =
+    let noun = if count = 1 then "vote" else "votes"
+    $"{shortCount count} {noun}"
+
+  /// One option label's facts: the text, the mentions the body links,
+  /// whether the viewer's check follows it, and the hover source.
+  [<Struct>]
+  type LabelSpec = {
+    Text: string
+    Mentions: Mention list
+    Marked: bool
+    Flyout: Source voption
+  }
+
+  /// One option label with the mentions the body links and, once the
+  /// option is the viewer's, the check mark that follows it inline.
+  let optionLabel(spec: LabelSpec) : Control =
+    if not spec.Marked && spec.Mentions.IsEmpty then
+      TextBlock().Text(spec.Text).TextWrapping(TextWrapping.Wrap)
+    else
+      let block = TextBlock().TextWrapping(TextWrapping.Wrap)
+      let inlines = InlineCollection()
+      block.Inlines <- inlines
+
+      match spec.Mentions with
+      | [] -> inlines.Add(Run spec.Text) |> ignore
+      | _ ->
+        splitMentions(spec.Text, spec.Mentions |> List.map _.Username)
+        |> List.iter(fun piece ->
+          match piece with
+          | Plain plain -> inlines.Add(Run plain) |> ignore
+          | Handle username ->
+            inlines.Add(handleInline(spec.Flyout, username)) |> ignore)
+
+      if spec.Marked then
+        block.FontWeight <- FontWeight.Medium
+
+        let check =
+          Icons.iconAt(Glyph.Check, 16.0).Classes(Theme.name Theme.FgAccent)
+
+        check.Margin <- Thickness(6.0, 0.0, 0.0, 0.0)
+        check.Name <- $"PollCheck{spec.Text}"
+
+        let inlineControl = InlineUIContainer(check)
+        inlineControl.BaselineAlignment <- BaselineAlignment.Center
+        inlines.Add(inlineControl) |> ignore
+
+      block
+
+  /// One result row: the bar the server's share fills, the label, and
+  /// the share at the right. The bar sits behind the content, clipped by
+  /// the row's rounded border.
+  let resultOptionRow(ctx: PollViewCtx, option: PollOption) : Control =
+    let share = option.Percentage |> Option.defaultValue 0
+
+    let fillClass =
+      if option.Voted then
+        Theme.PrimarySoftBack
+      else
+        Theme.SurfaceBack
 
     let label =
-      if option.Voted then
-        $"{option.Label} · yours"
-      else
-        option.Label
+      optionLabel {
+        Text = option.Label
+        Mentions = ctx.Commit.Mentions
+        Marked = option.Voted
+        Flyout = ctx.Flyout
+      }
 
-    StackPanel()
-      .Spacing(2.0)
-      .Margin(0.0, 4.0, 0.0, 0.0)
-      .Children(
-        TextBlock().Text(label),
-        TextBlock().Classes(Theme.name Theme.Mono).Text(share)
-      )
+    let percent =
+      TextBlock()
+        .Classes(Theme.name Theme.Mono)
+        .Text(if option.Percentage.IsSome then $"{share}%%" else "")
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Margin(8.0, 0.0, 0.0, 0.0)
 
-  /// The poll block: votable while it is open, unvoted, and not the
-  /// viewer's own; the results the server publishes afterwards.
-  let pollView(ctx: PollViewCtx) : Control =
-    let canVote =
-      not ctx.Poll.IsClosed
-      && not ctx.Poll.HasVoted
-      && ctx.Commit.Author.Id <> ctx.ViewerId
+    ToolTip.SetTip(
+      percent,
+      votesLabel(option.VotesCount |> Option.defaultValue 0)
+    )
 
-    let title =
-      let state = if ctx.Poll.IsClosed then " · closed" else ""
+    let content =
+      DockPanel()
+        .LastChildFill(true)
+        .Children(percent.DockRight(), label)
+        .Margin(12.0, 8.0, 12.0, 8.0)
 
-      let votes =
-        ctx.Poll.TotalVotes
-        |> Option.map(fun count -> $" · {count} votes")
-        |> Option.defaultValue ""
+    let bar = Grid()
 
-      $"poll{votes}{state}"
+    bar.ColumnDefinitions <- ColumnDefinitions($"{share}*,{100 - share}*")
 
-    let rows: Control array = [|
-      TextBlock().Classes(Theme.name Theme.Muted).Text(title)
-
-      for option in ctx.Poll.Options do
-        if canVote then
-          votableOptionRow(ctx, option)
-        else
-          resultOptionRow option
-    |]
+    bar.Children(
+      Border().Classes(Theme.name fillClass).CornerRadius(6.0).Column(0),
+      content.ColumnSpan(2)
+    )
+    |> ignore
 
     Border()
       .Classes(Theme.name Theme.Hairline)
       .BorderThickness(Thickness(1.0))
-      .CornerRadius(8.0)
-      .Padding(10.0)
-      .Margin(0.0, 6.0, 0.0, 0.0)
-      .Child(StackPanel().Children(rows))
+      .CornerRadius(6.0)
+      .ClipToBounds(true)
+      .Child(bar)
+
+  /// One choice row while the poll takes votes: the whole row is the
+  /// toggle, with the ring and the label inside it. The page model owns
+  /// the checked option, so the row reports the change and does not
+  /// keep a second copy.
+  let choiceRow(ctx: PollViewCtx, option: PollOption) : ToggleButton =
+    let chosen =
+      ctx.PollChoice |> Observable.map(fun choice -> choice = Some option.Id)
+
+    let dot =
+      Border()
+        .Width(8.0)
+        .Height(8.0)
+        .CornerRadius(4.0)
+        .Classes(Theme.name Theme.AccentBack)
+        .HorizontalAlignment(HorizontalAlignment.Center)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .IsVisible(chosen)
+
+    let ring =
+      Border()
+        .Width(16.0)
+        .Height(16.0)
+        .CornerRadius(8.0)
+        .BorderThickness(Thickness(1.0))
+        .Classes(Theme.name Theme.Hairline)
+        .Child(dot)
+
+    let label =
+      optionLabel {
+        Text = option.Label
+        Mentions = ctx.Commit.Mentions
+        Marked = false
+        Flyout = ctx.Flyout
+      }
+      |> _.VerticalAlignment(VerticalAlignment.Center)
+
+    let content =
+      let grid = Grid()
+
+      grid.ColumnDefinitions <- ColumnDefinitions("Auto,*")
+
+      grid.Children(ring.Column(0).Margin(0.0, 0.0, 8.0, 0.0), label.Column(1))
+      |> ignore
+
+      grid :> Control
+
+    let canVoteNow =
+      ctx.Now
+      |> Observable.map(fun now ->
+        canVote {
+          Now = now
+          Commit = ctx.Commit
+          Poll = ctx.Poll
+          ViewerId = ctx.ViewerId
+        })
+
+    let idle =
+      ctx.Voting
+      |> Observable.map(fun commitId -> commitId <> Some ctx.Commit.Id)
+
+    let enabled =
+      Observable.combineLatest canVoteNow idle
+      |> Observable.map(fun (allowed, ready) -> allowed && ready)
+
+    ToggleButton()
+      .Name($"PollChoice{option.Id}")
+      .Classes(Theme.name Theme.PollOption)
+      .Content(content)
+      .IsChecked(chosen |> Observable.map(fun value -> Nullable value))
+      .IsEnabled(enabled)
+      .OnIsCheckedChangedHandler(fun toggle _ ->
+        toggle.IsChecked
+        |> Option.ofNullable
+        |> Option.iter(fun selected ->
+          ctx.OnEvent(PollChoiceChanged(ctx.Commit, option, selected))))
+      // The toggle's click must stop here: the card's own row button
+      // opens the thread, and an unhandled click bubbles to it.
+      .OnClickHandler(fun _ args -> args.Handled <- true)
+
+  /// The poll block: the results once the server publishes them, or
+  /// the choices and the Vote button while the poll takes votes.
+  let pollView(ctx: PollViewCtx) : Control =
+    let body: Control =
+      match ctx.Poll.TotalVotes with
+      | Some total ->
+        let rows: Control array = [|
+          for option in ctx.Poll.Options -> resultOptionRow(ctx, option)
+        |]
+
+        let summary =
+          ctx.Now
+          |> Observable.map(fun now ->
+            $"{votesLabel total} · {pollStatus(now, ctx.Poll)}")
+
+        let summaryText =
+          TextBlock()
+            .Classes(Theme.name Theme.Mono)
+            .Text(summary)
+            .Margin(0.0, 8.0, 0.0, 0.0)
+
+        StackPanel()
+          .Spacing(8.0)
+          .Children(StackPanel().Spacing(8.0).Children(rows), summaryText)
+      | None ->
+        let rows: Control array = [|
+          for option in ctx.Poll.Options -> choiceRow(ctx, option)
+        |]
+
+        let canSubmit =
+          Observable.combineLatest
+            (ctx.PollChoice |> Observable.map Option.isSome)
+            (ctx.Voting
+             |> Observable.map(fun commitId -> commitId <> Some ctx.Commit.Id))
+          |> Observable.map(fun (chosen, idle) -> chosen && idle)
+
+        let canVoteNow =
+          ctx.Now
+          |> Observable.map(fun now ->
+            canVote {
+              Now = now
+              Commit = ctx.Commit
+              Poll = ctx.Poll
+              ViewerId = ctx.ViewerId
+            })
+
+        let voteLabel =
+          ctx.Voting
+          |> Observable.map(fun commitId ->
+            if commitId = Some ctx.Commit.Id then "Voting…" else "Vote")
+
+        let vote =
+          Button()
+            .Name("PollVote")
+            .Classes(Theme.name Theme.AccentButton)
+            .Content(TextBlock().Text(voteLabel))
+            .Padding(12.0, 4.0, 12.0, 4.0)
+            .FontSize(14.0)
+            .IsVisible(canVoteNow)
+            .IsEnabled(canSubmit)
+            .OnClickHandler(fun _ args ->
+              args.Handled <- true
+              ctx.OnEvent(PollVoteRequested ctx.Commit))
+
+        let status =
+          TextBlock()
+            .Classes(Theme.name Theme.Mono)
+            .Text(
+              ctx.Now |> Observable.map(fun now -> pollStatus(now, ctx.Poll))
+            )
+
+        let footer =
+          DockPanel()
+            .LastChildFill(true)
+            .Children(vote.DockRight(), status)
+            .Margin(0.0, 8.0, 0.0, 0.0)
+
+        StackPanel()
+          .Spacing(8.0)
+          .Children(StackPanel().Spacing(8.0).Children(rows), footer)
+
+    StackPanel().Margin(0.0, 12.0, 0.0, 0.0).Children(body)
 
   /// The link preview: its own surface, a click away from the card it
   /// rides in. The handled click opens the outside resource and never
@@ -723,6 +1008,10 @@ let view(props: Props) : Control =
         Poll = poll
         OnEvent = props.OnEvent
         ViewerId = props.ViewerId
+        Now = props.Now
+        Voting = props.Voting
+        PollChoice = props.PollChoice
+        Flyout = props.Flyout
       }
     | None -> ()
 
@@ -853,14 +1142,16 @@ let tombstone() : Control =
   grid.Children(Panel().Children(line, node).Column(0), text.Column(1))
 
 /// Everything one card row needs from its host page: where its events
-/// go, the live pastéis flag and clock, the row's density, and the
-/// image cache.
+/// go, the live pastéis flag and clock, the poll choices, the row's
+/// density, and the image cache.
 [<Struct>]
 type RowProps = {
   OnEvent: Event -> unit
   ViewerId: string
   Pasteis: IObservable<bool>
   Now: IObservable<DateTimeOffset>
+  Voting: IObservable<string option>
+  PollChoices: IObservable<Map<string, string>>
   Dense: bool
   Images: ImageCacheService
   Flyout: Source voption
@@ -878,6 +1169,12 @@ let feedRow (props: RowProps) (node: CommitNode) : Control =
       ViewerId = props.ViewerId
       Pastels = props.Pasteis
       Now = props.Now
+      Voting = props.Voting
+
+      PollChoice =
+        props.PollChoices
+        |> Observable.map(fun choices -> choices |> Map.tryFind commit.Id)
+
       Dense = props.Dense
       Images = props.Images
       Flyout = props.Flyout

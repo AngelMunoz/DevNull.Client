@@ -63,6 +63,8 @@ module State =
     Tab: Tab
     Now: DateTimeOffset
     Pasteis: bool
+    Voting: string option
+    PollChoices: Map<string, string>
   }
 
   type Msg =
@@ -72,7 +74,8 @@ module State =
     | TabChosen of Tab
     | StarToggled of Commit
     | StarDone of Result<Commit, AppError>
-    | PollVoteGiven of Commit * PollOption
+    | PollChoiceChanged of Commit * PollOption * chosen: bool
+    | PollVoteRequested of Commit
     | PollVotedDone of Result<Commit, AppError>
     | PastelGiven of Commit
     | PastelDone of Result<PastelResult, AppError>
@@ -100,6 +103,8 @@ module State =
     Tab = Commits
     Now = DateTimeOffset.UtcNow
     Pasteis = false
+    Voting = None
+    PollChoices = Map.empty
   }
 
   /// One feed read: whose commits, which tab, and the pager cursor.
@@ -236,27 +241,55 @@ module State =
         },
         Cmd.none
       | Error error -> { model with Error = Some error }, Cmd.none
-    | PollVoteGiven(commit, option) ->
-      let vote() =
-        Commits.vote(
-          props.Env,
-          {
-            KeyFile = props.Session.KeyFile
-            CommitId = commit.Id
-            OptionId = option.Id
-          }
-        )
+    | PollChoiceChanged(commit, option, chosen) ->
+      {
+        model with
+            PollChoices =
+              CommitCard.choose {
+                Choices = model.PollChoices
+                CommitId = commit.Id
+                OptionId = option.Id
+                Chosen = chosen
+              }
+      },
+      Cmd.none
+    | PollVoteRequested commit ->
+      match CommitCard.selectedOption(model.PollChoices, commit) with
+      | None -> model, Cmd.none
+      | Some option ->
+        let vote() =
+          Commits.vote(
+            props.Env,
+            {
+              KeyFile = props.Session.KeyFile
+              CommitId = commit.Id
+              OptionId = option.Id
+            }
+          )
 
-      { model with Error = None }, Cmd.OfAsync.perform vote () PollVotedDone
+        {
+          model with
+              Error = None
+              Voting = Some commit.Id
+        },
+        Cmd.OfAsync.perform vote () PollVotedDone
     | PollVotedDone result ->
       match result with
       | Ok updated ->
         {
           model with
               Commits = replaceNode(model.Commits, updated)
+              Voting = None
+              PollChoices = model.PollChoices |> Map.remove updated.Id
         },
         Cmd.none
-      | Error error -> { model with Error = Some error }, Cmd.none
+      | Error error ->
+        {
+          model with
+              Error = Some error
+              Voting = None
+        },
+        Cmd.none
     | PastelGiven commit ->
       let give() =
         Pasteis.give(
@@ -728,13 +761,17 @@ module Parts =
         Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
       | CommitCard.StarToggled c -> dispatch(State.StarToggled c)
       | CommitCard.PastelGiven c -> dispatch(State.PastelGiven c)
-      | CommitCard.PollVoted(commit, option) ->
-        dispatch(State.PollVoteGiven(commit, option))
+      | CommitCard.PollChoiceChanged(commit, option, chosen) ->
+        dispatch(State.PollChoiceChanged(commit, option, chosen))
+      | CommitCard.PollVoteRequested commit ->
+        dispatch(State.PollVoteRequested commit)
       | CommitCard.QuoteRequested c ->
         Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
     Pasteis = model |> Observable.map _.Pasteis
     ViewerId = props.Session.Session.User.Id
     Now = model |> Observable.map _.Now
+    Voting = model |> Observable.map _.Voting
+    PollChoices = model |> Observable.map _.PollChoices
     Dense = false
     Images = props.Env.ImageCache
     Flyout =

@@ -5,6 +5,7 @@ open System.Collections.Generic
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Chrome
+open Avalonia.Controls.Primitives
 open Avalonia.Layout
 open Avalonia.Markup.Xaml.MarkupExtensions
 open Avalonia.Media
@@ -101,6 +102,7 @@ type StyleClass =
   | NavItem
   | NavItemActive
   | NavCommit
+  | RailItem
   | Card
   | Title
   | Headline
@@ -113,6 +115,8 @@ type StyleClass =
   | NavButton
   | CodeBlock
   | Chip
+  | PollOption
+  | PollRemove
   | FilterPill
   | FilterPillActive
   | TabButton
@@ -127,6 +131,8 @@ type StyleClass =
   | FgDanger
   | FgOnAccent
   | SurfaceBack
+  | PrimarySoftBack
+  | AccentBack
   | CardBack
   | RailBack
   | Hairline
@@ -153,6 +159,7 @@ let name class' =
   | NavItem -> "nav-item"
   | NavItemActive -> "nav-item-active"
   | NavCommit -> "nav-commit"
+  | RailItem -> "rail-item"
   | Card -> "card"
   | Title -> "title"
   | Headline -> "headline"
@@ -165,6 +172,8 @@ let name class' =
   | NavButton -> "nav-button"
   | CodeBlock -> "code-block"
   | Chip -> "chip"
+  | PollOption -> "poll-option"
+  | PollRemove -> "poll-remove"
   | FilterPill -> "filter-pill"
   | FilterPillActive -> "filter-pill-active"
   | TabButton -> "tab-button"
@@ -179,6 +188,8 @@ let name class' =
   | FgDanger -> "fg-danger"
   | FgOnAccent -> "fg-on-accent"
   | SurfaceBack -> "surface-back"
+  | PrimarySoftBack -> "primary-soft-back"
+  | AccentBack -> "accent-back"
   | CardBack -> "card-back"
   | RailBack -> "rail-back"
   | Hairline -> "hairline"
@@ -338,6 +349,18 @@ let styleTable: (StyleClass * (unit -> Style)) list = [
         Button.VerticalContentAlignmentProperty, box VerticalAlignment.Center
       |]
     )
+  RailItem,
+  fun () ->
+    // The icon rail: the row keeps its height and centers its single
+    // icon, the way the site's collapsed navigation does.
+    styleOf(
+      (fun selector -> selector.OfType<Button>().Class(name RailItem)),
+      [|
+        Button.PaddingProperty, box(Thickness(0.0))
+        Button.HorizontalContentAlignmentProperty,
+        box HorizontalAlignment.Center
+      |]
+    )
   Card,
   fun () ->
     styleOf(
@@ -466,6 +489,27 @@ let styleTable: (StyleClass * (unit -> Style)) list = [
         Border.BorderThicknessProperty, box(Thickness(1.0))
         Border.CornerRadiusProperty, box(CornerRadius(10.0))
         Border.PaddingProperty, box(Thickness(8.0, 2.0, 8.0, 2.0))
+      |]
+    )
+  PollOption,
+  fun () ->
+    // One choice row of a poll: the whole row is the radio, so the
+    // border and the padding live on the toggle itself.
+    styleOf(
+      (fun selector -> selector.OfType<ToggleButton>().Class(name PollOption)),
+      [|
+        Button.BackgroundProperty, box Brushes.Transparent
+        Button.BorderBrushProperty, themed Keys.border
+        Button.BorderThicknessProperty, box(Thickness(1.0))
+        Button.CornerRadiusProperty, box(CornerRadius(6.0))
+        Button.PaddingProperty, box(Thickness(12.0, 8.0, 12.0, 8.0))
+        Layoutable.MinHeightProperty, box 38.0
+        Button.FontSizeProperty, box 15.0
+        Button.ForegroundProperty, themed Keys.text
+        Button.HorizontalAlignmentProperty, box HorizontalAlignment.Stretch
+        Button.HorizontalContentAlignmentProperty,
+        box HorizontalAlignment.Stretch
+        Button.VerticalContentAlignmentProperty, box VerticalAlignment.Center
       |]
     )
   FilterPill,
@@ -650,6 +694,39 @@ let styles() =
   styles.Add(
     styleOf(
       (fun selector ->
+        selector
+          .OfType<ToggleButton>()
+          .Class(name PollOption)
+          .Class(":pointerover")),
+      [| Button.BackgroundProperty, themed Keys.surface |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector ->
+        selector
+          .OfType<ToggleButton>()
+          .Class(name PollOption)
+          .Class(":checked")),
+      [|
+        Button.BackgroundProperty, themed Keys.primarySoft
+        Button.BorderBrushProperty, themed Keys.accent
+      |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector ->
+        selector.OfType<Button>().Class(name PollRemove).Class(":pointerover")),
+      [| Button.ForegroundProperty, themed Keys.danger |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector ->
         selector.OfType<Button>().Class(name FilterPill).Class(":pointerover")),
       [| Button.BackgroundProperty, themed Keys.surface |]
     )
@@ -731,6 +808,20 @@ let styles() =
 
   styles.Add(
     styleOf(
+      (fun selector -> selector.OfType<Border>().Class(name PrimarySoftBack)),
+      [| Border.BackgroundProperty, themed Keys.primarySoft |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<Border>().Class(name AccentBack)),
+      [| Border.BackgroundProperty, themed Keys.accent |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
       (fun selector -> selector.OfType<Border>().Class(name CardBack)),
       [| Border.BackgroundProperty, themed Keys.card |]
     )
@@ -761,6 +852,20 @@ let styles() =
     styleOf(
       (fun selector -> selector.OfType<Button>().Class(name AccentEdge)),
       [| Button.BorderBrushProperty, themed Keys.accent |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<Border>().Class(name AccentEdge)),
+      [| Border.BorderBrushProperty, themed Keys.accent |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<PathIcon>().Class(name FgAccent)),
+      [| TemplatedControl.ForegroundProperty, themed Keys.accent |]
     )
   )
 

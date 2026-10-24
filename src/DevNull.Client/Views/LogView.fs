@@ -96,6 +96,10 @@ module State =
     Now: DateTimeOffset
     Pasteis: bool
     ReplyingTo: string option
+    /// The commit whose poll vote is in flight, so its buttons disable.
+    Voting: string option
+    /// The option a viewer picked in each open poll, by commit id.
+    PollChoices: Map<string, string>
     /// The visit captured when the page mounted; the rendered marker
     /// keeps pointing there for the session even as the store advances.
     Marker: DateTimeOffset option
@@ -122,7 +126,8 @@ module State =
     | SessionChanged of state: SessionState
     | ReplyToggled of Commit
     | ReplyPosted of commitId: string
-    | PollVoteGiven of Commit * PollOption
+    | PollChoiceChanged of Commit * PollOption * chosen: bool
+    | PollVoteRequested of Commit
     | PollVotedDone of Result<Commit, AppError>
     | PreviewMoreRequested of Commit
     | PreviewLoaded of commitId: string * Result<Page<CommitNode>, AppError>
@@ -139,6 +144,8 @@ module State =
     Now = DateTimeOffset.UtcNow
     Pasteis = false
     ReplyingTo = None
+    Voting = None
+    PollChoices = Map.empty
     Marker = None
     Previews = Map.empty
   }
@@ -297,27 +304,55 @@ module State =
       // else. Its draft is spent.
       { model with ReplyingTo = None },
       Cmd.ofEffect(fun dispatch' -> dispatch' ReloadRequested)
-    | PollVoteGiven(commit, option) ->
-      let vote() =
-        Commits.vote(
-          props.Env,
-          {
-            KeyFile = props.Session.KeyFile
-            CommitId = commit.Id
-            OptionId = option.Id
-          }
-        )
+    | PollChoiceChanged(commit, option, chosen) ->
+      {
+        model with
+            PollChoices =
+              CommitCard.choose {
+                Choices = model.PollChoices
+                CommitId = commit.Id
+                OptionId = option.Id
+                Chosen = chosen
+              }
+      },
+      Cmd.none
+    | PollVoteRequested commit ->
+      match CommitCard.selectedOption(model.PollChoices, commit) with
+      | None -> model, Cmd.none
+      | Some option ->
+        let vote() =
+          Commits.vote(
+            props.Env,
+            {
+              KeyFile = props.Session.KeyFile
+              CommitId = commit.Id
+              OptionId = option.Id
+            }
+          )
 
-      { model with Error = None }, Cmd.OfAsync.perform vote () PollVotedDone
+        {
+          model with
+              Error = None
+              Voting = Some commit.Id
+        },
+        Cmd.OfAsync.perform vote () PollVotedDone
     | PollVotedDone result ->
       match result with
       | Ok updated ->
         {
           model with
               Items = replaceNode(model.Items, updated)
+              Voting = None
+              PollChoices = model.PollChoices |> Map.remove updated.Id
         },
         Cmd.none
-      | Error error -> { model with Error = Some error }, Cmd.none
+      | Error error ->
+        {
+          model with
+              Error = Some error
+              Voting = None
+        },
+        Cmd.none
     | PreviewMoreRequested commit ->
       // The first ask reads the newest page whole, the way the site's
       // preview does; the next ones walk the cursor it left.
@@ -575,11 +610,15 @@ module Parts =
       | CommitCard.ReplyToggled c -> dispatch(State.ReplyToggled c)
       | CommitCard.StarToggled c -> dispatch(State.StarToggled c)
       | CommitCard.PastelGiven c -> dispatch(State.PastelGiven c)
-      | CommitCard.PollVoted(commit, option) ->
-        dispatch(State.PollVoteGiven(commit, option))
+      | CommitCard.PollChoiceChanged(commit, option, chosen) ->
+        dispatch(State.PollChoiceChanged(commit, option, chosen))
+      | CommitCard.PollVoteRequested commit ->
+        dispatch(State.PollVoteRequested commit)
     Pasteis = model |> Observable.map _.Pasteis
     ViewerId = props.Session.Session.User.Id
     Now = model |> Observable.map _.Now
+    Voting = model |> Observable.map _.Voting
+    PollChoices = model |> Observable.map _.PollChoices
     Dense = false
     Images = props.Env.ImageCache
     Flyout = flyoutOf props
@@ -601,32 +640,43 @@ module Parts =
     | LogRow.Day label -> FeedParts.dayRow label
     | LogRow.LastVisitRow -> FeedParts.lastVisitRow()
     | LogRow.Node commit ->
-      // The inline reply composer seeds from the timeline service's
-      // parked draft, so a recycled row rebuilds with the typed text,
-      // and the draft outlives the page the same way.
-      let composer =
-        Composer.Page {
-          Env = props.Env
-          Session = props.Session
-          Target = Composer.ReplyTo commit.Id
-          OnCommitted =
-            fun _ ->
-              props.Env.Timeline.ForgetDraft commit.Id
-              dispatch(State.ReplyPosted commit.Id)
-          Register = ValueNone
-          Draft =
-            ValueSome {
-              Seed = props.Env.Timeline.DraftOf commit.Id
-              Changed =
-                fun text -> props.Env.Timeline.RememberDraft(commit.Id, text)
-            }
-        }
-
+      // The reply composer exists only while its row is the answering
+      // one: constructing one per realized row kept a hidden MVU
+      // program alive for every row in the band, when at most one is
+      // ever open. It seeds from the timeline service's parked draft,
+      // so a recycled row rebuilds with the typed text, and the draft
+      // outlives the page the same way.
       let reply =
-        composer.IsVisible(
-          model
-          |> Observable.map(fun current -> current.ReplyingTo = Some commit.Id)
-        )
+        ContentControl()
+          .Content(
+            model
+            |> Observable.map(fun current ->
+              current.ReplyingTo = Some commit.Id)
+            |> Observable.distinctUntilChanged
+            |> Observable.map(fun answering ->
+              if answering then
+                Composer.Page {
+                  Env = props.Env
+                  Session = props.Session
+                  Target = Composer.ReplyTo commit.Id
+                  OnCommitted =
+                    fun _ ->
+                      props.Env.Timeline.ForgetDraft commit.Id
+                      dispatch(State.ReplyPosted commit.Id)
+                  Register = ValueNone
+                  Draft =
+                    ValueSome {
+                      Seed = props.Env.Timeline.DraftOf commit.Id
+                      Changed =
+                        fun text ->
+                          props.Env.Timeline.RememberDraft(commit.Id, text)
+                    }
+                }
+                :> Control
+              else
+                Panel())
+            |> _.ToBinding()
+          )
 
       // The thread preview rides under the card: the payload slice,
       // or the list the page grew. It rebuilds only when the shown

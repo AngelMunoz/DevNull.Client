@@ -20,6 +20,7 @@ type Glyph =
   | Report
   | Delete
   | Close
+  | Plus
   | Image
   | Menu
   | Link
@@ -32,6 +33,8 @@ type Glyph =
   | ChevronsUp
   | ChevronLeft
   | ChevronRight
+  | PanelLeftClose
+  | PanelLeftOpen
   | Check
   | Pastel
   | Poll

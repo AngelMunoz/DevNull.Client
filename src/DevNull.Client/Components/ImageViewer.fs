@@ -50,7 +50,11 @@ let show(show: Show) : unit =
       AsyncImage.view {
         Cache = show.Cache
         Url = photos[i].Url
+        // The stage fills the owner's frame, so the decode pays for
+        // the viewport's height, not a fixed width a tall photo would
+        // exceed many times over.
         DecodeWidth = 1600
+        DecodeHeight = ValueSome(int(show.Owner.ClientSize.Height * 0.9))
         Stretch = Stretch.Uniform
         Placeholder = ValueNone
         ToolTip = ValueNone

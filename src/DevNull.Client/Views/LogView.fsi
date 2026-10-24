@@ -89,6 +89,10 @@ module State =
     Pasteis: bool
     /// The commit whose inline reply composer is open, by id.
     ReplyingTo: string option
+    /// The commit whose poll vote is in flight, so its buttons disable.
+    Voting: string option
+    /// The option a viewer picked in each open poll, by commit id.
+    PollChoices: Map<string, string>
     /// The visit captured when the page mounted, for the marker row.
     Marker: DateTimeOffset option
     /// The thread previews the page grew past the payload slice, by
@@ -115,7 +119,8 @@ module State =
     | SessionChanged of state: SessionState
     | ReplyToggled of Commit
     | ReplyPosted of commitId: string
-    | PollVoteGiven of Commit * PollOption
+    | PollChoiceChanged of Commit * PollOption * chosen: bool
+    | PollVoteRequested of Commit
     | PollVotedDone of Result<Commit, AppError>
     | PreviewMoreRequested of Commit
     | PreviewLoaded of commitId: string * Result<Page<CommitNode>, AppError>

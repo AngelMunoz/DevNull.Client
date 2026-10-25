@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Packaging:** the app is now built from a shared client plus one executable per platform (Windows and Linux) instead of a single cross-platform build. Nothing changes for existing installs: the shipped executable keeps its name and the `devnull://` handler keeps working. This is groundwork for platform-native features (audio, notifications) implemented per platform behind shared contracts.
+
 ### Added
 
 - **Core:** the site's direct messages ("Remotes") are now available end to end: the inbox with its tabs, search, and pins; one-to-one and org threads with typing, read receipts, and live reaction changes; messages pushed with images or a voice note; stashing, muting, pinning, and emoji reactions; merging or dropping an incoming request; and finding people to write to, then starting, renaming, and staffing orgs. The Remotes settings on the signed account (who can push, whether pulls are shared) come with it and can be changed.

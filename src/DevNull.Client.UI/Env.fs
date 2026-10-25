@@ -21,6 +21,7 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Errors
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
+open DevNull.Client.Natives
 open DevNull.Client.Profiles
 open DevNull.Client.SessionFiles
 open DevNull.Client.SettingsStore
@@ -197,8 +198,13 @@ type HttpClientTransport(baseAddress: string) =
 type IProvideLogging =
   abstract LoggerFactory: ILoggerFactory
 
-type AppEnv(baseAddress: string, session: SessionStore, logging: ILoggerFactory) as this
-  =
+type AppEnv
+  (
+    baseAddress: string,
+    session: SessionStore,
+    natives: Natives.NativeServices,
+    logging: ILoggerFactory
+  ) as this =
 
   let clock = SystemClock()
   let nonceSource = RandomNonceSource()
@@ -306,6 +312,9 @@ type AppEnv(baseAddress: string, session: SessionStore, logging: ILoggerFactory)
 
   interface IProvideSession with
     member _.Session = session
+
+  interface IProvideNatives with
+    member _.Natives = natives
 
   interface IProvideSettings with
     member _.Settings = settings

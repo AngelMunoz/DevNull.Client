@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- The latest Windows SDK for the WinRT projections this head uses
+         (audio, later toasts and prompts); the app runs from Windows 10
+         2004 up, and guards anything newer than that itself -->
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <!-- The shipped executable keeps the product name: the scheme
+         handlers of existing installs point at it -->
+    <AssemblyName>DevNull.Client</AssemblyName>
+    <Nullable>enable</Nullable>
+    <DebugType>embedded</DebugType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <ApplicationIcon>..\DevNull.Client.UI\Assets\app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Registrar.fsi" />
+    <Compile Include="Registrar.fs" />
+    <Compile Include="Audio.fsi" />
+    <Compile Include="Audio.fs" />
+    <Compile Include="Natives.fsi" />
+    <Compile Include="Natives.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- System.Reactive (through NXUI) declares a WindowsDesktop
+         framework reference for every -windows TFM, so the WPF runtime
+         pack rides along into the Native AOT graph. Nothing in this
+         app reaches WPF; the pack's single-file diagnostics
+         (Assembly.Location in framework and WinRT internals) are
+         suppressed here. Revisit when NXUI drops System.Reactive. -->
+    <NoWarn>$(NoWarn);IL3000;IL3002</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The assembly version follows CHANGELOG.md, like Core's -->
+    <PackageReference Include="Ionide.KeepAChangelog.Tasks" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DevNull.Client.UI\DevNull.Client.UI.fsproj" />
+  </ItemGroup>
+
+</Project>

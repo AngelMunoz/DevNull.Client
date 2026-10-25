@@ -35,8 +35,8 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
 ## Architecture
 
 - `src/DevNull.Client.Core/` - the protocol layer
-- `src/DevNull.Client/` - the Avalonia consumer, dark theme, NXUI in
-  code, no XAML. Layers bottom-up:
+- `src/DevNull.Client.UI/` - the shared Avalonia client, dark theme,
+  NXUI in code, no XAML. Layers bottom-up:
   - `Errors.fs` - the `AppError` edge type (every Core IWSAM leaf) and
     its plain-text `describe`.
   - `Theme.fsi/fs` - the themed resource dictionaries
@@ -51,16 +51,16 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
     file) and the `IProvideSession` accessor.
   - `Env.fsi/fs` - `IProvideLogging` (the Serilog-bridged
     `ILoggerFactory`), `AppEnv`: the Core capability workers, the
-    session store, and the logging factory; `KeyFiles` discovery in
-    `~/.ssh`.
+    session store, the native services the platform head passed, and
+    the logging factory; `KeyFiles` discovery in `~/.ssh`.
   - `DeviceAuth.fsi/fs` - the app's Ed25519 key under
     `%LOCALAPPDATA%`, device authorization, callback redemption and
     session storage; generic over the capability interfaces, never over
     the concrete env.
-  - `SchemeRegistration.fsi/fs` - the `ISchemeRegistrar` for the
-    `devnull://` scheme, one per operating system: the Windows registry,
-    the Linux `.desktop` file plus `xdg-mime`, and a designed failure on
-    macOS, where the handler comes from the app bundle.
+  - `Natives.fsi/fs` - the native contracts a platform head implements:
+    `ISchemeRegistrar`, `IAudioEngine` (the microphone and the speaker;
+    unimplemented yet, `ValueNone` in both heads), and the
+    `NativeServices` record `AppEnv` carries.
   - `Navigation.fsi/fs` - `go`: fire-and-forget navigation on the UI
     thread.
   - `UnreadPoller.fsi/fs` - polls `Me.get` on an interval into the
@@ -70,10 +70,23 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
   - `Components/`
   - `Views/` - one MVUish page per route over `Program.mkProgram`
   - `Shell.fsi/fs`
-  - `Program.fs` - Serilog (console plus one file per day under
-    `%LOCALAPPDATA%\DevNull\logs`), the Fluent theme first, app styles
-    after; single-instance mutex; the second instance completes the
-    callback headlessly.
+  - `Startup.fs` - `App.start(natives, argv)`: Serilog (console plus
+    one file per day under `%LOCALAPPDATA%\DevNull\logs`), the Fluent
+    theme first, app styles after; the scheme registration through the
+    head's registrar; single-instance mutex; the second instance
+    completes the callback headlessly.
+- `src/DevNull.Client.Windows/` - the Windows head (`net10.0-windows`,
+  Windows 11 APIs as the floor): the registry scheme registrar, the
+  native services record, and the entry point that calls `App.start`.
+  Windows-only implementations (audio through WASAPI or WinRT, toasts,
+  camera prompts) grow here.
+- `src/DevNull.Client.Linux/` - the Linux head: the `.desktop` plus
+  `xdg-mime` scheme registrar, the native services record, and the
+  entry point. Linux-only implementations (ALSA audio, portals) grow
+  here.
+- Both heads keep the `DevNull.Client` assembly name: the shipped
+  executable is still `DevNull.Client`, so the scheme handlers of
+  existing installs keep working.
 - `tests/DevNull.Client.Core.Tests/` - Expecto over Core; `TestSupport`
   carries the fakes and builders. Tests never reach network, disk, or
   real processes.

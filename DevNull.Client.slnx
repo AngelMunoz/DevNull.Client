@@ -1,7 +1,9 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/DevNull.Client.Core/DevNull.Client.Core.fsproj" />
-    <Project Path="src/DevNull.Client/DevNull.Client.fsproj" />
+    <Project Path="src/DevNull.Client.UI/DevNull.Client.UI.fsproj" />
+    <Project Path="src/DevNull.Client.Windows/DevNull.Client.Windows.fsproj" />
+    <Project Path="src/DevNull.Client.Linux/DevNull.Client.Linux.fsproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/DevNull.Client.Core.Tests/DevNull.Client.Core.Tests.fsproj" />

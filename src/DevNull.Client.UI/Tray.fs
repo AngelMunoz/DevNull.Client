@@ -45,7 +45,7 @@ let install(props: TrayProps) : unit =
     new TrayIcon(
       Icon =
         WindowIcon(
-          AssetLoader.Open(Uri "avares://DevNull.Client/Assets/app.ico")
+          AssetLoader.Open(Uri "avares://DevNull.Client.UI/Assets/app.ico")
         )
     )
 

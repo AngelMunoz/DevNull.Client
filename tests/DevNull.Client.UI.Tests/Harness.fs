@@ -16,7 +16,7 @@ open Avalonia.Headless
 open Avalonia.Threading
 open Avalonia.VisualTree
 
-open DevNull.Client.Program
+open DevNull.Client.Startup
 
 /// One headless session for the whole assembly; the app type carries
 /// the Fluent theme and the app styles.

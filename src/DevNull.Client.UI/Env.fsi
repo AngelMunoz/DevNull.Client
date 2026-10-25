@@ -14,6 +14,7 @@ open DevNull.Client.UiClock
 open DevNull.Client.Timeline
 open DevNull.Client.RouteStore
 open DevNull.Client.Unread
+open DevNull.Client.Natives
 
 /// The logging capability: one factory bridged to Serilog, so every
 /// service that accepts a logger lands in the same sink and level.
@@ -22,11 +23,14 @@ type IProvideLogging =
 
 /// The production environment: system clock, crypto nonce source,
 /// ssh-keygen signer, http transport, the live session store, the
-/// local settings store, and the app services (unread poll, clock,
-/// image cache).
+/// local settings store, the app services (unread poll, clock, image
+/// cache), and the native services the platform head built.
 type AppEnv =
   new:
-    baseAddress: string * session: SessionStore * logging: ILoggerFactory ->
+    baseAddress: string *
+    session: SessionStore *
+    natives: NativeServices *
+    logging: ILoggerFactory ->
       AppEnv
 
   interface IProvideClock
@@ -35,6 +39,7 @@ type AppEnv =
   interface IProvidePkceSource
   interface IProvideHttp
   interface IProvideSession
+  interface IProvideNatives
   interface IProvideSettings
   interface IProvideLogging
   interface IProvideUnread

@@ -490,7 +490,9 @@ type Shell<'env
     this.MinHeight <- 640.0
 
     this.Icon <-
-      WindowIcon(AssetLoader.Open(Uri "avares://DevNull.Client/Assets/app.ico"))
+      WindowIcon(
+        AssetLoader.Open(Uri "avares://DevNull.Client.UI/Assets/app.ico")
+      )
 
     // The type face and the body size ride the inherited font
     // properties; the themed resources carry the template fonts.

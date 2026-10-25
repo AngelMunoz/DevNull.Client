@@ -1,12 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <DebugType>embedded</DebugType>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
-    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -47,12 +45,12 @@
     <Compile Include="Timeline.fs" />
     <Compile Include="RouteStore.fsi" />
     <Compile Include="RouteStore.fs" />
+    <Compile Include="Natives.fsi" />
+    <Compile Include="Natives.fs" />
     <Compile Include="Env.fsi" />
     <Compile Include="Env.fs" />
     <Compile Include="DeviceAuth.fsi" />
     <Compile Include="DeviceAuth.fs" />
-    <Compile Include="SchemeRegistration.fsi" />
-    <Compile Include="SchemeRegistration.fs" />
     <Compile Include="Navigation.fsi" />
     <Compile Include="Navigation.fs" />
     <Compile Include="Shortcuts.fsi" />
@@ -105,7 +103,7 @@
     <Compile Include="Views\Routes.fs" />
     <Compile Include="Shell.fsi" />
     <Compile Include="Shell.fs" />
-    <Compile Include="Program.fs" />
+    <Compile Include="Startup.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -115,7 +113,6 @@
     <PackageReference Include="Avalonia.Desktop" />
     <PackageReference Include="Avalonia.Themes.Fluent" />
     <PackageReference Include="NXUI" />
-    <PackageReference Include="NXUI.Desktop" />
     <PackageReference Include="Navs.Avalonia" />
     <PackageReference Include="MVUish.Avalonia" />
 

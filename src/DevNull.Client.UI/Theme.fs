@@ -36,9 +36,9 @@ module Keys =
 
 module Fonts =
 
-  let sans = FontFamily("avares://DevNull.Client/Assets/Fonts#Geist")
+  let sans = FontFamily("avares://DevNull.Client.UI/Assets/Fonts#Geist")
 
-  let mono = FontFamily("avares://DevNull.Client/Assets/Fonts#Geist Mono")
+  let mono = FontFamily("avares://DevNull.Client.UI/Assets/Fonts#Geist Mono")
 
 let solid(variant: ThemeVariant, key: string) : IBrush =
   match Application.Current with

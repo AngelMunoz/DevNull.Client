@@ -105,6 +105,10 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
 
+      # One head per RID: the shared client lives in DevNull.Client.UI,
+      # the platform services in the Windows and Linux heads. Both keep
+      # the DevNull.Client assembly name, so the bundles and the
+      # registered scheme handlers keep working across the split.
       # CHANGELOG.md is the source of truth: KeepAChangelog.Tasks stamps the
       # assemblies during publish. The NoWarn for FSharp.Core's AOT warnings
       # lives in src/Directory.Build.props; this gate still fails on any
@@ -112,7 +116,9 @@ jobs:
       - name: Publish (Native AOT)
         shell: bash
         run: >
-          dotnet publish src/DevNull.Client -c Release -r ${{ matrix.rid }}
+          project=src/DevNull.Client.Linux;
+          if [ "${{ matrix.rid }}" = "win-x64" ]; then project=src/DevNull.Client.Windows; fi;
+          dotnet publish "$project" -c Release -r ${{ matrix.rid }}
           -p:PublishAot=true -p:TreatWarningsAsErrors=true
           -p:DebugType=none -p:DebugSymbols=false
           -o publish
@@ -126,13 +132,16 @@ jobs:
           tar -czf "../DevNull.Client-${{ needs.prepare.outputs.version }}-${{ matrix.rid }}.tar.gz" --exclude='*.dbg' .
 
       # DebugType=none emits no symbols on Windows; the remove is the
-      # defensive guard. Publish output is flat, so root-level entries
-      # are the whole bundle.
+      # defensive guard. The WPF native support files ride the
+      # System.Reactive framework reference; this Avalonia app never
+      # loads them, so they stay out of the bundle. Publish output is
+      # flat, so root-level entries are the whole bundle.
       - name: Package (zip)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Remove-Item publish\*.pdb, publish\*.dbg -ErrorAction SilentlyContinue
+          Remove-Item publish\wpfgfx_cor3.dll, publish\PresentationNative_cor3.dll, publish\PenImc_cor3.dll, publish\vcruntime140_cor3.dll, publish\D3DCompiler_47_cor3.dll -ErrorAction SilentlyContinue
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           [System.IO.Compression.ZipFile]::CreateFromDirectory("publish", "DevNull.Client-${{ needs.prepare.outputs.version }}-${{ matrix.rid }}.zip", "Optimal", $false)
 

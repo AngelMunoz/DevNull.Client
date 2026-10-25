@@ -254,19 +254,6 @@ type ProfileDetails = {
   PinnedCommit: CommitNode option
 }
 
-type Me = {
-  Profile: Profile
-  PasteisMode: bool
-  PasteisRemaining: int
-  PasteisResetsAt: DateTimeOffset
-  PasteisReceived: int
-  PreferredLane: Lane option
-  AutomaticLane: int
-  SponsorsUrl: string option
-  GithubSyncedAt: DateTimeOffset option
-  UnreadNotificationsCount: int
-}
-
 type LogKind =
   | Following
   | Latest
@@ -500,6 +487,250 @@ type DecodeFailure = { Path: string; Message: string }
 type Failure = {
   Message: string
   Code: ErrorCode option
+}
+
+/// Which inbox tab one page reads.
+type InboxTab =
+  | TabOpen
+  | TabFetched
+  | TabStashed
+
+/// How long one mute lasts, as the server takes it.
+type MuteDuration =
+  | MuteHour
+  | MuteTomorrow
+  | MuteWeek
+  | MuteForever
+  | MuteOff
+
+/// Who the server lets push to the user. An unknown value stays raw.
+type RemotesFrom =
+  | FromFollowing
+  | FromEveryone
+  | UnknownRemotesFrom of raw: string
+
+/// One conversation's kind. An unknown kind stays raw.
+type ConversationKind =
+  | Direct
+  | Org
+  | UnknownKind of raw: string
+
+/// How far the server lets a push go. An unknown value stays raw.
+type PushAccess =
+  | PushOpen
+  | PushRequest
+  | PushWaiting
+  | PushRestricted
+  | PushClosed
+  | UnknownAccess of raw: string
+
+/// One member's role in an org. An unknown role stays raw.
+type OrgRole =
+  | Maintainer
+  | Contributor
+  | UnknownRole of raw: string
+
+module OrgRoles =
+
+  let wire(role: OrgRole) =
+    match role with
+    | Maintainer -> "maintainer"
+    | Contributor -> "contributor"
+    | UnknownRole raw -> raw
+
+/// The org event one message records. An unknown event stays raw.
+type OrgEvent =
+  | Created
+  | Added
+  | Removed
+  | Left
+  | Renamed
+  | Promoted
+  | Demoted
+  | Inherited
+  | UnknownEvent of raw: string
+
+module InboxTabs =
+
+  let wire(tab: InboxTab) =
+    match tab with
+    | TabOpen -> "open"
+    | TabFetched -> "fetched"
+    | TabStashed -> "stashed"
+
+module MuteDurations =
+
+  let wire(duration: MuteDuration) =
+    match duration with
+    | MuteHour -> "hour"
+    | MuteTomorrow -> "tomorrow"
+    | MuteWeek -> "week"
+    | MuteForever -> "forever"
+    | MuteOff -> "off"
+
+module RemotesFroms =
+
+  let parse(raw: string) =
+    match raw with
+    | "following" -> FromFollowing
+    | "everyone" -> FromEveryone
+    | raw -> UnknownRemotesFrom raw
+
+  let wire(from: RemotesFrom) =
+    match from with
+    | FromFollowing -> "following"
+    | FromEveryone -> "everyone"
+    | UnknownRemotesFrom raw -> raw
+
+type Reaction = { UserId: string; Emoji: string }
+
+type ReactionUse = { Emoji: string; Count: int }
+
+type ReactionChange = {
+  MessageId: int
+  Reactions: Reaction list
+}
+
+type VoiceClip = {
+  Id: string
+  DurationMs: int
+  Waveform: int list
+  Url: string
+}
+
+type MessageParent = {
+  Id: int
+  UserId: string
+  Body: string
+  ImagesCount: int
+  HasVoice: bool
+}
+
+type Message = {
+  Id: int
+  UserId: string
+  ClientId: string
+  Body: string
+  BodySegments: Segment list
+  Mentions: Mention list
+  ReplyToId: int option
+  ReplyTo: MessageParent option
+  LinkPreview: LinkPreview option
+  Images: Image list
+  Voice: VoiceClip option
+  Reactions: Reaction list
+  Event: OrgEvent option
+  SubjectId: string option
+  User: User option
+  Subject: User option
+  CreatedAt: DateTimeOffset
+}
+
+type OrgMember = { User: User; Role: OrgRole option }
+
+type Conversation = {
+  Id: string
+  Kind: ConversationKind
+  Name: string option
+  Partner: User option
+  Members: OrgMember list option
+  LastMessage: Message option
+  LastMessageAt: DateTimeOffset option
+  Ahead: int
+  LastIncomingMessageId: int option
+  LastIncomingSender: string option
+  PartnerReadThroughId: int
+  PartnerReadAt: DateTimeOffset option
+  IsArchived: bool
+  PinnedAt: DateTimeOffset option
+  MutedUntilAt: DateTimeOffset option
+}
+
+type Inbox = {
+  Conversations: Conversation list
+  HasMore: bool
+  UnreadCount: int
+  RequestsCount: int
+}
+
+type ThreadMember = {
+  User: User
+  Role: OrgRole option
+  ReadThroughId: int
+}
+
+type Thread = {
+  Partner: User
+  Messages: Message list
+  HasOlder: bool
+  ReactionsVersion: int
+  ReactionChanges: ReactionChange list
+  ReadThroughId: int
+  PartnerReadThroughId: int
+  PartnerReadAt: DateTimeOffset option
+  PartnerTyping: bool
+  IsArchived: bool
+  PinnedAt: DateTimeOffset option
+  MutedUntilAt: DateTimeOffset option
+  Access: PushAccess
+}
+
+type OrgRef = { Id: string; Name: string option }
+
+type OrgThread = {
+  Org: OrgRef
+  Messages: Message list
+  HasOlder: bool
+  ReactionsVersion: int
+  ReactionChanges: ReactionChange list
+  ReadThroughId: int
+  Members: ThreadMember list
+  Typing: string list
+  IsArchived: bool
+  PinnedAt: DateTimeOffset option
+  MutedUntilAt: DateTimeOffset option
+  Role: OrgRole option
+  Access: PushAccess
+}
+
+type RemoteCandidate = { User: User; Reason: string option }
+
+type PinResult = { PinnedAt: DateTimeOffset option }
+
+type ThreadMuteResult = { MutedUntilAt: DateTimeOffset option }
+
+type CreatedOrg = { Id: string }
+
+type CommitPreview = {
+  Body: string
+  BodySegments: Segment list
+  PreviewSegments: Segment list option
+  Mentions: Mention list
+}
+
+/// The signed-in user's remotes settings, as GET /api/v1/me reports
+/// them while remotes are on.
+type MeRemotes = {
+  From: RemotesFrom
+  PullReceipts: bool
+  Requests: bool
+  Everyone: bool
+  UnreadCount: int
+}
+
+/// The signed-in account, as GET /api/v1/me returns it.
+type Me = {
+  Profile: Profile
+  PasteisMode: bool
+  PasteisRemaining: int
+  PasteisResetsAt: DateTimeOffset
+  PasteisReceived: int
+  PreferredLane: Lane option
+  AutomaticLane: int
+  SponsorsUrl: string option
+  GithubSyncedAt: DateTimeOffset option
+  UnreadNotificationsCount: int
+  Remotes: MeRemotes option
 }
 
 let inline failure path message = { Path = path; Message = message }
@@ -1264,6 +1495,27 @@ let profileDetailsDecoder(element: JsonElement) = decode {
   }
 }
 
+let meRemotesDecoder(element: JsonElement) = decode {
+  let! from = Required.Property.get ("from", Required.string) element
+
+  let! pullReceipts =
+    Required.Property.get ("pull_receipts", Required.boolean) element
+
+  let! requests = Required.Property.get ("requests", Required.boolean) element
+  let! everyone = Required.Property.get ("everyone", Required.boolean) element
+
+  let! unreadCount =
+    Required.Property.get ("unread_count", Required.int) element
+
+  return {
+    From = RemotesFroms.parse from
+    PullReceipts = pullReceipts
+    Requests = requests
+    Everyone = everyone
+    UnreadCount = unreadCount
+  }
+}
+
 type CurrentUserData = {
   Profile: Profile
   PasteisMode: bool
@@ -1274,6 +1526,7 @@ type CurrentUserData = {
   AutomaticLane: int
   SponsorsUrl: string option
   GithubSyncedAt: DateTimeOffset option
+  Remotes: MeRemotes option
 }
 
 let currentUserDataDecoder(element: JsonElement) = decode {
@@ -1308,6 +1561,9 @@ let currentUserDataDecoder(element: JsonElement) = decode {
     Optional.Property.get ("github_synced_at", Optional.dateTimeOffset) element
     |> Result.map Option.flatten
 
+  let! remotes =
+    Required.Property.get ("remotes", optionalDecoder meRemotesDecoder) element
+
   return {
     Profile = profile
     PasteisMode = pasteisMode
@@ -1318,6 +1574,7 @@ let currentUserDataDecoder(element: JsonElement) = decode {
     AutomaticLane = automaticLane
     SponsorsUrl = sponsorsUrl
     GithubSyncedAt = githubSyncedAt
+    Remotes = remotes
   }
 }
 
@@ -1338,6 +1595,7 @@ let meDecoder(element: JsonElement) = decode {
     SponsorsUrl = data.SponsorsUrl
     GithubSyncedAt = data.GithubSyncedAt
     UnreadNotificationsCount = unread
+    Remotes = data.Remotes
   }
 }
 
@@ -1491,6 +1749,469 @@ let apiFailureDecoder(element: JsonElement) = decode {
   }
 }
 
+let conversationKindDecoder
+  (element: JsonElement)
+  : Result<ConversationKind, JDeck.DecodeError> =
+  Required.string element
+  |> Result.map(fun raw ->
+    match raw with
+    | "direct" -> Direct
+    | "org" -> Org
+    | raw -> UnknownKind raw)
+
+let pushAccessDecoder
+  (element: JsonElement)
+  : Result<PushAccess, JDeck.DecodeError> =
+  Required.string element
+  |> Result.map(fun raw ->
+    match raw with
+    | "open" -> PushOpen
+    | "request" -> PushRequest
+    | "waiting" -> PushWaiting
+    | "restricted" -> PushRestricted
+    | "closed" -> PushClosed
+    | raw -> UnknownAccess raw)
+
+let orgRoleOf(raw: string) =
+  match raw with
+  | "maintainer" -> Maintainer
+  | "contributor" -> Contributor
+  | raw -> UnknownRole raw
+
+let orgEventOf(raw: string) =
+  match raw with
+  | "created" -> Created
+  | "added" -> Added
+  | "removed" -> Removed
+  | "left" -> Left
+  | "renamed" -> Renamed
+  | "promoted" -> Promoted
+  | "demoted" -> Demoted
+  | "inherited" -> Inherited
+  | raw -> UnknownEvent raw
+
+/// Reads a member's role, which an org may leave null.
+let orgRoleDecoder
+  (element: JsonElement)
+  : Result<OrgRole option, JDeck.DecodeError> =
+  Optional.string element |> Result.map(Option.map orgRoleOf)
+
+let orgEventDecoder
+  (element: JsonElement)
+  : Result<OrgEvent, JDeck.DecodeError> =
+  Required.string element |> Result.map orgEventOf
+
+let reactionDecoder(element: JsonElement) = decode {
+  let! userId = Required.Property.get ("user_id", Required.string) element
+  let! emoji = Required.Property.get ("emoji", Required.string) element
+  return { UserId = userId; Emoji = emoji }
+}
+
+let reactionUseDecoder(element: JsonElement) = decode {
+  let! emoji = Required.Property.get ("emoji", Required.string) element
+  let! count = Required.Property.get ("count", Required.int) element
+  return { Emoji = emoji; Count = count }
+}
+
+let reactionChangeDecoder(element: JsonElement) = decode {
+  let! messageId = Required.Property.get ("id", Required.int) element
+  let! reactions = Required.Property.list ("reactions", reactionDecoder) element
+
+  return {
+    MessageId = messageId
+    Reactions = reactions
+  }
+}
+
+let voiceClipDecoder(element: JsonElement) = decode {
+  let! id = Required.Property.get ("id", Required.string) element
+  let! durationMs = Required.Property.get ("duration_ms", Required.int) element
+  let! waveform = Required.Property.list ("waveform", Required.int) element
+  let! url = Required.Property.get ("url", Required.string) element
+
+  return {
+    Id = id
+    DurationMs = durationMs
+    Waveform = waveform
+    Url = url
+  }
+}
+
+let messageParentDecoder(element: JsonElement) = decode {
+  let! id = Required.Property.get ("id", Required.int) element
+  let! userId = Required.Property.get ("user_id", Required.string) element
+  let! body = Required.Property.get ("body", Required.string) element
+
+  let! imagesCount =
+    Required.Property.get ("images_count", Required.int) element
+
+  let! hasVoice = Required.Property.get ("has_voice", Required.boolean) element
+
+  return {
+    Id = id
+    UserId = userId
+    Body = body
+    ImagesCount = imagesCount
+    HasVoice = hasVoice
+  }
+}
+
+let messageDecoder(element: JsonElement) = decode {
+  let! id = Required.Property.get ("id", Required.int) element
+  let! userId = Required.Property.get ("user_id", Required.string) element
+  let! clientId = Required.Property.get ("client_id", Required.string) element
+  let! body = Required.Property.get ("body", Required.string) element
+
+  let! bodySegments =
+    Required.Property.list ("body_segments", segmentDecoder) element
+
+  let! mentions = Required.Property.list ("mentions", mentionDecoder) element
+
+  let! replyToId = Required.Property.get ("reply_to_id", Optional.int) element
+
+  let! replyTo =
+    Optional.Property.get
+      ("reply_to", optionalDecoder messageParentDecoder)
+      element
+    |> Result.map Option.flatten
+
+  let! linkPreview =
+    Optional.Property.get
+      ("link_preview", optionalDecoder linkPreviewDecoder)
+      element
+    |> Result.map Option.flatten
+
+  let! images =
+    Optional.Property.get ("images", optionalListDecoder imageDecoder) element
+    |> Result.map Option.flatten
+
+  let! voice =
+    Optional.Property.get ("voice", optionalDecoder voiceClipDecoder) element
+    |> Result.map Option.flatten
+
+  let! reactions =
+    Optional.Property.get
+      ("reactions", optionalListDecoder reactionDecoder)
+      element
+    |> Result.map Option.flatten
+
+  let! event =
+    Required.Property.get ("event", Optional.string) element
+    |> Result.map(Option.map orgEventOf)
+
+  let! subjectId = Required.Property.get ("subject_id", Optional.string) element
+
+  let! user =
+    Optional.Property.get ("user", optionalDecoder userDecoder) element
+    |> Result.map Option.flatten
+
+  let! subject =
+    Optional.Property.get ("subject", optionalDecoder userDecoder) element
+    |> Result.map Option.flatten
+
+  let! createdAt =
+    Required.Property.get ("created_at", Required.dateTimeOffset) element
+
+  return {
+    Id = id
+    UserId = userId
+    ClientId = clientId
+    Body = body
+    BodySegments = bodySegments
+    Mentions = mentions
+    ReplyToId = replyToId
+    ReplyTo = replyTo
+    LinkPreview = linkPreview
+    Images = Option.defaultValue [] images
+    Voice = voice
+    Reactions = Option.defaultValue [] reactions
+    Event = event
+    SubjectId = subjectId
+    User = user
+    Subject = subject
+    CreatedAt = createdAt
+  }
+}
+
+let orgMemberDecoder(element: JsonElement) = decode {
+  let! user = Required.Property.get ("user", userDecoder) element
+  let! role = Required.Property.get ("role", orgRoleDecoder) element
+  return { User = user; Role = role }
+}
+
+let conversationDecoder(element: JsonElement) = decode {
+  let! id = Required.Property.get ("id", Required.string) element
+  let! kind = Required.Property.get ("kind", conversationKindDecoder) element
+  let! name = Required.Property.get ("name", Optional.string) element
+
+  let! partner =
+    Required.Property.get ("partner", optionalDecoder userDecoder) element
+
+  let! members =
+    Required.Property.get
+      ("members", optionalListDecoder orgMemberDecoder)
+      element
+
+  let! lastMessage =
+    Required.Property.get
+      ("last_message", optionalDecoder messageDecoder)
+      element
+
+  let! lastMessageAt =
+    Required.Property.get ("last_message_at", Optional.dateTimeOffset) element
+
+  let! ahead = Required.Property.get ("ahead", Required.int) element
+
+  let! lastIncomingMessageId =
+    Required.Property.get ("last_incoming_message_id", Optional.int) element
+
+  let! lastIncomingSender =
+    Required.Property.get ("last_incoming_sender", Optional.string) element
+
+  let! partnerReadThroughId =
+    Required.Property.get ("partner_read_through_id", Required.int) element
+
+  let! partnerReadAt =
+    Required.Property.get ("partner_read_at", Optional.dateTimeOffset) element
+
+  let! isArchived =
+    Required.Property.get ("is_archived", Required.boolean) element
+
+  let! pinnedAt =
+    Required.Property.get ("pinned_at", Optional.dateTimeOffset) element
+
+  let! mutedUntilAt =
+    Required.Property.get ("muted_until_at", Optional.dateTimeOffset) element
+
+  return {
+    Id = id
+    Kind = kind
+    Name = name
+    Partner = partner
+    Members = members
+    LastMessage = lastMessage
+    LastMessageAt = lastMessageAt
+    Ahead = ahead
+    LastIncomingMessageId = lastIncomingMessageId
+    LastIncomingSender = lastIncomingSender
+    PartnerReadThroughId = partnerReadThroughId
+    PartnerReadAt = partnerReadAt
+    IsArchived = isArchived
+    PinnedAt = pinnedAt
+    MutedUntilAt = mutedUntilAt
+  }
+}
+
+let inboxDecoder(element: JsonElement) = decode {
+  let! conversations =
+    Required.Property.list ("data", conversationDecoder) element
+
+  let! hasMore = Required.Property.get ("has_more", Required.boolean) element
+
+  let! unreadCount =
+    Required.Property.get ("unread_count", Required.int) element
+
+  let! requestsCount =
+    Required.Property.get ("requests_count", Required.int) element
+
+  return {
+    Conversations = conversations
+    HasMore = hasMore
+    UnreadCount = unreadCount
+    RequestsCount = requestsCount
+  }
+}
+
+let threadMemberDecoder(element: JsonElement) = decode {
+  let! user = Required.Property.get ("user", userDecoder) element
+  let! role = Required.Property.get ("role", orgRoleDecoder) element
+
+  let! readThroughId =
+    Required.Property.get ("read_through_id", Required.int) element
+
+  return {
+    User = user
+    Role = role
+    ReadThroughId = readThroughId
+  }
+}
+
+let threadDataDecoder(element: JsonElement) = decode {
+  let! partner = Required.Property.get ("partner", userDecoder) element
+  let! messages = Required.Property.list ("messages", messageDecoder) element
+  let! hasOlder = Required.Property.get ("has_older", Required.boolean) element
+
+  let! reactionsVersion =
+    Required.Property.get ("reactions_version", Required.int) element
+
+  let! reactionChanges =
+    Required.Property.list ("reaction_changes", reactionChangeDecoder) element
+
+  let! readThroughId =
+    Required.Property.get ("read_through_id", Required.int) element
+
+  let! partnerReadThroughId =
+    Required.Property.get ("partner_read_through_id", Required.int) element
+
+  let! partnerReadAt =
+    Required.Property.get ("partner_read_at", Optional.dateTimeOffset) element
+
+  let! partnerTyping =
+    Required.Property.get ("partner_typing", Required.boolean) element
+
+  let! isArchived =
+    Required.Property.get ("is_archived", Required.boolean) element
+
+  let! pinnedAt =
+    Required.Property.get ("pinned_at", Optional.dateTimeOffset) element
+
+  let! mutedUntilAt =
+    Required.Property.get ("muted_until_at", Optional.dateTimeOffset) element
+
+  let! access = Required.Property.get ("access", pushAccessDecoder) element
+
+  return {
+    Partner = partner
+    Messages = messages
+    HasOlder = hasOlder
+    ReactionsVersion = reactionsVersion
+    ReactionChanges = reactionChanges
+    ReadThroughId = readThroughId
+    PartnerReadThroughId = partnerReadThroughId
+    PartnerReadAt = partnerReadAt
+    PartnerTyping = partnerTyping
+    IsArchived = isArchived
+    PinnedAt = pinnedAt
+    MutedUntilAt = mutedUntilAt
+    Access = access
+  }
+}
+
+let orgRefDecoder(element: JsonElement) = decode {
+  let! id = Required.Property.get ("id", Required.string) element
+  let! name = Required.Property.get ("name", Optional.string) element
+  return { Id = id; Name = name }
+}
+
+let orgThreadDataDecoder(element: JsonElement) = decode {
+  let! org = Required.Property.get ("org", orgRefDecoder) element
+  let! messages = Required.Property.list ("messages", messageDecoder) element
+  let! hasOlder = Required.Property.get ("has_older", Required.boolean) element
+
+  let! reactionsVersion =
+    Required.Property.get ("reactions_version", Required.int) element
+
+  let! reactionChanges =
+    Required.Property.list ("reaction_changes", reactionChangeDecoder) element
+
+  let! readThroughId =
+    Required.Property.get ("read_through_id", Required.int) element
+
+  let! members = Required.Property.list ("members", threadMemberDecoder) element
+  let! typing = Required.Property.list ("typing", Required.string) element
+
+  let! isArchived =
+    Required.Property.get ("is_archived", Required.boolean) element
+
+  let! pinnedAt =
+    Required.Property.get ("pinned_at", Optional.dateTimeOffset) element
+
+  let! mutedUntilAt =
+    Required.Property.get ("muted_until_at", Optional.dateTimeOffset) element
+
+  let! role =
+    Required.Property.get ("role", Optional.string) element
+    |> Result.map(Option.map orgRoleOf)
+
+  let! access = Required.Property.get ("access", pushAccessDecoder) element
+
+  return {
+    Org = org
+    Messages = messages
+    HasOlder = hasOlder
+    ReactionsVersion = reactionsVersion
+    ReactionChanges = reactionChanges
+    ReadThroughId = readThroughId
+    Members = members
+    Typing = typing
+    IsArchived = isArchived
+    PinnedAt = pinnedAt
+    MutedUntilAt = mutedUntilAt
+    Role = role
+    Access = access
+  }
+}
+
+let remoteCandidateDecoder(element: JsonElement) = decode {
+  let! user = Required.Property.get ("user", userDecoder) element
+  let! reason = Required.Property.get ("reason", Optional.string) element
+  return { User = user; Reason = reason }
+}
+
+let reactionUsesDecoder(element: JsonElement) = decode {
+  let! usage = Required.Property.list ("usage", reactionUseDecoder) element
+  return usage
+}
+
+let reactionsDecoder(element: JsonElement) = decode {
+  let! reactions = Required.Property.list ("reactions", reactionDecoder) element
+  return reactions
+}
+
+let pinResultDecoder(element: JsonElement) = decode {
+  let! pinnedAt =
+    Required.Property.get ("pinned_at", Optional.dateTimeOffset) element
+
+  return { PinnedAt = pinnedAt }
+}
+
+let threadMuteResultDecoder(element: JsonElement) = decode {
+  let! mutedUntilAt =
+    Required.Property.get ("muted_until_at", Optional.dateTimeOffset) element
+
+  return { MutedUntilAt = mutedUntilAt }
+}
+
+let createdOrgDecoder(element: JsonElement) = decode {
+  let! id =
+    Required.Property.get
+      ("org", Required.Property.get("id", Required.string))
+      element
+
+  return { Id = id }
+}
+
+let messageLinkPreviewDecoder(element: JsonElement) = decode {
+  let! linkPreview =
+    Required.Property.get
+      ("link_preview", optionalDecoder linkPreviewDecoder)
+      element
+
+  return linkPreview
+}
+
+let commitPreviewDataDecoder(element: JsonElement) = decode {
+  let! body = Required.Property.get ("body", Required.string) element
+
+  let! bodySegments =
+    Required.Property.list ("body_segments", segmentDecoder) element
+
+  let! previewSegments =
+    Optional.Property.get
+      ("preview_segments", optionalListDecoder segmentDecoder)
+      element
+    |> Result.map Option.flatten
+
+  let! mentions = Required.Property.list ("mentions", mentionDecoder) element
+
+  return {
+    Body = body
+    BodySegments = bodySegments
+    PreviewSegments = previewSegments
+    Mentions = mentions
+  }
+}
+
 let inline decodeMe(body: string) : Result<Me, DecodeFailure> =
   parseBody body meDecoder
 
@@ -1542,6 +2263,54 @@ let inline decodeBlockResult
   : Result<BlockResult, DecodeFailure> =
   parseBody body blockResultDecoder
 
+let inline decodeInbox(body: string) : Result<Inbox, DecodeFailure> =
+  parseBody body inboxDecoder
+
+let inline decodeThread(body: string) : Result<Thread, DecodeFailure> =
+  parseBody body (Required.Property.get("data", threadDataDecoder))
+
+let inline decodeOrgThread(body: string) : Result<OrgThread, DecodeFailure> =
+  parseBody body (Required.Property.get("data", orgThreadDataDecoder))
+
+let inline decodeMessage(body: string) : Result<Message, DecodeFailure> =
+  parseBody body (Required.Property.get("data", messageDecoder))
+
+let inline decodePinResult(body: string) : Result<PinResult, DecodeFailure> =
+  parseBody body pinResultDecoder
+
+let inline decodeThreadMuteResult
+  (body: string)
+  : Result<ThreadMuteResult, DecodeFailure> =
+  parseBody body threadMuteResultDecoder
+
+let inline decodeCreatedOrg(body: string) : Result<CreatedOrg, DecodeFailure> =
+  parseBody body createdOrgDecoder
+
+let inline decodeReactionUses
+  (body: string)
+  : Result<ReactionUse list, DecodeFailure> =
+  parseBody body reactionUsesDecoder
+
+let inline decodeReactions
+  (body: string)
+  : Result<Reaction list, DecodeFailure> =
+  parseBody body reactionsDecoder
+
+let inline decodeRemoteCandidates
+  (body: string)
+  : Result<RemoteCandidate list, DecodeFailure> =
+  parseBody body (Required.Property.list("candidates", remoteCandidateDecoder))
+
+let inline decodeMessageLinkPreview
+  (body: string)
+  : Result<LinkPreview option, DecodeFailure> =
+  parseBody body messageLinkPreviewDecoder
+
+let inline decodeCommitPreview
+  (body: string)
+  : Result<CommitPreview, DecodeFailure> =
+  parseBody body (Required.Property.get("data", commitPreviewDataDecoder))
+
 module Me =
   let decode(body: string) = decodeMe body
 
@@ -1580,6 +2349,42 @@ module NotificationPage =
 
 module Notification =
   let decodePage(body: string) = decodeNotificationList body
+
+module Inbox =
+  let decode(body: string) = decodeInbox body
+
+module Thread =
+  let decode(body: string) = decodeThread body
+
+module OrgThread =
+  let decode(body: string) = decodeOrgThread body
+
+module Message =
+  let decode(body: string) = decodeMessage body
+
+module PinResult =
+  let decode(body: string) = decodePinResult body
+
+module ThreadMuteResult =
+  let decode(body: string) = decodeThreadMuteResult body
+
+module CreatedOrg =
+  let decode(body: string) = decodeCreatedOrg body
+
+module ReactionUses =
+  let decode(body: string) = decodeReactionUses body
+
+module Reactions =
+  let decode(body: string) = decodeReactions body
+
+module RemoteCandidates =
+  let decode(body: string) = decodeRemoteCandidates body
+
+module MessageLinkPreview =
+  let decode(body: string) = decodeMessageLinkPreview body
+
+module CommitPreview =
+  let decode(body: string) = decodeCommitPreview body
 
 type TransportError<'e> =
   static abstract TransportFailed: message: string -> 'e

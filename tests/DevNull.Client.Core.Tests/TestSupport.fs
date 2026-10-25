@@ -37,6 +37,12 @@ type TestError =
   | PollOptionTooLong of label: string * length: int
   | DuplicatePollOption of label: string
   | PollProhibited of conflict: PollConflict
+  | MessageBodyTooLong of raw: string * length: int
+  | VoiceTooLarge of fileName: string * size: int
+  | UnsupportedVoice of fileName: string
+  | WrongWaveformCount of count: int
+  | WaveformBarOutOfRange of bar: int
+  | VoiceProhibited of conflict: VoiceConflict
 
   interface CommitBodyError<TestError> with
     static member BodyTooShort(raw, length) = BodyTooShort(raw, length)
@@ -98,6 +104,17 @@ type TestError =
 
     static member DuplicatePollOption label = DuplicatePollOption label
     static member PollProhibited conflict = PollProhibited conflict
+
+  interface MessageBodyError<TestError> with
+    static member MessageBodyTooLong(raw, length) =
+      MessageBodyTooLong(raw, length)
+
+  interface VoiceError<TestError> with
+    static member VoiceTooLarge(fileName, size) = VoiceTooLarge(fileName, size)
+    static member UnsupportedVoice fileName = UnsupportedVoice fileName
+    static member WrongWaveformCount count = WrongWaveformCount count
+    static member WaveformBarOutOfRange bar = WaveformBarOutOfRange bar
+    static member VoiceProhibited conflict = VoiceProhibited conflict
 
 type FixedClock(timestamp: int64) =
 

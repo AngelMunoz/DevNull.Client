@@ -33,6 +33,12 @@ type AppError =
   | PollOptionTooLong of label: string * length: int
   | DuplicatePollOption of label: string
   | PollProhibited of conflict: PollConflict
+  | MessageBodyTooLong of raw: string * length: int
+  | VoiceTooLarge of fileName: string * size: int
+  | UnsupportedVoice of fileName: string
+  | WrongWaveformCount of count: int
+  | WaveformBarOutOfRange of bar: int
+  | VoiceProhibited of conflict: VoiceConflict
   | SignInFailed of message: string
 
   interface CommitBodyError<AppError> with
@@ -96,6 +102,17 @@ type AppError =
     static member DuplicatePollOption label = DuplicatePollOption label
     static member PollProhibited conflict = PollProhibited conflict
 
+  interface MessageBodyError<AppError> with
+    static member MessageBodyTooLong(raw, length) =
+      MessageBodyTooLong(raw, length)
+
+  interface VoiceError<AppError> with
+    static member VoiceTooLarge(fileName, size) = VoiceTooLarge(fileName, size)
+    static member UnsupportedVoice fileName = UnsupportedVoice fileName
+    static member WrongWaveformCount count = WrongWaveformCount count
+    static member WaveformBarOutOfRange bar = WaveformBarOutOfRange bar
+    static member VoiceProhibited conflict = VoiceProhibited conflict
+
 /// One line of plain text per failure, for the app.
 let describe error =
   let refused (what: string) (status: int, body: string) =
@@ -146,4 +163,17 @@ let describe error =
   | PollProhibited PollOnReply -> "A poll cannot answer another commit."
   | PollProhibited PollOnQuote -> "A poll cannot quote another commit."
   | PollProhibited PollWithImages -> "A poll cannot carry images."
+  | MessageBodyTooLong(_, length) ->
+    $"A message allows at most 2000 characters, got {length}."
+  | VoiceTooLarge(fileName, size) ->
+    $"A voice note allows at most 1950 KB; {fileName} is {size} bytes."
+  | UnsupportedVoice fileName ->
+    $"{fileName} is not an Opus WebM or WAV recording."
+  | WrongWaveformCount count ->
+    $"A voice note carries 48 loudness bars, got {count}."
+  | WaveformBarOutOfRange bar ->
+    $"A loudness bar is between 0 and 100, got {bar}."
+  | VoiceProhibited VoiceWithBody ->
+    "A voice note cannot ride beside a message body."
+  | VoiceProhibited VoiceWithImages -> "A voice note cannot ride beside images."
   | SignInFailed message -> message

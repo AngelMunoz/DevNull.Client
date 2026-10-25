@@ -272,20 +272,6 @@ type ProfileDetails = {
   PinnedCommit: CommitNode option
 }
 
-/// The signed-in account, as GET /api/v1/me returns it.
-type Me = {
-  Profile: Profile
-  PasteisMode: bool
-  PasteisRemaining: int
-  PasteisResetsAt: DateTimeOffset
-  PasteisReceived: int
-  PreferredLane: Lane option
-  AutomaticLane: int
-  SponsorsUrl: string option
-  GithubSyncedAt: DateTimeOffset option
-  UnreadNotificationsCount: int
-}
-
 /// The three logs.
 type LogKind =
   | Following
@@ -448,6 +434,250 @@ type Failure = {
   Code: ErrorCode option
 }
 
+/// Which inbox tab one page reads.
+type InboxTab =
+  | TabOpen
+  | TabFetched
+  | TabStashed
+
+module InboxTabs =
+  /// The wire name.
+  val wire: tab: InboxTab -> string
+
+/// How long one mute lasts, as the server takes it.
+type MuteDuration =
+  | MuteHour
+  | MuteTomorrow
+  | MuteWeek
+  | MuteForever
+  | MuteOff
+
+module MuteDurations =
+  /// The wire name.
+  val wire: duration: MuteDuration -> string
+
+/// Who the server lets push to the user. An unknown value stays raw.
+type RemotesFrom =
+  | FromFollowing
+  | FromEveryone
+  | UnknownRemotesFrom of raw: string
+
+module RemotesFroms =
+  /// Reads the wire name. An unknown name stays raw.
+  val parse: raw: string -> RemotesFrom
+
+  /// The wire name.
+  val wire: from: RemotesFrom -> string
+
+/// One conversation's kind. An unknown kind stays raw.
+type ConversationKind =
+  | Direct
+  | Org
+  | UnknownKind of raw: string
+
+/// How far the server lets a push go. An unknown value stays raw.
+type PushAccess =
+  | PushOpen
+  | PushRequest
+  | PushWaiting
+  | PushRestricted
+  | PushClosed
+  | UnknownAccess of raw: string
+
+/// One member's role in an org. An unknown role stays raw.
+type OrgRole =
+  | Maintainer
+  | Contributor
+  | UnknownRole of raw: string
+
+module OrgRoles =
+  /// The wire name.
+  val wire: role: OrgRole -> string
+
+/// The org event one message records. An unknown event stays raw.
+type OrgEvent =
+  | Created
+  | Added
+  | Removed
+  | Left
+  | Renamed
+  | Promoted
+  | Demoted
+  | Inherited
+  | UnknownEvent of raw: string
+
+/// One reaction left on a message.
+type Reaction = { UserId: string; Emoji: string }
+
+/// One emoji the user reacts with, and how often.
+type ReactionUse = { Emoji: string; Count: int }
+
+/// One message whose reactions changed since a poll last looked.
+type ReactionChange = {
+  MessageId: int
+  Reactions: Reaction list
+}
+
+/// One voice note on a message, as the signed API returns it.
+type VoiceClip = {
+  Id: string
+  DurationMs: int
+  Waveform: int list
+  Url: string
+}
+
+/// The message one message answers, as much as its ghost shows.
+type MessageParent = {
+  Id: int
+  UserId: string
+  Body: string
+  ImagesCount: int
+  HasVoice: bool
+}
+
+/// One message in a thread, as the signed API returns it.
+type Message = {
+  Id: int
+  UserId: string
+  ClientId: string
+  Body: string
+  BodySegments: Segment list
+  Mentions: Mention list
+  ReplyToId: int option
+  ReplyTo: MessageParent option
+  LinkPreview: LinkPreview option
+  Images: Image list
+  Voice: VoiceClip option
+  Reactions: Reaction list
+  Event: OrgEvent option
+  SubjectId: string option
+  User: User option
+  Subject: User option
+  CreatedAt: DateTimeOffset
+}
+
+/// One member of an org, as the inbox shows them.
+type OrgMember = { User: User; Role: OrgRole option }
+
+/// One row of the remotes inbox: a partner or an org, its last message,
+/// and the viewer's relation to it.
+type Conversation = {
+  Id: string
+  Kind: ConversationKind
+  Name: string option
+  Partner: User option
+  Members: OrgMember list option
+  LastMessage: Message option
+  LastMessageAt: DateTimeOffset option
+  Ahead: int
+  LastIncomingMessageId: int option
+  LastIncomingSender: string option
+  PartnerReadThroughId: int
+  PartnerReadAt: DateTimeOffset option
+  IsArchived: bool
+  PinnedAt: DateTimeOffset option
+  MutedUntilAt: DateTimeOffset option
+}
+
+/// One page of the remotes inbox, with the counts the nav shows.
+type Inbox = {
+  Conversations: Conversation list
+  HasMore: bool
+  UnreadCount: int
+  RequestsCount: int
+}
+
+/// One member of an org thread, with their read position.
+type ThreadMember = {
+  User: User
+  Role: OrgRole option
+  ReadThroughId: int
+}
+
+/// A one-to-one thread, as the API loads and polls it.
+type Thread = {
+  Partner: User
+  Messages: Message list
+  HasOlder: bool
+  ReactionsVersion: int
+  ReactionChanges: ReactionChange list
+  ReadThroughId: int
+  PartnerReadThroughId: int
+  PartnerReadAt: DateTimeOffset option
+  PartnerTyping: bool
+  IsArchived: bool
+  PinnedAt: DateTimeOffset option
+  MutedUntilAt: DateTimeOffset option
+  Access: PushAccess
+}
+
+/// An org, as a thread names it.
+type OrgRef = { Id: string; Name: string option }
+
+/// An org thread, as the API loads and polls it.
+type OrgThread = {
+  Org: OrgRef
+  Messages: Message list
+  HasOlder: bool
+  ReactionsVersion: int
+  ReactionChanges: ReactionChange list
+  ReadThroughId: int
+  Members: ThreadMember list
+  Typing: string list
+  IsArchived: bool
+  PinnedAt: DateTimeOffset option
+  MutedUntilAt: DateTimeOffset option
+  Role: OrgRole option
+  Access: PushAccess
+}
+
+/// Someone a new remote or org can be started with, and the reason they
+/// cannot, when they cannot.
+type RemoteCandidate = { User: User; Reason: string option }
+
+/// The result of pinning or unpinning a thread.
+type PinResult = { PinnedAt: DateTimeOffset option }
+
+/// The result of muting or unmuting a thread.
+type ThreadMuteResult = { MutedUntilAt: DateTimeOffset option }
+
+/// The org POST /api/v1/remotes/orgs started.
+type CreatedOrg = { Id: string }
+
+/// The signed-in user's remotes settings, as GET /api/v1/me reports
+/// them while remotes are on.
+type MeRemotes = {
+  From: RemotesFrom
+  PullReceipts: bool
+  Requests: bool
+  Everyone: bool
+  UnreadCount: int
+}
+
+/// One draft as the commit it would become, as POST
+/// /api/v1/commits/preview returns it. Nothing is kept.
+type CommitPreview = {
+  Body: string
+  BodySegments: Segment list
+  PreviewSegments: Segment list option
+  Mentions: Mention list
+}
+
+/// The signed-in account, as GET /api/v1/me returns it.
+type Me = {
+  Profile: Profile
+  PasteisMode: bool
+  PasteisRemaining: int
+  PasteisResetsAt: DateTimeOffset
+  PasteisReceived: int
+  PreferredLane: Lane option
+  AutomaticLane: int
+  SponsorsUrl: string option
+  GithubSyncedAt: DateTimeOffset option
+  UnreadNotificationsCount: int
+  Remotes: MeRemotes option
+}
+
 module Me =
   /// Reads the signed-in account envelope, from GET /api/v1/me and the sign-in responses.
   val decode: body: string -> Result<Me, DecodeFailure>
@@ -499,6 +729,54 @@ module NotificationPage =
 module Notification =
   /// Reads a cursor page of notifications without the inbox extras.
   val decodePage: body: string -> Result<Page<Notification>, DecodeFailure>
+
+module Inbox =
+  /// Reads one page of the remotes inbox and its counts.
+  val decode: body: string -> Result<Inbox, DecodeFailure>
+
+module Thread =
+  /// Reads one one-to-one thread, from its `{data: thread}` envelope.
+  val decode: body: string -> Result<Thread, DecodeFailure>
+
+module OrgThread =
+  /// Reads one org thread, from its `{data: thread}` envelope.
+  val decode: body: string -> Result<OrgThread, DecodeFailure>
+
+module Message =
+  /// Reads one pushed message, from its `{data: message}` envelope.
+  val decode: body: string -> Result<Message, DecodeFailure>
+
+module PinResult =
+  /// Reads the result of pinning or unpinning.
+  val decode: body: string -> Result<PinResult, DecodeFailure>
+
+module ThreadMuteResult =
+  /// Reads the result of muting or unmuting.
+  val decode: body: string -> Result<ThreadMuteResult, DecodeFailure>
+
+module CreatedOrg =
+  /// Reads the id of the org the server started.
+  val decode: body: string -> Result<CreatedOrg, DecodeFailure>
+
+module ReactionUses =
+  /// Reads the emoji the user reacts with, most used first.
+  val decode: body: string -> Result<ReactionUse list, DecodeFailure>
+
+module Reactions =
+  /// Reads a message's reactions, in the order they were left.
+  val decode: body: string -> Result<Reaction list, DecodeFailure>
+
+module RemoteCandidates =
+  /// Reads the people a new remote or org can be started with.
+  val decode: body: string -> Result<RemoteCandidate list, DecodeFailure>
+
+module MessageLinkPreview =
+  /// Reads a message's link card, which stays empty while it is pending.
+  val decode: body: string -> Result<LinkPreview option, DecodeFailure>
+
+module CommitPreview =
+  /// Reads one draft as the commit it would become.
+  val decode: body: string -> Result<CommitPreview, DecodeFailure>
 
 /// The transport could not reach the server.
 type TransportError<'e> =

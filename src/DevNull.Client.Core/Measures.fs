@@ -8,6 +8,9 @@ type CommitId
 type CommitBody
 
 [<Measure>]
+type MessageBody
+
+[<Measure>]
 type ShortHash
 
 [<Measure>]
@@ -18,3 +21,6 @@ type Nonce
 
 [<Measure>]
 type KeyId
+
+[<Measure>]
+type ClientId

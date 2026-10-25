@@ -1,6 +1,7 @@
 module DevNull.Client.Core.Api
 
 open System
+open FSharp.UMX
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
@@ -11,6 +12,12 @@ type ImageAttachment = DevNull.Client.Core.Commit.ImageAttachment
 
 /// One parsed image: its bytes, its content type, and its SHA-256.
 type PostableImage = DevNull.Client.Core.Commit.Image
+
+/// One staged voice note: its bytes, its content type, and its SHA-256.
+type VoiceAttachment = DevNull.Client.Core.Commit.Voice
+
+/// One voice note's loudness bars: 48 values between 0 and 100.
+type Waveform = DevNull.Client.Core.Commit.Waveform
 
 module Signing =
 
@@ -31,6 +38,19 @@ module Signing =
     Images: PostableImage list
   }
 
+  /// The values one signed v1 request with named files needs. Each file
+  /// rides under its own part name, and the signed message carries the
+  /// comma-separated file hashes on one line before the body, under the
+  /// images namespace.
+  type FilesRequest = {
+    KeyFile: string
+    Method: string
+    Target: string
+    Body: string
+    PayloadName: string
+    Files: (string * PostableImage) list
+  }
+
   /// Signs one v1 request and returns it ready to send.
   val signedRequest:
     env: 'env * request: Request -> Async<Result<HttpRequest, 'e>>
@@ -47,6 +67,15 @@ module Signing =
   /// namespace.
   val signedImageRequest:
     env: 'env * request: ImageRequest -> Async<Result<HttpRequest, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and NonceError<'e>
+      and SigningError<'e>
+
+  /// Signs one v1 request with named files and returns it ready to send.
+  val signedFilesRequest:
+    env: 'env * request: FilesRequest -> Async<Result<HttpRequest, 'e>>
       when 'env :> IProvideClock
       and 'env :> IProvideNonceSource
       and 'env :> IProvideSigner
@@ -401,6 +430,9 @@ module Commits =
     Details: string option
   }
 
+  /// One draft to see as the commit it would become. Nothing is kept.
+  type PreviewRequest = { KeyFile: string; Body: string }
+
   /// One poll vote: the commit whose poll it is, and the option taken.
   type VoteRequest = {
     KeyFile: string
@@ -490,6 +522,22 @@ module Commits =
       and 'env :> IProvideHttp
       and CommitIdError<'e>
       and ReportDetailsError<'e>
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Shows one draft as the commit it would become: the body as it
+  /// would be kept, the segments a list folds it to, and where it
+  /// mentions someone. Nothing is kept.
+  val preview:
+    env: 'env * request: PreviewRequest -> Async<Result<CommitPreview, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and CommitBodyError<'e>
       and NonceError<'e>
       and SigningError<'e>
       and TransportError<'e>
@@ -626,6 +674,492 @@ module Notifications =
   /// Reads one notification group.
   val group:
     env: 'env * request: GroupRequest -> Async<Result<Page<Notification>, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+module Remotes =
+
+  /// Which thread an endpoint targets: a partner by username, or an org
+  /// by id.
+  type ThreadTarget =
+    | Partner of username: string
+    | Org of orgId: string
+
+  /// The request shape every thread-state endpoint takes.
+  type TargetRequest = {
+    KeyFile: string
+    Target: ThreadTarget
+  }
+
+  /// One thread pulled through a message.
+  type ReadRequest = {
+    KeyFile: string
+    Target: ThreadTarget
+    Through: int
+  }
+
+  /// One thread muted for a duration, or unmuted with `MuteOff`.
+  type MuteRequest = {
+    KeyFile: string
+    Target: ThreadTarget
+    Duration: MuteDuration
+  }
+
+  /// One thread pinned or unpinned.
+  type PinRequest = {
+    KeyFile: string
+    Target: ThreadTarget
+    Pinned: bool
+  }
+
+  /// One inbox page: a tab, a search term, and the conversation a
+  /// previous page ended at.
+  type InboxRequest = {
+    KeyFile: string
+    Tab: InboxTab
+    Search: string option
+    Before: string option
+  }
+
+  /// One one-to-one thread: the latest page, the page before a message,
+  /// or everything after one with the reactions changed since a version.
+  type ThreadRequest = {
+    KeyFile: string
+    Partner: string
+    After: int option
+    Before: int option
+    ReactionsAfter: int option
+  }
+
+  /// One org thread, polled the same way.
+  type OrgThreadRequest = {
+    KeyFile: string
+    OrgId: string
+    After: int option
+    Before: int option
+    ReactionsAfter: int option
+  }
+
+  /// Which link gets the card on a pushed message: the first one, a
+  /// chosen one, or none.
+  type LinkCard =
+    | FirstLink
+    | NoCard
+    | CardOf of url: string
+
+  /// One message to push to a partner or an org. The body, the images,
+  /// or the voice note may carry it alone; a voice note rides alone, or
+  /// with a reply.
+  type PushRequest = {
+    KeyFile: string
+    Target: ThreadTarget
+    Body: string option
+    ClientId: string<ClientId>
+    ReplyTo: int option
+    Card: LinkCard
+    Images: ImageAttachment list
+    ImageDescriptions: string option list
+    Voice: (ImageAttachment * Waveform) option
+  }
+
+  /// One fetched request accepted into the open conversations.
+  type MergeRequest = { KeyFile: string; Partner: string }
+
+  /// One emoji left on a message, or taken back.
+  type ReactionRequest = {
+    KeyFile: string
+    MessageId: int
+    Emoji: string
+  }
+
+  /// One message's link card, asked for again while pending.
+  type LinkPreviewRequest = { KeyFile: string; MessageId: int }
+
+  /// The emoji the user reacts with.
+  type UsageRequest = { KeyFile: string }
+
+  /// The remotes master switch.
+  type SettingsRequest = { KeyFile: string; Enabled: bool }
+
+  /// Who can push to the user, and whether they share pulls.
+  type PreferencesRequest = {
+    KeyFile: string
+    From: RemotesFrom
+    PullReceipts: bool
+  }
+
+  /// What the candidate list is picking for.
+  type CandidateFor =
+    | ForRemote
+    | ForOrg
+
+  /// One candidate search: a term, the org picked for, and whether the
+  /// org does not exist yet.
+  type CandidatesRequest = {
+    KeyFile: string
+    Search: string option
+    Org: string option
+    For: CandidateFor option
+  }
+
+  /// One org to start: an optional name and the first members.
+  type CreateOrgRequest = {
+    KeyFile: string
+    Name: string option
+    Members: string list
+  }
+
+  /// One org renamed, or its name taken away.
+  type RenameOrgRequest = {
+    KeyFile: string
+    OrgId: string
+    Name: string option
+  }
+
+  /// Members added to an org, sharing its history or starting fresh.
+  type AddMembersRequest = {
+    KeyFile: string
+    OrgId: string
+    Members: string list
+    ShareHistory: bool
+  }
+
+  /// One member's role changed.
+  type MemberRoleRequest = {
+    KeyFile: string
+    OrgId: string
+    Member: string
+    Role: OrgRole
+  }
+
+  /// One member taken out of an org.
+  type RemoveMemberRequest = {
+    KeyFile: string
+    OrgId: string
+    Member: string
+  }
+
+  /// Reads one page of the inbox, pinned first then newest.
+  val inbox:
+    env: 'env * request: InboxRequest -> Async<Result<Inbox, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Reads one one-to-one thread. A partner never written to yet gives
+  /// an empty thread, which says whether a first message can go.
+  val thread:
+    env: 'env * request: ThreadRequest -> Async<Result<Thread, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Reads one org thread, from where the user's history starts.
+  val orgThread:
+    env: 'env * request: OrgThreadRequest -> Async<Result<OrgThread, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Pushes one message, starting the conversation when it is the
+  /// first. A client id sent again answers with the message it already
+  /// created.
+  val push:
+    env: 'env * request: PushRequest -> Async<Result<Message, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and MessageBodyError<'e>
+      and ImageError<'e>
+      and VoiceError<'e>
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Pulls one thread through a message, as a scrolled thread does.
+  val markRead:
+    env: 'env * request: ReadRequest -> Async<Result<unit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Says the user is typing, for a few seconds.
+  val typing:
+    env: 'env * request: TargetRequest -> Async<Result<unit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Stashes one thread for the user only. It pops back when either
+  /// side writes.
+  val stash:
+    env: 'env * request: TargetRequest -> Async<Result<unit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Pops one thread back into the open list.
+  val unstash:
+    env: 'env * request: TargetRequest -> Async<Result<unit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Mutes one thread until the duration ends, or unmutes it.
+  val mute:
+    env: 'env * request: MuteRequest -> Async<Result<ThreadMuteResult, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Pins one thread to the top of the inbox, or unpins it.
+  val pin:
+    env: 'env * request: PinRequest -> Async<Result<PinResult, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Merges one fetched request into the open conversations, so it can
+  /// be answered.
+  val merge:
+    env: 'env * request: MergeRequest -> Async<Result<unit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Drops one fetched request for good, without telling the sender.
+  val drop:
+    env: 'env * request: MergeRequest -> Async<Result<unit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Reads the emoji the user reacts with, most used first.
+  val reactionUsage:
+    env: 'env * request: UsageRequest -> Async<Result<ReactionUse list, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Reacts with one emoji and answers with the message's reactions.
+  val react:
+    env: 'env * request: ReactionRequest -> Async<Result<Reaction list, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Takes one reaction back.
+  val unreact:
+    env: 'env * request: ReactionRequest -> Async<Result<Reaction list, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Reads one message's link card, which stays empty while pending.
+  val linkPreview:
+    env: 'env * request: LinkPreviewRequest ->
+      Async<Result<LinkPreview option, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Reads the people a new remote or org can be started with, each
+  /// with the reason they cannot, when they cannot.
+  val candidates:
+    env: 'env * request: CandidatesRequest ->
+      Async<Result<RemoteCandidate list, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Starts one org and answers with its id.
+  val createOrg:
+    env: 'env * request: CreateOrgRequest -> Async<Result<CreatedOrg, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Renames one org, or takes its name away.
+  val renameOrg:
+    env: 'env * request: RenameOrgRequest -> Async<Result<unit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Adds members to one org.
+  val addMembers:
+    env: 'env * request: AddMembersRequest -> Async<Result<unit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Changes one member's role. The server keeps the last maintainer.
+  val setMemberRole:
+    env: 'env * request: MemberRoleRequest -> Async<Result<unit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Takes one member out of an org.
+  val removeMember:
+    env: 'env * request: RemoveMemberRequest -> Async<Result<unit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Turns remotes on or off and answers as `Me.get` does.
+  val setEnabled:
+    env: 'env * request: SettingsRequest -> Async<Result<Me, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Saves who can push to the user and whether they share pulls, and
+  /// answers as `Me.get` does.
+  val setPreferences:
+    env: 'env * request: PreferencesRequest -> Async<Result<Me, 'e>>
       when 'env :> IProvideClock
       and 'env :> IProvideNonceSource
       and 'env :> IProvideSigner

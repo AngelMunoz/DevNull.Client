@@ -2,6 +2,7 @@ module DevNull.Client.Core.Api
 
 open System
 open System.Text
+open FSharp.UMX
 open JDeck
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
@@ -16,6 +17,12 @@ type ImageAttachment = DevNull.Client.Core.Commit.ImageAttachment
 
 /// One parsed image: its bytes, its content type, and its SHA-256.
 type PostableImage = DevNull.Client.Core.Commit.Image
+
+/// One staged voice note: its bytes, its content type, and its SHA-256.
+type VoiceAttachment = DevNull.Client.Core.Commit.Voice
+
+/// One voice note's loudness bars: 48 values between 0 and 100.
+type Waveform = DevNull.Client.Core.Commit.Waveform
 
 [<Literal>]
 let NamespaceName = "devnull-api"
@@ -38,6 +45,15 @@ module Signing =
     Target: string
     Body: string
     Images: PostableImage list
+  }
+
+  type FilesRequest = {
+    KeyFile: string
+    Method: string
+    Target: string
+    Body: string
+    PayloadName: string
+    Files: (string * PostableImage) list
   }
 
   type Deps<'Env
@@ -104,19 +120,20 @@ module Signing =
       |> Result.mapError(fun failure -> 'e.SigningFailed failure.Message)
   }
 
-  /// Signs one v1 request with images: the JSON body rides a payload
-  /// part, the images ride `images[]` files beside it, and the signed
-  /// message carries the comma-separated image hashes on one line
-  /// before the body, under the images namespace.
-  let signedImageRequest<'env, 'e
+  /// Signs one v1 request with named files: the JSON body rides a
+  /// payload part, each file rides under its own part name, and the
+  /// signed message carries the comma-separated file hashes on one
+  /// line before the body, under the images namespace.
+  let signedFilesRequest<'env, 'e
     when Deps<'env> and NonceError<'e> and SigningError<'e>>
-    (env: 'env, request: ImageRequest)
+    (env: 'env, request: FilesRequest)
     : Async<Result<HttpRequest, 'e>> = asyncResult {
     let timestamp = Clock.unixNow env
     let! nonce = Nonces.parse(NonceSource.newHex env)
     let method = request.Method.Trim().ToUpperInvariant()
 
-    let hashes = request.Images |> List.map _.Hash |> String.concat ","
+    let hashes =
+      request.Files |> List.map(fun (_, file) -> file.Hash) |> String.concat ","
 
     let message =
       String.concat "\n" [
@@ -133,18 +150,18 @@ module Signing =
 
     let payload = {
       Name = "payload"
-      FileName = "commit.json"
+      FileName = request.PayloadName
       ContentType = "application/json"
       Content = Encoding.UTF8.GetBytes request.Body
     }
 
-    let imageFiles =
-      request.Images
-      |> List.map(fun image -> {
-        Name = "images[]"
-        FileName = image.FileName
-        ContentType = image.ContentType
-        Content = image.Bytes
+    let files =
+      request.Files
+      |> List.map(fun (name, file) -> {
+        Name = name
+        FileName = file.FileName
+        ContentType = file.ContentType
+        Content = file.Bytes
       })
 
     return {
@@ -159,10 +176,30 @@ module Signing =
       Body =
         Multipart {
           Fields = []
-          Files = payload :: imageFiles
+          Files = payload :: files
         }
     }
   }
+
+  /// Signs one v1 request with images: the JSON body rides a payload
+  /// part, the images ride `images[]` files beside it, and the signed
+  /// message carries the comma-separated image hashes on one line
+  /// before the body, under the images namespace.
+  let signedImageRequest<'env, 'e
+    when Deps<'env> and NonceError<'e> and SigningError<'e>>
+    (env: 'env, request: ImageRequest)
+    : Async<Result<HttpRequest, 'e>> =
+    signedFilesRequest(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = request.Method
+        Target = request.Target
+        Body = request.Body
+        PayloadName = "commit.json"
+        Files = request.Images |> List.map(fun image -> "images[]", image)
+      }
+    )
 
 module Internal =
 
@@ -180,6 +217,16 @@ module Internal =
     Target: string
     Body: string
     Images: PostableImage list
+    Decode: string -> Result<'value, DecodeFailure>
+  }
+
+  type FileCall<'value> = {
+    KeyFile: string
+    Method: string
+    Target: string
+    Body: string
+    PayloadName: string
+    Files: (string * PostableImage) list
     Decode: string -> Result<'value, DecodeFailure>
   }
 
@@ -243,6 +290,32 @@ module Internal =
     | Ok signed -> return! deliver(env, signed, call.Decode)
   }
 
+  let sendSignedFiles<'env, 'e, 'value
+    when SendSignedDeps<'env>
+    and NonceError<'e>
+    and SigningError<'e>
+    and TransportError<'e>
+    and Rejected<'e>
+    and DecodeError<'e>>
+    (env: 'env, call: FileCall<'value>)
+    : Async<Result<'value, 'e>> = asyncEx {
+    match!
+      Signing.signedFilesRequest(
+        env,
+        {
+          KeyFile = call.KeyFile
+          Method = call.Method
+          Target = call.Target
+          Body = call.Body
+          PayloadName = call.PayloadName
+          Files = call.Files
+        }
+      )
+    with
+    | Error error -> return Error error
+    | Ok signed -> return! deliver(env, signed, call.Decode)
+  }
+
   let sendSignedImage<'env, 'e, 'value
     when SendSignedDeps<'env>
     and NonceError<'e>
@@ -251,22 +324,19 @@ module Internal =
     and Rejected<'e>
     and DecodeError<'e>>
     (env: 'env, call: ImageCall<'value>)
-    : Async<Result<'value, 'e>> = asyncEx {
-    match!
-      Signing.signedImageRequest(
-        env,
-        {
-          KeyFile = call.KeyFile
-          Method = call.Method
-          Target = call.Target
-          Body = call.Body
-          Images = call.Images
-        }
-      )
-    with
-    | Error error -> return Error error
-    | Ok signed -> return! deliver(env, signed, call.Decode)
-  }
+    : Async<Result<'value, 'e>> =
+    sendSignedFiles(
+      env,
+      {
+        KeyFile = call.KeyFile
+        Method = call.Method
+        Target = call.Target
+        Body = call.Body
+        PayloadName = "commit.json"
+        Files = call.Images |> List.map(fun image -> "images[]", image)
+        Decode = call.Decode
+      }
+    )
 
   let withQuery(target: string, parameters: (string * string) list) =
     match parameters with
@@ -280,10 +350,12 @@ module Internal =
          |> String.concat "&")
 
   let optionalParameter(name: string, value: string option) =
-    value |> Option.map(fun value -> [ name, value ]) |> Option.defaultValue []
+    value
+    |> Option.map(fun value -> List.singleton(name, value))
+    |> Option.defaultValue []
 
   let flagParameter(name: string, value: bool) =
-    if value then [ name, "1" ] else []
+    if value then List.singleton(name, "1") else []
 
   let decodeUnit(_: string) : Result<unit, DecodeFailure> = Ok()
 
@@ -417,7 +489,7 @@ module Me =
 
   let setPasteisMode(env, request: PasteisModeRequest) =
     let body =
-      Json.object [ "enabled", Encode.boolean request.Enabled ]
+      Json.object(List.singleton("enabled", Encode.boolean request.Enabled))
       |> _.ToJsonString()
 
     Internal.sendSigned(
@@ -449,8 +521,8 @@ module Me =
     let body =
       let json =
         match lane with
-        | Automatic -> Json.object [ "lane", Encode.Null() ]
-        | Palette index -> Json.object [ "lane", Encode.int index ]
+        | Automatic -> Json.object(List.singleton("lane", Encode.Null()))
+        | Palette index -> Json.object(List.singleton("lane", Encode.int index))
         | Custom color ->
           Json.object [ "lane", Encode.Null(); "color", Encode.string color ]
 
@@ -705,6 +777,8 @@ module Commits =
     Details: string option
   }
 
+  type PreviewRequest = { KeyFile: string; Body: string }
+
   let validateDetails<'e when ReportDetailsError<'e>>
     (details: string option)
     : Result<string option, 'e> =
@@ -753,11 +827,15 @@ module Commits =
         ])
 
     let json =
-      Json.object(
-        [ "body", Encode.string(CommitBodies.value body) ]
-        @ Option.toList target
-        @ Option.toList(pollJson |> Option.map(fun poll -> "poll", poll))
-      )
+      Json.object [
+        "body", Encode.string(CommitBodies.value body)
+        match target with
+        | Some(name, value) -> name, value
+        | None -> ()
+        match pollJson |> Option.map(fun poll -> "poll", poll) with
+        | Some(name, value) -> name, value
+        | None -> ()
+      ]
       |> _.ToJsonString()
 
     let baseCall: Internal.SignedCall<Commit> = {
@@ -791,7 +869,7 @@ module Commits =
     let! path = Internal.commitPath("/poll/votes", request.CommitId)
 
     let json =
-      Json.object [ "option", Encode.string request.OptionId ]
+      Json.object(List.singleton("option", Encode.string request.OptionId))
       |> _.ToJsonString()
 
     let call: Internal.SignedCall<Commit> = {
@@ -865,14 +943,12 @@ module Commits =
     let! details = validateDetails request.Details
 
     let body =
-      let details =
-        details
-        |> Option.map(fun details -> [ "details", Encode.string details ])
-        |> Option.defaultValue []
-
-      Json.object(
-        [ "reason", Encode.string(ReportReasons.wire request.Reason) ] @ details
-      )
+      Json.object [
+        "reason", Encode.string(ReportReasons.wire request.Reason)
+        match details with
+        | Some details -> "details", Encode.string details
+        | None -> ()
+      ]
       |> _.ToJsonString()
 
     return!
@@ -884,6 +960,28 @@ module Commits =
           Target = path
           Body = body
           Decode = Internal.decodeUnit
+        }
+      )
+  }
+
+  let preview(env, request: PreviewRequest) = asyncResult {
+    let! body = CommitBodies.parse request.Body
+
+    let json =
+      Json.object(
+        List.singleton("body", Encode.string(CommitBodies.value body))
+      )
+      |> _.ToJsonString()
+
+    return!
+      Internal.sendSigned(
+        env,
+        {
+          KeyFile = request.KeyFile
+          Method = "POST"
+          Target = "/api/v1/commits/preview"
+          Body = json
+          Decode = CommitPreview.decode
         }
       )
   }
@@ -1019,13 +1117,20 @@ module Notifications =
     let target =
       Internal.withQuery(
         "/api/v1/notifications",
-        Internal.optionalParameter("type", request.Filter)
-        @ (request.Through
-           |> Option.map(fun through -> [
-             "through", through.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ")
-           ])
-           |> Option.defaultValue [])
-        @ Internal.optionalParameter("cursor", request.Cursor)
+        [
+          yield! Internal.optionalParameter("type", request.Filter)
+
+          yield!
+            request.Through
+            |> Option.map(fun through ->
+              List.singleton(
+                "through",
+                through.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ")
+              ))
+            |> Option.defaultValue []
+
+          yield! Internal.optionalParameter("cursor", request.Cursor)
+        ]
       )
 
     Internal.sendSigned(
@@ -1057,5 +1162,678 @@ module Notifications =
         Target = target
         Body = ""
         Decode = Notification.decodePage
+      }
+    )
+
+module Remotes =
+
+  type ThreadTarget =
+    | Partner of username: string
+    | Org of orgId: string
+
+  type TargetRequest = {
+    KeyFile: string
+    Target: ThreadTarget
+  }
+
+  type ReadRequest = {
+    KeyFile: string
+    Target: ThreadTarget
+    Through: int
+  }
+
+  type MuteRequest = {
+    KeyFile: string
+    Target: ThreadTarget
+    Duration: MuteDuration
+  }
+
+  type PinRequest = {
+    KeyFile: string
+    Target: ThreadTarget
+    Pinned: bool
+  }
+
+  type InboxRequest = {
+    KeyFile: string
+    Tab: InboxTab
+    Search: string option
+    Before: string option
+  }
+
+  type ThreadRequest = {
+    KeyFile: string
+    Partner: string
+    After: int option
+    Before: int option
+    ReactionsAfter: int option
+  }
+
+  type OrgThreadRequest = {
+    KeyFile: string
+    OrgId: string
+    After: int option
+    Before: int option
+    ReactionsAfter: int option
+  }
+
+  type LinkCard =
+    | FirstLink
+    | NoCard
+    | CardOf of url: string
+
+  type PushRequest = {
+    KeyFile: string
+    Target: ThreadTarget
+    Body: string option
+    ClientId: string<ClientId>
+    ReplyTo: int option
+    Card: LinkCard
+    Images: ImageAttachment list
+    ImageDescriptions: string option list
+    Voice: (ImageAttachment * Waveform) option
+  }
+
+  type MergeRequest = { KeyFile: string; Partner: string }
+
+  type ReactionRequest = {
+    KeyFile: string
+    MessageId: int
+    Emoji: string
+  }
+
+  type LinkPreviewRequest = { KeyFile: string; MessageId: int }
+
+  type UsageRequest = { KeyFile: string }
+
+  type SettingsRequest = { KeyFile: string; Enabled: bool }
+
+  type PreferencesRequest = {
+    KeyFile: string
+    From: RemotesFrom
+    PullReceipts: bool
+  }
+
+  type CandidateFor =
+    | ForRemote
+    | ForOrg
+
+  type CandidatesRequest = {
+    KeyFile: string
+    Search: string option
+    Org: string option
+    For: CandidateFor option
+  }
+
+  type CreateOrgRequest = {
+    KeyFile: string
+    Name: string option
+    Members: string list
+  }
+
+  type RenameOrgRequest = {
+    KeyFile: string
+    OrgId: string
+    Name: string option
+  }
+
+  type AddMembersRequest = {
+    KeyFile: string
+    OrgId: string
+    Members: string list
+    ShareHistory: bool
+  }
+
+  type MemberRoleRequest = {
+    KeyFile: string
+    OrgId: string
+    Member: string
+    Role: OrgRole
+  }
+
+  type RemoveMemberRequest = {
+    KeyFile: string
+    OrgId: string
+    Member: string
+  }
+
+  let path(target: ThreadTarget, suffix: string) =
+    match target with
+    | Partner username ->
+      "/api/v1/remotes/@" + Uri.EscapeDataString username + suffix
+    | Org orgId -> "/api/v1/remotes/orgs/" + Uri.EscapeDataString orgId + suffix
+
+  let inbox(env, request: InboxRequest) =
+    let target =
+      Internal.withQuery(
+        "/api/v1/remotes",
+        List.concat [
+          List.singleton("tab", InboxTabs.wire request.Tab)
+          Internal.optionalParameter("q", request.Search)
+          Internal.optionalParameter("before", request.Before)
+        ]
+      )
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target = target
+        Body = ""
+        Decode = Inbox.decode
+      }
+    )
+
+  let thread(env, request: ThreadRequest) =
+    let target =
+      Internal.withQuery(
+        path(Partner request.Partner, "/messages"),
+        List.concat [
+          Internal.optionalParameter(
+            "after",
+            request.After |> Option.map string
+          )
+          Internal.optionalParameter(
+            "before",
+            request.Before |> Option.map string
+          )
+          Internal.optionalParameter(
+            "reactions_after",
+            request.ReactionsAfter |> Option.map string
+          )
+        ]
+      )
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target = target
+        Body = ""
+        Decode = Thread.decode
+      }
+    )
+
+  let orgThread(env, request: OrgThreadRequest) =
+    let target =
+      Internal.withQuery(
+        path(Org request.OrgId, "/messages"),
+        List.concat [
+          Internal.optionalParameter(
+            "after",
+            request.After |> Option.map string
+          )
+          Internal.optionalParameter(
+            "before",
+            request.Before |> Option.map string
+          )
+          Internal.optionalParameter(
+            "reactions_after",
+            request.ReactionsAfter |> Option.map string
+          )
+        ]
+      )
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target = target
+        Body = ""
+        Decode = OrgThread.decode
+      }
+    )
+
+  /// The JSON body one pushed message rides in its payload part: the
+  /// client id, the body when there is one, the reply, the chosen link
+  /// card, and the descriptions or the waveform its files brought.
+  let pushBody(clientId: string<ClientId>, request: PushRequest) =
+    let descriptions =
+      request.ImageDescriptions
+      |> List.map(fun description ->
+        description
+        |> Option.map Encode.string
+        |> Option.defaultValue(Encode.Null()))
+
+    let waveform =
+      request.Voice
+      |> Option.map(fun (_, waveform) ->
+        Json.sequence(Commit.Voices.bars waveform, Encode.int))
+
+    Json.object(
+      List.concat [
+        List.singleton("client_id", Encode.string(ClientIds.value clientId))
+
+        request.Body
+        |> Option.map(fun text -> List.singleton("body", Encode.string text))
+        |> Option.defaultValue []
+
+        request.ReplyTo
+        |> Option.map(fun reply ->
+          List.singleton("reply_to_id", Encode.int reply))
+        |> Option.defaultValue []
+
+        match request.Card with
+        | FirstLink -> []
+        | NoCard -> List.singleton("link_preview_url", Encode.Null())
+        | CardOf url -> List.singleton("link_preview_url", Encode.string url)
+
+        match request.Images with
+        | [] -> []
+        | _ ->
+          List.singleton("image_descriptions", Json.sequence(descriptions, id))
+
+        waveform
+        |> Option.map(fun bars -> List.singleton("voice_waveform", bars))
+        |> Option.defaultValue []
+      ]
+    )
+    |> _.ToJsonString()
+
+  let push(env, request: PushRequest) = asyncResult {
+    let! body = request.Body |> Option.traverseResult MessageBodies.parse
+
+    let! images = DevNull.Client.Core.Commit.CommitImages.parse request.Images
+
+    let! voice =
+      request.Voice
+      |> Option.traverseResult(fun (voice, waveform) ->
+        Commit.Voices.parse(voice.FileName, voice.Bytes)
+        |> Result.map(fun staged -> staged, waveform))
+
+    do!
+      Commit.Voices.check(
+        voice |> Option.map fst,
+        body.IsSome,
+        not images.IsEmpty
+      )
+
+    let json = pushBody(request.ClientId, request)
+
+    let baseCall: Internal.SignedCall<Message> = {
+      KeyFile = request.KeyFile
+      Method = "POST"
+      Target = path(request.Target, "/messages")
+      Body = json
+      Decode = Message.decode
+    }
+
+    let files =
+      List.concat [
+        [ for image in images -> "images[]", image ]
+
+        voice
+        |> Option.map(fun (staged, _) -> List.singleton("voice", staged))
+        |> Option.defaultValue []
+      ]
+
+    return!
+      match files with
+      | [] -> Internal.sendSigned(env, baseCall)
+      | files ->
+        Internal.sendSignedFiles(
+          env,
+          {
+            KeyFile = baseCall.KeyFile
+            Method = baseCall.Method
+            Target = baseCall.Target
+            Body = baseCall.Body
+            PayloadName = "message.json"
+            Files = files
+            Decode = baseCall.Decode
+          }
+        )
+  }
+
+  let markRead(env, request: ReadRequest) =
+    let body =
+      Json.object(List.singleton("through", Encode.int request.Through))
+      |> _.ToJsonString()
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "PUT"
+        Target = path(request.Target, "/read")
+        Body = body
+        Decode = Internal.decodeUnit
+      }
+    )
+
+  let typing(env, request: TargetRequest) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "PUT"
+        Target = path(request.Target, "/typing")
+        Body = ""
+        Decode = Internal.decodeUnit
+      }
+    )
+
+  let stash(env, request: TargetRequest) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "POST"
+        Target = path(request.Target, "/archive")
+        Body = ""
+        Decode = Internal.decodeUnit
+      }
+    )
+
+  let unstash(env, request: TargetRequest) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "DELETE"
+        Target = path(request.Target, "/archive")
+        Body = ""
+        Decode = Internal.decodeUnit
+      }
+    )
+
+  let mute(env, request: MuteRequest) =
+    let body =
+      Json.object(
+        List.singleton(
+          "duration",
+          Encode.string(MuteDurations.wire request.Duration)
+        )
+      )
+      |> _.ToJsonString()
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "PUT"
+        Target = path(request.Target, "/mute")
+        Body = body
+        Decode = ThreadMuteResult.decode
+      }
+    )
+
+  let pin(env, request: PinRequest) =
+    let body =
+      Json.object(List.singleton("pinned", Encode.boolean request.Pinned))
+      |> _.ToJsonString()
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "PUT"
+        Target = path(request.Target, "/pin")
+        Body = body
+        Decode = PinResult.decode
+      }
+    )
+
+  let merge(env, request: MergeRequest) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "POST"
+        Target = path(Partner request.Partner, "/merge")
+        Body = ""
+        Decode = Internal.decodeUnit
+      }
+    )
+
+  let drop(env, request: MergeRequest) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "POST"
+        Target = path(Partner request.Partner, "/drop")
+        Body = ""
+        Decode = Internal.decodeUnit
+      }
+    )
+
+  let reactionUsage(env, request: UsageRequest) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target = "/api/v1/remotes/reactions"
+        Body = ""
+        Decode = ReactionUses.decode
+      }
+    )
+
+  let react(env, request: ReactionRequest) =
+    let body =
+      Json.object(List.singleton("emoji", Encode.string request.Emoji))
+      |> _.ToJsonString()
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "POST"
+        Target =
+          "/api/v1/remotes/messages/" + string request.MessageId + "/reactions"
+        Body = body
+        Decode = Reactions.decode
+      }
+    )
+
+  let unreact(env, request: ReactionRequest) =
+    let body =
+      Json.object(List.singleton("emoji", Encode.string request.Emoji))
+      |> _.ToJsonString()
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "DELETE"
+        Target =
+          "/api/v1/remotes/messages/" + string request.MessageId + "/reactions"
+        Body = body
+        Decode = Reactions.decode
+      }
+    )
+
+  let linkPreview(env, request: LinkPreviewRequest) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target =
+          "/api/v1/remotes/messages/"
+          + string request.MessageId
+          + "/link-preview"
+        Body = ""
+        Decode = MessageLinkPreview.decode
+      }
+    )
+
+  let candidates(env, request: CandidatesRequest) =
+    let target =
+      Internal.withQuery(
+        "/api/v1/remotes/candidates",
+        List.concat [
+          Internal.optionalParameter("q", request.Search)
+          Internal.optionalParameter("org", request.Org)
+
+          request.For
+          |> Option.map(fun forWhat ->
+            List.singleton(
+              "for",
+              match forWhat with
+              | ForRemote -> "remote"
+              | ForOrg -> "org"
+            ))
+          |> Option.defaultValue []
+        ]
+      )
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target = target
+        Body = ""
+        Decode = RemoteCandidates.decode
+      }
+    )
+
+  let createOrg(env, request: CreateOrgRequest) =
+    let body =
+      Json.object(
+        List.concat [
+          List.singleton(
+            "members",
+            Json.sequence(request.Members, Encode.string)
+          )
+
+          request.Name
+          |> Option.map(fun name -> List.singleton("name", Encode.string name))
+          |> Option.defaultValue []
+        ]
+      )
+      |> _.ToJsonString()
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "POST"
+        Target = "/api/v1/remotes/orgs"
+        Body = body
+        Decode = CreatedOrg.decode
+      }
+    )
+
+  let renameOrg(env, request: RenameOrgRequest) =
+    let body =
+      Json.object(
+        List.singleton(
+          "name",
+          request.Name
+          |> Option.map Encode.string
+          |> Option.defaultValue(Encode.Null())
+        )
+      )
+      |> _.ToJsonString()
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "PUT"
+        Target = "/api/v1/remotes/orgs/" + Uri.EscapeDataString request.OrgId
+        Body = body
+        Decode = Internal.decodeUnit
+      }
+    )
+
+  let addMembers(env, request: AddMembersRequest) =
+    let body =
+      Json.object [
+        "members", Json.sequence(request.Members, Encode.string)
+        "share_history", Encode.boolean request.ShareHistory
+      ]
+      |> _.ToJsonString()
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "POST"
+        Target =
+          "/api/v1/remotes/orgs/"
+          + Uri.EscapeDataString request.OrgId
+          + "/members"
+        Body = body
+        Decode = Internal.decodeUnit
+      }
+    )
+
+  let setMemberRole(env, request: MemberRoleRequest) =
+    let body =
+      Json.object(
+        List.singleton("role", Encode.string(OrgRoles.wire request.Role))
+      )
+      |> _.ToJsonString()
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "PUT"
+        Target =
+          "/api/v1/remotes/orgs/"
+          + Uri.EscapeDataString request.OrgId
+          + "/members/"
+          + Uri.EscapeDataString request.Member
+        Body = body
+        Decode = Internal.decodeUnit
+      }
+    )
+
+  let removeMember(env, request: RemoveMemberRequest) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "DELETE"
+        Target =
+          "/api/v1/remotes/orgs/"
+          + Uri.EscapeDataString request.OrgId
+          + "/members/"
+          + Uri.EscapeDataString request.Member
+        Body = ""
+        Decode = Internal.decodeUnit
+      }
+    )
+
+  let setEnabled(env, request: SettingsRequest) =
+    let body =
+      Json.object(List.singleton("enabled", Encode.boolean request.Enabled))
+      |> _.ToJsonString()
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "PUT"
+        Target = "/api/v1/me/remotes"
+        Body = body
+        Decode = Me.decode
+      }
+    )
+
+  let setPreferences(env, request: PreferencesRequest) =
+    let body =
+      Json.object [
+        "from", Encode.string(RemotesFroms.wire request.From)
+        "pull_receipts", Encode.boolean request.PullReceipts
+      ]
+      |> _.ToJsonString()
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "PUT"
+        Target = "/api/v1/me/remote-preferences"
+        Body = body
+        Decode = Me.decode
       }
     )

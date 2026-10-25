@@ -21,5 +21,6 @@ let main args =
       Tests.Api.accountApiTests
       Tests.Api.listApiTests
       Tests.Api.actionApiTests
+      Tests.RemotesApi.tests
       Tests.Commit.tests
     ])

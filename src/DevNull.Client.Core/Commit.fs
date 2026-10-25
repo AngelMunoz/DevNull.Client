@@ -20,6 +20,11 @@ type Image = {
   Hash: string
 }
 
+/// A staged voice note rides the same multipart shape an image does.
+type Voice = Image
+
+type Waveform = private { Bars: int array }
+
 type CommitInput = {
   Body: string
   ReplyTo: string option
@@ -101,6 +106,78 @@ module CommitImages =
               Hash = sha256 image.Bytes
             }
           | None -> Error('e.UnsupportedImage image.FileName))
+
+module Voices =
+
+  /// How many loudness bars one voice note carries.
+  let Bars = 48
+
+  /// The upload cap, as the server bounds it, in bytes.
+  let MaxBytes = 1950 * 1024
+
+  let asciiAt(offset: int, text: string, bytes: byte array) =
+    bytes.Length >= offset + text.Length
+    && text
+       |> Seq.indexed
+       |> Seq.forall(fun (index, value) -> bytes.[offset + index] = byte value)
+
+  /// Reads the bars a recording produced. Accepts exactly 48 values,
+  /// each between 0 and 100.
+  let parseWaveform<'e when VoiceError<'e>>
+    (values: int list)
+    : Result<Waveform, 'e> =
+    match values |> List.tryFind(fun bar -> bar < 0 || bar > 100) with
+    | Some bar -> Error('e.WaveformBarOutOfRange bar)
+    | None when List.length values <> Bars ->
+      Error('e.WrongWaveformCount(List.length values))
+    | None -> Ok { Bars = Array.ofList values }
+
+  let bars(waveform: Waveform) : int list = List.ofArray waveform.Bars
+
+  let isWebM(bytes: byte array) =
+    bytes.Length >= 4
+    && bytes.[0] = 0x1Auy
+    && bytes.[1] = 0x45uy
+    && bytes.[2] = 0xDFuy
+    && bytes.[3] = 0xA3uy
+
+  let isWav(bytes: byte array) =
+    asciiAt(0, "RIFF", bytes) && asciiAt(8, "WAVE", bytes)
+
+  /// Checks one voice note's size and format, and computes the SHA-256
+  /// the signed payload needs. The recording's length and encoding stay
+  /// the server's to judge.
+  let parse<'e when VoiceError<'e>>
+    (fileName: string, bytes: byte array)
+    : Result<Voice, 'e> =
+    if bytes.Length > MaxBytes then
+      Error('e.VoiceTooLarge(fileName, bytes.Length))
+    else
+      let contentType =
+        if isWebM bytes then "audio/webm"
+        elif isWav bytes then "audio/wav"
+        else ""
+
+      match contentType with
+      | "" -> Error('e.UnsupportedVoice fileName)
+      | contentType ->
+        Ok {
+          FileName = fileName
+          ContentType = contentType
+          Bytes = bytes
+          Hash = CommitImages.sha256 bytes
+        }
+
+  /// The server takes a voice note alone, or with a reply: never beside
+  /// a body or images.
+  let check<'e when VoiceError<'e>>
+    (voice: Voice option, hasBody: bool, hasImages: bool)
+    : Result<unit, 'e> =
+    match voice, hasBody, hasImages with
+    | None, _, _ -> Ok()
+    | Some _, true, _ -> Error('e.VoiceProhibited VoiceWithBody)
+    | Some _, false, true -> Error('e.VoiceProhibited VoiceWithImages)
+    | Some _, false, false -> Ok()
 
 module Commit =
 

@@ -17,6 +17,12 @@ type Image = {
   Hash: string
 }
 
+/// A staged voice note: its bytes, its content type, and its SHA-256, as the signed multipart carries them.
+type Voice = Image
+
+/// One voice note's loudness bars, as the server takes them: 48 values between 0 and 100.
+type Waveform = private { Bars: int array }
+
 /// Raw input of one commit, parsed at the boundary of `commit`.
 type CommitInput = {
   Body: string
@@ -44,6 +50,31 @@ module CommitImages =
   /// Checks the image count, size, and format, and computes each SHA-256.
   val parse:
     images: ImageAttachment list -> Result<Image list, 'e> when ImageError<'e>
+
+module Voices =
+
+  /// How many loudness bars one voice note carries.
+  val Bars: int
+
+  /// The upload cap, as the server bounds it, in bytes.
+  val MaxBytes: int
+
+  /// Reads the bars a recording produced. Accepts exactly 48 values, each between 0 and 100.
+  val parseWaveform:
+    values: int list -> Result<Waveform, 'e> when VoiceError<'e>
+
+  /// The bars a waveform holds.
+  val bars: waveform: Waveform -> int list
+
+  /// Checks one voice note's size and format, and computes the SHA-256 the signed payload needs.
+  val parse:
+    fileName: string * bytes: byte array -> Result<Voice, 'e>
+      when VoiceError<'e>
+
+  /// The server takes a voice note alone, or with a reply: never beside a body or images.
+  val check:
+    voice: Voice option * hasBody: bool * hasImages: bool -> Result<unit, 'e>
+      when VoiceError<'e>
 
 module Commit =
 

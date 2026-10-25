@@ -208,3 +208,44 @@ type ReportDetailsError<'e> =
 /// ssh-keygen itself failed: the message is its stderr.
 type SigningError<'e> =
   static abstract SigningFailed: message: string -> 'e
+
+type MessageBodyError<'e> =
+  static abstract MessageBodyTooLong: raw: string * length: int -> 'e
+
+module MessageBodies =
+
+  let inline value(body: string<MessageBody>) = UMX.untag body
+
+  /// The cap, as the server counts it: the raw length, no link rules.
+  let maxLength = 2000
+
+  /// Reads one message body. Unlike a commit body, any length from zero
+  /// up is content; the images or a voice note beside it may replace it.
+  let parse<'e when MessageBodyError<'e>>
+    (raw: string)
+    : Result<string<MessageBody>, 'e> =
+    if raw.Length > maxLength then
+      Error('e.MessageBodyTooLong(raw, raw.Length))
+    else
+      Ok(UMX.tag<MessageBody> raw)
+
+module ClientIds =
+
+  let inline value(id: string<ClientId>) = UMX.untag id
+
+  /// A fresh client id: a uuid, so a retried push answers with the
+  /// message it already created.
+  let fresh() : string<ClientId> =
+    UMX.tag<ClientId>(Guid.NewGuid().ToString "D")
+
+/// What a voice note may not ride with, as the server refuses it.
+type VoiceConflict =
+  | VoiceWithBody
+  | VoiceWithImages
+
+type VoiceError<'e> =
+  static abstract VoiceTooLarge: fileName: string * size: int -> 'e
+  static abstract UnsupportedVoice: fileName: string -> 'e
+  static abstract WrongWaveformCount: count: int -> 'e
+  static abstract WaveformBarOutOfRange: bar: int -> 'e
+  static abstract VoiceProhibited: conflict: VoiceConflict -> 'e

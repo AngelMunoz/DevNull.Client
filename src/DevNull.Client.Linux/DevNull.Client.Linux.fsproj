@@ -14,12 +14,15 @@
   <ItemGroup>
     <Compile Include="Registrar.fsi" />
     <Compile Include="Registrar.fs" />
+    <Compile Include="Audio.fsi" />
+    <Compile Include="Audio.fs" />
     <Compile Include="Natives.fsi" />
     <Compile Include="Natives.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="IcedTasks" />
     <!-- The assembly version follows CHANGELOG.md, like Core's -->
     <PackageReference Include="Ionide.KeepAChangelog.Tasks" PrivateAssets="all" />
   </ItemGroup>

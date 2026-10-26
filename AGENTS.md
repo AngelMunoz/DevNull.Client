@@ -58,9 +58,10 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
     session storage; generic over the capability interfaces, never over
     the concrete env.
   - `Natives.fsi/fs` - the native contracts a platform head implements:
-    `ISchemeRegistrar`, `IAudioEngine` (the microphone and the speaker;
-    unimplemented yet, `ValueNone` in both heads), and the
-    `NativeServices` record `AppEnv` carries.
+    `ISchemeRegistrar`, `IAudioEngine` (the microphone and the speaker),
+    `ISystemSounds`, and the `NativeServices` record `AppEnv` carries.
+    A service the head's machine lacks stays `ValueNone`; the interface
+    consumer hides what is missing.
   - `Navigation.fsi/fs` - `go`: fire-and-forget navigation on the UI
     thread.
   - `UnreadPoller.fsi/fs` - polls `Me.get` on an interval into the
@@ -81,9 +82,10 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
   Windows-only implementations (audio through WASAPI or WinRT, toasts,
   camera prompts) grow here.
 - `src/DevNull.Client.Linux/` - the Linux head: the `.desktop` plus
-  `xdg-mime` scheme registrar, the native services record, and the
-  entry point. Linux-only implementations (ALSA audio, portals) grow
-  here.
+  `xdg-mime` scheme registrar, the audio engine and the system sounds
+  through the PulseAudio client library and libcanberra (every PipeWire
+  and PulseAudio desktop serves both), the native services record, and
+  the entry point. Linux-only implementations (portals) grow here.
 - Both heads keep the `DevNull.Client` assembly name: the shipped
   executable is still `DevNull.Client`, so the scheme handlers of
   existing installs keep working.

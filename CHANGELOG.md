@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Core:** the site's direct messages ("Remotes") are now available end to end: the inbox with its tabs, search, and pins; one-to-one and org threads with typing, read receipts, and live reaction changes; messages pushed with images or a voice note; stashing, muting, pinning, and emoji reactions; merging or dropping an incoming request; and finding people to write to, then starting, renaming, and staffing orgs. The Remotes settings on the signed account (who can push, whether pulls are shared) come with it and can be changed.
 - **Core:** a voice note is checked before it is sent: Opus WebM or WAV, within the server's upload cap, carrying the 48 loudness bars the player draws.
 - **Core:** a draft can be previewed as the commit it would become — the body it is kept as, the segments it renders from, its excerpt, and its mentions — without the draft being kept.
+- **Audio (Linux, Windows):** Added the native infra in order to handle sound play.
 
 ## [0.3.1] - 2026-10-24
 

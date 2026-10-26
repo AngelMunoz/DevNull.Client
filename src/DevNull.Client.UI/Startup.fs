@@ -116,6 +116,17 @@ let start(natives: NativeServices, argv: string[]) =
   | Error message ->
     Log.Warning("The devnull:// scheme is not registered: {Error}", message)
 
+  // A head that found no engine or no sound service keeps its silence;
+  // the log names what the session runs without.
+  match natives.Audio with
+  | ValueSome _ -> ()
+  | ValueNone -> Log.Warning("No audio engine: voice notes stay hidden.")
+
+  match natives.Sounds with
+  | ValueSome _ -> ()
+  | ValueNone ->
+    Log.Warning("No system sounds: the client stays silent on alerts.")
+
   let callback = callbackUri argv
 
   if hasRunningInstance() then

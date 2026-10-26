@@ -5,6 +5,7 @@ open System.Collections.Generic
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Chrome
+open Avalonia.Controls.Documents
 open Avalonia.Controls.Primitives
 open Avalonia.Layout
 open Avalonia.Markup.Xaml.MarkupExtensions
@@ -28,7 +29,13 @@ module Keys =
   let onAccent = "AppOnAccent"
   let danger = "AppDanger"
   let dangerText = "AppDangerText"
+  let success = "AppSuccess"
+  let popover = "AppPopover"
   let rail = "AppRail"
+
+  // The input fill rides the rail token until a surface of its own is
+  // needed.
+  let input = rail
   let primarySoft = "AppPrimarySoft"
   let laneFallback = "AppLaneFallback"
 
@@ -72,7 +79,10 @@ module Brushes =
   let accentPressed = themed Keys.accentPressed
   let onAccent = themed Keys.onAccent
   let danger = themed Keys.danger
+  let success = themed Keys.success
+  let popover = themed Keys.popover
   let rail = themed Keys.rail
+  let input = themed Keys.input
   let primarySoft = themed Keys.primarySoft
   let laneFallback = themed Keys.laneFallback
 
@@ -142,6 +152,12 @@ type StyleClass =
   | CardEdge
   | RailEdge
   | MutedEdge
+  | AheadPill
+  | DayMarker
+  | HeadRule
+  | ReactionChip
+  | ReactionChipMine
+  | BubbleShadow
 
 /// The height of the drag band the shell lays over the drawn window
 /// chrome.
@@ -199,6 +215,12 @@ let name class' =
   | CardEdge -> "card-edge"
   | RailEdge -> "rail-edge"
   | MutedEdge -> "muted-edge"
+  | AheadPill -> "ahead-pill"
+  | DayMarker -> "day-marker"
+  | HeadRule -> "head-rule"
+  | ReactionChip -> "reaction-chip"
+  | ReactionChipMine -> "reaction-chip-mine"
+  | BubbleShadow -> "bubble-shadow"
 
 /// Moves one class on and off a control as the observable flips. The
 /// class list is the only thing the subscription touches.
@@ -299,7 +321,7 @@ let themed(key: string) = box(DynamicResourceExtension key)
 let styleTable: (StyleClass * (unit -> Style)) list = [
   NavItem,
   fun () ->
-    // The site's nav entry: one 44-high row, icon and label at 15px
+    // The nav entry: one 44-high row, icon and label at 15px
     // medium, rounded corners.
     styleOf(
       (fun selector -> selector.OfType<Button>().Class(name NavItem)),
@@ -319,7 +341,7 @@ let styleTable: (StyleClass * (unit -> Style)) list = [
     )
   NavItemActive,
   fun () ->
-    // The site's active navigation: a primary-soft wash with primary
+    // The active navigation: a primary-soft wash with primary
     // text, never a gray fill.
     styleOf(
       (fun selector ->
@@ -332,7 +354,7 @@ let styleTable: (StyleClass * (unit -> Style)) list = [
   NavCommit,
   fun () ->
     // The compose entry: the nav row shape filled with the primary
-    // color, the way the site's Commit button sits inside the nav.
+    // color.
     styleOf(
       (fun selector -> selector.OfType<Button>().Class(name NavCommit)),
       [|
@@ -352,7 +374,7 @@ let styleTable: (StyleClass * (unit -> Style)) list = [
   RailItem,
   fun () ->
     // The icon rail: the row keeps its height and centers its single
-    // icon, the way the site's collapsed navigation does.
+    // icon.
     styleOf(
       (fun selector -> selector.OfType<Button>().Class(name RailItem)),
       [|
@@ -385,7 +407,7 @@ let styleTable: (StyleClass * (unit -> Style)) list = [
     )
   Headline,
   fun () ->
-    // The site's identity heading: 24px semibold, tight tracking.
+    // The identity heading: 24px semibold, tight tracking.
     styleOf(
       (fun selector -> selector.OfType<TextBlock>().Class(name Headline)),
       [|
@@ -514,7 +536,7 @@ let styleTable: (StyleClass * (unit -> Style)) list = [
     )
   FilterPill,
   fun () ->
-    // The site's notification filter: a full-round pill that fills
+    // The notification filter: a full-round pill that fills
     // with the primary-soft wash while pressed in.
     styleOf(
       (fun selector -> selector.OfType<Button>().Class(name FilterPill)),
@@ -545,7 +567,7 @@ let styleTable: (StyleClass * (unit -> Style)) list = [
     )
   TabButton,
   fun () ->
-    // The site's page tab: a full-width row of centered titles over a
+    // The page tab: a full-width row of centered titles over a
     // hairline, the active one underlined in primary.
     styleOf(
       (fun selector -> selector.OfType<Button>().Class(name TabButton)),
@@ -579,7 +601,7 @@ let styleTable: (StyleClass * (unit -> Style)) list = [
   CommitRow,
   fun () ->
     // One commit card: transparent over the feed, a surface wash on
-    // hover, the way the site's rows wash with accent/50. The padding
+    // hover. The padding
     // stays at zero: the Fluent template's default inset would shove
     // the whole row off the shared rail.
     styleOf(
@@ -642,6 +664,77 @@ let styleTable: (StyleClass * (unit -> Style)) list = [
         Button.HeightProperty, box 30.0
         Button.PaddingProperty, box(Thickness(0.0))
         Button.CornerRadiusProperty, box(CornerRadius(6.0))
+      |]
+    )
+  AheadPill,
+  fun () ->
+    // One conversation's unread count: a mono count on the primary
+    // fill. Geist Mono digits are monospaced, so the count holds its
+    // width as it changes.
+    styleOf(
+      (fun selector -> selector.OfType<Border>().Class(name AheadPill)),
+      [|
+        Border.BackgroundProperty, themed Keys.accent
+        Border.CornerRadiusProperty, box(CornerRadius(2.0))
+        Border.PaddingProperty, box(Thickness(8.0, 0.0, 8.0, 0.0))
+        Layoutable.MinHeightProperty, box 20.0
+        TextElement.FontFamilyProperty, box Fonts.mono
+        TextElement.FontSizeProperty, box 11.0
+        TextElement.FontWeightProperty, box FontWeight.Medium
+        TextElement.ForegroundProperty, themed Keys.onAccent
+      |]
+    )
+  DayMarker,
+  fun () ->
+    // One calendar-day break in a thread: a quiet pill the host row
+    // centers, a dot, and the day name. The dot rides an Ellipse
+    // style in `styles`.
+    styleOf(
+      (fun selector -> selector.OfType<Border>().Class(name DayMarker)),
+      [|
+        Border.BackgroundProperty, themed Keys.surface
+        Border.CornerRadiusProperty, box(CornerRadius(2.0))
+        Border.PaddingProperty, box(Thickness(6.0, 2.0, 8.0, 2.0))
+        TextElement.FontFamilyProperty, box Fonts.mono
+        TextElement.FontSizeProperty, box 11.0
+        TextElement.ForegroundProperty, themed Keys.muted
+      |]
+    )
+  ReactionChip,
+  fun () ->
+    // One emoji tally under a message: card fill inside a hairline at
+    // 13px. The mine variant washes primary-soft; it rides a sibling
+    // style in `styles`.
+    styleOf(
+      (fun selector -> selector.OfType<Border>().Class(name ReactionChip)),
+      [|
+        Border.BackgroundProperty, themed Keys.card
+        Border.BorderBrushProperty, themed Keys.border
+        Border.BorderThicknessProperty, box(Thickness(1.0))
+        Border.CornerRadiusProperty, box(CornerRadius(6.0))
+        Border.PaddingProperty, box(Thickness(6.0, 0.0, 8.0, 0.0))
+        Layoutable.MinHeightProperty, box 24.0
+        TextElement.FontSizeProperty, box 13.0
+      |]
+    )
+  BubbleShadow,
+  fun () ->
+    // The chat's one depth cue: on message bubbles, images in
+    // messages, and link cards only.
+    styleOf(
+      (fun selector -> selector.OfType<Border>().Class(name BubbleShadow)),
+      [|
+        Border.BoxShadowProperty,
+        box(
+          BoxShadows(
+            BoxShadow(
+              OffsetY = 12.0,
+              Blur = 30.0,
+              Spread = -12.0,
+              Color = Color.FromArgb(115uy, 0uy, 0uy, 0uy)
+            )
+          )
+        )
       |]
     )
 ]
@@ -748,15 +841,69 @@ let styles() =
     )
   )
 
-  // The focused commit row. The site outlines the focused card; the
-  // client's rows run edge to edge on the rail, where a border ring
-  // would shift the layout on every walk, so the focus rides as the
-  // same primary-soft wash the active navigation wears.
+  // The focused commit row: the rows run edge to edge on the rail,
+  // where a border ring would shift the layout on every walk, so the
+  // focus rides as the same primary-soft wash the active navigation
+  // wears.
   styles.Add(
     styleOf(
       (fun selector ->
         selector.OfType<Button>().Class(name CommitRow).Class(":focus")),
       [| Button.BackgroundProperty, themed Keys.primarySoft |]
+    )
+  )
+
+  // The day marker's dot: the muted text color at six tenths.
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<Shapes.Ellipse>().Class(name DayMarker)),
+      [|
+        Shapes.Ellipse.FillProperty, themed Keys.muted
+        Layoutable.WidthProperty, box 6.0
+        Layoutable.HeightProperty, box 6.0
+        Visual.OpacityProperty, box 0.6
+      |]
+    )
+  )
+
+  // The thread's head divider: "HEAD · N new" in the mono accent, a
+  // half-opacity accent hairline trailing to the row's end.
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<TextBlock>().Class(name HeadRule)),
+      [|
+        TextBlock.FontFamilyProperty, box Fonts.mono
+        TextBlock.FontSizeProperty, box 11.0
+        TextBlock.FontWeightProperty, box FontWeight.Medium
+        TextBlock.ForegroundProperty, themed Keys.accent
+      |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<Border>().Class(name HeadRule)),
+      [|
+        Border.BackgroundProperty, themed Keys.accent
+        Control.HeightProperty, box 1.0
+        Visual.OpacityProperty, box 0.5
+      |]
+    )
+  )
+
+  // The mine half of a reaction: the primary-soft wash with the accent
+  // ring.
+  styles.Add(
+    styleOf(
+      (fun selector ->
+        selector
+          .OfType<Border>()
+          .Class(name ReactionChip)
+          .Class(name ReactionChipMine)),
+      [|
+        Border.BackgroundProperty, themed Keys.primarySoft
+        Border.BorderBrushProperty, themed Keys.accent
+      |]
     )
   )
 
@@ -989,8 +1136,7 @@ let styles() =
 
   styles
 
-/// The dark palette: the site's `.dark` tokens from
-/// dev-null/resources/css/app.css.
+/// The dark palette.
 let darks() =
   let dictionary = ResourceDictionary()
 
@@ -1011,6 +1157,8 @@ let darks() =
   color(Keys.onAccent, "#111112")
   color(Keys.danger, "#ff6b6b")
   color(Keys.dangerText, "#ff8787")
+  color(Keys.success, "#51cf66")
+  color(Keys.popover, "#1f1f22")
   color(Keys.rail, "#36363a")
   color(Keys.primarySoft, "#18233a")
   color(Keys.laneFallback, "#36363a")
@@ -1023,8 +1171,7 @@ let darks() =
 
   dictionary
 
-/// The light palette: the site's `:root` tokens from
-/// dev-null/resources/css/app.css.
+/// The light palette.
 let lights() =
   let dictionary = ResourceDictionary()
 
@@ -1045,6 +1192,8 @@ let lights() =
   color(Keys.onAccent, "#ffffff")
   color(Keys.danger, "#c92a2a")
   color(Keys.dangerText, "#ffffff")
+  color(Keys.success, "#2f9e44")
+  color(Keys.popover, "#ffffff")
   color(Keys.rail, "#d3d7dd")
   color(Keys.primarySoft, "#e8effc")
   color(Keys.laneFallback, "#d3d7dd")

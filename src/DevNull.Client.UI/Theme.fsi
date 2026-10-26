@@ -51,8 +51,18 @@ module Brushes =
   /// The destructive color: delete account, report.
   val danger: IObservable<IBrush>
 
+  /// The success color: delivered states, positive outcomes.
+  val success: IObservable<IBrush>
+
+  /// The popover fill: floating menus and pickers above the page.
+  val popover: IObservable<IBrush>
+
   /// The rail line color.
   val rail: IObservable<IBrush>
+
+  /// The input fill. Aliases the rail token until an input surface of
+  /// its own is needed.
+  val input: IObservable<IBrush>
 
   /// The soft primary wash behind active elements.
   val primarySoft: IObservable<IBrush>
@@ -77,7 +87,7 @@ module Brushes =
   /// The lane color when a user carries no lane.
   val laneFallback: IObservable<IBrush>
 
-/// The bundled Geist fonts of the site.
+/// The bundled Geist fonts.
 module Fonts =
 
   /// Geist, the sans of the app.
@@ -131,6 +141,12 @@ type StyleClass =
   | CardEdge
   | RailEdge
   | MutedEdge
+  | AheadPill
+  | DayMarker
+  | HeadRule
+  | ReactionChip
+  | ReactionChipMine
+  | BubbleShadow
 
 /// The height of the drag band the shell lays over the drawn window
 /// chrome.
@@ -241,8 +257,18 @@ module Keys =
   /// The text on destructive fills.
   val dangerText: string
 
+  /// The success color.
+  val success: string
+
+  /// The popover fill.
+  val popover: string
+
   /// The rail line color.
   val rail: string
+
+  /// The input fill. Aliases the rail key until an input surface of
+  /// its own is needed.
+  val input: string
 
   /// The soft primary wash behind active elements.
   val primarySoft: string

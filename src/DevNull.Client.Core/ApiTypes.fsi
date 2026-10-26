@@ -12,14 +12,6 @@ type CurrentUser = {
   AvatarUrl: string option
 }
 
-/// One redeemed device: the user, the unread notifications in the
-/// envelope, and whether the user shows pastel controls at all.
-type DeviceSession = {
-  User: CurrentUser
-  UnreadNotificationsCount: int
-  PasteisMode: bool
-}
-
 /// A lane as the API reports it: a palette index or a custom color.
 type Lane =
   | LaneIndex of index: int
@@ -579,12 +571,14 @@ type Conversation = {
   MutedUntilAt: DateTimeOffset option
 }
 
-/// One page of the remotes inbox, with the counts the nav shows.
+/// One page of the remotes inbox, with the counts the nav shows and
+/// the pin map the pages move under.
 type Inbox = {
   Conversations: Conversation list
   HasMore: bool
   UnreadCount: int
   RequestsCount: int
+  Pins: Map<string, DateTimeOffset option>
 }
 
 /// One member of an org thread, with their read position.
@@ -652,6 +646,16 @@ type MeRemotes = {
   Requests: bool
   Everyone: bool
   UnreadCount: int
+}
+
+/// One redeemed device: the user, the unread notifications in the
+/// envelope, whether the user shows pastel controls at all, and the
+/// direct-message settings while they are on.
+type DeviceSession = {
+  User: CurrentUser
+  UnreadNotificationsCount: int
+  PasteisMode: bool
+  Remotes: MeRemotes option
 }
 
 /// One draft as the commit it would become, as POST

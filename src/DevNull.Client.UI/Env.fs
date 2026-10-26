@@ -32,6 +32,7 @@ open DevNull.Client.UiClock
 open DevNull.Client.Timeline
 open DevNull.Client.RouteStore
 open DevNull.Client.Unread
+open DevNull.Client.Remotes
 
 type SystemClock() =
 
@@ -291,6 +292,18 @@ type AppEnv
       logging.CreateLogger "DevNull.Client.Unread"
     )
 
+  let remotes =
+    RemotesStore(
+      {
+        Clock = clock
+        NonceSource = nonceSource
+        Signer = signer
+        Http = http
+      },
+      session,
+      logging.CreateLogger "DevNull.Client.Remotes"
+    )
+
   let timeline = TimelineService()
 
   let routes = RouteStore()
@@ -324,6 +337,9 @@ type AppEnv
 
   interface IProvideUnread with
     member _.Unread = unread
+
+  interface IProvideRemotes with
+    member _.Remotes = remotes
 
   interface IProvideTimeline with
     member _.Timeline = timeline

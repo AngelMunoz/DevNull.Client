@@ -388,6 +388,25 @@ let decodeTests =
         Expect.equal true inbox.HasMore "has more"
         Expect.equal 2 inbox.UnreadCount "unread"
         Expect.equal 1 inbox.RequestsCount "requests"
+        Expect.isEmpty (Map.toList inbox.Pins) "pins"
+
+        match
+          Inbox.decode(
+            inboxJson.Replace(
+              "\"has_more\":true",
+              "\"pins\":{\"018f4c1e-org1-7c3a-9b2d-5e6f7a8b9c0d\":null,\"018f4c1e-org2-7c3a-9b2d-5e6f7a8b9c0d\":\"2026-10-19T00:00:00.000000Z\"},\"has_more\":true"
+            )
+          )
+        with
+        | Ok pinned ->
+          Expect.equal
+            [
+              ("018f4c1e-org2-7c3a-9b2d-5e6f7a8b9c0d",
+               Some(DateTimeOffset.Parse "2026-10-19T00:00:00.000000Z"))
+            ]
+            (pinned.Pins |> Map.toList |> List.filter(fun (_, at) -> at.IsSome))
+            "the pin map never read"
+        | Error failure -> failtestf "%A" failure
 
         match inbox.Conversations with
         | [ org; direct ] ->

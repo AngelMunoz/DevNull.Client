@@ -14,6 +14,7 @@ open DevNull.Client.UiClock
 open DevNull.Client.Timeline
 open DevNull.Client.RouteStore
 open DevNull.Client.Unread
+open DevNull.Client.Remotes
 open DevNull.Client.Natives
 
 /// The logging capability: one factory bridged to Serilog, so every
@@ -43,6 +44,7 @@ type AppEnv =
   interface IProvideSettings
   interface IProvideLogging
   interface IProvideUnread
+  interface IProvideRemotes
   interface IProvideTimeline
   interface IProvideUiClock
   interface IProvideRoutes

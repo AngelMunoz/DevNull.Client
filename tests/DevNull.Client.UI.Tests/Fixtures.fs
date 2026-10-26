@@ -17,6 +17,7 @@ open DevNull.Client.Errors
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
 open DevNull.Client.Profiles
+open DevNull.Client.Remotes
 open DevNull.Client.RouteStore
 open DevNull.Client.SettingsStore
 open DevNull.Client.SshKeys
@@ -224,6 +225,18 @@ type TestEnv
 
   let routes = RouteStore()
 
+  let remotes =
+    RemotesStore(
+      {
+        Clock = clock
+        NonceSource = nonceSource
+        Signer = signer
+        Http = http
+      },
+      store,
+      NullLogger.Instance
+    )
+
   interface IProvideClock with
     member _.Clock = clock
 
@@ -253,6 +266,9 @@ type TestEnv
 
   interface IProvideUnread with
     member _.Unread = unread
+
+  interface IProvideRemotes with
+    member _.Remotes = remotes
 
   interface IProvideTimeline with
     member _.Timeline = timeline
@@ -287,6 +303,7 @@ let sessionOf(username: string) : DeviceSession = {
   }
   UnreadNotificationsCount = 3
   PasteisMode = true
+  Remotes = None
 }
 
 let signedInStore() =

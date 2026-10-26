@@ -45,6 +45,10 @@
     <Compile Include="Timeline.fs" />
     <Compile Include="RouteStore.fsi" />
     <Compile Include="RouteStore.fs" />
+    <Compile Include="RemotesState.fsi" />
+    <Compile Include="RemotesState.fs" />
+    <Compile Include="Remotes.fsi" />
+    <Compile Include="Remotes.fs" />
     <Compile Include="Natives.fsi" />
     <Compile Include="Natives.fs" />
     <Compile Include="Env.fsi" />

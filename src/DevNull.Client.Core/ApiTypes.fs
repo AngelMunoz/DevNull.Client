@@ -14,12 +14,6 @@ type CurrentUser = {
   AvatarUrl: string option
 }
 
-type DeviceSession = {
-  User: CurrentUser
-  UnreadNotificationsCount: int
-  PasteisMode: bool
-}
-
 type Lane =
   | LaneIndex of index: int
   | LaneColor of color: string
@@ -651,6 +645,7 @@ type Inbox = {
   HasMore: bool
   UnreadCount: int
   RequestsCount: int
+  Pins: Map<string, DateTimeOffset option>
 }
 
 type ThreadMember = {
@@ -716,6 +711,16 @@ type MeRemotes = {
   Requests: bool
   Everyone: bool
   UnreadCount: int
+}
+
+/// One redeemed device: the user, the unread notifications in the
+/// envelope, whether the user shows pastel controls at all, and the
+/// direct-message settings while they are on.
+type DeviceSession = {
+  User: CurrentUser
+  UnreadNotificationsCount: int
+  PasteisMode: bool
+  Remotes: MeRemotes option
 }
 
 /// The signed-in account, as GET /api/v1/me returns it.
@@ -2002,6 +2007,20 @@ let conversationDecoder(element: JsonElement) = decode {
   }
 }
 
+let pinsDecoder(element: JsonElement) : Map<string, DateTimeOffset option> =
+  match element.TryGetProperty "pins" with
+  | false, _ -> Map.empty
+  | true, pins when pins.ValueKind = JsonValueKind.Object ->
+    [
+      for property in pins.EnumerateObject() do
+        match property.Value.ValueKind with
+        | JsonValueKind.String ->
+          property.Name, Some(property.Value.GetDateTimeOffset())
+        | _ -> property.Name, None
+    ]
+    |> Map.ofList
+  | true, _ -> Map.empty
+
 let inboxDecoder(element: JsonElement) = decode {
   let! conversations =
     Required.Property.list ("data", conversationDecoder) element
@@ -2019,6 +2038,7 @@ let inboxDecoder(element: JsonElement) = decode {
     HasMore = hasMore
     UnreadCount = unreadCount
     RequestsCount = requestsCount
+    Pins = pinsDecoder element
   }
 }
 

@@ -85,6 +85,16 @@ let saveSession(session: DeviceSession) : Result<unit, string> =
 
     json.["unread"] <- JsonValue.Create session.UnreadNotificationsCount
     json.["pasteis_mode"] <- JsonValue.Create session.PasteisMode
+
+    match session.Remotes with
+    | Some remotes ->
+      json.["remotes_from"] <- JsonValue.Create(RemotesFroms.wire remotes.From)
+      json.["remotes_pull_receipts"] <- JsonValue.Create remotes.PullReceipts
+      json.["remotes_requests"] <- JsonValue.Create remotes.Requests
+      json.["remotes_everyone"] <- JsonValue.Create remotes.Everyone
+      json.["remotes_unread"] <- JsonValue.Create remotes.UnreadCount
+    | None -> ()
+
     writeAllTextAtomic sessionPath (json.ToJsonString())
     Ok()
   with ex ->
@@ -122,7 +132,24 @@ let loadSession() : DeviceSession option =
       tryInt "unread" root
     with
     | Some id, Some username, Some name, Some unread ->
-      // A session stored before pastéis mode exists reads as off.
+      // A session stored before pastéis mode exists reads as off, and
+      // one stored before the direct-message settings reads as off
+      // too: the first account poll corrects both.
+      let remotes =
+        match tryString "remotes_from" root with
+        | Some raw ->
+          Some {
+            From = RemotesFroms.parse raw
+            PullReceipts =
+              tryBool "remotes_pull_receipts" root |> Option.defaultValue false
+            Requests =
+              tryBool "remotes_requests" root |> Option.defaultValue false
+            Everyone =
+              tryBool "remotes_everyone" root |> Option.defaultValue false
+            UnreadCount = tryInt "remotes_unread" root |> Option.defaultValue 0
+          }
+        | None -> None
+
       Some {
         User = {
           Id = id
@@ -132,6 +159,7 @@ let loadSession() : DeviceSession option =
         }
         UnreadNotificationsCount = unread
         PasteisMode = tryBool "pasteis_mode" root |> Option.defaultValue false
+        Remotes = remotes
       }
     | _ -> None
   with _ ->

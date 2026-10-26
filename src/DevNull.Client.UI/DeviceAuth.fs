@@ -178,6 +178,7 @@ let complete
           }
           UnreadNotificationsCount = me.UnreadNotificationsCount
           PasteisMode = me.PasteisMode
+          Remotes = me.Remotes
         }
 
         match saveSession session with

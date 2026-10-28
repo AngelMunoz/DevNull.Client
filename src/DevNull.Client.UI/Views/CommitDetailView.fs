@@ -547,7 +547,7 @@ module Parts =
                 {
                   child with
                       ParentLane = parent.Author.Lane
-                      ParentHandle = parent.Author.Username
+                      ParentHandle = parent.Author.Handle
                 },
                 carried
               )
@@ -584,7 +584,7 @@ module Parts =
             .Orientation(Orientation.Horizontal)
             .Spacing(6.0)
             .Children(
-              TextBlock().Text($"@{commit.Author.Username}"),
+              TextBlock().Text($"@{commit.Author.Handle}"),
               TextBlock()
                 .Classes(Theme.name Theme.Muted)
                 .Text(commit.Body)
@@ -717,7 +717,7 @@ module Parts =
           | Some page ->
             Some(
               page.Commit.Author.Lane,
-              page.Commit.Author.Username,
+              page.Commit.Author.Handle,
               current.Replies
             )
           | None -> None)

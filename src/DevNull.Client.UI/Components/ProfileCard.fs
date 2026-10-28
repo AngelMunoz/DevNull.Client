@@ -49,7 +49,7 @@ module State =
       props.Env,
       {
         KeyFile = props.Session.KeyFile
-        Username = props.Session.Session.User.Username
+        Username = props.Session.Session.User.Handle
       }
     )
 
@@ -121,7 +121,7 @@ let identityHead(cache: ImageCacheService, profile: Profile) : Control =
         .Spacing(2.0)
         .Children(
           TextBlock().Classes(Theme.name Theme.Subtitle).Text(profile.User.Name),
-          laneHandle(profile.Lane, profile.User.Username)
+          laneHandle(profile.Lane, profile.User.Handle)
         )
     )
 

@@ -7,7 +7,7 @@ open System
 /// The signed-in user, as POST /api/v1/devices returns them.
 type CurrentUser = {
   Id: string
-  Username: string
+  Handle: string
   Name: string
   AvatarUrl: string option
 }
@@ -20,7 +20,7 @@ type Lane =
 /// A user as the signed API shows them on a commit or in a list.
 type User = {
   Id: string
-  Username: string
+  Handle: string
   Name: string
   AvatarUrl: string option
   Lane: Lane option
@@ -62,7 +62,7 @@ type Segment =
 
 /// One mention position in a commit body.
 type Mention = {
-  Username: string
+  Handle: string
   Offset: int
   Length: int
 }

@@ -103,6 +103,8 @@ type RemotesState = {
   TypingPings: Map<string, DateTimeOffset>
   WatchCounts: Map<string, int>
   WindowActive: bool
+  OpenTarget: ChatTarget option
+  ScrollPlaces: Map<string, float>
 }
 
 /// One inbox thread page, whichever kind of thread it came from.
@@ -214,18 +216,18 @@ type WatchedRows = {
 
 module ChatTargets =
 
-  /// The store's key of one target: the partner's username, or the
+  /// The store's key of one target: the partner's handle, or the
   /// org id under the `org:` prefix.
   let key(target: ChatTarget) : string =
     match target with
-    | Partner user -> user.Username
+    | Partner user -> user.Handle
     | Org org -> "org:" + org.Id
 
   /// The key of one inbox row: the same key its thread carries.
   let summaryKey(summary: Conversation) : string =
     match summary.Kind, summary.Partner with
     | ConversationKind.Org, _ -> "org:" + summary.Id
-    | _, Some partner -> partner.Username
+    | _, Some partner -> partner.Handle
     | _, None -> "org:" + summary.Id
 
   /// The thread target of one inbox row.
@@ -299,6 +301,8 @@ let emptyState: RemotesState = {
   TypingPings = Map.empty
   WatchCounts = Map.empty
   WindowActive = true
+  OpenTarget = None
+  ScrollPlaces = Map.empty
 }
 
 let listTab(state: RemotesState, tab: InboxTab) : InboxList =
@@ -1159,6 +1163,7 @@ let refreshInbox(state: RemotesState, landing: InboxLanding) : RemotesState = {
                      landing.Rows
                    )
                  ))
+            HasMore = landing.Page.HasMore
       }
       Fetched = {
         state.Fetched with
@@ -1234,3 +1239,25 @@ let restageSend
           Threads = Map.add key { thread with Pending = pending } state.Threads
     })
   |> Option.defaultValue state
+
+/// One message's link card landed: the preview the server answered
+/// takes the message's slot.
+let landLinkPreview
+  (state: RemotesState, key: string, messageId: int, preview: LinkPreview)
+  : RemotesState =
+  updateThread
+    key
+    (fun thread -> {
+      thread with
+          Messages =
+            thread.Messages
+            |> List.map(fun message ->
+              if message.Id = messageId then
+                {
+                  message with
+                      LinkPreview = Some preview
+                }
+              else
+                message)
+    })
+    state

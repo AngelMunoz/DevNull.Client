@@ -26,7 +26,7 @@ let partnerId = "01a151db-7fee-727b-a7ce-c911a7556243"
 
 let userOf(id: string, username: string, name: string) : User = {
   Id = id
-  Username = username
+  Handle = username
   Name = name
   AvatarUrl = None
   Lane = None
@@ -44,7 +44,7 @@ let bob = userOf("01a151db-b0b0-727b-a7ce-c911a7556243", "bob", "Bob")
 let jsonBool(flag: bool) = if flag then "true" else "false"
 
 let userJsonOf(id: string, username: string, name: string) =
-  $"""{{"id":"{id}","username":"{username}","name":"{name}","avatar_url":null}}"""
+  $"""{{"id":"{id}","handle":"{username}","name":"{name}","avatar_url":null}}"""
 
 let hubotJson = userJsonOf(partnerId, "hubot", "The Hubot")
 
@@ -113,6 +113,10 @@ type ScriptedApi() =
 
   let routeOf(target: string) = target.Split('?')[0]
 
+  // The store's loops add requests from pool threads while tests read
+  // them on the session thread, so the log and its readers share a lock.
+  let gate = obj()
+
   /// Scripts one route: each request pops the next reply, and the
   /// last reply repeats.
   member _.Answer(route: string, [<ParamArray>] replies: (int * string) array) =
@@ -131,17 +135,18 @@ type ScriptedApi() =
     | true, gate -> gate.TrySetResult() |> ignore
     | false, _ -> ()
 
-  member _.Requests = requests |> Seq.toList
+  member _.Requests = lock gate (fun () -> requests |> Seq.toList)
 
   member _.RequestsTo(route: string) =
-    requests
-    |> Seq.filter(fun request -> request.Target.StartsWith route)
-    |> Seq.toList
+    lock gate (fun () ->
+      requests
+      |> Seq.filter(fun request -> request.Target.StartsWith route)
+      |> Seq.toList)
 
   interface IHttp with
 
     member _.Send(request: HttpRequest) = async {
-      requests.Add request
+      lock gate (fun () -> requests.Add request)
 
       let route = routeOf request.Target
 
@@ -177,6 +182,18 @@ let bodyText(request: HttpRequest) =
   match request.Body with
   | Text text -> text
   | other -> failtestf "expected a text body, got %A" other
+
+/// The JSON payload of one request: the text body itself, or the
+/// `payload` file inside a multipart push.
+let payloadText(request: HttpRequest) =
+  match request.Body with
+  | Text text -> text
+  | Multipart form ->
+    form.Files
+    |> List.tryFind(fun file -> file.Name = "payload")
+    |> Option.map(fun file -> Text.Encoding.UTF8.GetString file.Content)
+    |> Option.defaultValue ""
+  | Empty -> ""
 
 /// The store over a scripted api, with the session it refreshes. The
 /// first pump starts the headless session off the main thread, so the

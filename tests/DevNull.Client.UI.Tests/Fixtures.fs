@@ -16,6 +16,7 @@ open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
+open DevNull.Client.Natives
 open DevNull.Client.Profiles
 open DevNull.Client.Remotes
 open DevNull.Client.RouteStore
@@ -117,6 +118,10 @@ type FakeApi
   let requests = ResizeArray<HttpRequest>()
   let byteRequests = ResizeArray<string>()
 
+  // Pages poll in the background while tests read, so the log and its
+  // readers share a lock.
+  let gate = obj()
+
   let bytesHandler =
     bytes
     |> Option.defaultWith(fun () ->
@@ -138,19 +143,147 @@ type FakeApi
       Body = body
     })
 
-  member _.Requests = requests |> Seq.toList
+  member _.Requests = lock gate (fun () -> requests |> Seq.toList)
 
-  member _.ByteRequests = byteRequests |> Seq.toList
+  member _.ByteRequests = lock gate (fun () -> byteRequests |> Seq.toList)
 
   interface IHttp with
     member _.Send(request) = async {
-      requests.Add request
+      lock gate (fun () -> requests.Add request)
       return Ok(handler request)
     }
 
     member _.GetBytes(target: string) = async {
-      byteRequests.Add target
+      lock gate (fun () -> byteRequests.Add target)
       return bytesHandler target
+    }
+
+/// A one-second 16 kHz mono WAV whose samples count up, so waveform
+/// bars come out nonzero. The header is the canonical 44 bytes, which
+/// is the offset the client's own sample reader skips.
+let cannedWav: byte array =
+  let samples = [| for value in 0..15999 -> int16(value % 3000) |]
+
+  let payload = Array.zeroCreate(samples.Length * 2)
+
+  for index, sample in Array.indexed samples do
+    Buffer.BlockCopy(samples, index * 2, payload, index * 2, 2)
+
+  [|
+    yield! "RIFF"B
+    yield! BitConverter.GetBytes(36 + payload.Length)
+    yield! "WAVE"B
+    yield! "fmt "B
+    yield! BitConverter.GetBytes(16)
+    yield! BitConverter.GetBytes(1us)
+    yield! BitConverter.GetBytes(1us)
+    yield! BitConverter.GetBytes(16000)
+    yield! BitConverter.GetBytes(32000)
+    yield! BitConverter.GetBytes(2us)
+    yield! BitConverter.GetBytes(16us)
+    yield! "data"B
+    yield! BitConverter.GetBytes(payload.Length)
+    yield! payload
+  |]
+
+/// The scheme registrar that always says yes: no test touches the OS.
+type FakeRegistrar() =
+
+  interface ISchemeRegistrar with
+    member _.Register() = Ok()
+
+/// A playback whose life the test drives: `Finish` fires `Ended` the
+/// way a real speaker does when the last sample plays, and `MoveTo`
+/// moves the position the way the pipeline would.
+type FakePlayback(media: byte array, speed: float, volume: float) =
+  let ended = Event<unit>()
+  let mutable stopped = false
+  let mutable at = TimeSpan.Zero
+
+  /// The bytes the engine was asked to sound.
+  member _.Media = media
+
+  /// The speed the engine was asked to run at.
+  member _.Speed = speed
+
+  /// The volume the engine was asked to sound at.
+  member _.Volume = volume
+
+  /// Whether the playback was stopped before its end.
+  member _.Stopped = stopped
+
+  /// Fires the ended event, on the thread the test chooses.
+  member _.Finish() = ended.Trigger()
+
+  /// Moves the playing position, for the clock and the fill.
+  member _.MoveTo(position: TimeSpan) = at <- position
+
+  interface IAudioPlayback with
+    member _.Stop() = stopped <- true
+
+    member _.Ended = ended.Publish
+
+    member _.Position = at
+
+/// A capture that always reads half-scale on the meter and hands back
+/// the canned WAV when stopped.
+type FakeCapture() =
+  let mutable cancelled = false
+
+  /// Whether the capture was cancelled without a stop.
+  member _.Cancelled = cancelled
+
+  interface IMicrophoneCapture with
+    member _.Level() = 0.5
+
+    member _.Stop() = async { return Ok cannedWav }
+
+    member _.Cancel() = cancelled <- true
+
+/// The headless audio engine: every capture hands back the same canned
+/// WAV, and every playback is a `FakePlayback` the test finishes. No
+/// device is opened and nothing decodes: the engine takes the note's
+/// bytes and always sounds them, unless a test arms its refusal.
+type FakeAudio() =
+  let gate = obj()
+  let captures = ResizeArray<IMicrophoneCapture>()
+  let playbacks = ResizeArray<FakePlayback>()
+
+  /// Whether the engine refuses every playback, to try the failed
+  /// word.
+  member val RefusePlay = false with get, set
+
+  /// How many captures the engine opened.
+  member _.Captures = lock gate (fun () -> captures.Count)
+
+  /// Every playback asked of the engine, in order.
+  member _.Playbacks = lock gate (fun () -> playbacks |> Seq.toList)
+
+  /// The last capture the engine opened, for its cancelled word.
+  member _.LastCapture =
+    lock gate (fun () ->
+      captures
+      |> Seq.tryLast
+      |> Option.map(fun capture -> capture :?> FakeCapture))
+
+  interface IAudioEngine with
+    member _.StartCapture() = async {
+      let capture = FakeCapture()
+
+      lock gate (fun () -> captures.Add capture)
+
+      return Ok capture
+    }
+
+    member this.Play(media, speed, volume) = async {
+      if this.RefusePlay then
+        return Error(AudioFailed "the engine refused to play")
+      else
+        let playback = FakePlayback(media, speed, volume)
+
+        lock gate (fun () -> playbacks.Add playback)
+
+        return Ok playback
     }
 
 /// The app environment over fakes: fixed workers and the given store.
@@ -162,7 +295,8 @@ type TestEnv
     ?attachments: FakeAttachments,
     ?lastVisit: LastVisitStore,
     ?profiles: FakeProfiles,
-    ?sshKeys: FakeSshKeys
+    ?sshKeys: FakeSshKeys,
+    ?audio: FakeAudio
   ) as this =
 
   let settingsStore =
@@ -237,6 +371,18 @@ type TestEnv
       NullLogger.Instance
     )
 
+  // The native services: only the audio is fake-able, and only when a
+  // test opts in. Without it the voice UI stays hidden, exactly like a
+  // head with no engine.
+  let natives = {
+    Registrar = FakeRegistrar()
+    Audio =
+      audio
+      |> Option.map(fun engine -> engine :> IAudioEngine)
+      |> ValueOption.ofOption
+    Sounds = ValueNone
+  }
+
   interface IProvideClock with
     member _.Clock = clock
 
@@ -294,10 +440,13 @@ type TestEnv
   interface IProvideSshKeys with
     member _.SshKeys = keySource
 
+  interface IProvideNatives with
+    member _.Natives = natives
+
 let sessionOf(username: string) : DeviceSession = {
   User = {
     Id = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
-    Username = username
+    Handle = username
     Name = "The Octocat"
     AvatarUrl = None
   }
@@ -343,11 +492,11 @@ let signedOutStore() =
 /// One commit as the server returns it, with one author, one body, and
 /// one image.
 let commitJson =
-  """{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"b8b9c0d","body":"It was DNS.","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":null,"quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:17:19Z","stars_count":7,"replies_count":3,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null},"images":[{"id":"018f4c1e-img0-7c3a-9b2d-5e6f7a8b9c0d","width":1600,"height":900,"description":"a diagram","url":"https://dev-null.sh/commit-images/018f4c1e-img0-7c3a-9b2d-5e6f7a8b9c0d"}]}"""
+  """{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"b8b9c0d","body":"It was DNS.","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":null,"quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:17:19Z","stars_count":7,"replies_count":3,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"images":[{"id":"018f4c1e-img0-7c3a-9b2d-5e6f7a8b9c0d","width":1600,"height":900,"description":"a diagram","url":"https://dev-null.sh/commit-images/018f4c1e-img0-7c3a-9b2d-5e6f7a8b9c0d"}]}"""
 
 /// A second commit for the next page of the log.
 let secondCommitJson =
-  """{"id":"018f4c1e-9999-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"c0d1e2f","body":"Second commit.","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":null,"quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-9999-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:18:19Z","stars_count":0,"replies_count":0,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null},"images":[]}"""
+  """{"id":"018f4c1e-9999-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"c0d1e2f","body":"Second commit.","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":null,"quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-9999-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:18:19Z","stars_count":0,"replies_count":0,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"images":[]}"""
 
 /// One commit whose highlighted shell block carries the escaped quotes
 /// the server writes into the segment html.
@@ -382,11 +531,11 @@ let ok(body: string) : HttpResponse = {
 
 /// The signed-in account, as GET /api/v1/me returns it.
 let meJson =
-  """{"data":{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","username":"octocat","name":"The Octocat","avatar_url":null,"bio":"Builds things.","company":"GitHub","location":"San Francisco","website":"https://example.test","github_url":"https://github.com/octocat","html_url":"https://dev-null.sh/@octocat","feed_url":"https://dev-null.sh/@octocat/feed.atom","created_at":"2026-01-01T00:00:00Z","commits_count":7,"followers_count":11,"following_count":13,"lane":3,"pasteis_mode":true,"pasteis_remaining":7,"pasteis_resets_at":"2026-10-27T00:00:00Z","pasteis_received":12,"preferred_lane":null,"automatic_lane":4,"sponsors_url":null,"github_synced_at":null,"remotes":null},"unread_notifications_count":3}"""
+  """{"data":{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","handle":"octocat","name":"The Octocat","avatar_url":null,"bio":"Builds things.","company":"GitHub","location":"San Francisco","website":"https://example.test","github_url":"https://github.com/octocat","html_url":"https://dev-null.sh/@octocat","feed_url":"https://dev-null.sh/@octocat/feed.atom","created_at":"2026-01-01T00:00:00Z","commits_count":7,"followers_count":11,"following_count":13,"lane":3,"pasteis_mode":true,"pasteis_remaining":7,"pasteis_resets_at":"2026-10-27T00:00:00Z","pasteis_received":12,"preferred_lane":null,"automatic_lane":4,"sponsors_url":null,"github_synced_at":null,"remotes":null},"unread_notifications_count":3}"""
 
 /// The author of the canned commits, as a bare user.
 let apiUserJson =
-  """{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","username":"octocat","name":"The Octocat","avatar_url":null,"bio":"Builds things.","company":"GitHub","location":"San Francisco","website":"https://example.test","github_url":"https://github.com/octocat","html_url":"https://dev-null.sh/@octocat","feed_url":"https://dev-null.sh/@octocat/feed.atom","created_at":"2026-01-01T00:00:00Z","commits_count":7,"followers_count":11,"following_count":13,"lane":3}"""
+  """{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","handle":"octocat","name":"The Octocat","avatar_url":null,"bio":"Builds things.","company":"GitHub","location":"San Francisco","website":"https://example.test","github_url":"https://github.com/octocat","html_url":"https://dev-null.sh/@octocat","feed_url":"https://dev-null.sh/@octocat/feed.atom","created_at":"2026-01-01T00:00:00Z","commits_count":7,"followers_count":11,"following_count":13,"lane":3}"""
 
 /// One profile with the viewer's relation, as GET /api/v1/users/{username} returns it.
 let profileJson =
@@ -515,7 +664,7 @@ let ownLogApi() =
 
 /// A reply to the first commit, for the thread page.
 let replyJson =
-  """{"id":"018f4c1e-7777-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"d1e2f3a","body":"A reply.","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-7777-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:19:19Z","stars_count":0,"replies_count":0,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null},"images":[]}"""
+  """{"id":"018f4c1e-7777-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"d1e2f3a","body":"A reply.","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-7777-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:19:19Z","stars_count":0,"replies_count":0,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"images":[]}"""
 
 /// The thread envelope of GET /api/v1/commits/{commit}.
 let threadPageJson = sprintf "{\"data\":%s,\"ancestors\":[]}" commitJson
@@ -690,7 +839,7 @@ let strangerCommitJson(id: string, hash: string, body: string, date: string) =
       "\"id\":\"01a151db-7fee-727b-a7ce-c911a7556242\"",
       "\"id\":\"01a151db-7fee-727b-a7ce-c911a7556243\""
     )
-    .Replace("\"username\":\"octocat\"", "\"username\":\"hubot\"")
+    .Replace("\"handle\":\"octocat\"", "\"handle\":\"hubot\"")
     .Replace("\"name\":\"The Octocat\"", "\"name\":\"The Hubot\"")
 
 /// The api of the marker test: a stranger's newer commit above the
@@ -972,7 +1121,7 @@ let voteApi() =
 /// One notification row as the inbox returns it.
 let notificationJson =
   sprintf
-    """{"id":"01a15752-d17c-7065-b076-99e5bdad596d","type":"replied","subject_id":null,"reason":null,"read_at":null,"created_at":"2026-10-20T04:17:19Z","actor":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null},"actors":[{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null}],"group_id":"01a15751-bf69-7261-a486-e524bcb4d8e8","event_count":1,"actors_count":1,"unread_count":0,"commit":%s}"""
+    """{"id":"01a15752-d17c-7065-b076-99e5bdad596d","type":"replied","subject_id":null,"reason":null,"read_at":null,"created_at":"2026-10-20T04:17:19Z","actor":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"actors":[{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null}],"group_id":"01a15751-bf69-7261-a486-e524bcb4d8e8","event_count":1,"actors_count":1,"unread_count":0,"commit":%s}"""
     commitJson
 
 /// The inbox page.
@@ -984,7 +1133,7 @@ let notificationsJson =
 /// One grouped row: three starred events by two actors.
 let groupedNotificationJson =
   sprintf
-    """{"id":"01a15752-aaaa-7065-b076-99e5bdad596d","type":"starred","subject_id":null,"reason":null,"read_at":null,"created_at":"2026-10-20T05:17:19Z","actor":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null},"actors":[{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null},{"id":"01a151db-7fee-727b-a7ce-c911a7556243","username":"hubot","name":"The Hubot","avatar_url":null}],"group_id":"01a15751-bbbb-7261-a486-e524bcb4d8e8","event_count":3,"actors_count":2,"unread_count":0,"commit":%s}"""
+    """{"id":"01a15752-aaaa-7065-b076-99e5bdad596d","type":"starred","subject_id":null,"reason":null,"read_at":null,"created_at":"2026-10-20T05:17:19Z","actor":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"actors":[{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},{"id":"01a151db-7fee-727b-a7ce-c911a7556243","handle":"hubot","name":"The Hubot","avatar_url":null}],"group_id":"01a15751-bbbb-7261-a486-e524bcb4d8e8","event_count":3,"actors_count":2,"unread_count":0,"commit":%s}"""
     commitJson
 
 /// The grouped inbox: one plain reply and one starred group.
@@ -1006,7 +1155,7 @@ let groupEventJson(id: string, body: string) =
       .Replace("\"body\":\"It was DNS.\"", $"\"body\":\"{body}\"")
 
   sprintf
-    """{"id":"%s","type":"starred","subject_id":null,"reason":null,"read_at":null,"created_at":"2026-10-20T05:17:19Z","actor":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null},"actors":[{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null}],"group_id":"01a15751-bbbb-7261-a486-e524bcb4d8e8","event_count":1,"actors_count":1,"unread_count":0,"commit":%s}"""
+    """{"id":"%s","type":"starred","subject_id":null,"reason":null,"read_at":null,"created_at":"2026-10-20T05:17:19Z","actor":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"actors":[{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null}],"group_id":"01a15751-bbbb-7261-a486-e524bcb4d8e8","event_count":1,"actors_count":1,"unread_count":0,"commit":%s}"""
     id
     commit
 
@@ -1082,16 +1231,16 @@ let accountApi() =
 
 /// A reply that rides the feed card's preview.
 let previewReplyJson =
-  """{"id":"018f4c1e-8888-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"e2f3a4b","body":"Preview reply one.","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-8888-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:21:19Z","stars_count":0,"replies_count":0,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null},"images":[]}"""
+  """{"id":"018f4c1e-8888-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"e2f3a4b","body":"Preview reply one.","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-8888-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:21:19Z","stars_count":0,"replies_count":0,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"images":[]}"""
 
 /// A second preview reply.
 let previewReplyTwoJson =
-  """{"id":"018f4c1e-8889-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"e2f3a4c","body":"Preview reply two.","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-8889-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:22:19Z","stars_count":0,"replies_count":0,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null},"images":[]}"""
+  """{"id":"018f4c1e-8889-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"e2f3a4c","body":"Preview reply two.","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-8889-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:22:19Z","stars_count":0,"replies_count":0,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"images":[]}"""
 
 /// One reply the preview walk pulls in.
 let expandedReplyJson(body: string, id: string) =
   sprintf
-    """{"id":"%s","short_hash":"f4a5b6c","body":"%s","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/%s","created_at":"2026-10-20T04:23:19Z","stars_count":0,"replies_count":0,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null},"images":[]}"""
+    """{"id":"%s","short_hash":"f4a5b6c","body":"%s","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/%s","created_at":"2026-10-20T04:23:19Z","stars_count":0,"replies_count":0,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"images":[]}"""
     id
     body
     id
@@ -1099,7 +1248,7 @@ let expandedReplyJson(body: string, id: string) =
 /// A reply nested under the feed preview's first reply, so the chain
 /// nests one step deeper.
 let feedNestedReplyJson =
-  """{"id":"018f4c1e-6668-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"c3d4e5f","body":"Nested in the feed.","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":"018f4c1e-8888-7c3a-9b2d-5e6f7a8b9c0d","quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-6668-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:26:19Z","stars_count":0,"replies_count":0,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null},"images":[]}"""
+  """{"id":"018f4c1e-6668-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"c3d4e5f","body":"Nested in the feed.","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":"018f4c1e-8888-7c3a-9b2d-5e6f7a8b9c0d","quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-6668-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:26:19Z","stars_count":0,"replies_count":0,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"images":[]}"""
 
 /// The preview's first reply, carrying its own nested preview.
 let previewReplyNestedJson =
@@ -1189,11 +1338,11 @@ let previewLogApi() =
 
 /// A nested reply, one depth under the thread's root reply.
 let nestedReplyJson =
-  """{"id":"018f4c1e-6666-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"a1b2c3d","body":"Nested under the root.","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":"018f4c1e-7777-7c3a-9b2d-5e6f7a8b9c0d","quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-6666-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:24:19Z","stars_count":0,"replies_count":0,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null},"images":[]}"""
+  """{"id":"018f4c1e-6666-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"a1b2c3d","body":"Nested under the root.","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":"018f4c1e-7777-7c3a-9b2d-5e6f7a8b9c0d","quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-6666-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:24:19Z","stars_count":0,"replies_count":0,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"images":[]}"""
 
 /// The reply the node walk pulls in under the root.
 let deeperReplyJson =
-  """{"id":"018f4c1e-5555-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"b2c3d4e","body":"Deeper reply walked in.","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":"018f4c1e-7777-7c3a-9b2d-5e6f7a8b9c0d","quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-5555-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:25:19Z","stars_count":0,"replies_count":0,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null},"images":[]}"""
+  """{"id":"018f4c1e-5555-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"b2c3d4e","body":"Deeper reply walked in.","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":"018f4c1e-7777-7c3a-9b2d-5e6f7a8b9c0d","quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-5555-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:25:19Z","stars_count":0,"replies_count":0,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"images":[]}"""
 
 /// The thread's root reply nesting a preview of its own.
 let threadedReplyJson =
@@ -1253,7 +1402,7 @@ let mentionCommitJson =
     )
     .Replace(
       "\"mentions\":[]",
-      "\"mentions\":[{\"username\":\"octocat\",\"offset\":7,\"length\":8}]"
+      "\"mentions\":[{\"handle\":\"octocat\",\"offset\":7,\"length\":8}]"
     )
     .Replace(
       "\"quoted_commit_id\":null,",

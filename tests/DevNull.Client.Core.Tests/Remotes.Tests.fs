@@ -33,10 +33,10 @@ let webmHash =
 let barsJson = List.replicate 48 5 |> List.map string |> String.concat ","
 
 let userJson =
-  """{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null}"""
+  """{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null}"""
 
 let messageJson =
-  $"""{{"id":42,"user_id":"01a151db-7fee-727b-a7ce-c911a7556242","client_id":"018f4c1e-eeee-7c3a-9b2d-5e6f7a8b9c0d","body":"It was DNS.","body_segments":[{{"type":"text","text":"It was DNS."}}],"mentions":[{{"username":"octocat","offset":0,"length":8}}],"reply_to_id":41,"reply_to":{{"id":41,"user_id":"01a151db-7fee-727b-a7ce-c911a7556242","body":"earlier","images_count":1,"has_voice":true}},"link_preview":{{"url":"https://example.test","title":null,"description":null,"image_url":null,"site_name":null,"is_pending":true,"embed":null}},"images":[{{"id":"018f4c1e-aaaa-7c3a-9b2d-5e6f7a8b9c0d","width":100,"height":50,"description":"pic","url":"/api/v1/remotes/images/018f4c1e-aaaa-7c3a-9b2d-5e6f7a8b9c0d"}}],"voice":{{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","duration_ms":1500,"waveform":[{barsJson}],"url":"/api/v1/remotes/voices/018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d"}},"reactions":[{{"user_id":"01a151db-7fee-727b-a7ce-c911a7556242","emoji":"🎉"}}],"event":null,"subject_id":null,"user":null,"subject":null,"created_at":"2026-10-20T04:17:19Z"}}"""
+  $"""{{"id":42,"user_id":"01a151db-7fee-727b-a7ce-c911a7556242","client_id":"018f4c1e-eeee-7c3a-9b2d-5e6f7a8b9c0d","body":"It was DNS.","body_segments":[{{"type":"text","text":"It was DNS."}}],"mentions":[{{"handle":"octocat","offset":0,"length":8}}],"reply_to_id":41,"reply_to":{{"id":41,"user_id":"01a151db-7fee-727b-a7ce-c911a7556242","body":"earlier","images_count":1,"has_voice":true}},"link_preview":{{"url":"https://example.test","title":null,"description":null,"image_url":null,"site_name":null,"is_pending":true,"embed":null}},"images":[{{"id":"018f4c1e-aaaa-7c3a-9b2d-5e6f7a8b9c0d","width":100,"height":50,"description":"pic","url":"/api/v1/remotes/images/018f4c1e-aaaa-7c3a-9b2d-5e6f7a8b9c0d"}}],"voice":{{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","duration_ms":1500,"waveform":[{barsJson}],"url":"/api/v1/remotes/voices/018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d"}},"reactions":[{{"user_id":"01a151db-7fee-727b-a7ce-c911a7556242","emoji":"🎉"}}],"event":null,"subject_id":null,"user":null,"subject":null,"created_at":"2026-10-20T04:17:19Z"}}"""
 
 let orgEventJson =
   $"""{{"id":43,"user_id":"01a151db-7fee-727b-a7ce-c911a7556242","client_id":"018f4c1e-dddd-7c3a-9b2d-5e6f7a8b9c0d","body":"","body_segments":[],"mentions":[],"reply_to_id":null,"images":[],"reactions":[],"event":"added","subject_id":"01a151db-7fee-727b-a7ce-c911a7556242","user":{userJson},"subject":{userJson},"created_at":"2026-10-20T04:18:19Z"}}"""
@@ -51,7 +51,7 @@ let inboxJson =
   $"""{{"data":[{{"id":"018f4c1e-org1-7c3a-9b2d-5e6f7a8b9c0d","kind":"org","name":"the org","partner":null,"members":[{{"user":{userJson},"role":"maintainer"}}],"last_message":null,"last_message_at":"2026-10-20T04:00:00.000000Z","ahead":2,"last_incoming_message_id":44,"last_incoming_sender":"The Octocat","partner_read_through_id":0,"partner_read_at":null,"is_archived":false,"pinned_at":"2026-10-19T00:00:00.000000Z","muted_until_at":null}},{{"id":"018f4c1e-org2-7c3a-9b2d-5e6f7a8b9c0d","kind":"direct","name":null,"partner":{userJson},"members":null,"last_message":{messageJson},"last_message_at":"2026-10-18T04:00:00.000000Z","ahead":0,"last_incoming_message_id":null,"last_incoming_sender":null,"partner_read_through_id":9,"partner_read_at":null,"is_archived":true,"pinned_at":null,"muted_until_at":"2026-10-22T00:00:00.000000Z"}}],"has_more":true,"unread_count":2,"requests_count":1}}"""
 
 let meJson =
-  $"""{{"data":{{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null,"github_url":"https://github.com/octocat","html_url":"https://dev-null.sh/@octocat","feed_url":"https://dev-null.sh/@octocat/feed","created_at":"2026-01-01T00:00:00Z","pasteis_mode":false,"pasteis_remaining":5,"pasteis_resets_at":"2026-10-21T00:00:00Z","pasteis_received":0,"preferred_lane":null,"automatic_lane":2,"sponsors_url":null,"github_synced_at":null,"remotes":{{"from":"everyone","pull_receipts":true,"requests":true,"everyone":true,"unread_count":3}}}},"unread_notifications_count":1}}"""
+  $"""{{"data":{{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null,"github_url":"https://github.com/octocat","html_url":"https://dev-null.sh/@octocat","feed_url":"https://dev-null.sh/@octocat/feed","created_at":"2026-01-01T00:00:00Z","pasteis_mode":false,"pasteis_remaining":5,"pasteis_resets_at":"2026-10-21T00:00:00Z","pasteis_received":0,"preferred_lane":null,"automatic_lane":2,"sponsors_url":null,"github_synced_at":null,"remotes":{{"from":"everyone","pull_receipts":true,"requests":true,"everyone":true,"unread_count":3}}}},"unread_notifications_count":1}}"""
 
 let previewJson =
   """{"data":{"body":"It was DNS.","body_segments":[{"type":"text","text":"It was DNS."}],"preview_segments":null,"mentions":[]}}"""
@@ -420,10 +420,7 @@ let decodeTests =
 
           Expect.equal Direct direct.Kind "direct kind"
 
-          Expect.equal
-            "octocat"
-            (direct.Partner |> Option.get).Username
-            "partner"
+          Expect.equal "octocat" (direct.Partner |> Option.get).Handle "partner"
 
           Expect.equal true direct.IsArchived "archived"
           Expect.equal 9 direct.PartnerReadThroughId "partner pulled"

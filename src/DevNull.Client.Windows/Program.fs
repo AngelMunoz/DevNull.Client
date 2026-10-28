@@ -8,6 +8,6 @@ open DevNull.Client.Startup
 let main argv =
   // The player lives until the app exits: `use` disposes it on the
   // way out of main, after the desktop lifetime ends.
-  use sounds = Audio.SystemSounds()
+  use sounds = new Audio.SystemSounds()
 
   start(Natives.services sounds, argv)

@@ -95,6 +95,8 @@
     <Compile Include="Views\CommitDetailView.fs" />
     <Compile Include="Views\NotificationsView.fsi" />
     <Compile Include="Views\NotificationsView.fs" />
+    <Compile Include="Views\RemotesView.fsi" />
+    <Compile Include="Views\RemotesView.fs" />
     <Compile Include="Views\SavedView.fsi" />
     <Compile Include="Views\SavedView.fs" />
     <Compile Include="Views\ProfileView.fsi" />

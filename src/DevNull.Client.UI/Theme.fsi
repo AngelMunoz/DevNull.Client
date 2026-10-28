@@ -128,6 +128,7 @@ type StyleClass =
   | FgAccent
   | FgMuted
   | FgDanger
+  | FgWarning
   | FgOnAccent
   | SurfaceBack
   | PrimarySoftBack
@@ -142,11 +143,14 @@ type StyleClass =
   | RailEdge
   | MutedEdge
   | AheadPill
+  | TabBadge
   | DayMarker
   | HeadRule
   | ReactionChip
   | ReactionChipMine
-  | BubbleShadow
+  | StagedBubble
+  | RejectedBubble
+  | FlashRing
 
 /// The height of the drag band the shell lays over the drawn window
 /// chrome.

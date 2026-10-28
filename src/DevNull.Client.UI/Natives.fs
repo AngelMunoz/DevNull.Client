@@ -28,25 +28,63 @@ type IMicrophoneCapture =
   /// Ends the recording and keeps nothing.
   abstract Cancel: unit -> unit
 
-/// One playback of decoded voice samples.
+/// One playback of a voice note's bytes.
 type IAudioPlayback =
   /// Ends the playback early.
   abstract Stop: unit -> unit
 
-  /// Fires when the samples have all played.
+  /// Fires when the note has played through.
   abstract Ended: IEvent<unit>
 
-/// The microphone and the speaker, behind one engine. Decoding stays
-/// with the caller: the engine takes PCM in and gives PCM back.
+  /// Where the playing stands now; the pipeline's own word, not an
+  /// estimate.
+  abstract Position: TimeSpan
+
+/// The microphone and the speaker, behind one engine. The platform
+/// decodes what it can: playback takes the voice file's bytes as they
+/// were downloaded, and any decoding stays inside the head.
 type IAudioEngine =
   /// Opens the microphone. `Denied` covers a permission the user has
   /// not granted; `NoDevice` covers a machine with no microphone.
   abstract StartCapture: unit -> Async<Result<IMicrophoneCapture, AudioFailure>>
 
-  /// Plays 16 kHz mono samples at the given speed (1.0, 1.5, or 2.0)
-  /// and volume (0.0 to 1.0).
+  /// Plays one voice note's bytes at the given speed (1.0, 1.5, or
+  /// 2.0) and volume (0.0 to 1.0). The failure names why the note
+  /// could not start.
   abstract Play:
-    samples: int16 array * speed: float * volume: float -> IAudioPlayback
+    media: byte array * speed: float * volume: float ->
+      Async<Result<IAudioPlayback, AudioFailure>>
+
+/// One voice file's bytes as the engines read them.
+module VoiceMedia =
+
+  /// Whether the bytes open as a RIFF/WAVE file.
+  let private isWav(media: byte array) =
+    media.Length >= 44
+    && media[0] = 0x52uy
+    && media[1] = 0x49uy
+    && media[2] = 0x46uy
+    && media[3] = 0x46uy
+    && media[8] = 0x57uy
+    && media[9] = 0x41uy
+    && media[10] = 0x56uy
+    && media[11] = 0x45uy
+
+  /// The content type the bytes stand for: `audio/wav` or
+  /// `audio/webm`.
+  let contentType(media: byte array) =
+    if isWav media then "audio/wav" else "audio/webm"
+
+  /// The samples a 16 kHz mono S16LE WAV carries, or none when the
+  /// bytes are any other container.
+  let samples(media: byte array) =
+    if isWav media then
+      let pcm: int16 array = Array.zeroCreate((media.Length - 44) / 2)
+
+      Buffer.BlockCopy(media, 44, pcm, 0, pcm.Length * 2)
+      Some pcm
+    else
+      None
 
 /// The operating system's own sounds.
 type ISystemSounds =

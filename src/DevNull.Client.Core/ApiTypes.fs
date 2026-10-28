@@ -9,7 +9,7 @@ open JDeck
 
 type CurrentUser = {
   Id: string
-  Username: string
+  Handle: string
   Name: string
   AvatarUrl: string option
 }
@@ -20,7 +20,7 @@ type Lane =
 
 type User = {
   Id: string
-  Username: string
+  Handle: string
   Name: string
   AvatarUrl: string option
   Lane: Lane option
@@ -67,7 +67,7 @@ type Segment =
   | BlockSegment of language: string option * html: string
 
 type Mention = {
-  Username: string
+  Handle: string
   Offset: int
   Length: int
 }
@@ -803,7 +803,7 @@ let logKindDecoder(element: JsonElement) : Result<LogKind, JDeck.DecodeError> =
 
 let userDecoder(element: JsonElement) = decode {
   let! id = Required.Property.get ("id", Required.string) element
-  let! username = Required.Property.get ("username", Required.string) element
+  let! handle = Required.Property.get ("handle", Required.string) element
   let! name = Required.Property.get ("name", Required.string) element
 
   let! avatarUrl =
@@ -836,7 +836,7 @@ let userDecoder(element: JsonElement) = decode {
 
   return {
     Id = id
-    Username = username
+    Handle = handle
     Name = name
     AvatarUrl = avatarUrl
     Lane = lane
@@ -895,12 +895,12 @@ let segmentDecoder(element: JsonElement) : Result<Segment, JDeck.DecodeError> =
     |> Error
 
 let mentionDecoder(element: JsonElement) = decode {
-  let! username = Required.Property.get ("username", Required.string) element
+  let! handle = Required.Property.get ("handle", Required.string) element
   let! offset = Required.Property.get ("offset", Required.int) element
   let! length = Required.Property.get ("length", Required.int) element
 
   return {
-    Username = username
+    Handle = handle
     Offset = offset
     Length = length
   }
@@ -1872,7 +1872,11 @@ let messageDecoder(element: JsonElement) = decode {
 
   let! mentions = Required.Property.list ("mentions", mentionDecoder) element
 
-  let! replyToId = Required.Property.get ("reply_to_id", Optional.int) element
+  // The server leaves `reply_to_id` out entirely wherever the model
+  // hides it, as pinned messages do.
+  let! replyToId =
+    Optional.Property.get ("reply_to_id", Optional.int) element
+    |> Result.map Option.flatten
 
   let! replyTo =
     Optional.Property.get

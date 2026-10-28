@@ -172,7 +172,7 @@ let complete
         let session: DeviceSession = {
           User = {
             Id = me.Profile.User.Id
-            Username = me.Profile.User.Username
+            Handle = me.Profile.User.Handle
             Name = me.Profile.User.Name
             AvatarUrl = me.Profile.User.AvatarUrl
           }

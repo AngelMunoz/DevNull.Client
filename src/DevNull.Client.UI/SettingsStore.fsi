@@ -22,6 +22,10 @@ type AppSettings = {
   Theme: ThemeChoice
   /// Whether the desktop sidebar shows its labels.
   SidebarExpanded: bool
+  /// Unsent chat drafts by conversation key, emptied as they go out.
+  ChatDrafts: Map<string, string>
+  /// The voice-note player's volume, 0.0 to 1.0.
+  VoiceVolume: float
 }
 
 /// The live local settings: one subject, persists through the `persist`
@@ -50,6 +54,12 @@ type AppSettingsStore =
 
   /// Persists the sidebar width choice, then publishes it.
   member SetSidebarExpanded: expanded: bool -> unit
+
+  /// Parks one conversation's unsent draft; an empty text drops it.
+  member SetChatDraft: key: string * text: string -> unit
+
+  /// Persists the voice-note volume, then publishes it.
+  member SetVoiceVolume: volume: float -> unit
 
 /// Accessor for the settings store capability.
 type IProvideSettings =

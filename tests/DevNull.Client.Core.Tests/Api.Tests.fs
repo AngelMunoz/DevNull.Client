@@ -224,7 +224,7 @@ let envFor(http: IHttp) =
   redeemEnv http (FixedSigner(Ok "signature"))
 
 let meJson =
-  """{"data":{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","username":"octocat","name":"The Octocat","avatar_url":"https://avatars.example/octocat.png","bio":"Builds things.","company":"GitHub","location":"San Francisco","website":"https://example.test","github_url":"https://github.com/octocat","html_url":"https://dev-null.sh/@octocat","feed_url":"https://dev-null.sh/@octocat/feed.atom","created_at":"2026-01-01T00:00:00Z","commits_count":7,"followers_count":11,"following_count":13,"lane":3,"pasteis_mode":true,"pasteis_remaining":7,"pasteis_resets_at":"2026-10-20T00:00:00Z","pasteis_received":12,"preferred_lane":null,"automatic_lane":4,"sponsors_url":null,"github_synced_at":null,"remotes":null},"unread_notifications_count":3}"""
+  """{"data":{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","handle":"octocat","name":"The Octocat","avatar_url":"https://avatars.example/octocat.png","bio":"Builds things.","company":"GitHub","location":"San Francisco","website":"https://example.test","github_url":"https://github.com/octocat","html_url":"https://dev-null.sh/@octocat","feed_url":"https://dev-null.sh/@octocat/feed.atom","created_at":"2026-01-01T00:00:00Z","commits_count":7,"followers_count":11,"following_count":13,"lane":3,"pasteis_mode":true,"pasteis_remaining":7,"pasteis_resets_at":"2026-10-20T00:00:00Z","pasteis_received":12,"preferred_lane":null,"automatic_lane":4,"sponsors_url":null,"github_synced_at":null,"remotes":null},"unread_notifications_count":3}"""
 
 let redeemDeviceTests =
   testList "Api.redeemDevice" [
@@ -257,7 +257,7 @@ let redeemDeviceTests =
           session.Profile.User.Id
           "id"
 
-        Expect.equal "octocat" session.Profile.User.Username "username"
+        Expect.equal "octocat" session.Profile.User.Handle "username"
         Expect.equal "The Octocat" session.Profile.User.Name "name"
 
         Expect.equal
@@ -353,7 +353,7 @@ let redeemDeviceTests =
       let http =
         CapturingHttp(
           ok
-            """{"data":{"id":"user-id","username":"octocat"},"unread_notifications_count":0}"""
+            """{"data":{"id":"user-id","handle":"octocat"},"unread_notifications_count":0}"""
         )
 
       let env = redeemEnv http (FixedSigner(Ok "signature"))
@@ -380,7 +380,7 @@ let redeemDeviceTests =
   ]
 
 let commitJson =
-  """{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"b8b9c0d","body":"It was DNS.","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":null,"quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:17:19Z","stars_count":2,"replies_count":1,"status":"approved","is_pinned":false,"pasteis_count":0,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":"https://avatars.example/octocat.png"},"images":[{"id":"018f4c1e-aaaa-7c3a-9b2d-5e6f7a8b9c0d","width":1600,"height":900,"description":"diagram","url":"https://dev-null.sh/commit-images/018f4c1e-aaaa-7c3a-9b2d-5e6f7a8b9c0d"}]}"""
+  """{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"b8b9c0d","body":"It was DNS.","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":null,"quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:17:19Z","stars_count":2,"replies_count":1,"status":"approved","is_pinned":false,"pasteis_count":0,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":"https://avatars.example/octocat.png"},"images":[{"id":"018f4c1e-aaaa-7c3a-9b2d-5e6f7a8b9c0d","width":1600,"height":900,"description":"diagram","url":"https://dev-null.sh/commit-images/018f4c1e-aaaa-7c3a-9b2d-5e6f7a8b9c0d"}]}"""
 
 let createdResponse = sprintf "{\"data\":%s}" commitJson
 
@@ -426,7 +426,7 @@ let commitApiTests =
         Expect.equal (Some 2) commit.StarsCount "stars"
         Expect.equal (Some 1) commit.RepliesCount "replies"
         Expect.equal Approved commit.Status "status"
-        Expect.equal "octocat" commit.Author.Username "author"
+        Expect.equal "octocat" commit.Author.Handle "author"
 
         let image = commit.Images |> List.exactlyOne
         Expect.equal 1600 image.Width "image width"
@@ -644,7 +644,7 @@ let commitApiTests =
   ]
 
 let apiUserJson =
-  """{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":"https://avatars.example/octocat.png","bio":"Builds things.","company":"GitHub","location":"San Francisco","website":"https://example.test","github_url":"https://github.com/octocat","html_url":"https://dev-null.sh/@octocat","feed_url":"https://dev-null.sh/@octocat/feed.atom","created_at":"2026-01-01T00:00:00Z","commits_count":7,"followers_count":11,"following_count":13,"lane":3}"""
+  """{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":"https://avatars.example/octocat.png","bio":"Builds things.","company":"GitHub","location":"San Francisco","website":"https://example.test","github_url":"https://github.com/octocat","html_url":"https://dev-null.sh/@octocat","feed_url":"https://dev-null.sh/@octocat/feed.atom","created_at":"2026-01-01T00:00:00Z","commits_count":7,"followers_count":11,"following_count":13,"lane":3}"""
 
 let sessionJson = meJson
 
@@ -697,7 +697,7 @@ let tombstoneJson =
   """{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2}"""
 
 let richCommitJson =
-  """{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"b8b9c0d","body":"It was DNS.\n```fsharp\nlet x = 1\n```","parent_id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","html_url":"https://dev-null.sh/@octocat/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:17:19Z","stars_count":2,"replies_count":1,"status":"pending","author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","username":"octocat","name":"The Octocat","avatar_url":null},"images":[],"body_segments":[{"type":"text","text":"It was DNS."},{"type":"code","code":"let x = 1"},{"type":"block","language":"fsharp","html":"<span>let x = 1</span>"}],"preview_segments":[{"type":"text","text":"It was DNS."}],"mentions":[{"username":"octocat","offset":0,"length":2}],"is_pinned":true,"starred":true,"pasteis_count":5,"quoted_commit_id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent":{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2},"quoted_commit":{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2},"poll":{"id":"018f4c1e-cccc-7c3a-9b2d-5e6f7a8b9c0d","closes_at":null,"is_closed":false,"has_voted":true,"total_votes":3,"options":[{"id":"018f4c1e-dddd-7c3a-9b2d-5e6f7a8b9c0d","label":"Yes","votes_count":2,"voted":true,"percentage":67}]},"link_preview":{"url":"https://example.test","title":"Example","description":null,"image_url":null,"site_name":"Example","is_pending":false,"embed":{"provider":"youtube","kind":"video","src":"https://youtube.com/embed/x","aspect_ratio":"16 / 9","height":null,"poster":null}},"reply_preview":{"data":[{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2}],"next_cursor":"abc"}}"""
+  """{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"b8b9c0d","body":"It was DNS.\n```fsharp\nlet x = 1\n```","parent_id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","html_url":"https://dev-null.sh/@octocat/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:17:19Z","stars_count":2,"replies_count":1,"status":"pending","author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"images":[],"body_segments":[{"type":"text","text":"It was DNS."},{"type":"code","code":"let x = 1"},{"type":"block","language":"fsharp","html":"<span>let x = 1</span>"}],"preview_segments":[{"type":"text","text":"It was DNS."}],"mentions":[{"handle":"octocat","offset":0,"length":2}],"is_pinned":true,"starred":true,"pasteis_count":5,"quoted_commit_id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent":{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2},"quoted_commit":{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2},"poll":{"id":"018f4c1e-cccc-7c3a-9b2d-5e6f7a8b9c0d","closes_at":null,"is_closed":false,"has_voted":true,"total_votes":3,"options":[{"id":"018f4c1e-dddd-7c3a-9b2d-5e6f7a8b9c0d","label":"Yes","votes_count":2,"voted":true,"percentage":67}]},"link_preview":{"url":"https://example.test","title":"Example","description":null,"image_url":null,"site_name":"Example","is_pending":false,"embed":{"provider":"youtube","kind":"video","src":"https://youtube.com/embed/x","aspect_ratio":"16 / 9","height":null,"poster":null}},"reply_preview":{"data":[{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2}],"next_cursor":"abc"}}"""
 
 let richCommitTests =
   testList "Api.richCommits" [
@@ -802,7 +802,7 @@ let accountApiTests =
 
       match result with
       | Ok session ->
-        Expect.equal "octocat" session.Profile.User.Username "username"
+        Expect.equal "octocat" session.Profile.User.Handle "username"
         Expect.equal 3 session.UnreadNotificationsCount "unread"
         Expect.equal true session.PasteisMode "pasteis mode"
         Expect.equal 7 session.PasteisRemaining "pasteis remaining"
@@ -905,7 +905,7 @@ let accountApiTests =
 
       match result with
       | Ok details ->
-        Expect.equal "octocat" details.Profile.User.Username "username"
+        Expect.equal "octocat" details.Profile.User.Handle "username"
         Expect.equal (Some(LaneIndex 3)) details.Profile.Lane "lane"
         Expect.equal false details.IsFollowing "is following"
         Expect.equal true details.FollowsYou "follows you"
@@ -1223,7 +1223,7 @@ let actionApiTests =
       match result with
       | Ok result ->
         Expect.equal true result.IsMuting "muting"
-        Expect.equal "octocat" result.User.Username "username"
+        Expect.equal "octocat" result.User.Handle "username"
       | Error error -> failtestf "%A" error
 
       let sent = http.Requests |> List.exactlyOne
@@ -1245,7 +1245,7 @@ let actionApiTests =
       match result with
       | Ok result ->
         Expect.equal true result.IsBlocking "blocking"
-        Expect.equal "octocat" result.User.Username "username"
+        Expect.equal "octocat" result.User.Handle "username"
       | Error error -> failtestf "%A" error
 
       let sent = http.Requests |> List.exactlyOne

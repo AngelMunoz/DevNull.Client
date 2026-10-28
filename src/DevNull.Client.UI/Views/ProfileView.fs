@@ -157,7 +157,7 @@ module State =
   let update (props: Props<'env>) msg model =
     let username =
       model.Details
-      |> Option.map(fun details -> details.Profile.User.Username)
+      |> Option.map(fun details -> details.Profile.User.Handle)
       |> Option.defaultValue props.Username
 
     let refetch(replies: bool) =
@@ -690,7 +690,7 @@ module Parts =
         .Orientation(Orientation.Horizontal)
         .Spacing(10.0)
         .Children(
-          ProfileCard.laneHandle(profile.Lane, user.Username),
+          ProfileCard.laneHandle(profile.Lane, user.Handle),
           mark("Follows you").IsVisible(details.FollowsYou),
           mark("Muted").IsVisible(details.IsMuting),
           achievementsChip(details.Achievements, profile.Lane)

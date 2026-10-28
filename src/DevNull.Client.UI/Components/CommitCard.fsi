@@ -68,6 +68,23 @@ val selectedOption:
 /// Renders a deleted commit placeholder.
 val tombstone: unit -> Control
 
+/// How a body's mentions read: the accent color over the page surface,
+/// or the plain foreground over an accent fill.
+type MentionTone =
+  | Accent
+  | OnFill
+
+/// One body from its segments — the text with its mentions wrapped,
+/// the code blocks boxed — whatever carries it: a commit card or a
+/// chat bubble.
+val body:
+  flyout: Source voption *
+  text: string *
+  segments: Segment list *
+  mentions: Mention list *
+  tone: MentionTone ->
+    Control
+
 /// Everything one card row needs from its host page: where its events
 /// go, the signed-in viewer, the live pastéis flag and clock, the poll
 /// choices, the row's density, the image cache, and the hover card

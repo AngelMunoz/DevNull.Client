@@ -8,7 +8,9 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Env
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
+open DevNull.Client.Natives
 open DevNull.Client.Profiles
+open DevNull.Client.Remotes
 open DevNull.Client.SettingsStore
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
@@ -48,3 +50,5 @@ val build:
     and 'env :> IProvideSshKeys
     and 'env :> IProvideSettings
     and 'env :> IProvideLogging
+    and 'env :> IProvideRemotes
+    and 'env :> IProvideNatives

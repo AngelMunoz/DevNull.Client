@@ -11,6 +11,10 @@ open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.DeviceAuth
 open DevNull.Client.Env
+open DevNull.Client.ImageCache
+open DevNull.Client.Profiles
+open DevNull.Client.Remotes
+open DevNull.Client.RemotesState
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
 open DevNull.Client.Navigation
@@ -166,6 +170,28 @@ let notificationsPage
       }
   )
 
+/// The direct messages: the inbox and the open thread side by side.
+/// The page drives the store's polls itself; the env names only the
+/// workers its search reads need.
+let remotesPage
+  (
+    env:
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideImageCache & #IProvideProfiles & #IProvideRemotes,
+    nav: INavigable,
+    context: RouteContext
+  ) : Control =
+  signedIn(
+    env,
+    "Sign in to read your remotes.",
+    fun session ->
+      RemotesView.Page {
+        Env = env
+        Session = session
+        Nav = nav
+        Context = context
+      }
+  )
+
 let savedPage
   (
     env:
@@ -201,7 +227,7 @@ let profilePage
       let username =
         match context.GetParam<string> "username" with
         | ValueSome named -> named
-        | ValueNone -> session.Session.User.Username
+        | ValueNone -> session.Session.User.Handle
 
       ProfileView.Page {
         Env = env
@@ -237,7 +263,7 @@ let settingsPage
 
 let build
   (env:
-    #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideTimeline & #IProvideSettings & #IProvideLogging)
+    #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideTimeline & #IProvideSettings & #IProvideLogging & #IProvideRemotes)
   : RouterShell =
   let bootUrl =
     match env.Session.SignedIn with
@@ -286,6 +312,13 @@ let build
       "notifications",
       "/notifications",
       fun context nav -> notificationsPage(env, nav, context)
+    )
+    |> gated
+
+    Route.define<Control>(
+      "remotes",
+      "/remotes",
+      fun context nav -> remotesPage(env, nav, context)
     )
     |> gated
 

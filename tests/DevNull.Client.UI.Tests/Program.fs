@@ -4,6 +4,7 @@ open Expecto
 
 open DevNull.Client.UI.Tests
 open DevNull.Client.UI.Tests.Remotes
+open DevNull.Client.UI.Tests.RemotesView
 
 [<EntryPoint>]
 let main argv =
@@ -12,8 +13,17 @@ let main argv =
       App.tests
       Shortcuts.tests
       Unread.tests
-      Remotes.tests
+      // The memory budgets measure deltas, so the leak suite runs
+      // before the chat pages: their mounted shells and stores would
+      // otherwise settle into the measured window.
       Leaks.tests
+      Remotes.tests
+      RemotesView.tests
+      RemotesView.threadTests
+      RemotesView.composerTests
+      RemotesView.manageTests
+      RemotesView.reactTests
+      RemotesView.voiceTests
     ]
 
   runTestsWithCLIArgs [] argv tests

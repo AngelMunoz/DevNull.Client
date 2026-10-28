@@ -71,7 +71,7 @@ module Parts =
             .Spacing(2.0)
             .Children(
               TextBlock().Classes(Theme.name Theme.Subtitle).Text(user.Name),
-              ProfileCard.laneHandle(lane, user.Username)
+              ProfileCard.laneHandle(lane, user.Handle)
             )
         )
 
@@ -149,10 +149,10 @@ let attach(source: Source, user: User, child: Control) : Control =
           // A handled click never falls through to the commit behind.
           args.Handled <- true
           closeNow()
-          source.OnOpen user.Username)
+          source.OnOpen user.Handle)
 
   let fill() = asyncEx {
-    let! details = source.Fetch user.Username
+    let! details = source.Fetch user.Handle
 
     Dispatcher.UIThread.Post(fun () -> show(details))
   }
@@ -179,7 +179,7 @@ let attach(source: Source, user: User, child: Control) : Control =
         // A handled click never opens the thread behind the avatar.
         args.Handled <- true
         closeNow()
-        source.OnOpen user.Username)
+        source.OnOpen user.Handle)
 
   trigger.PointerEntered.Add(fun _ ->
     closeTimer.Stop()

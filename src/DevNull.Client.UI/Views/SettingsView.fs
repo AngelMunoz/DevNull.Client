@@ -68,6 +68,8 @@ module State =
       CloseToTray = false
       Theme = System
       SidebarExpanded = true
+      ChatDrafts = Map.empty
+      VoiceVolume = 1.0
     }
   }
 
@@ -421,7 +423,7 @@ let view
         .HorizontalAlignment(HorizontalAlignment.Stretch)
         .Spacing(14.0)
         .Children(
-          TextBlock().Classes(Theme.name Theme.Title).Text($"@{user.Username}"),
+          TextBlock().Classes(Theme.name Theme.Title).Text($"@{user.Handle}"),
           TextBlock().Text(user.Name),
           Parts.laneRow(model, dispatch),
           Parts.themeRow(model, dispatch),

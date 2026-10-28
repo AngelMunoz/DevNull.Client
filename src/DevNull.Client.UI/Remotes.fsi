@@ -50,6 +50,17 @@ type RemotesStore =
   /// keys on it.
   member SetWindowActive: active: bool -> unit
 
+  /// Checks one conversation out: the store remembers it, so a page
+  /// that returns reopens it. `None` checks nothing out.
+  member SetOpenTarget: target: ChatTarget option -> unit
+
+  /// Parks one thread's reading place, so a page that returns restores
+  /// its scroll.
+  member RememberScroll: key: string * offset: float -> unit
+
+  /// Where one thread's reading last stood, or none for a fresh read.
+  member ScrollPlaceOf: key: string -> float voption
+
   /// Opens one target's slot before anything was written in it, so a
   /// composer can park a draft against a thread that never loaded.
   member RememberTarget: target: ChatTarget -> unit
@@ -158,6 +169,11 @@ type RemotesStore =
 
   /// Reads the emoji the user reacts with, most used first.
   member LoadReactionUsage: unit -> Async<unit>
+
+  /// Reads one message's link card again, and lands it when the server
+  /// has it. A still-pending answer lands nothing, so the reader can
+  /// keep asking.
+  member RefreshLinkPreview: target: ChatTarget * messageId: int -> Async<unit>
 
   /// Turns the direct messages on or off; the account takes the new
   /// settings.

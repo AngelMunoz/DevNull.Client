@@ -21,6 +21,8 @@ let sectionOf(url: string) : string voption =
     ValueSome "log"
   elif prefix "/notifications" then
     ValueSome "notifications"
+  elif prefix "/remotes" then
+    ValueSome "remotes"
   elif prefix "/profile" then
     ValueSome "profile"
   elif prefix "/saved" then

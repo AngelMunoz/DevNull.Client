@@ -39,6 +39,8 @@ type Glyph =
   | Pastel
   | Poll
   | Info
+  | Mic
+  | Speaker
 
 /// One icon ready to place: the glyph in the default size, 18 device
 /// independent pixels.

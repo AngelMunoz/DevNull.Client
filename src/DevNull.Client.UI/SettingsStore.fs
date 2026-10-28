@@ -29,6 +29,10 @@ type AppSettings = {
   CloseToTray: bool
   Theme: ThemeChoice
   SidebarExpanded: bool
+  /// Unsent chat drafts by conversation key, emptied as they go out.
+  ChatDrafts: Map<string, string>
+  /// The voice-note player's volume, 0.0 to 1.0.
+  VoiceVolume: float
 }
 
 type AppSettingsStore(settings: AppSettings, persist: AppSettings -> unit) =
@@ -46,6 +50,8 @@ type AppSettingsStore(settings: AppSettings, persist: AppSettings -> unit) =
         CloseToTray = false
         Theme = System
         SidebarExpanded = true
+        ChatDrafts = Map.empty
+        VoiceVolume = 1.0
       },
       persist
     )
@@ -79,6 +85,32 @@ type AppSettingsStore(settings: AppSettings, persist: AppSettings -> unit) =
     persist next
     emit next
 
+  /// Parks one conversation's unsent draft; an empty text drops it.
+  member _.SetChatDraft(key: string, text: string) : unit =
+    let drafts =
+      if String.IsNullOrWhiteSpace text then
+        Map.remove key subject.Value.ChatDrafts
+      else
+        Map.add key text subject.Value.ChatDrafts
+
+    let next = {
+      subject.Value with
+          ChatDrafts = drafts
+    }
+
+    persist next
+    emit next
+
+  /// Persists the voice-note volume, then publishes it.
+  member _.SetVoiceVolume(volume: float) : unit =
+    let next = {
+      subject.Value with
+          VoiceVolume = volume
+    }
+
+    persist next
+    emit next
+
 type IProvideSettings =
   abstract Settings: AppSettingsStore
 
@@ -97,6 +129,14 @@ let save(settings: AppSettings) : Result<unit, string> =
     json.["close_to_tray"] <- JsonValue.Create settings.CloseToTray
     json.["theme"] <- JsonValue.Create(themeString settings.Theme)
     json.["sidebar_expanded"] <- JsonValue.Create settings.SidebarExpanded
+
+    let drafts = JsonObject()
+
+    for key, text in Map.toList settings.ChatDrafts do
+      drafts[key] <- JsonValue.Create text
+
+    json.["chat_drafts"] <- drafts
+    json.["voice_volume"] <- JsonValue.Create settings.VoiceVolume
     File.WriteAllText(settingsPath, json.ToJsonString())
     Ok()
   with ex ->
@@ -126,11 +166,38 @@ let load() : Result<AppSettings option, string> =
       | true, value when value.ValueKind = JsonValueKind.False -> false
       | _ -> true
 
+    let chatDrafts =
+      match root.TryGetProperty "chat_drafts" with
+      | true, value when value.ValueKind = JsonValueKind.Object ->
+        value.EnumerateObject()
+        |> Seq.choose(fun property ->
+          match property.Value.ValueKind with
+          | JsonValueKind.String ->
+            property.Value.GetString()
+            |> Option.ofObj
+            |> Option.map(fun text -> property.Name, text)
+          | _ -> None)
+        |> Map.ofSeq
+      | _ -> Map.empty
+
+    let voiceVolume =
+      match root.TryGetProperty "voice_volume" with
+      | true, value when value.ValueKind = JsonValueKind.Number ->
+        let read = value.GetDouble()
+
+        if Double.IsNaN read || Double.IsInfinity read then
+          1.0
+        else
+          Math.Clamp(read, 0.0, 1.0)
+      | _ -> 1.0
+
     Ok(
       Some {
         CloseToTray = closeToTray
         Theme = theme
         SidebarExpanded = sidebarExpanded
+        ChatDrafts = chatDrafts
+        VoiceVolume = voiceVolume
       }
     )
   with

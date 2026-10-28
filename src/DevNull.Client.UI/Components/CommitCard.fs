@@ -27,6 +27,12 @@ open DevNull.Client.Theme
 // alias keeps both in reach.
 type ApiImage = DevNull.Client.Core.ApiTypes.Image
 
+/// How a body's mentions read: the accent color over the page surface,
+/// or the plain foreground over an accent fill.
+type MentionTone =
+  | Accent
+  | OnFill
+
 /// What one card reports up: open the thread, toggle the star, give a
 /// pastel, start a quote, reveal the reply composer, choose a poll
 /// option, ask for the vote, or walk more replies of a thread preview.
@@ -135,7 +141,7 @@ module Parts =
   /// the card fills the rest.
   let mentioned(username: string) : User = {
     Id = ""
-    Username = username
+    Handle = username
     Name = username
     AvatarUrl = None
     Lane = None
@@ -147,13 +153,17 @@ module Parts =
   }
 
   /// One @handle of the body: the accent color, the hover card, and
-  /// the click that opens the profile.
-  let handleInline(flyout: Source voption, username: string) : Inline =
-    let handle =
-      TextBlock()
-        .Name("MentionHandle")
-        .Text("@" + username)
-        .Classes(Theme.name Theme.FgAccent)
+  /// the click that opens the profile. Over an accent fill the handle
+  /// keeps the fill's own foreground, so the accent never sits on
+  /// itself.
+  let handleInline
+    (flyout: Source voption, tone: MentionTone, username: string)
+    : Inline =
+    let handle = TextBlock().Name("MentionHandle").Text("@" + username)
+
+    match tone with
+    | Accent -> handle.Classes(Theme.name Theme.FgAccent) |> ignore
+    | OnFill -> ()
 
     match flyout with
     | ValueSome source ->
@@ -163,8 +173,12 @@ module Parts =
   /// The body text with its mentions wrapped, flowing the way the
   /// site's inline links do.
   let textWithMentions
-    (flyout: Source voption, text: string, mentions: Mention list)
-    : Control =
+    (
+      flyout: Source voption,
+      tone: MentionTone,
+      text: string,
+      mentions: Mention list
+    ) : Control =
     match mentions with
     | [] -> TextBlock().Text(text).TextWrapping(TextWrapping.Wrap)
     | _ ->
@@ -172,20 +186,24 @@ module Parts =
       let inlines = InlineCollection()
       block.Inlines <- inlines
 
-      splitMentions(text, mentions |> List.map _.Username)
+      splitMentions(text, mentions |> List.map _.Handle)
       |> List.iter(fun piece ->
         match piece with
         | Plain plain -> inlines.Add(Run plain) |> ignore
         | Handle username ->
-          inlines.Add(handleInline(flyout, username)) |> ignore)
+          inlines.Add(handleInline(flyout, tone, username)) |> ignore)
 
       block
 
   let segmentView
-    (flyout: Source voption, mentions: Mention list, segment: Segment)
-    : Control =
+    (
+      flyout: Source voption,
+      tone: MentionTone,
+      mentions: Mention list,
+      segment: Segment
+    ) : Control =
     match segment with
-    | TextSegment text -> textWithMentions(flyout, text, mentions)
+    | TextSegment text -> textWithMentions(flyout, tone, text, mentions)
     | CodeSegment code ->
       Border()
         .Classes(Theme.name Theme.SurfaceBack)
@@ -211,15 +229,26 @@ module Parts =
             .TextWrapping(TextWrapping.Wrap)
         )
 
+  /// One body from its parts, whatever carries it.
+  let bodyGen
+    (
+      flyout: Source voption,
+      tone: MentionTone,
+      text: string,
+      segments: Segment list,
+      mentions: Mention list
+    ) : Control =
+    match segments with
+    | [] -> textWithMentions(flyout, tone, text, mentions)
+    | segments ->
+      StackPanel().Children [|
+        for segment in segments -> segmentView(flyout, tone, mentions, segment)
+      |]
+
   /// The body over any source: the segments with their mentions, the
   /// plain text when the payload carries no segments.
   let bodyOf(flyout: Source voption, commit: Commit) : Control =
-    match commit.BodySegments with
-    | [] -> textWithMentions(flyout, commit.Body, commit.Mentions)
-    | segments ->
-      StackPanel().Children [|
-        for segment in segments -> segmentView(flyout, commit.Mentions, segment)
-      |]
+    bodyGen(flyout, Accent, commit.Body, commit.BodySegments, commit.Mentions)
 
   let bodyView(props: Props, commit: Commit) : Control =
     bodyOf(props.Flyout, commit)
@@ -305,7 +334,7 @@ module Parts =
             .Children(
               TextBlock()
                 .Classes(Theme.name Theme.Mono)
-                .Text($"@{commit.Author.Username}"),
+                .Text($"@{commit.Author.Handle}"),
               TextBlock()
                 .Text(commit.Body)
                 .TextWrapping(TextWrapping.Wrap)
@@ -414,12 +443,12 @@ module Parts =
       match spec.Mentions with
       | [] -> inlines.Add(Run spec.Text) |> ignore
       | _ ->
-        splitMentions(spec.Text, spec.Mentions |> List.map _.Username)
+        splitMentions(spec.Text, spec.Mentions |> List.map _.Handle)
         |> List.iter(fun piece ->
           match piece with
           | Plain plain -> inlines.Add(Run plain) |> ignore
           | Handle username ->
-            inlines.Add(handleInline(spec.Flyout, username)) |> ignore)
+            inlines.Add(handleInline(spec.Flyout, Accent, username)) |> ignore)
 
       if spec.Marked then
         block.FontWeight <- FontWeight.Medium
@@ -740,7 +769,7 @@ module Parts =
           TextBlock().Classes(Theme.name Theme.Muted).Text("·"),
           TextBlock()
             .Classes(Theme.name Theme.Mono)
-            .Text($"@{commit.Author.Username}")
+            .Text($"@{commit.Author.Handle}")
             .TextTrimming(TextTrimming.CharacterEllipsis),
           TextBlock().Classes(Theme.name Theme.Muted).Text("·"),
           TextBlock()
@@ -762,7 +791,7 @@ module Parts =
         TextBlock()
           .Classes(Theme.name Theme.Muted)
           .Margin(0.0, 2.0, 0.0, 0.0)
-          .Text($"replying to @{parent.Author.Username}")
+          .Text($"replying to @{parent.Author.Handle}")
       )
     | Some(Tombstone _) ->
       Some(
@@ -877,7 +906,7 @@ module Parts =
         TextBlock().Classes(Theme.name Theme.Muted).Text("·"),
         TextBlock()
           .Classes(Theme.name Theme.Mono)
-          .Text($"@{commit.Author.Username}")
+          .Text($"@{commit.Author.Handle}")
           .TextTrimming(TextTrimming.CharacterEllipsis),
         TextBlock().Classes(Theme.name Theme.Muted).Text("·"),
         TextBlock()
@@ -1181,6 +1210,19 @@ let feedRow (props: RowProps) (node: CommitNode) : Control =
     }
   | Tombstone _ -> tombstone()
 
+/// One body from its segments — the text with its mentions wrapped,
+/// the code blocks boxed — whatever carries it: a commit card or a
+/// chat bubble.
+let body
+  (
+    flyout: Source voption,
+    text: string,
+    segments: Segment list,
+    mentions: Mention list,
+    tone: MentionTone
+  ) : Control =
+  Parts.bodyGen(flyout, tone, text, segments, mentions)
+
 /// The shared context of one reply chain: the row props, the nesting
 /// depth, the lane and handle of the parent the chain hangs from, and
 /// the host's own host for a parent's children (the thread page grows
@@ -1317,7 +1359,7 @@ let rec chainRow(ctx: ChainCtx, spot: ChainSpot, node: CommitNode) : Control =
               {
                 child with
                     ParentLane = commit.Author.Lane
-                    ParentHandle = commit.Author.Username
+                    ParentHandle = commit.Author.Handle
               },
               replies
             )
@@ -1405,7 +1447,7 @@ let replyBlock
                   Props = props
                   Depth = 0
                   ParentLane = lane
-                  ParentHandle = commit.Author.Username
+                  ParentHandle = commit.Author.Handle
                   Grow = ValueNone
                 },
                 replies

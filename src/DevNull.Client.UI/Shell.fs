@@ -30,7 +30,10 @@ open DevNull.Client.Icons
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
 open DevNull.Client.Navigation
+open DevNull.Client.Natives
 open DevNull.Client.Profiles
+open DevNull.Client.Remotes
+open DevNull.Client.RemotesState
 open DevNull.Client.SessionFiles
 open DevNull.Client.SettingsStore
 open DevNull.Client.Shortcuts
@@ -77,7 +80,8 @@ let layoutOf(width: float) : Layout =
   else Standard
 
 /// One sidebar destination. `Badge` carries the live unread count the
-/// entry renders, when it renders one.
+/// entry renders, when it renders one; `Visible` carries the live
+/// flag that hides the entry altogether, when it can hide.
 [<Struct>]
 type NavEntry = {
   Glyph: Glyph
@@ -85,6 +89,7 @@ type NavEntry = {
   Section: string
   Url: string
   Badge: IObservable<int> voption
+  Visible: IObservable<bool> voption
 }
 
 // The client surface fills the window behind the caption row. The
@@ -186,6 +191,9 @@ let navItem(context: NavContext, entry: NavEntry) : Control =
   Theme.bindClass(item, Theme.NavItemActive, active)
   Theme.bindClass(item, Theme.RailItem, context.Compact)
 
+  entry.Visible
+  |> ValueOption.iter(fun visible -> item.IsVisible(visible) |> ignore)
+
   item
 
 /// What the sidebar footer reads: where it goes, the session, the
@@ -241,7 +249,7 @@ let footer(context: FooterContext) : Control =
                   .Text(entry.Session.User.Name),
                 TextBlock()
                   .Classes(Theme.name Theme.Mono)
-                  .Text("@" + entry.Session.User.Username)
+                  .Text("@" + entry.Session.User.Handle)
               )
           )
     | SignedIn _ -> ()
@@ -473,7 +481,9 @@ type Shell<'env
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
   and 'env :> IProvideRoutes
-  and 'env :> IProvideSshKeys>(env: 'env, callback: string option) as this =
+  and 'env :> IProvideSshKeys
+  and 'env :> IProvideRemotes
+  and 'env :> IProvideNatives>(env: 'env, callback: string option) as this =
   inherit Window()
 
   // The close bypass: `Quit` raises it, so the close-to-tray guard in
@@ -612,6 +622,19 @@ type Shell<'env
         .IsVisible(helpOpen :> IObservable<bool>)
         .Children(helpScrim, helpHost)
 
+    // The remotes entry shows only while the account carries the
+    // direct messages; its badge follows the store's unread total.
+    let remotesUnread =
+      env.Remotes.Observe
+      |> Observable.map(fun state -> state.Unread |> Option.defaultValue 0)
+
+    let remotesOn =
+      session.Observe
+      |> Observable.map(fun state ->
+        match state with
+        | SignedIn entry -> entry.Session.Remotes.IsSome
+        | SignedOut -> false)
+
     let entries = [
       {
         Glyph = Glyph.Log
@@ -619,6 +642,7 @@ type Shell<'env
         Section = "log"
         Url = "/log/latest"
         Badge = ValueNone
+        Visible = ValueNone
       }
       {
         Glyph = Glyph.Notifications
@@ -626,6 +650,15 @@ type Shell<'env
         Section = "notifications"
         Url = "/notifications"
         Badge = ValueSome(env.Unread.Count)
+        Visible = ValueNone
+      }
+      {
+        Glyph = Glyph.Remotes
+        Label = "Remotes"
+        Section = "remotes"
+        Url = "/remotes"
+        Badge = ValueSome remotesUnread
+        Visible = ValueSome remotesOn
       }
       {
         Glyph = Glyph.Profile
@@ -633,6 +666,7 @@ type Shell<'env
         Section = "profile"
         Url = "/profile"
         Badge = ValueNone
+        Visible = ValueNone
       }
       {
         Glyph = Glyph.Saved
@@ -640,6 +674,7 @@ type Shell<'env
         Section = "saved"
         Url = "/saved"
         Badge = ValueNone
+        Visible = ValueNone
       }
       {
         Glyph = Glyph.Settings
@@ -647,6 +682,7 @@ type Shell<'env
         Section = "settings"
         Url = "/settings"
         Badge = ValueNone
+        Visible = ValueNone
       }
       {
         Glyph = Glyph.Info
@@ -654,6 +690,7 @@ type Shell<'env
         Section = "settings"
         Url = "/about"
         Badge = ValueNone
+        Visible = ValueNone
       }
     ]
 
@@ -916,14 +953,24 @@ type Shell<'env
     // The site's reading column: 620px while the sidebar shows its
     // labels, 796px once the desktop sidebar collapses. The forced rail
     // below the label breakpoint keeps 620px, as the site's `md` rule
-    // does there.
+    // does there. The remotes page runs the whole strip instead: its
+    // inbox and thread sit side by side, the way the site's own page
+    // does.
+    let isRemotes =
+      env.Routes.Path |> Observable.map(fun path -> path.StartsWith "/remotes")
+
     let mainWidth =
-      Observable.combineLatest layout expanded
-      |> Observable.map(fun (current, isExpanded) ->
-        match current with
-        | Standard
-        | Wide when not isExpanded -> 796.0
-        | _ -> 620.0)
+      Observable.combineLatest
+        (Observable.combineLatest layout expanded)
+        isRemotes
+      |> Observable.map(fun ((current, isExpanded), onRemotes) ->
+        if onRemotes then
+          stripWidth
+        else
+          match current with
+          | Standard
+          | Wide when not isExpanded -> 796.0
+          | _ -> 620.0)
 
     let mainHost =
       Border()
@@ -1040,7 +1087,18 @@ type Shell<'env
         TimeSpan.FromSeconds 45.0
       )
 
-    this.Closed.Add(fun _ -> unreadPoll.Dispose())
+    // The chat's own loops: one gate that follows the window's focus,
+    // and the watcher that pauses its polls while the gate is closed.
+    let windowActive = new BehaviorSubject<bool>(true)
+
+    this.Activated.Add(fun _ -> windowActive.OnNext true)
+    this.Deactivated.Add(fun _ -> windowActive.OnNext false)
+
+    let remotesWatch = env.Remotes.Watcher.Start(windowActive)
+
+    this.Closed.Add(fun _ ->
+      unreadPoll.Dispose()
+      remotesWatch.Dispose())
 
     // Close-to-tray: the flag turns a close into a hide, so the tray
     // and the poller keep the app alive. `Quit` marks the bypass first.

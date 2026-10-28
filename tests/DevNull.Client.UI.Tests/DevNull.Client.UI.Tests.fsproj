@@ -15,6 +15,7 @@
     <Compile Include="App.Tests.fs" />
     <Compile Include="Shortcuts.Tests.fs" />
     <Compile Include="Leaks.Tests.fs" />
+    <Compile Include="RemotesView.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

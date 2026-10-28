@@ -233,6 +233,7 @@ type Capture(stream: nativeint) =
 type Playback(stream: nativeint, data: byte[]) =
 
   let running = ref true
+  let written = ref 0
   let finished = Event<unit>()
 
   let rec writeAt(offset: int) =
@@ -247,6 +248,7 @@ type Playback(stream: nativeint, data: byte[]) =
       && Pulse.pa_simple_write(stream, piece, unativeint piece.Length, &error)
          >= 0
     then
+      written.Value <- offset + take
       writeAt(offset + take)
 
   let writer =
@@ -270,6 +272,10 @@ type Playback(stream: nativeint, data: byte[]) =
       writer.Join()
 
     member _.Ended = finished.Publish
+
+    // 16 kHz mono 16-bit stands at 32,000 bytes a second; the writer
+    // counts what it has pushed.
+    member _.Position = TimeSpan.FromSeconds(float written.Value / 32000.0)
 
 /// The samples as played: volume applied by scaling, speed applied by
 /// nearest-neighbor resampling, both in the voice-note format.
@@ -306,21 +312,23 @@ type PulseEngine() =
           | Error failure -> Error failure)
     }
 
-    member _.Play(samples, speed, volume) =
-      match openStream(Pulse.Playback, "Voice note") with
-      | Ok stream ->
-        Playback(stream, rendered(samples, speed, volume)) :> IAudioPlayback
-      | Error _ ->
-        // The contract's playback has no failure arm; a stream that
-        // could not open ends at once, so a waiting caller moves on.
-        let ended = Event<unit>()
-        ended.Trigger()
-
-        {
-          new IAudioPlayback with
-            member _.Stop() = ()
-            member _.Ended = ended.Publish
-        }
+    member _.Play(media, speed, volume) = asyncEx {
+      return!
+        Task.Run(fun () ->
+          // PulseAudio's simple API takes PCM only; a WAV is already
+          // that, and any other container names its refusal rather
+          // than playing noise.
+          match VoiceMedia.samples media with
+          | Some samples ->
+            match openStream(Pulse.Playback, "Voice note") with
+            | Ok stream ->
+              Ok(
+                Playback(stream, rendered(samples, speed, volume))
+                :> IAudioPlayback
+              )
+            | Error failure -> Error failure
+          | None -> Error(AudioFailed "this build plays WAV voice notes only"))
+    }
 
 /// The desktop's own sounds through libcanberra: the message event of
 /// the installed XDG sound theme, the same sound the desktop's

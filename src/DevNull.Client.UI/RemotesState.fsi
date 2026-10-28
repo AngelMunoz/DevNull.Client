@@ -111,6 +111,12 @@ type RemotesState = {
   /// Whether the window is focused and visible; reading state keys on
   /// it.
   WindowActive: bool
+  /// The conversation the reader last checked out, so a page that
+  /// returns reopens it without a cached route.
+  OpenTarget: ChatTarget option
+  /// Where each thread's reading last stood, so a page that returns
+  /// restores its scroll.
+  ScrollPlaces: Map<string, float>
 }
 
 /// One inbox thread page, whichever kind of thread it came from.
@@ -391,3 +397,10 @@ val refuseSend:
 /// One refused send stages again.
 val restageSend:
   state: RemotesState * key: string * clientId: string<ClientId> -> RemotesState
+
+/// One message's link card landed: the preview the server answered
+/// takes the message's slot. A still-pending answer changes nothing,
+/// so the reader keeps asking until the card arrives.
+val landLinkPreview:
+  state: RemotesState * key: string * messageId: int * preview: LinkPreview ->
+    RemotesState

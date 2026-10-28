@@ -673,7 +673,7 @@ module Parts =
             .Text(notification.Actor.Name),
           TextBlock()
             .Classes(Theme.name Theme.Mono)
-            .Text($"@{notification.Actor.Username}")
+            .Text($"@{notification.Actor.Handle}")
             .TextTrimming(TextTrimming.CharacterEllipsis),
           TextBlock()
             .Classes(Theme.name Theme.Mono)

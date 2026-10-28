@@ -77,7 +77,7 @@ let saveSession(session: DeviceSession) : Result<unit, string> =
     Directory.CreateDirectory(dataDirectory) |> ignore
     let json = JsonObject()
     json.["id"] <- JsonValue.Create session.User.Id
-    json.["username"] <- JsonValue.Create session.User.Username
+    json.["username"] <- JsonValue.Create session.User.Handle
     json.["name"] <- JsonValue.Create session.User.Name
 
     session.User.AvatarUrl
@@ -153,7 +153,7 @@ let loadSession() : DeviceSession option =
       Some {
         User = {
           Id = id
-          Username = username
+          Handle = username
           Name = name
           AvatarUrl = tryString "avatar_url" root
         }

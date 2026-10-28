@@ -133,7 +133,7 @@ module ThreadTarget =
   /// The wire form of one target.
   let ofChat(target: ChatTarget) : CoreRemotes.ThreadTarget =
     match target with
-    | Partner user -> CoreRemotes.Partner user.Username
+    | Partner user -> CoreRemotes.Partner user.Handle
     | Org org -> CoreRemotes.Org org.Id
 
 /// One thread page read: the call, mapped onto whichever kind of
@@ -147,7 +147,7 @@ let readThread
       signEnv,
       {
         KeyFile = read.KeyFile
-        Partner = user.Username
+        Partner = user.Handle
         After = read.After
         Before = read.Before
         ReactionsAfter = read.ReactionsAfter
@@ -874,6 +874,42 @@ type RemotesStore(workers: RemotesWorkers, session: SessionStore, log: ILogger) 
   member _.SetWindowActive(active: bool) : unit =
     apply(fun state -> { state with WindowActive = active })
 
+  /// Checks one conversation out: the store remembers it, so a page
+  /// that returns reopens it. `None` checks nothing out.
+  member _.SetOpenTarget(target: ChatTarget option) : unit =
+    apply(fun state ->
+      let seeded =
+        match target with
+        | Some target when
+            not(state.Threads |> Map.containsKey(ChatTargets.key target))
+            ->
+            {
+              state with
+                  Threads =
+                    Map.add
+                      (ChatTargets.key target)
+                      (emptyThread target)
+                      state.Threads
+            }
+        | _ -> state
+
+      { seeded with OpenTarget = target })
+
+  /// Parks one thread's reading place, so a page that returns restores
+  /// its scroll.
+  member _.RememberScroll(key: string, offset: float) : unit =
+    apply(fun state -> {
+      state with
+          ScrollPlaces =
+            (match offset with
+             | 0.0 -> Map.remove key state.ScrollPlaces
+             | moved -> Map.add key moved state.ScrollPlaces)
+    })
+
+  /// Where one thread's reading last stood, or none for a fresh read.
+  member _.ScrollPlaceOf(key: string) : float voption =
+    published.Value.ScrollPlaces |> Map.tryFind key |> ValueOption.ofOption
+
   /// Opens one target's slot before anything was written in it, so a
   /// composer can park a draft against a thread that never loaded.
   member _.RememberTarget(target: ChatTarget) : unit =
@@ -1456,7 +1492,7 @@ type RemotesStore(workers: RemotesWorkers, session: SessionStore, log: ILogger) 
         match keyFile() with
         | ValueNone -> return false
         | ValueSome keyFile ->
-          let key = partner.Username
+          let key = partner.Handle
 
           let! outcome: Result<unit, AppError> =
             if merging then
@@ -1674,6 +1710,35 @@ type RemotesStore(workers: RemotesWorkers, session: SessionStore, log: ILogger) 
               describe error
             )
         | _ -> ()
+      }
+    )
+
+  /// Reads one message's link card again, and lands it when the server
+  /// has it. A still-pending answer lands nothing, so the reader can
+  /// keep asking.
+  member _.RefreshLinkPreview
+    (target: ChatTarget, messageId: int)
+    : Async<unit> =
+    settled(
+      asyncEx {
+        match keyFile() with
+        | ValueNone -> return ()
+        | ValueSome keyFile ->
+          let key = ChatTargets.key target
+
+          let! answer: Result<LinkPreview option, AppError> =
+            CoreRemotes.linkPreview(
+              signEnv,
+              {
+                KeyFile = keyFile
+                MessageId = messageId
+              }
+            )
+
+          match answer with
+          | Ok(Some preview) ->
+            apply(fun state -> landLinkPreview(state, key, messageId, preview))
+          | _ -> return ()
       }
     )
 

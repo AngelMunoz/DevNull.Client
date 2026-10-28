@@ -29,6 +29,7 @@ module Keys =
   let onAccent = "AppOnAccent"
   let danger = "AppDanger"
   let dangerText = "AppDangerText"
+  let warning = "AppWarning"
   let success = "AppSuccess"
   let popover = "AppPopover"
   let rail = "AppRail"
@@ -139,6 +140,7 @@ type StyleClass =
   | FgAccent
   | FgMuted
   | FgDanger
+  | FgWarning
   | FgOnAccent
   | SurfaceBack
   | PrimarySoftBack
@@ -153,11 +155,14 @@ type StyleClass =
   | RailEdge
   | MutedEdge
   | AheadPill
+  | TabBadge
   | DayMarker
   | HeadRule
   | ReactionChip
   | ReactionChipMine
-  | BubbleShadow
+  | StagedBubble
+  | RejectedBubble
+  | FlashRing
 
 /// The height of the drag band the shell lays over the drawn window
 /// chrome.
@@ -202,6 +207,7 @@ let name class' =
   | FgAccent -> "fg-accent"
   | FgMuted -> "fg-muted"
   | FgDanger -> "fg-danger"
+  | FgWarning -> "fg-warning"
   | FgOnAccent -> "fg-on-accent"
   | SurfaceBack -> "surface-back"
   | PrimarySoftBack -> "primary-soft-back"
@@ -216,11 +222,14 @@ let name class' =
   | RailEdge -> "rail-edge"
   | MutedEdge -> "muted-edge"
   | AheadPill -> "ahead-pill"
+  | TabBadge -> "tab-badge"
   | DayMarker -> "day-marker"
   | HeadRule -> "head-rule"
   | ReactionChip -> "reaction-chip"
   | ReactionChipMine -> "reaction-chip-mine"
-  | BubbleShadow -> "bubble-shadow"
+  | StagedBubble -> "staged-bubble"
+  | RejectedBubble -> "rejected-bubble"
+  | FlashRing -> "flash-ring"
 
 /// Moves one class on and off a control as the observable flips. The
 /// class list is the only thing the subscription touches.
@@ -700,6 +709,24 @@ let styleTable: (StyleClass * (unit -> Style)) list = [
         TextElement.ForegroundProperty, themed Keys.muted
       |]
     )
+  TabBadge,
+  fun () ->
+    // One tab's count, the fetched requests' waiting total: the ahead
+    // pill's own look at the tab strip's smaller scale.
+    styleOf(
+      (fun selector -> selector.OfType<Border>().Class(name TabBadge)),
+      [|
+        Border.BackgroundProperty, themed Keys.accent
+        Border.CornerRadiusProperty, box(CornerRadius(2.0))
+        Border.PaddingProperty, box(Thickness(6.0, 0.0, 6.0, 0.0))
+        Layoutable.MinWidthProperty, box 20.0
+        Layoutable.MinHeightProperty, box 20.0
+        Layoutable.VerticalAlignmentProperty, box VerticalAlignment.Center
+        TextElement.FontFamilyProperty, box Fonts.mono
+        TextElement.FontSizeProperty, box 11.0
+        TextElement.ForegroundProperty, themed Keys.onAccent
+      |]
+    )
   ReactionChip,
   fun () ->
     // One emoji tally under a message: card fill inside a hairline at
@@ -717,24 +744,35 @@ let styleTable: (StyleClass * (unit -> Style)) list = [
         TextElement.FontSizeProperty, box 13.0
       |]
     )
-  BubbleShadow,
+  StagedBubble,
   fun () ->
-    // The chat's one depth cue: on message bubbles, images in
-    // messages, and link cards only.
+    // One message on its way in: no fill of its own, an accent edge.
     styleOf(
-      (fun selector -> selector.OfType<Border>().Class(name BubbleShadow)),
+      (fun selector -> selector.OfType<Border>().Class(name StagedBubble)),
       [|
-        Border.BoxShadowProperty,
-        box(
-          BoxShadows(
-            BoxShadow(
-              OffsetY = 12.0,
-              Blur = 30.0,
-              Spread = -12.0,
-              Color = Color.FromArgb(115uy, 0uy, 0uy, 0uy)
-            )
-          )
-        )
+        Border.BorderBrushProperty, themed Keys.accent
+        Border.BorderThicknessProperty, box(Thickness(1.5))
+      |]
+    )
+  RejectedBubble,
+  fun () ->
+    // One the server refused: the same hollow shape, a danger edge.
+    styleOf(
+      (fun selector -> selector.OfType<Border>().Class(name RejectedBubble)),
+      [|
+        Border.BorderBrushProperty, themed Keys.danger
+        Border.BorderThicknessProperty, box(Thickness(1.5))
+      |]
+    )
+  FlashRing,
+  fun () ->
+    // The one-shot ring a jumped-to message wears: an accent border for
+    // the beat after the landing.
+    styleOf(
+      (fun selector -> selector.OfType<Border>().Class(name FlashRing)),
+      [|
+        Border.BorderBrushProperty, themed Keys.accent
+        Border.BorderThicknessProperty, box(Thickness(2.0))
       |]
     )
 ]
@@ -936,6 +974,13 @@ let styles() =
     styleOf(
       (fun selector -> selector.OfType<TextBlock>().Class(name FgDanger)),
       [| TextBlock.ForegroundProperty, themed Keys.danger |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<TextBlock>().Class(name FgWarning)),
+      [| TextBlock.ForegroundProperty, themed Keys.warning |]
     )
   )
 
@@ -1157,6 +1202,7 @@ let darks() =
   color(Keys.onAccent, "#111112")
   color(Keys.danger, "#ff6b6b")
   color(Keys.dangerText, "#ff8787")
+  color(Keys.warning, "#fbbf24")
   color(Keys.success, "#51cf66")
   color(Keys.popover, "#1f1f22")
   color(Keys.rail, "#36363a")
@@ -1192,6 +1238,7 @@ let lights() =
   color(Keys.onAccent, "#ffffff")
   color(Keys.danger, "#c92a2a")
   color(Keys.dangerText, "#ffffff")
+  color(Keys.warning, "#b45309")
   color(Keys.success, "#2f9e44")
   color(Keys.popover, "#ffffff")
   color(Keys.rail, "#d3d7dd")

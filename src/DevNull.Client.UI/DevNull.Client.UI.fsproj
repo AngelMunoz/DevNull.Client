@@ -12,6 +12,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="Natives.fsi" />
+    <Compile Include="Natives.fs" />
     <Compile Include="Errors.fs" />
     <Compile Include="SettingsStore.fsi" />
     <Compile Include="SettingsStore.fs" />
@@ -49,8 +51,6 @@
     <Compile Include="RemotesState.fs" />
     <Compile Include="Remotes.fsi" />
     <Compile Include="Remotes.fs" />
-    <Compile Include="Natives.fsi" />
-    <Compile Include="Natives.fs" />
     <Compile Include="Env.fsi" />
     <Compile Include="Env.fs" />
     <Compile Include="DeviceAuth.fsi" />

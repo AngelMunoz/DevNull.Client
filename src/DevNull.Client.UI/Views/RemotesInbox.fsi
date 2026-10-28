@@ -8,12 +8,13 @@ open MVUish.Avalonia
 /// The page's semantic regions; the view only composes these.
 module Parts =
 
-  /// Everything one row's parts read: the dispatch, the model, and the
-  /// image cache.
+  /// Everything one row's parts read: the dispatch, the model, the
+  /// image cache, and the signed-in viewer.
   type RowCtx = {
     Dispatch: Dispatch<State.Msg>
     Model: IObservable<State.Model>
     Images: ImageCacheService
+    ViewerId: string
   }
 
   /// The whole inbox column: the search box with the org picker beside

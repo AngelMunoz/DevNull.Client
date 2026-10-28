@@ -493,17 +493,22 @@ let withReactionUse
   | None when change > 0 -> usage @ [ { Emoji = emoji; Count = change } ]
   | None -> usage
 
+/// One poll's reaction sweep: the loaded messages, the reactions that
+/// changed since the last version, and when the poll left.
+[<Struct>]
+type ReactionSweep = {
+  Messages: Message list
+  Changes: ReactionChange list
+  PolledAt: DateTimeOffset
+}
+
 /// The reactions that changed, except on messages the viewer is
 /// reacting to right now, or reacted to after the poll was sent.
 let withReactionChanges
-  (
-    state: RemotesState,
-    messages: Message list,
-    changes: ReactionChange list,
-    polledAt: DateTimeOffset
-  ) : Message list =
+  (state: RemotesState, sweep: ReactionSweep)
+  : Message list =
   let changed =
-    changes
+    sweep.Changes
     |> List.choose(fun change ->
       let settled =
         state.ReactionsSettledAt
@@ -513,16 +518,16 @@ let withReactionChanges
       let inFlight =
         state.ReactionsInFlight |> Map.containsKey change.MessageId
 
-      if not inFlight && settled < polledAt then
+      if not inFlight && settled < sweep.PolledAt then
         Some(change.MessageId, change.Reactions)
       else
         None)
     |> Map.ofList
 
   if changed.IsEmpty then
-    messages
+    sweep.Messages
   else
-    messages
+    sweep.Messages
     |> List.map(fun message ->
       match Map.tryFind message.Id changed with
       | Some reactions -> { message with Reactions = reactions }
@@ -551,9 +556,11 @@ let mergeThread(state: RemotesState, merge: ThreadMerge) : RemotesState =
           mergeMessages(
             withReactionChanges(
               state,
-              current.Messages,
-              reactionChangesOf page,
-              merge.PolledAt
+              {
+                Messages = current.Messages
+                Changes = reactionChangesOf page
+                PolledAt = merge.PolledAt
+              }
             ),
             freshMessages
           )

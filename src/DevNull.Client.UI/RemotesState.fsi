@@ -108,8 +108,7 @@ type RemotesState = {
   TypingPings: Map<string, DateTimeOffset>
   /// How many readers hold each thread open.
   WatchCounts: Map<string, int>
-  /// Whether the window is focused and visible; reading state keys on
-  /// it.
+  /// Whether the window stands on screen; reading state keys on it.
   WindowActive: bool
   /// The conversation the reader last checked out, so a page that
   /// returns reopens it without a cached route.
@@ -123,15 +122,6 @@ type RemotesState = {
 type FreshThread =
   | DirectFresh of thread: Thread
   | OrgFresh of thread: OrgThread
-
-/// One page's messages.
-val messagesOf: page: FreshThread -> Message list
-
-/// Whether one page says older messages sit above it.
-val hasOlderOf: page: FreshThread -> bool
-
-/// The read position one page reports.
-val readThroughOf: page: FreshThread -> int
 
 /// The preference versions one request reserved when it left.
 type VersionPair = { Mute: int; Pin: int }
@@ -192,11 +182,8 @@ type RequestSettle = {
   Merging: bool
 }
 
-/// One landed push: the thread's key and the message.
-type MessageLanding = { Key: string; Message: Message }
-
-/// One push's whole landing: the message merges, the inbox row moves
-/// to the top, and the thread unarchives.
+/// One push's whole landing: the thread takes the message, the open
+/// list takes the row at its top, and the thread unarchives.
 type PushLanding = {
   Key: string
   Target: ChatTarget
@@ -239,10 +226,6 @@ module ChatTargets =
   /// The thread target of one inbox row.
   val targetOf: summary: Conversation -> ChatTarget
 
-  /// One row against another: pinned first, then newest message, then
-  /// the newer id. The inbox's sort order.
-  val order: left: Conversation * right: Conversation -> int
-
 /// The state at boot, before anything loaded.
 val emptyState: RemotesState
 
@@ -260,19 +243,6 @@ val updateThread:
   state: RemotesState ->
     RemotesState
 
-/// One landed message's row seed: who it went to, what the lists
-/// already knew, and the message itself.
-type LandedRow = {
-  Target: ChatTarget
-  Existing: Conversation option
-  Message: Message
-  PinnedAt: DateTimeOffset option
-}
-
-/// The inbox row a landed message puts at the top of the open list:
-/// the existing row kept what it knew, the message fills the rest.
-val landedRow: landing: LandedRow -> Conversation
-
 /// One tab under a change to its list. Curried on the state, so one
 /// change pipes into the next.
 val withTab:
@@ -286,9 +256,6 @@ val withTab:
 val mergeMessages:
   current: Message list * incoming: Message list -> Message list
 
-/// The unread total of one list of rows.
-val unreadOf: items: Conversation list -> int
-
 /// One row list without one key.
 val withoutKey:
   items: Conversation list option * key: string -> Conversation list option
@@ -300,23 +267,11 @@ val withConversationPins:
   items: Conversation list ->
     Conversation list
 
-/// The first page fresh from the server, followed by the older rows
-/// already scrolled into, without duplicates.
-val withFirstPage:
-  preferences: Map<string, Versioned<DateTimeOffset option>> *
-  current: Conversation list option *
-  firstPage: Conversation list ->
-    Conversation list
-
 /// One preference write, kept only when its version is the newest
 /// that ever wrote the key.
 val writePreference:
   preferences: Map<string, Versioned<'value>> * write: PreferenceWrite<'value> ->
     Map<string, Versioned<'value>>
-
-/// The emoji usage after one toggle lands or reverts.
-val withReactionUse:
-  usage: ReactionUse list * emoji: string * change: int -> ReactionUse list
 
 /// One thread page merged into the loaded state: the messages, the
 /// pending sends the page settles, the read baseline, and the pin and
@@ -359,15 +314,6 @@ val stashMove: state: RemotesState * move: StashMove -> RemotesState
 /// counts fall, and a merge moves it into the open list.
 val settleRequestState:
   state: RemotesState * settle: RequestSettle -> RemotesState
-
-/// One landed message's touch on the inbox: the conversation moves to
-/// the top of the open list.
-val touchInboxState:
-  state: RemotesState * key: string * summary: Conversation -> RemotesState
-
-/// The thread a pushed message lands in: the message merges, the
-/// staged copy drops, and the read and head advance.
-val landMessage: state: RemotesState * landing: MessageLanding -> RemotesState
 
 /// One push's whole landing: the thread takes the message, the open
 /// list takes the row at its top, and the thread unarchives.

@@ -1108,6 +1108,170 @@ let threadTests =
 
         Expect.isGreaterThan dots 0 "the typing dots never drew"
       })
+
+    testCaseAsync
+      "the open conversation's marker stands at the row's start"
+      (async {
+        let thread =
+          Remotes.threadJson(
+            [ Remotes.messageJson(41, partnerId, "hello there", "c-41") ],
+            41,
+            "",
+            false,
+            0
+          )
+
+        let api = threadApi(thread, thread)
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openConversationAsync window
+
+        // The rail owns the row's first dock slot: its left edge is the
+        // row's own, and the row's button starts after it. A rail left
+        // to a panel's default alignment centers over the row's middle.
+        let! placed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              root.GetVisualDescendants()
+              |> Seq.tryPick(fun visual ->
+                match visual with
+                | :? Border as rail when rail.Name = "SelectedRail" ->
+                  match rail.Parent with
+                  | :? DockPanel as row ->
+                    row.Children
+                    |> Seq.tryPick(function
+                      | :? Button as button -> Some(rail, button)
+                      | _ -> None)
+                  | _ -> None
+                | _ -> None)
+              |> Option.map(fun (rail, button) ->
+                rail.Bounds.Width > 0.0
+                && rail.Bounds.X < 1.0
+                && button.Bounds.Left >= rail.Bounds.Right)
+              |> Option.defaultValue false
+          )
+
+        Expect.isTrue placed "the marker never stood at the row's start"
+      })
+
+    testCaseAsync
+      "the gap between the hover actions stays inside the row"
+      (async {
+        let thread =
+          Remotes.threadJson(
+            [ Remotes.messageJson(41, partnerId, "hello there", "c-41") ],
+            41,
+            "",
+            false,
+            0
+          )
+
+        let api = threadApi(thread, thread)
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openConversationAsync window
+
+        let! built =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              root.GetVisualDescendants()
+              |> Seq.exists(fun visual -> visual.Name = "BubbleActionsTheirs")
+          )
+
+        Expect.isTrue built "the actions panel never built"
+
+        do! onUiAsync(fun () -> hoverMessage(window, 41, false))
+
+        // The two 28px icons leave a 2px gap between them; the row must
+        // own that stretch, or a pointer crossing it drops the hover and
+        // the far icon goes unreachable. The probe hit-tests the row
+        // itself at the gap's point: the hit scope is the row's
+        // subtree, and the row's background is what holds the pointer.
+        let! held =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              root.GetVisualDescendants()
+              |> Seq.tryPick(fun visual ->
+                match visual with
+                | :? Control as panel when
+                  visual.Name = "BubbleActionsTheirs"
+                  && panel.Bounds.Width >= 58.0
+                  ->
+                  panel.GetVisualAncestors()
+                  |> Seq.tryPick(function
+                    | :? DockPanel as row when
+                      row.Classes |> Seq.contains "msg-row"
+                      ->
+                      let gap =
+                        panel.Bounds.Position
+                        + Point(29.0, panel.Bounds.Height / 2.0)
+
+                      let hit = row.InputHitTest gap
+
+                      match hit with
+                      | null -> Some false
+                      | hit ->
+                        match hit with
+                        | :? Visual as struck ->
+                          let rowVisual = row :> Visual
+
+                          Some(
+                            struck = rowVisual
+                            || struck.GetVisualAncestors()
+                               |> Seq.exists(fun up -> up = rowVisual)
+                          )
+                        | _ -> Some false
+                    | _ -> None)
+                | _ -> None)
+              |> Option.defaultValue false
+          )
+
+        Expect.isTrue held "the gap between the icons left the row"
+      })
+
+    testCaseAsync
+      "the present pill carries its word, not its observable"
+      (async {
+        let thread =
+          Remotes.threadJson(
+            [ Remotes.messageJson(41, partnerId, "hello there", "c-41") ],
+            41,
+            "",
+            false,
+            0
+          )
+
+        let api = threadApi(thread, thread)
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openConversationAsync window
+
+        // The pill stays hidden while the reading rides the bottom
+        // edge, but its content binds regardless: the word arrives,
+        // never the observable itself.
+        let! word =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              root.GetVisualDescendants()
+              |> Seq.exists(fun visual ->
+                match visual with
+                | :? Button as pill ->
+                  match pill.Content with
+                  | :? string as text -> text = "back to present"
+                  | _ -> false
+                | _ -> false)
+          )
+
+        Expect.isTrue word "the present pill never carried its word"
+      })
   ]
 
 /// How the push route answers in the composer tests.

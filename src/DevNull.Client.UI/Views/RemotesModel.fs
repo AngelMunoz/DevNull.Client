@@ -197,7 +197,7 @@ module State =
     | RecordCancelled
     | PingWanted
     | Pinged of Result<unit, AppError>
-    | VoiceStaged of Result<(ImageAttachment * Waveform), string>
+    | VoiceStaged of Result<(ImageAttachment * Waveform), AppError>
     | VoiceDiscarded
 
   /// The search term the raw box text stands for: trimmed, with the
@@ -468,13 +468,30 @@ module State =
     Id: int
   }
 
+  /// One thread's shaping ask: who the viewer is, whether the thread
+  /// is an org's, the clock the day labels read, and the thread state
+  /// itself.
+  [<Struct>]
+  type ThreadShape = {
+    ViewerId: string
+    IsOrg: bool
+    Now: DateTimeOffset
+    Thread: ThreadState
+  }
+
   /// The thread's rows: the messages and staged sends folded into day
   /// breaks, the unread divider above the first message the reader
   /// had not seen, quiet event lines, and author runs. The web's
   /// `itemsOf`, on the store's thread state.
-  let threadRows
-    (viewerId: string, isOrg: bool, now: DateTimeOffset, thread: ThreadState)
-    : ThreadRow list =
+  let threadRows(shape: ThreadShape) : ThreadRow list =
+    let {
+          ViewerId = viewerId
+          IsOrg = isOrg
+          Now = now
+          Thread = thread
+        } =
+      shape
+
     let bubbles: FoldedBubble list = [
       for message in thread.Messages ->
         {
@@ -738,26 +755,27 @@ module State =
 
   /// One recording's bytes staged as the push API takes them: a voice
   /// attachment and its waveform, or the failure that named why not.
-  let stageVoice(bytes: byte[]) : Result<(ImageAttachment * Waveform), string> =
+  /// The staging reads the WAV's own samples for the bars, so bytes
+  /// the sampler cannot read refuse the stage instead of staging a
+  /// silent waveform.
+  let stageVoice
+    (bytes: byte[])
+    : Result<(ImageAttachment * Waveform), AppError> =
     let parsed: Result<DevNull.Client.Core.Commit.Voice, AppError> =
       DevNull.Client.Core.Commit.Voices.parse("voice.wav", bytes)
 
-    let waveform: Result<Waveform, AppError> =
-      DevNull.Client.Core.Commit.Voices.parseWaveform(
-        barsOf(VoiceMedia.samples bytes |> Option.defaultValue [||])
-      )
-
-    match parsed, waveform with
-    | Ok _, Ok bars ->
-      Ok(
+    match parsed, VoiceMedia.samples bytes with
+    | Ok _, Some samples ->
+      barsOf samples
+      |> DevNull.Client.Core.Commit.Voices.parseWaveform
+      |> Result.map(fun bars ->
         ({
           FileName = "voice.wav"
           Bytes = bytes
          },
-         bars)
-      )
-    | Error failure, _ -> Error(describe failure)
-    | _, Error failure -> Error(describe failure)
+         bars))
+    | Error failure, _ -> Error failure
+    | Ok _, None -> Error(UnsupportedVoice "voice.wav")
 
   /// The links one draft carries, first-wins order.
   let linksOf(text: string) : string list =
@@ -837,7 +855,7 @@ module State =
 
   /// One debounced beat, so the stash parks only once the typing
   /// rests.
-  let rest() : Async<unit> = async { do! Async.Sleep 300 }
+  let rest() : Async<unit> = asyncEx { do! Async.Sleep 300 }
 
   /// One push, through the store.
   let push
@@ -1422,21 +1440,16 @@ module State =
       | Some target ->
         { model with Notice = None },
         Cmd.OfAsync.perform
-          (fun (store: RemotesStore, who: ChatTarget, away: bool) -> async {
-            let! moved = store.SetArchived(who, away)
-
+          (fun (store: RemotesStore, who: ChatTarget, away: bool) ->
+            store.SetArchived(who, away))
+          (props.Env.Remotes, target, archived)
+          (fun moved ->
             // The store already rolled the row back and logged the
             // server's word; the notice says only what happened.
-            return
-              if moved then
-                Ok()
-              else
-                Error(
-                  SignInFailed "Could not update the conversation. Try again."
-                )
-          })
-          (props.Env.Remotes, target, archived)
-          ActionSettled
+            if moved then
+              ActionSettled(Ok())
+            else
+              MenuNotice "Could not update the conversation. Try again.")
       | None -> model, Cmd.none
     | ActionSettled outcome ->
       match outcome with
@@ -1671,11 +1684,11 @@ module State =
               Notice = None
         },
         Cmd.none
-      | Error why ->
+      | Error failure ->
         {
           model with
               Recording = false
-              Notice = Some why
+              Notice = Some(describe failure)
         },
         Cmd.none
     | VoiceDiscarded -> { model with Voice = None }, Cmd.none

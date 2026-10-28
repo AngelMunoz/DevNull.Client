@@ -1085,13 +1085,23 @@ module Thread =
 
     tray
 
+  /// Everything one bubble's build reads: the row context, the run's
+  /// key, the message, whose side it sits on, and whether the receipts
+  /// line stands under it.
+  [<Struct>]
+  type BubbleAsk = {
+    Ctx: RowCtx
+    Key: string
+    Message: Message
+    Mine: bool
+    ShowsStatus: IObservable<bool>
+  }
+
   /// The hover-revealed actions beside one bubble: reply and react,
   /// 28px icons outside the bubble edge, vertically centered. They
   /// take no room in the thread; the pointer over the message row is
   /// what shows them, the site's group-hover rule.
-  let hoverActions
-    (ctx: RowCtx, message: Message, tray: Popup, mine: bool)
-    : Control =
+  let hoverActions(ask: BubbleAsk, tray: Popup) : Control =
     let react =
       Button()
         .Classes(Theme.name Theme.GhostButton)
@@ -1114,7 +1124,7 @@ module Thread =
         .Content(Icons.iconAt(Glyph.Reply, 16.0))
         .OnClickHandler(fun _ args ->
           args.Handled <- true
-          ctx.Dispatch(State.ReplyWanted message))
+          ask.Ctx.Dispatch(State.ReplyWanted ask.Message))
 
     ToolTip.SetTip(reply, "Reply")
 
@@ -1124,20 +1134,27 @@ module Thread =
       .VerticalAlignment(VerticalAlignment.Center)
       .Classes(Theme.name Theme.HoverActions)
       .Children(reply, react)
-      .Name((if mine then "BubbleActionsMine" else "BubbleActionsTheirs"))
+      .Name(
+        (if ask.Mine then
+           "BubbleActionsMine"
+         else
+           "BubbleActionsTheirs")
+      )
 
   /// One bubble: the message body in a rounded fill, mine on the
   /// accent, theirs on the card surface. A voice note rides in a box
   /// of its own, the way the site gives it one, and the flash target
   /// is whichever box stands alone at the message's edge.
-  let bubble
-    (
-      ctx: RowCtx,
-      key: string,
-      who: Message,
-      mine: bool,
-      showsStatus: IObservable<bool>
-    ) : Control =
+  let bubble(ask: BubbleAsk) : Control =
+    let {
+          Ctx = ctx
+          Key = key
+          Message = who
+          Mine = mine
+          ShowsStatus = showsStatus
+        } =
+      ask
+
     let body =
       CommitCard.body(
         ValueNone,
@@ -1220,7 +1237,7 @@ module Thread =
       args.Handled <- true
       ctx.Dispatch(State.ReactWanted(who.Id, "❤️"))
 
-    let actions = hoverActions(ctx, who, tray, mine)
+    let actions = hoverActions(ask, tray)
 
     let column =
       StackPanel()
@@ -1259,9 +1276,14 @@ module Thread =
 
     column.DoubleTapped.Add heart
 
+    // The row's whole lane must hold the pointer: a backgroundless
+    // panel passes the samples between the action buttons through to
+    // the page behind, and the pointer-over state drops mid-crossing
+    // before the far icon is reached.
     let row =
       DockPanel()
         .Classes(Theme.name Theme.MsgRow)
+        .Background(Brushes.Transparent)
         .LastChildFill(true)
         .HorizontalAlignment(
           if mine then
@@ -1418,15 +1440,16 @@ module Thread =
       for carried in ofRun.Bubbles ->
         match carried with
         | State.Sent message ->
-          bubble(
-            ctx,
-            key,
-            message,
-            ofRun.IsMine,
-            statusMessage
-            |> Observable.map(fun status ->
-              status |> Option.map _.Id |> Option.contains message.Id)
-          )
+          bubble {
+            Ctx = ctx
+            Key = key
+            Message = message
+            Mine = ofRun.IsMine
+            ShowsStatus =
+              (statusMessage
+               |> Observable.map(fun status ->
+                 status |> Option.map _.Id |> Option.contains message.Id))
+          }
         | State.Staged pending -> stagedBubble(ctx, pending)
 
       // Every run ends in its clock time, the site's own meta line —
@@ -1532,12 +1555,12 @@ module Thread =
     let rowItems =
       thread
       |> Observable.map(fun current ->
-        State.threadRows(
-          ctx.ViewerId,
-          ctx.IsOrg,
-          DateTimeOffset.UtcNow,
-          current
-        ))
+        State.threadRows {
+          State.ViewerId = ctx.ViewerId
+          IsOrg = ctx.IsOrg
+          Now = DateTimeOffset.UtcNow
+          Thread = current
+        })
 
     let template =
       FuncDataTemplate<State.ThreadRow>(
@@ -1676,7 +1699,7 @@ module Thread =
       .HorizontalAlignment(HorizontalAlignment.Center)
       .VerticalAlignment(VerticalAlignment.Bottom)
       .Margin(0.0, 0.0, 0.0, 8.0)
-      .Content(label)
+      .Content(label |> _.ToBinding())
       .IsVisible(visible)
       .OnClickHandler(fun _ args ->
         args.Handled <- true
@@ -1818,14 +1841,6 @@ module Thread =
       .HorizontalAlignment(HorizontalAlignment.Right)
       .IsVisible(links |> Observable.map(fun found -> not found.IsEmpty))
 
-  /// Why a capture or a playback could not start, in one line.
-  let audioWhy(failure: AudioFailure) : string =
-    match failure with
-    | NoDevice -> "no microphone was found"
-    | Denied -> "the microphone is not allowed to this app"
-    | Busy -> "the microphone is busy with another app"
-    | AudioFailed message -> message
-
   /// The recording lane's own bounds, the web's own: a half second
   /// before a recording counts, a minute before it stops itself, and
   /// the warning color through its last ten seconds.
@@ -1864,7 +1879,7 @@ module Thread =
 
     /// What the lane tells the composer around it.
     type Report =
-      | Staged of Result<(ImageAttachment * Waveform), string>
+      | Staged of Result<(ImageAttachment * Waveform), AppError>
       | Cancel
 
     /// The microphone opens with the program itself; a head that
@@ -2049,7 +2064,7 @@ module Thread =
           },
           Cmd.none
         | Error failure, _ ->
-          report(Recorder.Staged(Error(audioWhy failure)))
+          report(Recorder.Staged(Error(CaptureFailed failure)))
 
           { model with Phase = Recorder.Done }, Cmd.none
       | Recorder.Ticked(level, at) ->
@@ -2096,7 +2111,7 @@ module Thread =
         { model with Phase = Recorder.Done }, Cmd.none
       | Recorder.TakeReady taken ->
         let staged =
-          taken |> Result.mapError audioWhy |> Result.bind State.stageVoice
+          taken |> Result.mapError CaptureFailed |> Result.bind State.stageVoice
 
         report(Recorder.Staged staged)
 
@@ -2413,8 +2428,9 @@ module Thread =
     // The completion lands in the box itself, so the change rides the
     // same TextChanged path typing does.
     let applyMention(handle: string) =
-      let next, caret =
-        State.mentionCompleted(input.Text, input.CaretIndex, handle)
+      let typed = input.Text |> Option.ofObj |> Option.defaultValue ""
+
+      let next, caret = State.mentionCompleted(typed, input.CaretIndex, handle)
 
       input.Text <- next
       input.CaretIndex <- caret
@@ -2449,7 +2465,6 @@ module Thread =
         :> Control
 
       ContentControl()
-        .Name("RemotesMentions")
         .Content(
           mentionPicks
           |> Observable.map(fun people ->
@@ -3431,10 +3446,14 @@ module Thread =
       dispatch: Dispatch<State.Msg>,
       solo: Solo
     ) : Control =
+    // The pane rebuilds only when the checked-out target moves. The
+    // guard keys on the store's key, never the whole target: a refresh
+    // that rebuilds the target's user payload must not rebuild the
+    // pane under it.
     let checkedOut =
       model
       |> Observable.map _.State.OpenTarget
-      |> Observable.distinctUntilChanged
+      |> Observable.distinctUntilChangedKey(Option.map ChatTargets.key)
 
     ContentControl()
       .Content(

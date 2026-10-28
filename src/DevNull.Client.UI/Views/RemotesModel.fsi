@@ -147,7 +147,7 @@ module State =
     | RecordCancelled
     | PingWanted
     | Pinged of Result<unit, AppError>
-    | VoiceStaged of Result<(ImageAttachment * Waveform), string>
+    | VoiceStaged of Result<(ImageAttachment * Waveform), AppError>
     | VoiceDiscarded
 
   /// The search term the raw box text stands for.
@@ -206,11 +206,20 @@ module State =
     | Event of message: Message
     | Run of run: Run
 
+  /// One thread's shaping ask: who the viewer is, whether the thread
+  /// is an org's, the clock the day labels read, and the thread state
+  /// itself.
+  [<Struct>]
+  type ThreadShape = {
+    ViewerId: string
+    IsOrg: bool
+    Now: DateTimeOffset
+    Thread: ThreadState
+  }
+
   /// The thread's rows: messages and staged sends folded into day
   /// breaks, the unread divider, quiet event lines, and author runs.
-  val threadRows:
-    viewerId: string * isOrg: bool * now: DateTimeOffset * thread: ThreadState ->
-      ThreadRow list
+  val threadRows: shape: ThreadShape -> ThreadRow list
 
   /// One thread row's stable key.
   val threadRowKey: row: ThreadRow -> string
@@ -263,7 +272,7 @@ module State =
 
   /// One recording's bytes staged as the push API takes them.
   val stageVoice:
-    bytes: byte array -> Result<(ImageAttachment * Waveform), string>
+    bytes: byte array -> Result<(ImageAttachment * Waveform), AppError>
 
   val init: props: Props<'env> -> unit -> Model * Cmd<Msg>
 

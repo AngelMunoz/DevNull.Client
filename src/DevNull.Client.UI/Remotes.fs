@@ -304,6 +304,17 @@ module Inboxes =
   let walkHasMore(rebuilt: Conversation list option, pages: int) : bool =
     rebuilt.IsSome && pages > 0
 
+  /// One tab's next-page ask: the driver, the tab, the state as the
+  /// load read it, the tab's list, and its last row.
+  [<Struct>]
+  type PageAsk = {
+    Driver: Driver
+    Tab: InboxTab
+    State: RemotesState
+    List: InboxList
+    Last: Conversation
+  }
+
   /// Rebuilds one tab's loaded depth as one continuous prefix. A pin
   /// that moves mid-rebuild restarts the walk from the first page.
   let rec refreshPages
@@ -449,19 +460,30 @@ module Inboxes =
       last
     with
     | true, _, _ -> do! refreshPages(driver, tab, true)
-    | false, true, Some last -> do! pageAfter(driver, tab, state, list, last)
+    | false, true, Some last ->
+      do!
+        pageAfter {
+          Driver = driver
+          Tab = tab
+          State = state
+          List = list
+          Last = last
+        }
     | _ -> ()
   }
 
   /// One tab's next page: a moved pin rebuilds the depth instead.
-  and pageAfter
-    (
-      driver: Driver,
-      tab: InboxTab,
-      state: RemotesState,
-      list: InboxList,
-      last: Conversation
-    ) : Async<unit> = asyncEx {
+  /// One tab's next page: a moved pin rebuilds the depth instead.
+  and pageAfter(ask: PageAsk) : Async<unit> = asyncEx {
+    let {
+          Driver = driver
+          Tab = tab
+          State = state
+          List = list
+          Last = last
+        } =
+      ask
+
     let revision = state.InboxRevision
 
     Guards.post(
@@ -869,8 +891,8 @@ type RemotesStore(workers: RemotesWorkers, session: SessionStore, log: ILogger) 
     |> Map.tryFind(ChatTargets.key target)
     |> ValueOption.ofOption
 
-  /// Records whether the window is focused and visible; reading state
-  /// keys on it.
+  /// Records whether the window stands on screen; reading state keys
+  /// on it.
   member _.SetWindowActive(active: bool) : unit =
     apply(fun state -> { state with WindowActive = active })
 

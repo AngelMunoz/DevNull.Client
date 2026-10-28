@@ -43,12 +43,13 @@ open DevNull.Client.UiClock
 /// The page's semantic regions; the view only composes these.
 module Parts =
 
-  /// Everything one row's parts read: the dispatch, the model, and the
-  /// image cache.
+  /// Everything one row's parts read: the dispatch, the model, the
+  /// image cache, and the signed-in viewer.
   type RowCtx = {
     Dispatch: Dispatch<State.Msg>
     Model: IObservable<State.Model>
     Images: ImageCacheService
+    ViewerId: string
   }
 
   /// One partner's avatar.
@@ -201,22 +202,26 @@ module Parts =
 
   /// One fetched request's settle row: merge into the open list, or
   /// drop it for good.
-  let settleRow
-    (dispatch: Dispatch<State.Msg>, partner: User, merging: bool, label: string)
-    : Control =
+  [<Struct>]
+  type SettleAsk = {
+    Dispatch: Dispatch<State.Msg>
+    Partner: User
+    Merging: bool
+    Label: string
+  }
+
+  let settleRow(ask: SettleAsk) : Control =
     Button()
       .Classes(Theme.name Theme.GhostButton)
       .Padding(8.0, 2.0, 8.0, 2.0)
       .FontSize(13.0)
-      .Content(label)
+      .Content(ask.Label)
       .OnClickHandler(fun _ args ->
         args.Handled <- true
-        dispatch(State.SettleWanted(partner, merging)))
+        ask.Dispatch(State.SettleWanted(ask.Partner, ask.Merging)))
 
   /// One conversation row of the inbox column.
-  let conversationRow
-    (ctx: RowCtx, viewerId: string, tab: InboxTab, row: Conversation)
-    : Control =
+  let conversationRow(ctx: RowCtx, tab: InboxTab, row: Conversation) : Control =
     let active =
       ctx.Model
       |> Observable.map(fun current ->
@@ -224,28 +229,33 @@ module Parts =
         |> Option.map ChatTargets.key
         |> Option.contains(ChatTargets.summaryKey row))
 
-    let settle: Control array =
-      if tab = TabFetched then
-        row.Partner
-        |> Option.toList
-        |> List.collect(fun partner -> [
-          settleRow(ctx.Dispatch, partner, true, "merge")
-          settleRow(ctx.Dispatch, partner, false, "drop")
-        ])
-        |> Array.ofList
-      else
-        [||]
+    let settle: Control array = [|
+      for partner in row.Partner |> Option.toList do
+        settleRow {
+          Dispatch = ctx.Dispatch
+          Partner = partner
+          Merging = true
+          Label = "merge"
+        }
+
+        settleRow {
+          Dispatch = ctx.Dispatch
+          Partner = partner
+          Merging = false
+          Label = "drop"
+        }
+    |]
 
     let body: Control array = [|
-      titleLine(viewerId, row)
-      excerptLine(State.excerptOf(viewerId, row))
+      titleLine(ctx.ViewerId, row)
+      excerptLine(State.excerptOf(ctx.ViewerId, row))
       yield! settle
     |]
 
     let avatar: Control =
       match row.Partner with
       | Some partner -> partnerAvatar(ctx.Images, partner)
-      | None -> orgAvatar(ctx.Images, viewerId, row)
+      | None -> orgAvatar(ctx.Images, ctx.ViewerId, row)
 
     let content =
       let grid = Grid()
@@ -273,8 +283,9 @@ module Parts =
         .OnClickHandler(fun _ _ ->
           ctx.Dispatch(State.Opened(ChatTargets.targetOf row)))
 
-    let bar =
+    let rail =
       Border()
+        .Name("SelectedRail")
         .Classes(Theme.name Theme.AccentBack)
         .Width(3.0)
         .CornerRadius(2.0)
@@ -283,7 +294,11 @@ module Parts =
         .IsVisible(active)
 
     Theme.bindClass(button, Theme.PrimarySoftBack, active)
-    Panel().Children(bar, button)
+
+    // The rail owns the row's first dock slot. A sized child left to a
+    // panel's default stretch alignment centers, which drew the marker
+    // over the row's middle.
+    DockPanel().LastChildFill(true).Children(rail.Dock(Dock.Left), button)
 
   /// One candidate row: a person a new remote can start with.
   let candidateRow(ctx: RowCtx, person: RemoteCandidate) : Control =
@@ -423,9 +438,7 @@ module Parts =
   /// The inbox column's rows: virtualized and keyed. The scroll-end
   /// probe asks the update for the next page; the guards there keep it
   /// from asking twice.
-  let rows
-    (ctx: RowCtx, viewerId: string, list: IObservable<State.InboxRow list>)
-    : Control =
+  let rows(ctx: RowCtx, list: IObservable<State.InboxRow list>) : Control =
     let template =
       FuncDataTemplate<State.InboxRow>(
         (fun item _ ->
@@ -434,7 +447,7 @@ module Parts =
           else
             match item with
             | State.InboxRow.Conversation(tab, row) ->
-              conversationRow(ctx, viewerId, tab, row)
+              conversationRow(ctx, tab, row)
             | State.InboxRow.Candidate person -> candidateRow(ctx, person)),
         false
       )
@@ -641,13 +654,14 @@ module Parts =
       model: IObservable<State.Model>,
       dispatch: Dispatch<State.Msg>
     ) : Control =
+    let viewerId = props.Session.Session.User.Id
+
     let ctx: RowCtx = {
       Dispatch = dispatch
       Model = model
       Images = props.Env.ImageCache
+      ViewerId = viewerId
     }
-
-    let viewerId = props.Session.Session.User.Id
 
     let list = model |> Observable.map State.rowsOf
 
@@ -659,7 +673,7 @@ module Parts =
       grid.Children(
         inboxHead(model, dispatch).Row(0),
         tabRow(model, dispatch).Row(1),
-        rows(ctx, viewerId, list).Row(2)
+        rows(ctx, list).Row(2)
       )
 
     let line = quietLine(lineOf model).VerticalAlignment(VerticalAlignment.Top)

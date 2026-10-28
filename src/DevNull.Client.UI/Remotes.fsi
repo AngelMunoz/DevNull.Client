@@ -46,8 +46,8 @@ type RemotesStore =
   /// When one thread last carried fresh messages or typing.
   member LastActivityAt: target: ChatTarget -> DateTimeOffset voption
 
-  /// Records whether the window is focused and visible; reading state
-  /// keys on it.
+  /// Records whether the window stands on screen; reading state keys
+  /// on it.
   member SetWindowActive: active: bool -> unit
 
   /// Checks one conversation out: the store remembers it, so a page
@@ -191,7 +191,7 @@ and RemotesWatcher =
   new: store: RemotesStore * session: SessionStore -> RemotesWatcher
 
   /// Starts the loops under the activity gate: true while the window
-  /// is focused and visible. The disposable stops every loop.
+  /// stands on screen. The disposable stops every loop.
   member Start: gate: IObservable<bool> -> IDisposable
 
   /// Registers one reader of a thread; the last release stops its

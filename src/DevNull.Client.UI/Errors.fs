@@ -2,6 +2,7 @@ module DevNull.Client.Errors
 
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Types
+open DevNull.Client.Natives
 
 /// Every failure the commit protocol can produce, one case per leaf member.
 type AppError =
@@ -40,6 +41,7 @@ type AppError =
   | WaveformBarOutOfRange of bar: int
   | VoiceProhibited of conflict: VoiceConflict
   | SignInFailed of message: string
+  | CaptureFailed of failure: AudioFailure
 
   interface CommitBodyError<AppError> with
     static member BodyTooShort(raw, length) = BodyTooShort(raw, length)
@@ -177,3 +179,7 @@ let describe error =
     "A voice note cannot ride beside a message body."
   | VoiceProhibited VoiceWithImages -> "A voice note cannot ride beside images."
   | SignInFailed message -> message
+  | CaptureFailed NoDevice -> "No microphone was found."
+  | CaptureFailed Denied -> "The microphone is not allowed to this app."
+  | CaptureFailed Busy -> "The microphone is busy with another app."
+  | CaptureFailed(AudioFailed message) -> message

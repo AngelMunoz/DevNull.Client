@@ -136,10 +136,12 @@ let openStream(direction: int, name: string) : Result<nativeint, AudioFailure> =
     | code -> Error(AudioFailed(Pulse.pa_strerror code))
 
 /// The loudest sample in one chunk, 0 to 1, for the recording meter.
+/// The floor sample keeps an empty chunk from throwing.
 let loudestOf(chunk: byte[]) =
   seq { 0..2 .. chunk.Length - 2 }
   |> Seq.map(fun offset ->
     float(abs(int(BitConverter.ToInt16(chunk, offset)))) / 32768.0)
+  |> Seq.append(Seq.singleton 0.0)
   |> Seq.max
 
 /// The canonical 44-byte header of a 16 kHz mono S16LE WAV, the format
@@ -166,13 +168,16 @@ let wavHeader(dataBytes: int) : byte[] =
   bytes.ToArray()
 
 /// One live microphone capture: a background reader that blocks on the
-/// stream, the samples it took, and the meter's peak.
+/// stream, the samples it took, and the meter's peak. A failed read
+/// stops the loop and names itself, so Stop can report it instead of
+/// handing back a truncated take as if it were whole.
 type Capture(stream: nativeint) =
 
   let gate = obj()
   let taken = ResizeArray<byte>()
   let running = ref true
   let peak = ref 0.0
+  let failedWith: string option ref = ref None
   let chunk: byte[] = Array.zeroCreate 1600
 
   let rec step() =
@@ -193,6 +198,8 @@ type Capture(stream: nativeint) =
           peak.Value <- loudest)
 
       step()
+    elif running.Value then
+      failedWith.Value <- Some(Pulse.pa_strerror error)
 
   let reader = Thread(ThreadStart step, IsBackground = true)
 
@@ -220,13 +227,17 @@ type Capture(stream: nativeint) =
 
           Pulse.pa_simple_free stream
 
-          Array.append (wavHeader voice.Length) voice |> Ok)
+          match failedWith.Value with
+          | Some why -> Error(AudioFailed why)
+          | None -> Ok(Array.append (wavHeader voice.Length) voice))
     }
 
     member _.Cancel() =
       running.Value <- false
       reader.Join()
       Pulse.pa_simple_free stream
+
+      lock gate (fun () -> taken.Clear()) |> ignore
 
 /// One playback: a background writer the reader can stop early, and the
 /// event that fires when the samples run out. Volume scales each chunk
@@ -355,17 +366,23 @@ type SystemSounds() =
 
   // play_full reads the property list after it returns, so the list
   // lives as long as the context does: one per process, played per
-  // chime.
+  // chime. A desktop without the library keeps the whole service
+  // quiet — the probe fails once and Notify does nothing, instead of
+  // the head dying at startup.
   let context, properties, ready =
-    let mutable created = 0n
-    let mutable list = 0n
+    try
+      let mutable created = 0n
+      let mutable list = 0n
 
-    let ready =
-      Canberra.ca_context_create(&created) = 0
-      && Canberra.ca_proplist_create(&list) = 0
-      && Canberra.ca_proplist_sets(list, "event.id", "message-new-instant") = 0
+      let ready =
+        Canberra.ca_context_create(&created) = 0
+        && Canberra.ca_proplist_create(&list) = 0
+        && Canberra.ca_proplist_sets(list, "event.id", "message-new-instant") =
+          0
 
-    created, list, ready
+      created, list, ready
+    with :? DllNotFoundException ->
+      0n, 0n, false
 
   interface ISystemSounds with
     member _.Notify() =

@@ -1191,7 +1191,11 @@ module Thread =
             )
           ))
 
-    let carriesMore = who.Body <> "" || shown.IsSome || card.IsSome
+    // The card host binds to the model stream and is always built, so
+    // the body box's gate reads the message itself: a voice-only note
+    // carries nothing beside the note, and an empty body box would
+    // render as a bare padding pill above the player.
+    let carriesMore = who.Body <> "" || shown.IsSome || who.LinkPreview.IsSome
 
     let bodyBox =
       Border()
@@ -1240,39 +1244,35 @@ module Thread =
     let actions = hoverActions(ask, tray)
 
     let column =
-      StackPanel()
-        .Spacing(2.0)
-        .Children(
-          [|
-            match who.ReplyTo with
-            | Some reply ->
-              let author =
-                authorName(
-                  ctx,
-                  (match who.User with
-                   | Some user when reply.UserId <> ctx.ViewerId -> Some user
-                   | _ -> None),
-                  reply.UserId
-                )
+      StackPanel().Spacing(2.0).Children [|
+        match who.ReplyTo with
+        | Some reply ->
+          let author =
+            authorName(
+              ctx,
+              (match who.User with
+               | Some user when reply.UserId <> ctx.ViewerId -> Some user
+               | _ -> None),
+              reply.UserId
+            )
 
-              yield ghost(ctx, reply, mine, author)
-            | None -> ()
+          yield ghost(ctx, reply, mine, author)
+        | None -> ()
 
-            if carriesMore || voiceBox.IsNone then
-              yield bodyBox
+        if carriesMore || voiceBox.IsNone then
+          yield bodyBox
 
-            match voiceBox with
-            | Some box -> yield box
-            | None -> ()
+        match voiceBox with
+        | Some box -> yield box
+        | None -> ()
 
-            yield
-              StackPanel()
-                .Orientation(Orientation.Horizontal)
-                .Spacing(4.0)
-                .Margin(2.0, 2.0, 0.0, 0.0)
-                .Children(reactionChips(ctx, key, who.Id))
-          |]
-        )
+        yield
+          StackPanel()
+            .Orientation(Orientation.Horizontal)
+            .Spacing(4.0)
+            .Margin(2.0, 2.0, 0.0, 0.0)
+            .Children(reactionChips(ctx, key, who.Id))
+      |]
 
     column.DoubleTapped.Add heart
 

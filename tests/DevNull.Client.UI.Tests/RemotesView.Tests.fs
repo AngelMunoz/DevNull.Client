@@ -2529,6 +2529,66 @@ let clickMicAsync(window: Window) : Async<unit> = async {
 let voiceTests =
   testList "remotes voice" [
     testCaseAsync
+      "a voice note stands alone in its bubble"
+      (async {
+        let audio = FakeAudio()
+
+        // Message 29 stands as a voice note: empty body, a clip with a
+        // full waveform. Its only box is the player's own; an empty
+        // body box beside it renders as a bare padding pill.
+        let voice29 =
+          "\"voice\":{\"id\":\"v29\",\"duration_ms\":4200,\"waveform\":["
+          + String.concat "," (List.replicate 48 "40")
+          + "],\"url\":\"https://example.com/v29.wav\"},"
+
+        let thread =
+          Remotes
+            .threadJson(
+              [
+                for at in 1..30 ->
+                  Remotes.messageJson(
+                    at,
+                    (if at % 2 = 0 then viewerId else partnerId),
+                    $"message number {at}",
+                    $"c-{at}"
+                  )
+              ],
+              30,
+              "",
+              false,
+              0
+            )
+            .Replace(
+              "\"client_id\":\"c-29\",\"body\":\"message number 29\",\"body_segments\":[{\"type\":\"text\",\"text\":\"message number 29\"}],\"mentions\":[],\"reply_to_id\":null,\"images\":[],",
+              "\"client_id\":\"c-29\",\"body\":\"\",\"body_segments\":[],\"mentions\":[],\"reply_to_id\":null,\"images\":[],"
+              + voice29
+            )
+
+        let api = composerApi(thread, Stored)
+        let! window = startVoiceShell(remotesOnStore(false, 0), api, audio)
+
+        do! openConversationAsync window
+
+        // The voice note's own box is the message's landing target; a
+        // padding-only strip under the same name is the phantom pill.
+        let! alone =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              root.GetVisualDescendants()
+              |> Seq.tryPick(fun visual ->
+                match visual with
+                | :? Border as border when border.Name = "ChatMessage29" ->
+                  Some(border.Bounds.Height >= 40.0)
+                | _ -> None)
+              |> Option.defaultValue false
+          )
+
+        Expect.isTrue alone "the voice note rendered beside a bare box"
+      })
+
+    testCaseAsync
       "the mic stays hidden without an engine"
       (async {
         let api = composerApi(quietThread(), Stored)

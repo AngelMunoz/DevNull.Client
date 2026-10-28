@@ -19,22 +19,18 @@
          sources live at E:\Navs and E:\MVUish.Avalonia -->
     <PackageVersion Include="Navs.Avalonia" Version="2.0.1" />
     <PackageVersion Include="MVUish.Avalonia" Version="2.0.0" />
-
     <!-- Tests -->
     <PackageVersion Include="Expecto" Version="11.1.1" />
-
     <!-- Core utilities -->
     <PackageVersion Include="FSharp.UMX" Version="1.1.0" />
     <PackageVersion Include="FsToolkit.ErrorHandling" Version="5.2.0" />
     <PackageVersion Include="IcedTasks" Version="0.11.9" />
     <PackageVersion Include="JDeck" Version="1.1.0" />
-
     <!-- Logging -->
     <PackageVersion Include="Serilog" Version="4.3.1" />
     <PackageVersion Include="Serilog.Extensions.Logging" Version="10.0.0" />
     <PackageVersion Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
-
     <!-- Build: the version of every assembly follows CHANGELOG.md -->
     <PackageVersion Include="Ionide.KeepAChangelog.Tasks" Version="0.3.3" />
   </ItemGroup>

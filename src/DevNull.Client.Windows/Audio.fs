@@ -18,14 +18,30 @@ open DevNull.Client.Natives
 [<Literal>]
 let Rate = 16000
 
-/// The one COM surface WinRT's own byte access rides on: every frame
-/// buffer reference hands its raw bytes out through it.
-[<ComImport>]
-[<Guid("5B0D3235-4DBA-4D44-865E-8F1D0E4FD04D")>]
-[<InterfaceType(ComInterfaceType.InterfaceIsIUnknown)>]
-type IMemoryBufferByteAccess =
+/// The one COM surface WinRT's own byte access rides on: classic COM,
+/// not WinRT. NativeAOT ships no built-in COM marshalling — a managed
+/// ComImport cast on it throws under PublishAot — so the calls go
+/// through the IUnknown vtable, whose layout is stable ABI: QueryInterface
+/// at slot 0, Release at slot 2, GetBuffer at slot 3 behind them.
+module private ByteAccess =
 
-  abstract GetBuffer: buffer: nativeint byref * capacity: uint32 byref -> unit
+  /// The interface id of IMemoryBufferByteAccess.
+  let iid = Guid("5B0D3235-4DBA-4D44-865E-8F1D0E4FD04D")
+
+  [<UnmanagedFunctionPointer(CallingConvention.StdCall)>]
+  type QueryInterface =
+    delegate of nativeint * byref<Guid> * byref<nativeint> -> int32
+
+  [<UnmanagedFunctionPointer(CallingConvention.StdCall)>]
+  type Release = delegate of nativeint -> uint32
+
+  [<UnmanagedFunctionPointer(CallingConvention.StdCall)>]
+  type GetBuffer =
+    delegate of nativeint * byref<nativeint> * byref<uint32> -> int32
+
+  /// One function pointer out of an interface's vtable.
+  let slot(self: nativeint, index: int) : nativeint =
+    Marshal.ReadIntPtr(Marshal.ReadIntPtr(self), index * IntPtr.Size)
 
 /// The graph's format: 16 kHz mono 16-bit PCM.
 let voiceFormat: AudioEncodingProperties =
@@ -50,27 +66,58 @@ let toPcm16(chunk: byte[]) : byte[] =
   Buffer.BlockCopy(samples, 0, pcm, 0, pcm.Length)
   pcm
 
-/// Reads one locked audio buffer's whole payload through CsWinRT's
-/// own QueryInterface: projected WinRT objects do not answer managed
-/// ComImport casts, so the byte-access interface is asked for through
-/// the native object. Only the QI cast is caught: a reference that
-/// carries no byte access is the one recoverable surprise, and it
-/// names itself; anything else the quantum thread may throw belongs
-/// in the log, not in silence.
+/// Reads one locked audio buffer's whole payload. The buffer reference's
+/// own native pointer is asked for the byte-access interface through the
+/// IUnknown vtable, and the bytes come out through the interface's own
+/// slot — every step a function-pointer call, which the published exe
+/// supports. Only the asking is caught: a reference that carries no byte
+/// access is the one recoverable surprise, and it names itself; anything
+/// else the quantum thread may throw belongs in the log, not in silence.
 let readBuffer(buffer: Windows.Media.AudioBuffer) : Result<byte[], string> =
   try
-    Ok(
-      (fun () ->
-        let access = buffer.CreateReference().As<IMemoryBufferByteAccess>()
+    let reference = buffer.CreateReference()
+
+    let self = (reference :?> IWinRTObject).NativeObject.ThisPtr
+
+    let mutable access = 0n
+    let mutable wanted = ByteAccess.iid
+
+    let asked =
+      Marshal
+        .GetDelegateForFunctionPointer<ByteAccess.QueryInterface>(
+          ByteAccess.slot(self, 0)
+        )
+        .Invoke(self, &wanted, &access)
+
+    if asked <> 0 || access = 0n then
+      Error("the audio buffer carries no byte access")
+    else
+      try
         let mutable pointer = 0n
         let mutable capacity = 0u
 
-        access.GetBuffer(&pointer, &capacity)
+        let taken =
+          Marshal
+            .GetDelegateForFunctionPointer<ByteAccess.GetBuffer>(
+              ByteAccess.slot(access, 3)
+            )
+            .Invoke(access, &pointer, &capacity)
 
-        let bytes: byte[] = Array.zeroCreate(int capacity)
-        Marshal.Copy(pointer, bytes, 0, int capacity)
-        bytes) ()
-    )
+        if taken <> 0 || pointer = 0n then
+          Error("the audio buffer stayed empty")
+        else
+          let bytes: byte[] = Array.zeroCreate(int capacity)
+
+          Marshal.Copy(pointer, bytes, 0, bytes.Length)
+
+          Ok bytes
+      finally
+        Marshal
+          .GetDelegateForFunctionPointer<ByteAccess.Release>(
+            ByteAccess.slot(access, 2)
+          )
+          .Invoke(access)
+        |> ignore
   with ex ->
     Error(ex.Message)
 

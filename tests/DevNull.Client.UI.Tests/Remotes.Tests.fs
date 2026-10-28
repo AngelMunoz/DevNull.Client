@@ -59,6 +59,11 @@ let messageJson(id: int, userId: string, body: string, clientId: string) =
 
   $"""{{"id":{id},"user_id":"{userId}","client_id":"{clientId}","body":"{body}","body_segments":{segments},"mentions":[],"reply_to_id":null,"images":[],"reactions":[],"event":null,"subject_id":null,"user":null,"subject":null,"created_at":"2026-10-20T04:00:00Z"}}"""
 
+/// One partner's ping, the event the thread logs with the site's own
+/// word.
+let pingJson(id: int, userId: string) =
+  $"""{{"id":{id},"user_id":"{userId}","client_id":"ping-{id}","body":"","body_segments":[],"mentions":[],"reply_to_id":null,"images":[],"reactions":[],"event":"ping","subject_id":null,"user":null,"subject":null,"created_at":"2026-10-20T04:00:00Z"}}"""
+
 let threadJson
   (
     messages: string list,

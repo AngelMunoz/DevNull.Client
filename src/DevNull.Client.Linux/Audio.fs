@@ -229,18 +229,34 @@ type Capture(stream: nativeint) =
       Pulse.pa_simple_free stream
 
 /// One playback: a background writer the reader can stop early, and the
-/// event that fires when the samples run out.
-type Playback(stream: nativeint, data: byte[]) =
+/// event that fires when the samples run out. Volume scales each chunk
+/// as it is written, so a move lands on the note while it sounds.
+type Playback(stream: nativeint, data: byte[], volume: float) =
 
   let running = ref true
   let written = ref 0
+  let loudness = ref volume
   let finished = Event<unit>()
+
+  let scaled(chunk: byte[]) : byte[] =
+    let samples: int16 array = Array.zeroCreate(chunk.Length / 2)
+
+    Buffer.BlockCopy(chunk, 0, samples, 0, samples.Length * 2)
+
+    let out =
+      samples
+      |> Array.map(fun sample ->
+        Math.Clamp(int(float sample * loudness.Value), -32768, 32767) |> int16)
+
+    let bytes: byte[] = Array.zeroCreate(out.Length * 2)
+    Buffer.BlockCopy(out, 0, bytes, 0, bytes.Length)
+    bytes
 
   let rec writeAt(offset: int) =
     let mutable error = 0
 
     let take = min 3200 (data.Length - offset)
-    let piece = data[offset .. offset + take - 1]
+    let piece = scaled data[offset .. offset + take - 1]
 
     if
       running.Value
@@ -271,27 +287,29 @@ type Playback(stream: nativeint, data: byte[]) =
       running.Value <- false
       writer.Join()
 
+    member _.SetVolume(volume: float) = loudness.Value <- volume
+
     member _.Ended = finished.Publish
 
     // 16 kHz mono 16-bit stands at 32,000 bytes a second; the writer
     // counts what it has pushed.
     member _.Position = TimeSpan.FromSeconds(float written.Value / 32000.0)
 
-/// The samples as played: volume applied by scaling, speed applied by
-/// nearest-neighbor resampling, both in the voice-note format.
-let rendered(samples: int16 array, speed: float, volume: float) : byte[] =
-  let scaled =
-    samples
-    |> Array.map(fun sample ->
-      Math.Clamp(int(float sample * volume), -32768, 32767) |> int16)
+    // The simple API streams forward only; a scrub asks and the note
+    // plays on from where it stands.
+    member _.Seek(_to': TimeSpan) = ()
 
+/// The samples as played: speed applied by nearest-neighbor resampling
+/// in the voice-note format. Volume stays out — the writer scales each
+/// chunk as it goes, so the fader lands while the note sounds.
+let rendered(samples: int16 array, speed: float) : byte[] =
   let played =
     if speed <= 1.0 then
-      scaled
+      samples
     else
-      let count = max 1 (int(float scaled.Length / speed))
+      let count = max 1 (int(float samples.Length / speed))
 
-      Array.init count (fun index -> scaled[int(float index * speed)])
+      Array.init count (fun index -> samples[int(float index * speed)])
 
   let bytes: byte[] = Array.zeroCreate(played.Length * 2)
   Buffer.BlockCopy(played, 0, bytes, 0, bytes.Length)
@@ -323,7 +341,7 @@ type PulseEngine() =
             match openStream(Pulse.Playback, "Voice note") with
             | Ok stream ->
               Ok(
-                Playback(stream, rendered(samples, speed, volume))
+                Playback(stream, rendered(samples, speed), volume)
                 :> IAudioPlayback
               )
             | Error failure -> Error failure

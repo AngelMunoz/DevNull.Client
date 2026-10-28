@@ -6,6 +6,7 @@ open System.Runtime.InteropServices
 open System.Threading
 open System.Threading.Tasks
 open IcedTasks
+open WinRT
 open Windows.Media.Audio
 open Windows.Media.Capture
 open Windows.Media.MediaProperties
@@ -30,22 +31,48 @@ type IMemoryBufferByteAccess =
 let voiceFormat: AudioEncodingProperties =
   AudioEncodingProperties.CreatePcm(16000u, 1u, 16u)
 
-/// Reads one locked audio buffer's whole payload. The reference
-/// always carries the byte access interface — it is WinRT's own
-/// contract — but a reference that somehow does not reads as no
-/// bytes rather than crashing the quantum thread.
-let readBuffer(buffer: Windows.Media.AudioBuffer) : byte[] =
-  match box(buffer.CreateReference()) with
-  | :? IMemoryBufferByteAccess as access ->
-    let mutable pointer = 0n
-    let mutable capacity = 0u
+/// The frames arrive as 32-bit IEEE float whatever the encoding
+/// properties asked for, so the drain converts them to the voice
+/// note's own 16-bit PCM.
+let toPcm16(chunk: byte[]) : byte[] =
+  let floats =
+    Array.init (chunk.Length / 4) (fun at ->
+      BitConverter.ToSingle(chunk, at * 4))
 
-    access.GetBuffer(&pointer, &capacity)
+  let samples =
+    floats
+    |> Array.map(fun value ->
+      let clipped = Math.Max(-1.0f, Math.Min(1.0f, value))
 
-    let bytes: byte[] = Array.zeroCreate(int capacity)
-    Marshal.Copy(pointer, bytes, 0, int capacity)
-    bytes
-  | _ -> [||]
+      int16(clipped * 32767.0f))
+
+  let pcm: byte[] = Array.zeroCreate(samples.Length * 2)
+  Buffer.BlockCopy(samples, 0, pcm, 0, pcm.Length)
+  pcm
+
+/// Reads one locked audio buffer's whole payload through CsWinRT's
+/// own QueryInterface: projected WinRT objects do not answer managed
+/// ComImport casts, so the byte-access interface is asked for through
+/// the native object. Only the QI cast is caught: a reference that
+/// carries no byte access is the one recoverable surprise, and it
+/// names itself; anything else the quantum thread may throw belongs
+/// in the log, not in silence.
+let readBuffer(buffer: Windows.Media.AudioBuffer) : Result<byte[], string> =
+  try
+    Ok(
+      (fun () ->
+        let access = buffer.CreateReference().As<IMemoryBufferByteAccess>()
+        let mutable pointer = 0n
+        let mutable capacity = 0u
+
+        access.GetBuffer(&pointer, &capacity)
+
+        let bytes: byte[] = Array.zeroCreate(int capacity)
+        Marshal.Copy(pointer, bytes, 0, int capacity)
+        bytes) ()
+    )
+  with ex ->
+    Error(ex.Message)
 
 /// The loudest sample in one chunk, 0 to 1, for the recording meter.
 let loudestOf(chunk: byte[]) =
@@ -79,37 +106,53 @@ let wavHeader(dataBytes: int) : byte[] =
   bytes.ToArray()
 
 /// One live microphone capture: the graph that feeds it, the frames
-/// the quantum handler drained, and the meter's peak.
+/// the quantum handler drains, and the meter's peak. Audio only flows
+/// along outgoing connections, so the input feeds the frame output;
+/// and the teardown runs exactly once whichever path lands first.
 type Capture(graph: AudioGraph, input: AudioDeviceInputNode) =
 
   let gate = obj()
   let taken = ResizeArray<byte>()
   let mutable peak = 0.0
   let mutable running = true
+  let mutable torn = false
+
+  // The first reason the quantum drain failed, in the reader's own
+  // words; a failed drain stops the capture so Stop can report it.
+  let mutable failedWith: string option = None
 
   let output = graph.CreateFrameOutputNode(voiceFormat)
 
-  let tearDown() =
-    running <- false
-    graph.Stop()
-    output.Dispose()
-    input.Dispose()
-    graph.Dispose()
+  do input.AddOutgoingConnection(output)
+
+  let teardown() =
+    if not torn then
+      torn <- true
+      running <- false
+      graph.Stop()
+      output.Dispose()
+      input.Dispose()
+      graph.Dispose()
 
   let quantum =
     TypedEventHandler<AudioGraph, obj>(fun _ _ ->
       if running then
         let frame = output.GetFrame()
+
         use buffer = frame.LockBuffer(Windows.Media.AudioBufferAccessMode.Read)
-        let chunk = readBuffer buffer
 
-        lock gate (fun () ->
-          taken.AddRange chunk
+        match readBuffer buffer with
+        | Ok pcm ->
+          lock gate (fun () ->
+            taken.AddRange(toPcm16 pcm)
 
-          let loudest = loudestOf chunk
+            let loudest = loudestOf(toPcm16 pcm)
 
-          if loudest > peak then
-            peak <- loudest))
+            if loudest > peak then
+              peak <- loudest)
+        | Error why ->
+          failedWith <- Some why
+          teardown())
 
   do
     graph.add_QuantumStarted quantum
@@ -123,25 +166,32 @@ type Capture(graph: AudioGraph, input: AudioDeviceInputNode) =
         peak <- 0.0
         current)
 
+    /// Drains what the quantum thread gathered, then tears the graph
+    /// down once. The only stop path; a drain that failed says why.
     member _.Stop() = asyncEx {
       return!
         Task.Run(fun () ->
-          let voice =
-            lock gate (fun () ->
-              let copy = taken.ToArray()
-              taken.Clear()
-              copy)
-
           graph.remove_QuantumStarted quantum
-          tearDown()
+          teardown()
 
-          Array.append (wavHeader voice.Length) voice |> Ok)
+          match failedWith with
+          | Some why -> Error(AudioFailed why)
+          | None ->
+            let voice =
+              lock gate (fun () ->
+                let copy = taken.ToArray()
+                taken.Clear()
+                copy)
+
+            Ok(Array.append (wavHeader voice.Length) voice))
     }
 
+    /// Tears the graph down once and keeps nothing.
     member _.Cancel() =
-      lock gate (fun () -> taken.Clear()) |> ignore
       graph.remove_QuantumStarted quantum
-      tearDown()
+      teardown()
+
+      lock gate (fun () -> taken.Clear()) |> ignore
 
 /// One playback: the OS media player over the note's own bytes. The
 /// pipeline decodes whatever container the note rides in, the session
@@ -150,7 +200,8 @@ type Capture(graph: AudioGraph, input: AudioDeviceInputNode) =
 type Playback
   (
     player: Windows.Media.Playback.MediaPlayer,
-    source: Windows.Media.Core.MediaSource
+    source: Windows.Media.Core.MediaSource,
+    speed: float
   ) =
 
   let finished = Event<unit>()
@@ -166,7 +217,14 @@ type Playback
      >
       (fun _ _ -> finished.Trigger())
 
+  // The session drops the rate a caller set before the source opened;
+  // the note reaches its own speed only once the media is open.
+  let opened =
+    TypedEventHandler<Windows.Media.Playback.MediaPlayer, obj>(fun _ _ ->
+      player.PlaybackSession.PlaybackRate <- speed)
+
   let stop() =
+    player.remove_MediaOpened opened
     player.remove_MediaEnded ended
     player.remove_MediaFailed failed
     player.Source <- null
@@ -174,6 +232,7 @@ type Playback
     player.Dispose()
 
   do
+    player.add_MediaOpened opened
     player.add_MediaEnded ended
     player.add_MediaFailed failed
 
@@ -181,9 +240,13 @@ type Playback
 
     member _.Stop() = Task.Run stop |> ignore
 
+    member _.SetVolume(volume: float) = player.Volume <- volume
+
     member _.Ended = finished.Publish
 
     member _.Position = player.PlaybackSession.Position
+
+    member _.Seek(to': TimeSpan) = player.PlaybackSession.Position <- to'
 
 /// The microphone and the speaker through WinRT's own surfaces: the
 /// audio graph feeds the capture (the meter needs frames), and the
@@ -231,7 +294,6 @@ module private Engine =
     let player = new Windows.Media.Playback.MediaPlayer()
 
     player.Volume <- volume
-    player.PlaybackSession.PlaybackRate <- speed
 
     let stream = new Windows.Storage.Streams.InMemoryRandomAccessStream()
     let writer = new Windows.Storage.Streams.DataWriter(stream)
@@ -239,7 +301,7 @@ module private Engine =
     writer.WriteBytes media
 
     let! _ = writer.StoreAsync().AsTask()
-    writer.DetachStream()
+    writer.DetachStream() |> ignore
     stream.Seek(0UL)
 
     let source =
@@ -251,7 +313,7 @@ module private Engine =
     player.Source <- source
     player.Play()
 
-    return Ok(Playback(player, source) :> IAudioPlayback)
+    return Ok(Playback(player, source, speed) :> IAudioPlayback)
   }
 
 type WinRtEngine() =

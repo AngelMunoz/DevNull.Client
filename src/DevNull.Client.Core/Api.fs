@@ -1516,6 +1516,20 @@ module Remotes =
       }
     )
 
+  /// Nudges the partner or the org: a small attention ping the other
+  /// side sees the way they see typing.
+  let ping(env, request: TargetRequest) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "POST"
+        Target = path(request.Target, "/ping")
+        Body = ""
+        Decode = Internal.decodeUnit
+      }
+    )
+
   let stash(env, request: TargetRequest) =
     Internal.sendSigned(
       env,

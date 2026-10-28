@@ -1804,6 +1804,9 @@ and RemotesWatcher(store: RemotesStore, session: SessionStore) =
   // One cancellation source per thread loop, and the inbox loop's own.
   let loops = Dictionary<string, CancellationTokenSource>()
 
+  // The target each loop polls, so a reopened gate can wake it.
+  let watched = Dictionary<string, ChatTarget>()
+
   let inboxLoop = new BehaviorSubject<CancellationTokenSource option>(None)
 
   let threadCount() : int = loops.Count
@@ -1843,13 +1846,22 @@ and RemotesWatcher(store: RemotesStore, session: SessionStore) =
   }
 
   /// Starts the loops under the activity gate: true while the window
-  /// is focused and visible. The disposable stops every loop.
+  /// stands on screen. The gate reopening wakes every loop at once —
+  /// the way a visible tab polls the moment it returns — instead of
+  /// waiting out the sleep each loop was left in. The disposable stops
+  /// every loop.
   member _.Start(gate: IObservable<bool>) : IDisposable =
     let subscription =
       gate
       |> Observable.subscribe(fun value ->
         active.OnNext value
-        store.SetWindowActive value)
+        store.SetWindowActive value
+
+        if value then
+          for KeyValue(_, target) in watched do
+            Async.Start(store.PollThread target)
+
+          Async.Start(store.PollInbox()))
 
     {
       new IDisposable with
@@ -1861,6 +1873,7 @@ and RemotesWatcher(store: RemotesStore, session: SessionStore) =
             source.Dispose()
 
           loops.Clear()
+          watched.Clear()
 
           match inboxLoop.Value with
           | Some source ->
@@ -1884,6 +1897,7 @@ and RemotesWatcher(store: RemotesStore, session: SessionStore) =
       let source = new CancellationTokenSource()
 
       loops[key] <- source
+      watched[key] <- target
       Async.Start(tick target, source.Token)
 
       if not usageLoaded.Value then
@@ -1902,6 +1916,7 @@ and RemotesWatcher(store: RemotesStore, session: SessionStore) =
             source.Dispose()
 
             loops.Remove key |> ignore
+            watched.Remove key |> ignore
           | false, _ -> ()
     }
 

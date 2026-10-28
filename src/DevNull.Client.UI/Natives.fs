@@ -33,12 +33,19 @@ type IAudioPlayback =
   /// Ends the playback early.
   abstract Stop: unit -> unit
 
+  /// Changes how loud the note sounds while it plays, 0.0 to 1.0.
+  abstract SetVolume: volume: float -> unit
+
   /// Fires when the note has played through.
   abstract Ended: IEvent<unit>
 
   /// Where the playing stands now; the pipeline's own word, not an
   /// estimate.
   abstract Position: TimeSpan
+
+  /// Moves the playing to a point in the note, the scrub gesture's
+  /// own arm.
+  abstract Seek: to': TimeSpan -> unit
 
 /// The microphone and the speaker, behind one engine. The platform
 /// decodes what it can: playback takes the voice file's bytes as they

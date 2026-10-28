@@ -14,7 +14,6 @@ type Glyph =
   | Commit
   | Collapse
   | Star
-  | Reply
   | Quote
   | Share
   | Report
@@ -41,6 +40,14 @@ type Glyph =
   | Info
   | Mic
   | Speaker
+  | Reply
+  | Reaction
+  | Play
+  | Pause
+  | Refresh
+  | Trash
+  | Vibrate
+  | Stop
 
 /// One icon ready to place: the glyph in the default size, 18 device
 /// independent pixels.

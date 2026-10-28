@@ -486,7 +486,8 @@ module OrgRoles =
   /// The wire name.
   val wire: role: OrgRole -> string
 
-/// The org event one message records. An unknown event stays raw.
+/// The event one message records: an org's own changes and a ping. An
+/// unknown event stays raw.
 type OrgEvent =
   | Created
   | Added
@@ -496,6 +497,7 @@ type OrgEvent =
   | Promoted
   | Demoted
   | Inherited
+  | Ping
   | UnknownEvent of raw: string
 
 /// One reaction left on a message.

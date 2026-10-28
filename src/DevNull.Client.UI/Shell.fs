@@ -1087,12 +1087,25 @@ type Shell<'env
         TimeSpan.FromSeconds 45.0
       )
 
-    // The chat's own loops: one gate that follows the window's focus,
-    // and the watcher that pauses its polls while the gate is closed.
+    // The chat's own loops: one gate that follows the window's own
+    // visibility. Polls run while the window stands on screen —
+    // focused or not, the way a visible tab polls on the web — and
+    // pause only once it hides: minimized, or away in the tray.
     let windowActive = new BehaviorSubject<bool>(true)
 
-    this.Activated.Add(fun _ -> windowActive.OnNext true)
-    this.Deactivated.Add(fun _ -> windowActive.OnNext false)
+    let pulse() =
+      windowActive.OnNext(
+        this.IsVisible && this.WindowState <> WindowState.Minimized
+      )
+
+    this.Activated.Add(fun _ -> pulse())
+    this.Deactivated.Add(fun _ -> pulse())
+
+    this.GetObservable(Window.IsVisibleProperty)
+    |> Observable.add(fun _ -> pulse())
+
+    this.GetObservable(Window.WindowStateProperty)
+    |> Observable.add(fun _ -> pulse())
 
     let remotesWatch = env.Remotes.Watcher.Start(windowActive)
 

@@ -2,6 +2,7 @@ module DevNull.Client.UI.Tests.Fixtures
 
 open System
 open System.IO
+open System.Threading.Tasks
 open Microsoft.Extensions.Logging.Abstractions
 open DevNull.Client
 open DevNull.Client.AttachmentSources
@@ -199,6 +200,7 @@ type FakePlayback(media: byte array, speed: float, volume: float) =
   let ended = Event<unit>()
   let mutable stopped = false
   let mutable at = TimeSpan.Zero
+  let mutable loudness = volume
 
   /// The bytes the engine was asked to sound.
   member _.Media = media
@@ -206,8 +208,11 @@ type FakePlayback(media: byte array, speed: float, volume: float) =
   /// The speed the engine was asked to run at.
   member _.Speed = speed
 
-  /// The volume the engine was asked to sound at.
+  /// The volume the note started at.
   member _.Volume = volume
+
+  /// The volume the note sounds at now, after the fader moved.
+  member _.VolumeNow = loudness
 
   /// Whether the playback was stopped before its end.
   member _.Stopped = stopped
@@ -218,12 +223,19 @@ type FakePlayback(media: byte array, speed: float, volume: float) =
   /// Moves the playing position, for the clock and the fill.
   member _.MoveTo(position: TimeSpan) = at <- position
 
+  /// Where the note stands now, the word the tests read.
+  member _.Position = at
+
   interface IAudioPlayback with
     member _.Stop() = stopped <- true
+
+    member _.SetVolume(volume: float) = loudness <- volume
 
     member _.Ended = ended.Publish
 
     member _.Position = at
+
+    member _.Seek(to': TimeSpan) = at <- to'
 
 /// A capture that always reads half-scale on the meter and hands back
 /// the canned WAV when stopped.
@@ -240,18 +252,36 @@ type FakeCapture() =
 
     member _.Cancel() = cancelled <- true
 
+/// The headless system sounds: one counter per note the page asked the
+/// operating system for. Nothing sounds anywhere.
+type FakeSounds() =
+  let gate = obj()
+  let notes = ResizeArray<unit>()
+
+  /// How many notes were asked.
+  member _.Notified = lock gate (fun () -> notes.Count)
+
+  interface ISystemSounds with
+    member _.Notify() =
+      lock gate (fun () -> notes.Add()) |> ignore
+
 /// The headless audio engine: every capture hands back the same canned
 /// WAV, and every playback is a `FakePlayback` the test finishes. No
 /// device is opened and nothing decodes: the engine takes the note's
-/// bytes and always sounds them, unless a test arms its refusal.
+/// bytes and always sounds them, unless a test arms its refusal. A
+/// test that holds the opens freezes `StartCapture` until it releases.
 type FakeAudio() =
   let gate = obj()
   let captures = ResizeArray<IMicrophoneCapture>()
   let playbacks = ResizeArray<FakePlayback>()
+  let heldOpens = ResizeArray<TaskCompletionSource<unit>>()
 
   /// Whether the engine refuses every playback, to try the failed
   /// word.
   member val RefusePlay = false with get, set
+
+  /// Whether each capture waits for its release before it opens.
+  member val HoldOpens = false with get, set
 
   /// How many captures the engine opened.
   member _.Captures = lock gate (fun () -> captures.Count)
@@ -266,8 +296,21 @@ type FakeAudio() =
       |> Seq.tryLast
       |> Option.map(fun capture -> capture :?> FakeCapture))
 
+  /// Lets every held open land.
+  member _.ReleaseOpens() =
+    lock gate (fun () ->
+      heldOpens |> Seq.iter(fun held -> held.SetResult())
+      heldOpens.Clear())
+
   interface IAudioEngine with
-    member _.StartCapture() = async {
+    member this.StartCapture() = async {
+      if this.HoldOpens then
+        let held = TaskCompletionSource<unit>()
+
+        lock gate (fun () -> heldOpens.Add held)
+
+        do! Async.AwaitTask held.Task
+
       let capture = FakeCapture()
 
       lock gate (fun () -> captures.Add capture)
@@ -296,7 +339,8 @@ type TestEnv
     ?lastVisit: LastVisitStore,
     ?profiles: FakeProfiles,
     ?sshKeys: FakeSshKeys,
-    ?audio: FakeAudio
+    ?audio: FakeAudio,
+    ?sounds: FakeSounds
   ) as this =
 
   let settingsStore =
@@ -371,16 +415,19 @@ type TestEnv
       NullLogger.Instance
     )
 
-  // The native services: only the audio is fake-able, and only when a
-  // test opts in. Without it the voice UI stays hidden, exactly like a
-  // head with no engine.
+  // The native services: only the audio and the sounds are fake-able,
+  // and only when a test opts in. Without the engine the voice UI
+  // stays hidden, exactly like a head with no engine.
   let natives = {
     Registrar = FakeRegistrar()
     Audio =
       audio
       |> Option.map(fun engine -> engine :> IAudioEngine)
       |> ValueOption.ofOption
-    Sounds = ValueNone
+    Sounds =
+      sounds
+      |> Option.map(fun head -> head :> ISystemSounds)
+      |> ValueOption.ofOption
   }
 
   interface IProvideClock with

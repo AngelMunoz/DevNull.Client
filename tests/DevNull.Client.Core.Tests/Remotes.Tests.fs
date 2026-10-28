@@ -588,6 +588,21 @@ let endpointTests =
         ""
     }
 
+    test "pings a partner" {
+      expectCall
+        (fun http ->
+          Remotes.ping(
+            envFor http,
+            {
+              KeyFile = "key-file"
+              Target = Remotes.Partner "octocat"
+            }
+          ))
+        "POST"
+        "/api/v1/remotes/@octocat/ping"
+        ""
+    }
+
     test "stashes and unstashes a thread" {
       expectCall
         (fun http ->

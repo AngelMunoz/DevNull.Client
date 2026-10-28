@@ -9,6 +9,7 @@ module DevNull.Client.UI.Tests.RemotesView
 open System
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.Shapes
 open Avalonia.Input
 open Avalonia.Interactivity
 open Avalonia.VisualTree
@@ -112,6 +113,18 @@ let startShell(store: SessionStore, http: IHttp) : Async<Window> =
     return! showAsync window
   }
 
+/// Builds and shows the shell over one test env whose attachment
+/// sources answer the cans the test set.
+let startAttachedShell
+  (store: SessionStore, http: IHttp, attachments: FakeAttachments)
+  : Async<Window> =
+  let env = TestEnv(store, http, attachments = attachments)
+
+  async {
+    let! window = probeUiAsync(fun () -> Shell(env, None) :> Window)
+    return! showAsync window
+  }
+
 /// Opens the remotes page through the sidebar.
 let openRemotesAsync(window: Window) : Async<unit> = async {
   do! clickWhenShown(window, "Remotes")
@@ -135,6 +148,58 @@ let textBlockWith(root: Control, text: string) : TextBlock option =
     match visual with
     | :? TextBlock as block when block.Text = text -> Some block
     | _ -> None)
+
+/// True when the named control and every ancestor stand visible.
+let controlShown(root: Control, name: string) : bool =
+  root.GetVisualDescendants()
+  |> Seq.exists(fun visual ->
+    match visual with
+    | :? Control as control when visual.Name = name ->
+      control.IsVisible
+      && control.GetVisualAncestors()
+         |> Seq.forall(fun ancestor ->
+           match ancestor with
+           | :? Control as up -> up.IsVisible
+           | _ -> true)
+    | _ -> false)
+
+/// The first button whose tooltip equals the tip: the hover actions
+/// carry no text, only their tips.
+let buttonTipped(root: Control, tip: string) : Button option =
+  root.GetVisualDescendants()
+  |> Seq.tryPick(fun visual ->
+    match visual with
+    | :? Button as button when string(ToolTip.GetTip button) = tip ->
+      Some button
+    | _ -> None)
+
+/// Clicks one icon button once its tooltip shows, the hover actions'
+/// own finder.
+let clickWhenShownByTip(window: Window, tip: string) : Async<unit> = async {
+  let! shown =
+    waitForAsync(
+      5000,
+      (fun () -> window),
+      fun root -> buttonTipped(root, tip) |> Option.isSome
+    )
+
+  Expect.isTrue shown $"the {tip} button never appeared"
+
+  return! onUiAsync(fun () -> buttonTipped(window, tip) |> Option.iter click)
+}
+
+/// Hovers the reader's pointer over one message row, the way the
+/// hover actions surface outside a test's pointer: the group's
+/// pointer flag never moves headless, so the actions show directly.
+let hoverMessage(window: Window, id: int, mine: bool) : unit =
+  let name = if mine then "BubbleActionsMine" else "BubbleActionsTheirs"
+
+  window.GetVisualDescendants()
+  |> Seq.iter(fun visual ->
+    match visual with
+    | :? Control as control when visual.Name = name ->
+      control.IsVisible <- true
+    | _ -> ())
 
 /// The text the Remotes sidebar entry's badge shows, when it shows one.
 let badgeText(window: Window) : string option =
@@ -541,6 +606,145 @@ let openConversationAsync(window: Window) : Async<unit> = async {
 let threadTests =
   testList "remotes thread" [
     testCaseAsync
+      "a narrow window shows one pane and the back row returns"
+      (async {
+        let thread =
+          Remotes.threadJson(
+            [ Remotes.messageJson(41, partnerId, "one message", "c-41") ],
+            41,
+            "",
+            false,
+            0
+          )
+
+        let api = threadApi(thread, thread)
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openConversationAsync window
+        do! settleAsync()
+
+        // Wide: both panes, no back row.
+        let! wideBack =
+          probeUiAsync(fun () -> controlShown(window, "BackToInbox"))
+
+        Expect.isFalse wideBack "the back row showed on a wide window"
+
+        do! shrinkAsync window
+        do! settleAsync()
+
+        // Narrow: the thread owns the strip, the inbox hides, and the
+        // back row shows.
+        let! back =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> controlShown(root, "BackToInbox")
+          )
+
+        Expect.isTrue back "the back row never showed"
+
+        let! inboxHidden =
+          probeUiAsync(fun () -> controlShown(window, "RemotesSearch"))
+
+        Expect.isFalse inboxHidden "the inbox stayed on the narrow window"
+
+        let! threadShown =
+          probeUiAsync(fun () -> controlShown(window, "RemotesThread"))
+
+        Expect.isTrue threadShown "the thread lost the narrow window"
+
+        do!
+          onUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryPick(fun visual ->
+              match visual with
+              | :? Button as backRow when visual.Name = "BackToInbox" ->
+                Some backRow
+              | _ -> None)
+            |> Option.iter click)
+
+        let! returned =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> controlShown(root, "RemotesSearch")
+          )
+
+        Expect.isTrue returned "the inbox never came back"
+
+        let! backGone =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> not(controlShown(root, "BackToInbox"))
+          )
+
+        Expect.isTrue backGone "the back row stayed after the return"
+      })
+
+    testCaseAsync
+      "every run ends in its clock time"
+      (async {
+        // Two of mine with one of theirs between: my older run keeps
+        // a right-aligned clock, theirs keeps its left one, and only
+        // the newest of mine swaps its line for the receipt.
+        let thread =
+          Remotes.threadJson(
+            [
+              Remotes.messageJson(41, partnerId, "hello there", "c-41")
+              Remotes.messageJson(42, viewerId, "hi back", "c-42")
+              Remotes.messageJson(43, partnerId, "still there?", "c-43")
+              Remotes.messageJson(44, viewerId, "yes still here", "c-44")
+            ],
+            44,
+            "",
+            false,
+            0
+          )
+
+        let api = threadApi(thread, thread)
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openConversationAsync window
+
+        let at =
+          DateTimeOffset
+            .Parse("2026-10-20T04:00:00Z")
+            .ToLocalTime()
+            .ToString("h:mm tt")
+
+        let! mine =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              root.GetVisualDescendants()
+              |> Seq.exists(fun visual ->
+                match visual with
+                | :? TextBlock as block ->
+                  block.Text = at
+                  && block.HorizontalAlignment =
+                    Avalonia.Layout.HorizontalAlignment.Right
+                | _ -> false)
+          )
+
+        Expect.isTrue mine "my older run never showed its clock time"
+
+        let! theirs =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.exists(fun visual ->
+              match visual with
+              | :? TextBlock as block ->
+                block.Text = at
+                && block.HorizontalAlignment =
+                  Avalonia.Layout.HorizontalAlignment.Left
+              | _ -> false))
+
+        Expect.isTrue theirs "their run never showed its clock time"
+      })
+
+    testCaseAsync
       "a conversation opens with its messages"
       (async {
         let thread =
@@ -601,6 +805,19 @@ let threadTests =
           )
 
         Expect.isTrue receipt "the receipt never showed"
+
+        // The partner's runs end in their own clock time, the site's
+        // meta line under every run that is not the viewer's.
+        let at =
+          DateTimeOffset
+            .Parse("2026-10-20T04:00:00Z")
+            .ToLocalTime()
+            .ToString("h:mm tt")
+
+        let! stamped =
+          waitForAsync(5000, (fun () -> window), fun root -> hasText(root, at))
+
+        Expect.isTrue stamped "the partner's clock time never showed"
       })
 
     testCaseAsync
@@ -851,6 +1068,46 @@ let threadTests =
 
         Expect.isFalse weak.Value.IsAlive "the bubble outlived its page"
       })
+
+    testCaseAsync
+      "the typing line carries the partner's word and its dots"
+      (async {
+        let thread =
+          Remotes.threadJson(
+            [ Remotes.messageJson(41, partnerId, "hello there", "c-41") ],
+            41,
+            "",
+            true,
+            0
+          )
+
+        let api = threadApi(thread, thread)
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openConversationAsync window
+
+        let! word =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "@hubot is typing")
+          )
+
+        Expect.isTrue word "the typing word never showed"
+
+        let! dots =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.filter(fun visual ->
+              match visual with
+              | :? Ellipse as dot ->
+                dot.Classes
+                |> Seq.exists(fun klass -> klass.StartsWith "typing-dot-")
+              | _ -> false)
+            |> Seq.length)
+
+        Expect.isGreaterThan dots 0 "the typing dots never drew"
+      })
   ]
 
 /// How the push route answers in the composer tests.
@@ -1019,27 +1276,32 @@ let reactTests =
       })
 
     testCaseAsync
-      "a quick pick reacts optimistically and settles"
+      "a hover react opens the tray and a pick reacts"
       (async {
         let api = reactApi(quietThread())
         let! window = startShell(remotesOnStore(false, 0), api)
 
         do! openConversationAsync window
 
-        // The quick pick bar shows the three defaults.
+        // The reaction actions live in the hover group beside the
+        // bubble: the pointer over the row shows them.
+        do! onUiAsync(fun () -> hoverMessage(window, 41, false))
+        do! settleAsync()
+        do! clickWhenShownByTip(window, "Add reaction")
+
+        // The tray carries the three defaults; a pick lands the chip
+        // at once from the optimistic toggle.
         let! picks =
           waitForAsync(
             5000,
             (fun () -> window),
-            (fun root -> buttonWithText(root, "😂") |> Option.isSome)
+            (fun root -> buttonWithText(root, "❤️") |> Option.isSome)
           )
 
-        Expect.isTrue picks "the quick picks never showed"
+        Expect.isTrue picks "the tray never showed"
 
         do! clickWhenShown(window, "❤️")
 
-        // The chip lands at once from the optimistic toggle; the
-        // settled reactions keep it after the server answers.
         let! chipped =
           waitForAsync(
             5000,
@@ -1074,7 +1336,7 @@ let reactTests =
       })
 
     testCaseAsync
-      "the picker flyout offers the quick three and the ranked rest"
+      "the reaction tray offers the quick three and the ranked rest"
       (async {
         let api =
           FakeApi(fun request ->
@@ -1103,19 +1365,10 @@ let reactTests =
 
         do! openConversationAsync window
 
-        let! picker =
-          waitForAsync(
-            5000,
-            (fun () -> window),
-            (fun root -> buttonWithText(root, "＋") |> Option.isSome)
-          )
-
-        Expect.isTrue picker "the picker never showed"
-
-        do!
-          onUiAsync(fun () -> buttonWithText(window, "＋") |> Option.iter click)
-
+        // Open the hover group, then the tray.
+        do! onUiAsync(fun () -> hoverMessage(window, 41, false))
         do! settleAsync()
+        do! clickWhenShownByTip(window, "Add reaction")
 
         let! ranked =
           waitForAsync(
@@ -1283,7 +1536,7 @@ let composerTests =
           waitForAsync(
             5000,
             (fun () -> window),
-            (fun root -> hasText(root, "rejected"))
+            (fun root -> hasText(root, "rejected · retry"))
           )
 
         Expect.isTrue refused "the refusal never showed"
@@ -1348,6 +1601,230 @@ let composerTests =
           )
 
         Expect.isTrue counted "the counter never showed"
+      })
+
+    testCaseAsync
+      "the composer wraps its spaceless text"
+      (async {
+        let api = composerApi(quietThread(), Stored)
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openConversationAsync window
+        do! typeIntoComposer(window, String('a', 100))
+
+        let! wrapped =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              root.GetVisualDescendants()
+              |> Seq.exists(fun visual ->
+                match visual with
+                | :? TextBox as box when
+                  box.Name = "RemotesComposer"
+                  && box.TextWrapping = Avalonia.Media.TextWrapping.Wrap
+                  ->
+                  true
+                | _ -> false)
+          )
+
+        Expect.isTrue wrapped "the composer never wrapped"
+      })
+
+    testCaseAsync
+      "the box fills its row and Push stays on the pane"
+      (async {
+        let api = composerApi(quietThread(), Stored)
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openConversationAsync window
+        do! typeIntoComposer(window, String('a', 300))
+        do! settleAsync()
+
+        let! push =
+          probeUiAsync(fun () ->
+            buttonWithText(window, "Push")
+            |> Option.map(fun button -> button.Bounds))
+
+        Expect.isSome push "the Push button never rendered"
+
+        let! box =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryPick(fun visual ->
+              match visual with
+              | :? TextBox as box when box.Name = "RemotesComposer" ->
+                Some box.Bounds
+              | _ -> None))
+
+        Expect.isSome box "the composer box never rendered"
+
+        // A stacked row measured the box to its typed length: the box
+        // stayed narrow and Push fell past the pane's edge.
+        Expect.isGreaterThan
+          box.Value.Width
+          120.0
+          "the box never filled its row"
+
+        Expect.isLessThanOrEqual
+          push.Value.Right
+          window.ClientSize.Width
+          "Push fell off the pane"
+      })
+
+    testCaseAsync
+      "a pasted clipboard image stages on the composer"
+      (async {
+        let attachments = FakeAttachments()
+        attachments.ClipboardImage <- Some(stagedImage "pasted.png")
+
+        let api = composerApi(quietThread(), Stored)
+
+        let! window =
+          startAttachedShell(remotesOnStore(false, 0), api, attachments)
+
+        do! openConversationAsync window
+        do! typeIntoComposer(window, "")
+
+        do!
+          onUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryPick(fun visual ->
+              match visual with
+              | :? TextBox as box when box.Name = "RemotesComposer" ->
+                Some box
+              | _ -> None)
+            |> Option.iter(fun box ->
+              box.RaiseEvent(
+                KeyEventArgs(
+                  RoutedEvent = InputElement.KeyDownEvent,
+                  Key = Key.V,
+                  KeyModifiers = KeyModifiers.Control
+                )
+              )))
+
+        let! chipped =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "pasted.png"))
+          )
+
+        Expect.isTrue chipped "the pasted image never staged"
+      })
+
+    testCaseAsync
+      "typing an @ offers the partner's handle and a pick completes it"
+      (async {
+        let api = composerApi(quietThread(), Stored)
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openConversationAsync window
+
+        do! typeIntoComposer(window, "")
+
+        do!
+          onUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryPick(fun visual ->
+              match visual with
+              | :? TextBox as box when box.Name = "RemotesComposer" ->
+                Some box
+              | _ -> None)
+            |> Option.iter(fun box ->
+              box.Text <- "ping @hu"
+              box.CaretIndex <- 8))
+
+        let! offered =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              root.GetVisualDescendants()
+              |> Seq.exists(fun visual ->
+                match visual with
+                | :? Button as pick when pick.Name = "MentionPick" ->
+                  pick.IsVisible
+                | _ -> false))
+          )
+
+        Expect.isTrue offered "the mention never offered its handles"
+
+        // The pick carries a panel, not a text button: click it by its
+        // own name, not by the row button the inbox shares the handle
+        // with.
+        let! pickShown =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              root.GetVisualDescendants()
+              |> Seq.exists(fun visual ->
+                match visual with
+                | :? Button as pick when pick.Name = "MentionPick" ->
+                  pick.IsVisible
+                | _ -> false)
+          )
+
+        Expect.isTrue pickShown "the mention pick never showed"
+
+        do!
+          onUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryPick(fun visual ->
+              match visual with
+              | :? Button as pick when pick.Name = "MentionPick" -> Some pick
+              | _ -> None)
+            |> Option.iter click)
+
+        let! completed =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryPick(fun visual ->
+              match visual with
+              | :? TextBox as box when box.Name = "RemotesComposer" ->
+                Some box.Text
+              | _ -> None))
+
+        Expect.equal
+          completed
+          (Some "ping @hubot ")
+          "the pick never completed the handle"
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              root.GetVisualDescendants()
+              |> Seq.forall(fun visual ->
+                match visual with
+                | :? Button as pick when pick.Name = "MentionPick" ->
+                  not pick.IsVisible
+                | _ -> true))
+          )
+
+        Expect.isTrue closed "the offer stayed open past the handle"
+      })
+
+    testCaseAsync
+      "the ping pick reaches its route"
+      (async {
+        let api = composerApi(quietThread(), Stored)
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openConversationAsync window
+        do! clickWhenShownByTip(window, "Ping @hubot")
+
+        let pinged() =
+          api.Requests
+          |> List.exists(fun request ->
+            request.Method = "POST"
+            && request.Target = "/api/v1/remotes/@hubot/ping")
+
+        let! pinged' = waitForAsync(5000, (fun () -> pinged()), id)
+
+        Expect.isTrue pinged' "the ping never reached its route"
       })
 
     testCaseAsync
@@ -1798,16 +2275,6 @@ let manageTests =
       })
   ]
 
-/// The first button whose tooltip equals the tip: the mic button has
-/// no text, only its tip.
-let buttonTipped(root: Control, tip: string) : Button option =
-  root.GetVisualDescendants()
-  |> Seq.tryPick(fun visual ->
-    match visual with
-    | :? Button as button when string(ToolTip.GetTip button) = tip ->
-      Some button
-    | _ -> None)
-
 /// The 48 even bars of one canned waveform.
 let voiceBars = List.replicate 48 5 |> List.map string |> String.concat ","
 
@@ -1852,10 +2319,22 @@ let startVoiceShell
     return! showAsync window
   }
 
+/// Builds and shows the shell over one env whose head passed the fake
+/// sounds, so a ping's note is countable.
+let startSoundsShell
+  (store: SessionStore, http: IHttp, sounds: FakeSounds)
+  : Async<Window> =
+  let env = TestEnv(store, http, sounds = sounds)
+
+  async {
+    let! window = probeUiAsync(fun () -> Shell(env, None) :> Window)
+    return! showAsync window
+  }
+
 /// True when the mic button shows: it lives in the tree always, so
 /// only its visibility tells whether the surface is on.
 let micShown(root: Control) : bool =
-  buttonTipped(root, "Record a voice note")
+  buttonTipped(root, "Record a voice note (max. 1 min)")
   |> Option.map(fun button -> button.IsVisible)
   |> Option.defaultValue false
 
@@ -1877,7 +2356,7 @@ let clickMicAsync(window: Window) : Async<unit> = async {
 
   do!
     onUiAsync(fun () ->
-      buttonTipped(window, "Record a voice note")
+      buttonTipped(window, "Record a voice note (max. 1 min)")
       |> Option.iter(fun button ->
         if button.IsVisible then
           click button))
@@ -1922,7 +2401,7 @@ let voiceTests =
           waitForAsync(
             5000,
             (fun () -> window),
-            (fun root -> hasText(root, "Stop"))
+            fun root -> buttonTipped(root, "Stop recording") |> Option.isSome
           )
 
         Expect.isTrue lane "the record lane never opened"
@@ -1937,16 +2416,49 @@ let voiceTests =
         Expect.isTrue capturing "the engine never captured"
 
         do! Async.Sleep 600
-        do! clickWhenShown(window, "Stop")
+        do! clickWhenShownByTip(window, "Stop recording")
 
         let! staged =
           waitForAsync(
             5000,
             (fun () -> window),
-            (fun root -> hasText(root, "voice note staged"))
+            fun root -> buttonTipped(root, "Play the note") |> Option.isSome
           )
 
         Expect.isTrue staged "the voice never staged"
+
+        // A voice note rides alone: the box closes to typing and the
+        // pick to staging while the take sits staged, but Push stays.
+        let! closed =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryPick(fun visual ->
+              match visual with
+              | :? TextBox as box when box.Name = "RemotesComposer" ->
+                Some(not box.IsEnabled)
+              | _ -> None))
+
+        Expect.equal
+          closed
+          (Some true)
+          "the box stayed writable beside the voice"
+
+        let! pickHeld =
+          probeUiAsync(fun () ->
+            buttonTipped(window, "Attach images")
+            |> Option.map(fun pick -> not pick.IsEnabled))
+
+        Expect.equal
+          pickHeld
+          (Some true)
+          "the pick stayed open beside the voice"
+
+        let! pushLive =
+          probeUiAsync(fun () ->
+            buttonWithText(window, "Push")
+            |> Option.map(fun push -> push.IsEnabled))
+
+        Expect.equal pushLive (Some true) "Push closed with the voice staged"
 
         do! clickWhenShown(window, "Push")
 
@@ -1966,6 +2478,55 @@ let voiceTests =
       })
 
     testCaseAsync
+      "a stop while the microphone still opens takes nothing"
+      (async {
+        let audio = FakeAudio()
+        audio.HoldOpens <- true
+
+        let api = composerApi(quietThread(), Stored)
+        let! window = startVoiceShell(remotesOnStore(false, 0), api, audio)
+
+        do! openConversationAsync window
+        do! clickMicAsync window
+
+        // The lane opens while the microphone itself has not.
+        let! lane =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "opening microphone…")
+          )
+
+        Expect.isTrue lane "the opening word never showed"
+
+        do! clickWhenShownByTip(window, "Stop recording")
+        do! onUiAsync(fun () -> audio.ReleaseOpens())
+
+        // The take cancels the moment the open lands: the lane closes
+        // and the capture is released, not resurrected.
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> not(laneShown root)
+          )
+
+        Expect.isTrue closed "the lane stayed after the early stop"
+
+        let! cancelled =
+          waitForAsync(
+            5000,
+            (fun () -> audio),
+            fun engine ->
+              engine.LastCapture
+              |> Option.map(fun capture -> capture.Cancelled)
+              |> Option.defaultValue false
+          )
+
+        Expect.isTrue cancelled "the late open kept its microphone"
+      })
+
+    testCaseAsync
       "a cancelled recording keeps nothing"
       (async {
         let audio = FakeAudio()
@@ -1974,7 +2535,7 @@ let voiceTests =
 
         do! openConversationAsync window
         do! clickMicAsync window
-        do! clickWhenShown(window, "Cancel")
+        do! clickWhenShownByTip(window, "Discard voice note (Esc)")
 
         let! gone =
           waitForAsync(
@@ -1989,7 +2550,7 @@ let voiceTests =
           waitForAsync(
             5000,
             (fun () -> window),
-            (fun root -> not(hasText(root, "voice note staged")))
+            fun root -> buttonTipped(root, "Play the note") |> Option.isNone
           )
 
         Expect.isTrue staged "a cancelled take left its chip"
@@ -2056,7 +2617,7 @@ let voiceTests =
         let! window = startVoiceShell(remotesOnStore(false, 0), api, audio)
 
         do! openConversationAsync window
-        do! clickWhenShown(window, "play")
+        do! clickWhenShownByTip(window, "Play the note")
 
         let! played =
           waitForAsync(
@@ -2079,7 +2640,7 @@ let voiceTests =
           waitForAsync(
             5000,
             (fun () -> window),
-            (fun root -> hasText(root, "pause"))
+            fun root -> buttonTipped(root, "Pause the note") |> Option.isSome
           )
 
         Expect.isTrue sounding "the player never sounded"
@@ -2090,10 +2651,107 @@ let voiceTests =
           waitForAsync(
             5000,
             (fun () -> window),
-            (fun root -> hasText(root, "play"))
+            fun root -> buttonTipped(root, "Play the note") |> Option.isSome
           )
 
         Expect.isTrue idle "the player never went idle"
+      })
+
+    testCaseAsync
+      "the fader lands on the sounding note"
+      (async {
+        let audio = FakeAudio()
+        let api = voiceApi(voicedThread(), Stored, voiceBytes)
+        let! window = startVoiceShell(remotesOnStore(false, 0), api, audio)
+
+        do! openConversationAsync window
+        do! clickWhenShownByTip(window, "Play the note")
+
+        let! sounded =
+          waitForAsync(
+            5000,
+            (fun () -> audio),
+            fun engine -> engine.Playbacks.Length > 0
+          )
+
+        Expect.isTrue sounded "the note never sounded"
+
+        do! clickWhenShownByTip(window, "Voice volume")
+
+        let! fader =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryPick(fun visual ->
+              match visual with
+              | :? Slider as fader when fader.Name = "VoiceVolume" ->
+                Some fader
+              | _ -> None))
+
+        Expect.isSome fader "the fader never showed"
+
+        do! onUiAsync(fun () -> fader.Value.Value <- 40.0)
+
+        let! quieter =
+          waitForAsync(
+            5000,
+            (fun () -> audio),
+            fun engine -> engine.Playbacks.Head.VolumeNow = 0.4
+          )
+
+        Expect.isTrue quieter "the fader never reached the sounding note"
+      })
+
+    testCaseAsync
+      "the speed cycle restarts the note faster from where it stands"
+      (async {
+        let audio = FakeAudio()
+        let api = voiceApi(voicedThread(), Stored, voiceBytes)
+        let! window = startVoiceShell(remotesOnStore(false, 0), api, audio)
+
+        do! openConversationAsync window
+        do! clickWhenShownByTip(window, "Play the note")
+
+        let! first =
+          waitForAsync(
+            5000,
+            (fun () -> audio),
+            fun engine -> engine.Playbacks.Length > 0
+          )
+
+        Expect.isTrue first "the note never sounded"
+
+        let slower = audio.Playbacks.Head
+
+        do! onUiAsync(fun () -> slower.MoveTo(TimeSpan.FromMilliseconds 600.0))
+
+        // The model's position follows the pipeline on the player's own
+        // 100 ms tick; give one tick time to land before the press.
+        do! Async.Sleep 250
+        do! clickWhenShown(window, "1×")
+
+        let! second =
+          waitForAsync(
+            5000,
+            (fun () -> audio),
+            fun engine -> engine.Playbacks.Length > 1
+          )
+
+        Expect.isTrue second "the speed never restarted the note"
+
+        let faster = audio.Playbacks.Item 1
+
+        Expect.equal faster.Speed 1.5 "the restart ran at the natural pace"
+
+        Expect.isTrue slower.Stopped "the slower note kept sounding"
+
+        let! resumed =
+          waitForAsync(
+            5000,
+            (fun () -> faster),
+            fun note -> note.Position >= TimeSpan.FromMilliseconds 600.0
+          )
+
+        Expect.isTrue resumed "the faster note lost the playing place"
       })
 
     testCaseAsync
@@ -2121,7 +2779,7 @@ let voiceTests =
         let! window = startVoiceShell(remotesOnStore(false, 0), api, audio)
 
         do! openConversationAsync window
-        do! clickWhenShown(window, "play")
+        do! clickWhenShownByTip(window, "Play the note")
 
         // The engine takes the note's bytes whole; the OS pipeline
         // decodes the container, not the player.
@@ -2135,15 +2793,6 @@ let voiceTests =
           )
 
         Expect.isTrue sounded "the webm bytes never reached the engine"
-
-        let! playing =
-          waitForAsync(
-            5000,
-            (fun () -> window),
-            (fun root -> hasText(root, "pause"))
-          )
-
-        Expect.isTrue playing "the note never sounded"
       })
 
     testCaseAsync
@@ -2156,13 +2805,13 @@ let voiceTests =
         let! window = startVoiceShell(remotesOnStore(false, 0), api, audio)
 
         do! openConversationAsync window
-        do! clickWhenShown(window, "play")
+        do! clickWhenShownByTip(window, "Play the note")
 
         let! failed =
           waitForAsync(
             5000,
             (fun () -> window),
-            (fun root -> hasText(root, "failed"))
+            fun root -> buttonTipped(root, "Playback failed") |> Option.isSome
           )
 
         Expect.isTrue failed "the failed word never showed"
@@ -2195,7 +2844,7 @@ let voiceTests =
 
         do! openConversationAsync window
 
-        do! clickWhenShown(window, "play")
+        do! clickWhenShownByTip(window, "Play the note")
 
         let! first =
           waitForAsync(
@@ -2208,7 +2857,7 @@ let voiceTests =
 
         // The first player now says pause, so the next play click is
         // the second note's own player.
-        do! clickWhenShown(window, "play")
+        do! clickWhenShownByTip(window, "Play the note")
 
         let! second =
           waitForAsync(
@@ -2236,22 +2885,253 @@ let voiceTests =
           waitForAsync(
             5000,
             (fun () -> window),
-            (fun root -> textBlockWith(root, "0:00 / 0:01") |> Option.isSome)
+            fun root -> buttonTipped(root, "Play the note") |> Option.isSome
           )
 
         Expect.isTrue shown "the player never rendered"
 
         let! weak =
           probeUiAsync(fun () ->
-            textBlockWith(window, "0:00 / 0:01")
-            |> Option.map(fun block -> WeakReference(block)))
+            buttonTipped(window, "Play the note")
+            |> Option.map(fun button -> WeakReference(button)))
 
-        Expect.isSome weak "the player's clock never rendered"
+        Expect.isSome weak "the player never rendered"
 
         do! clickWhenShown(window, "Settings")
         do! settleAsync()
         collect()
 
         Expect.isFalse weak.Value.IsAlive "the voice player outlived its page"
+      })
+
+    testCaseAsync
+      "leaving mid-playback stops the note"
+      (async {
+        let audio = FakeAudio()
+        let api = voiceApi(voicedThread(), Stored, voiceBytes)
+        let! window = startVoiceShell(remotesOnStore(false, 0), api, audio)
+
+        do! openConversationAsync window
+        do! clickWhenShownByTip(window, "Play the note")
+
+        let! played =
+          waitForAsync(
+            5000,
+            (fun () -> audio),
+            fun engine -> engine.Playbacks.Length > 0
+          )
+
+        Expect.isTrue played "the note never sounded"
+
+        do! clickWhenShown(window, "Settings")
+        do! settleAsync()
+
+        Expect.isTrue
+          (audio.Playbacks.Head.Stopped)
+          "the note kept sounding past its page"
+      })
+
+    testCaseAsync
+      "no control prints an observable's type name"
+      (async {
+        let audio = FakeAudio()
+        let api = voiceApi(voicedThread(), Stored, voiceBytes)
+        let! window = startVoiceShell(remotesOnStore(false, 0), api, audio)
+
+        do! openConversationAsync window
+
+        let! shown =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> buttonTipped(root, "Play the note") |> Option.isSome
+          )
+
+        Expect.isTrue shown "the player never rendered"
+
+        let! printed =
+          probeUiAsync(fun () ->
+            let wordOf(content: obj | null) =
+              match content with
+              | :? string as text -> text
+              | _ -> ""
+
+            window.GetVisualDescendants()
+            |> Seq.exists(fun visual ->
+              match visual with
+              | :? TextBlock as block ->
+                (wordOf block.Text).Contains "System.Reactive"
+              | :? Button as button ->
+                (wordOf button.Content).Contains "System.Reactive"
+              | _ -> false))
+
+        Expect.isFalse printed "an observable leaked onto the screen"
+      })
+  ]
+
+let pingTests =
+  testList "remotes ping" [
+    testCaseAsync
+      "typing that lands on the open thread shows its word"
+      (async {
+        let can = ResizeArray<string>()
+        let quiet = quietThread()
+
+        let typing =
+          Remotes.threadJson(
+            [ Remotes.messageJson(41, partnerId, "hello there", "c-41") ],
+            41,
+            "",
+            true,
+            0
+          )
+
+        let api =
+          FakeApi(fun request ->
+            if
+              request.Method = "GET"
+              && request.Target.StartsWith "/api/v1/remotes/@hubot/messages"
+            then
+              ok(if can.Count = 0 then quiet else typing)
+            elif request.Target.StartsWith "/api/v1/remotes" then
+              ok(
+                Remotes.inboxPageJson(
+                  [ rowAt(hubotJson, "2026-10-21T04:00:00Z", 0) ],
+                  false,
+                  0,
+                  0
+                )
+              )
+            else
+              ok "{}")
+
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openConversationAsync window
+
+        let! composer =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "Push")
+          )
+
+        Expect.isTrue composer "the composer never rendered"
+
+        do! onUiAsync(fun () -> can.Add typing |> ignore)
+
+        let! word =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "@hubot is typing")
+          )
+
+        Expect.isTrue word "the typing word never landed"
+      })
+
+    testCaseAsync
+      "the partner's ping lands as the site's own event word"
+      (async {
+        let sounds = FakeSounds()
+
+        let thread =
+          Remotes.threadJson(
+            [
+              Remotes.messageJson(41, partnerId, "hello there", "c-41")
+              Remotes.pingJson(45, partnerId)
+            ],
+            41,
+            "",
+            false,
+            0
+          )
+
+        let api = threadApi(thread, thread)
+        let! window = startSoundsShell(remotesOnStore(false, 0), api, sounds)
+
+        do! openConversationAsync window
+
+        let! landed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "you got a ping")
+          )
+
+        Expect.isTrue landed "the ping word never landed"
+
+        // A ping the thread opened with stays still: the site never
+        // rings for what was already there.
+        do! Async.Sleep 300
+        Expect.equal sounds.Notified 0 "the opened-with ping sounded"
+      })
+
+    testCaseAsync
+      "a ping that lands on the open thread sounds the system note"
+      (async {
+        let sounds = FakeSounds()
+        let can = ResizeArray<string>()
+        let quiet = quietThread()
+
+        let pinged =
+          Remotes.threadJson(
+            [
+              Remotes.messageJson(41, partnerId, "hello there", "c-41")
+              Remotes.pingJson(45, partnerId)
+            ],
+            41,
+            "",
+            false,
+            0
+          )
+
+        let api =
+          FakeApi(fun request ->
+            if
+              request.Method = "GET"
+              && request.Target.StartsWith "/api/v1/remotes/@hubot/messages"
+            then
+              ok(if can.Count = 0 then quiet else pinged)
+            elif request.Target.StartsWith "/api/v1/remotes" then
+              ok(
+                Remotes.inboxPageJson(
+                  [ rowAt(hubotJson, "2026-10-21T04:00:00Z", 0) ],
+                  false,
+                  0,
+                  0
+                )
+              )
+            else
+              ok "{}")
+
+        let! window = startSoundsShell(remotesOnStore(false, 0), api, sounds)
+
+        do! openConversationAsync window
+
+        let! composer =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "Push")
+          )
+
+        Expect.isTrue composer "the composer never rendered"
+
+        do! onUiAsync(fun () -> can.Add pinged |> ignore)
+
+        let! sounded =
+          waitForAsync(8000, (fun () -> sounds), fun head -> head.Notified > 0)
+
+        Expect.isTrue sounded "the ping never sounded"
+
+        let! word =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "you got a ping")
+          )
+
+        Expect.isTrue word "the ping word never landed"
       })
   ]

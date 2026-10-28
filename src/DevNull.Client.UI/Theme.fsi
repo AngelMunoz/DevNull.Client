@@ -149,8 +149,16 @@ type StyleClass =
   | ReactionChip
   | ReactionChipMine
   | StagedBubble
+  | StagedEdge
   | RejectedBubble
+  | AccentDot
+  | DangerRing
+  | MsgRow
+  | HoverActions
   | FlashRing
+  | TypingDot1
+  | TypingDot2
+  | TypingDot3
 
 /// The height of the drag band the shell lays over the drawn window
 /// chrome.

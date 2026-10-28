@@ -3,6 +3,7 @@ module DevNull.Client.Theme
 open System
 open System.Collections.Generic
 open Avalonia
+open Avalonia.Animation
 open Avalonia.Controls
 open Avalonia.Controls.Chrome
 open Avalonia.Controls.Documents
@@ -161,8 +162,16 @@ type StyleClass =
   | ReactionChip
   | ReactionChipMine
   | StagedBubble
+  | StagedEdge
   | RejectedBubble
+  | AccentDot
+  | DangerRing
+  | MsgRow
+  | HoverActions
   | FlashRing
+  | TypingDot1
+  | TypingDot2
+  | TypingDot3
 
 /// The height of the drag band the shell lays over the drawn window
 /// chrome.
@@ -228,8 +237,16 @@ let name class' =
   | ReactionChip -> "reaction-chip"
   | ReactionChipMine -> "reaction-chip-mine"
   | StagedBubble -> "staged-bubble"
+  | StagedEdge -> "staged-edge"
   | RejectedBubble -> "rejected-bubble"
+  | AccentDot -> "accent-dot"
+  | DangerRing -> "danger-ring"
+  | MsgRow -> "msg-row"
+  | HoverActions -> "hover-actions"
   | FlashRing -> "flash-ring"
+  | TypingDot1 -> "typing-dot-1"
+  | TypingDot2 -> "typing-dot-2"
+  | TypingDot3 -> "typing-dot-3"
 
 /// Moves one class on and off a control as the observable flips. The
 /// class list is the only thing the subscription touches.
@@ -325,6 +342,36 @@ let styleOf
 /// One themed setter value: a dynamic resource the variant switch
 /// re-resolves.
 let themed(key: string) = box(DynamicResourceExtension key)
+
+/// One typing dot: the quiet base opacity and the chase the delay
+/// staggers, so the three follow each other the way the site's chat
+/// does. The animation lives on the style, the way the site's CSS
+/// owns its motion.
+let private typingDot(klass: string, at: float) : Style =
+  let frames = [|
+    for cue, opacity in [| Cue 0.0, 0.25; Cue 0.5, 1.0; Cue 1.0, 0.25 |] ->
+      let frame = KeyFrame(Cue = cue)
+      frame.Setters.Add(Setter(Visual.OpacityProperty, box opacity))
+      frame
+  |]
+
+  let chase =
+    Animation(
+      Duration = TimeSpan.FromMilliseconds 1080.0,
+      Delay = TimeSpan.FromMilliseconds at,
+      IterationCount = IterationCount.Infinite,
+      Easing = Avalonia.Animation.Easings.CubicEaseInOut()
+    )
+      .KeyFrames(frames)
+
+  let style =
+    styleOf(
+      (fun selector -> selector.OfType<Shapes.Ellipse>().Class(klass)),
+      [| Visual.OpacityProperty, box 0.25 |]
+    )
+
+  style.Animations.Add(chase)
+  style
 
 /// Every class and the style it carries, in cascade order.
 let styleTable: (StyleClass * (unit -> Style)) list = [
@@ -754,6 +801,44 @@ let styleTable: (StyleClass * (unit -> Style)) list = [
         Border.BorderThicknessProperty, box(Thickness(1.5))
       |]
     )
+  StagedEdge,
+  fun () ->
+    // The accent edge a message on its way in wears; the dashes
+    // themselves are set on the shape, the chat's one dashed line.
+    styleOf(
+      (fun selector ->
+        selector.OfType<Shapes.Rectangle>().Class(name StagedEdge)),
+      [|
+        Shapes.Shape.StrokeProperty, themed Keys.accent
+        Shapes.Shape.StrokeThicknessProperty, box 1.5
+      |]
+    )
+  AccentDot,
+  fun () ->
+    // The filled dot a pushed message's meta line wears.
+    styleOf(
+      (fun selector -> selector.OfType<Shapes.Ellipse>().Class(name AccentDot)),
+      [| Shapes.Shape.FillProperty, themed Keys.accent |]
+    )
+  DangerRing,
+  fun () ->
+    // The outlined ring a rejected send's meta line wears.
+    styleOf(
+      (fun selector -> selector.OfType<Shapes.Ellipse>().Class(name DangerRing)),
+      [|
+        Shapes.Shape.StrokeProperty, themed Keys.danger
+        Shapes.Shape.StrokeThicknessProperty, box 1.5
+      |]
+    )
+  HoverActions,
+  fun () ->
+    // The reply-and-react group beside a bubble: hidden until the
+    // pointer crosses the message row, the site's group-hover rule.
+    // The pointer-over variant lives in `styles`.
+    styleOf(
+      (fun selector -> selector.OfType<StackPanel>().Class(name HoverActions)),
+      [| Control.IsVisibleProperty, box false |]
+    )
   RejectedBubble,
   fun () ->
     // One the server refused: the same hollow shape, a danger edge.
@@ -775,6 +860,9 @@ let styleTable: (StyleClass * (unit -> Style)) list = [
         Border.BorderThicknessProperty, box(Thickness(2.0))
       |]
     )
+  TypingDot1, fun () -> typingDot(name TypingDot1, 0.0)
+  TypingDot2, fun () -> typingDot(name TypingDot2, 180.0)
+  TypingDot3, fun () -> typingDot(name TypingDot3, 360.0)
 ]
 
 /// One style for the given class.
@@ -792,6 +880,22 @@ let styles() =
   // Hover states ride as sibling pseudo-class styles: a nested style on
   // an app-level style stalls the style system. Later styles win over
   // earlier ones, so each hover stays under its active override.
+  styles.Add(
+    styleOf(
+      (fun selector ->
+        Selectors
+          .Descendant(
+            selector
+              .OfType<DockPanel>()
+              .Class(name MsgRow)
+              .Class(":pointerover")
+          )
+          .OfType<StackPanel>()
+          .Class(name HoverActions)),
+      [| Control.IsVisibleProperty, box true |]
+    )
+  )
+
   styles.Add(
     styleOf(
       (fun selector ->

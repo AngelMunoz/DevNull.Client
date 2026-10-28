@@ -81,8 +81,10 @@ let focusedCardText(window: Window) : string =
     card.GetVisualDescendants()
     |> Seq.choose(fun visual ->
       match visual with
-      | :? TextBlock as block when block.Text.StartsWith "Card " ->
-        Some block.Text
+      | :? TextBlock as block ->
+        block.Text
+        |> Option.ofObj
+        |> Option.filter(fun text -> text.StartsWith "Card ")
       | _ -> None)
     |> Seq.tryHead
     |> Option.defaultValue ""

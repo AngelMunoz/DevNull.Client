@@ -24,6 +24,7 @@ let main argv =
       RemotesView.manageTests
       RemotesView.reactTests
       RemotesView.voiceTests
+      RemotesView.pingTests
     ]
 
   runTestsWithCLIArgs [] argv tests

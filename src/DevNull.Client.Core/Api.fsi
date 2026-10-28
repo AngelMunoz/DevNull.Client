@@ -930,6 +930,19 @@ module Remotes =
       and Rejected<'e>
       and DecodeError<'e>
 
+  /// Nudges the partner or the org: a small attention ping.
+  val ping:
+    env: 'env * request: TargetRequest -> Async<Result<unit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
   /// Stashes one thread for the user only. It pops back when either
   /// side writes.
   val stash:

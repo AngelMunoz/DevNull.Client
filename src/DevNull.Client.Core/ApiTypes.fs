@@ -532,7 +532,8 @@ module OrgRoles =
     | Contributor -> "contributor"
     | UnknownRole raw -> raw
 
-/// The org event one message records. An unknown event stays raw.
+/// The event one message records: an org's own changes and a ping. An
+/// unknown event stays raw.
 type OrgEvent =
   | Created
   | Added
@@ -542,6 +543,7 @@ type OrgEvent =
   | Promoted
   | Demoted
   | Inherited
+  | Ping
   | UnknownEvent of raw: string
 
 module InboxTabs =
@@ -1793,6 +1795,7 @@ let orgEventOf(raw: string) =
   | "promoted" -> Promoted
   | "demoted" -> Demoted
   | "inherited" -> Inherited
+  | "ping" -> Ping
   | raw -> UnknownEvent raw
 
 /// Reads a member's role, which an org may leave null.

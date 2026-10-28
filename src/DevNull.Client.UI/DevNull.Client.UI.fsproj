@@ -95,6 +95,12 @@
     <Compile Include="Views\CommitDetailView.fs" />
     <Compile Include="Views\NotificationsView.fsi" />
     <Compile Include="Views\NotificationsView.fs" />
+    <Compile Include="Views\RemotesModel.fsi" />
+    <Compile Include="Views\RemotesModel.fs" />
+    <Compile Include="Views\RemotesInbox.fsi" />
+    <Compile Include="Views\RemotesInbox.fs" />
+    <Compile Include="Views\RemotesThread.fsi" />
+    <Compile Include="Views\RemotesThread.fs" />
     <Compile Include="Views\RemotesView.fsi" />
     <Compile Include="Views\RemotesView.fs" />
     <Compile Include="Views\SavedView.fsi" />

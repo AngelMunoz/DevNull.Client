@@ -18,6 +18,8 @@ type TestError =
   | TooManyImages of count: int
   | ImageTooLarge of fileName: string * size: int
   | UnsupportedImage of fileName: string
+  | DescriptionTooLong of index: int * length: int
+  | TooManyDescriptions of count: int
   | MalformedNonce of raw: string
   | LookupUnreachable of message: string
   | LookupRefused of status: int * body: string
@@ -58,6 +60,11 @@ type TestError =
     static member TooManyImages count = TooManyImages count
     static member ImageTooLarge(fileName, size) = ImageTooLarge(fileName, size)
     static member UnsupportedImage fileName = UnsupportedImage fileName
+
+    static member DescriptionTooLong(index, length) =
+      DescriptionTooLong(index, length)
+
+    static member TooManyDescriptions count = TooManyDescriptions count
 
   interface CommitIdError<TestError> with
     static member InvalidCommitId raw = InvalidCommitId raw

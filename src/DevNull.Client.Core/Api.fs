@@ -561,6 +561,36 @@ module Me =
       }
     )
 
+module Devices =
+
+  type Request = { KeyFile: string }
+
+  type RevokeRequest = { KeyFile: string; DeviceId: string }
+
+  let list(env, request: Request) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target = "/api/v1/me/devices"
+        Body = ""
+        Decode = Devices.decode
+      }
+    )
+
+  let revoke(env, request: RevokeRequest) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "DELETE"
+        Target = "/api/v1/me/devices/" + Uri.EscapeDataString request.DeviceId
+        Body = ""
+        Decode = Internal.decodeUnit
+      }
+    )
+
 module Users =
 
   type Request = { KeyFile: string; Username: string }
@@ -770,6 +800,7 @@ module Commits =
     Body: string
     Target: Target
     Images: ImageAttachment list
+    ImageDescriptions: string option list
     Poll: PollSpec option
   }
 
@@ -819,6 +850,34 @@ module Commits =
     | Some _, Quote _, _ -> Error('e.PollProhibited PollOnQuote)
     | Some _, New, _ -> Error('e.PollProhibited PollWithImages)
 
+  /// The description bound each image carries, as the server counts it.
+  let descriptionMaxLength = 1000
+
+  /// One optional description per image, stated at the boundary: none
+  /// ride without images, never more than images, and none longer than
+  /// the server's own bound.
+  let checkDescriptions<'e when ImageError<'e>>
+    (descriptions: string option list, images: ImageAttachment list)
+    : Result<string option list, 'e> =
+    let refused =
+      descriptions
+      |> List.indexed
+      |> List.tryPick(fun (index, description) ->
+        match description with
+        | Some text when text.Length > descriptionMaxLength ->
+          Some('e.DescriptionTooLong(index, text.Length))
+        | _ -> None)
+
+    match descriptions, images with
+    | [], _
+    | _, [] -> Ok []
+    | descriptions, images when descriptions.Length > images.Length ->
+      Error('e.TooManyDescriptions descriptions.Length)
+    | descriptions, _ ->
+      match refused with
+      | Some error -> Error error
+      | None -> Ok descriptions
+
   let create(env, request: CreateRequest) = asyncResult {
     let! body = CommitBodies.parse request.Body
 
@@ -838,6 +897,34 @@ module Commits =
 
     let! images = DevNull.Client.Core.Commit.CommitImages.parse request.Images
 
+    let! descriptions =
+      checkDescriptions(request.ImageDescriptions, request.Images)
+
+    // The descriptions ride the payload exactly as a pushed message's
+    // do: one slot per image, an undescribed image carrying null. A
+    // post that describes nothing leaves the field out entirely, the
+    // way a description-less post always did.
+    let describesNothing =
+      descriptions |> List.forall(fun description -> description = None)
+
+    let descriptionsJson =
+      match images, describesNothing with
+      | [], _
+      | _, true -> None
+      | _ ->
+        let encoded =
+          descriptions
+          |> List.map(fun description ->
+            description
+            |> Option.map Encode.string
+            |> Option.defaultValue(Encode.Null()))
+
+        // Fewer descriptions than images still send one slot per image.
+        let padding =
+          List.replicate (images.Length - encoded.Length) (Encode.Null())
+
+        Some("image_descriptions", Json.sequence(encoded @ padding, id))
+
     let pollJson =
       poll
       |> Option.map(fun spec ->
@@ -850,6 +937,9 @@ module Commits =
       Json.object [
         "body", Encode.string(CommitBodies.value body)
         match target with
+        | Some(name, value) -> name, value
+        | None -> ()
+        match descriptionsJson with
         | Some(name, value) -> name, value
         | None -> ()
         match pollJson |> Option.map(fun poll -> "poll", poll) with
@@ -954,6 +1044,22 @@ module Commits =
           Target = path
           Body = ""
           Decode = Internal.decodeUnit
+        }
+      )
+  }
+
+  let restore(env, request: ActionRequest) = asyncResult {
+    let! path = Internal.commitPath("/restoration", request.CommitId)
+
+    return!
+      Internal.sendSigned(
+        env,
+        {
+          KeyFile = request.KeyFile
+          Method = "POST"
+          Target = path
+          Body = ""
+          Decode = Commit.decodeCreated
         }
       )
   }

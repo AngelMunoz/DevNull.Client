@@ -76,6 +76,9 @@ module State =
     Committed: int
     Body: string
     Attachments: ImageAttachment list
+    /// One description per staged image, empty where undescribed; kept
+    /// parallel to the attachments by index.
+    Descriptions: string list
     Poll: PollDraft option
   }
 
@@ -85,6 +88,7 @@ module State =
     | AttachRequested
     | ImagesAdded of ImageAttachment list
     | ImageRemoved of index: int
+    | DescriptionChanged of index: int * text: string
     | PollToggled
     | PollOptionChanged of index: int * text: string
     | PollOptionAdded
@@ -98,6 +102,7 @@ module State =
     Committed = 0
     Body = ""
     Attachments = []
+    Descriptions = []
     Poll = None
   }
 
@@ -161,7 +166,14 @@ module State =
       // The same parse the post runs, at stage time: the count, the
       // size, and the content sniff speak before the post.
       match CommitImages.parse combined with
-      | Ok _ -> { model with Attachments = combined }, reclaim
+      | Ok _ ->
+        {
+          model with
+              Attachments = combined
+              Descriptions =
+                model.Descriptions @ List.replicate (List.length staged) ""
+        },
+        reclaim
       | Error error ->
         { model with Error = Some error },
         Cmd.batch [
@@ -180,8 +192,25 @@ module State =
         |> List.filter(fun (at, _) -> at <> index)
         |> List.map snd
 
-      { model with Attachments = attachments },
+      let descriptions =
+        model.Descriptions
+        |> List.indexed
+        |> List.filter(fun (at, _) -> at <> index)
+        |> List.map snd
+
+      {
+        model with
+            Attachments = attachments
+            Descriptions = descriptions
+      },
       Cmd.ofEffect(fun _ -> collectStaged())
+    | DescriptionChanged(index, text) ->
+      let changed =
+        model.Descriptions
+        |> List.indexed
+        |> List.map(fun (at, current) -> if at = index then text else current)
+
+      { model with Descriptions = changed }, Cmd.none
     | PollToggled ->
       // A poll rides a fresh commit with no images; opening one puts
       // the staged images back.
@@ -205,6 +234,7 @@ module State =
         model with
             Poll = poll
             Attachments = []
+            Descriptions = []
       },
       reclaim
     | PollOptionChanged(index, text) ->
@@ -288,6 +318,9 @@ module State =
              Body = body
              Target = apiTarget props.Target
              Images = model.Attachments
+             ImageDescriptions =
+               model.Descriptions
+               |> List.map(fun text -> if text = "" then None else Some text)
              Poll = spec
            })
           Committed
@@ -443,10 +476,15 @@ module Parts =
       .IsVisible(model |> Observable.map _.Error.IsSome)
 
   /// One staged image chip: the bytes decoded small, the file name,
-  /// and its remove button.
+  /// its remove button, and the optional description the post carries
+  /// for screen readers, with the server's own bound counted live.
   let chip
-    (dispatch: Dispatch<State.Msg>, index: int, staged: ImageAttachment)
-    : Control =
+    (
+      model: IObservable<State.Model>,
+      dispatch: Dispatch<State.Msg>,
+      index: int,
+      staged: ImageAttachment
+    ) : Control =
     // The preview decodes to the chip's own width: staged photos run
     // phone-camera resolutions, and one full decode costs tens of
     // megabytes of native pixels for 48 on-screen ones. The decoded
@@ -465,6 +503,39 @@ module Parts =
         .Stretch(Stretch.UniformToFill)
 
     preview.DetachedFromVisualTree.Add(fun _ -> bitmap.Dispose())
+
+    let descriptionText(current: State.Model) =
+      current.Descriptions |> List.tryItem index |> Option.defaultValue ""
+
+    let described =
+      TextBox()
+        .Name($"ImageDescription{index}")
+        .Width(190.0)
+        .PlaceholderText("Describe this image")
+        .Text(
+          model
+          |> Observable.map descriptionText
+          |> Observable.distinctUntilChanged
+          |> _.ToBinding()
+        )
+        .OnTextChangedHandler(fun box _ ->
+          let text = box.Text |> Option.ofObj |> Option.defaultValue ""
+
+          dispatch(State.DescriptionChanged(index, text)))
+
+    let counter =
+      TextBlock()
+        .Classes(Theme.name Theme.Mono, Theme.name Theme.Muted)
+        .FontSize(11.0)
+        .HorizontalAlignment(HorizontalAlignment.Right)
+        .Text(
+          model
+          |> Observable.map(fun current ->
+            let length = (descriptionText current).Length
+
+            if length = 0 then "" else $"{length}/1000")
+          |> Observable.distinctUntilChanged
+        )
 
     Border()
       .Classes(Theme.name Theme.Hairline)
@@ -490,7 +561,9 @@ module Parts =
                   .Classes(Theme.name Theme.GhostButton)
                   .Padding(4.0, 0.0, 4.0, 0.0)
                   .Content("remove")
-                  .OnClickHandler(fun _ _ -> dispatch(State.ImageRemoved index))
+                  .OnClickHandler(fun _ _ -> dispatch(State.ImageRemoved index)),
+                described,
+                counter
               )
           )
       )
@@ -516,7 +589,7 @@ module Parts =
               .Children(
                 [|
                   for index, image in List.indexed staged ->
-                    chip(dispatch, index, image)
+                    chip(model, dispatch, index, image)
                 |]
               )
             :> Control)

@@ -721,6 +721,7 @@ type MeRemotes = {
 /// are on.
 type DeviceSession = {
   User: CurrentUser
+  DeviceFingerprint: string
   UnreadNotificationsCount: int
   PasteisMode: bool
   TermsVersion: string
@@ -2365,6 +2366,44 @@ let inline decodeCommitPreview
 
 module Me =
   let decode(body: string) = decodeMe body
+
+/// One device the account approved, as GET /api/v1/me/devices lists
+/// them: never the key itself, only its fingerprint.
+type Device = {
+  Id: string
+  Name: string
+  Fingerprint: string
+  ApprovedAt: DateTimeOffset
+  LastUsedAt: DateTimeOffset option
+}
+
+let deviceDecoder(element: JsonElement) = decode {
+  let! id = Required.Property.get ("id", Required.string) element
+
+  let! name = Required.Property.get ("name", Required.string) element
+
+  let! fingerprint =
+    Required.Property.get ("fingerprint", Required.string) element
+
+  let! approvedAt =
+    Required.Property.get ("approved_at", Required.dateTimeOffset) element
+
+  let! lastUsedAt =
+    Optional.Property.get ("last_used_at", Optional.dateTimeOffset) element
+    |> Result.map Option.flatten
+
+  return {
+    Id = id
+    Name = name
+    Fingerprint = fingerprint
+    ApprovedAt = approvedAt
+    LastUsedAt = lastUsedAt
+  }
+}
+
+module Devices =
+  let decode(body: string) =
+    parseBody body (Required.Property.list("data", deviceDecoder))
 
 module Failure =
   let decode(body: string) = decodeFailure body

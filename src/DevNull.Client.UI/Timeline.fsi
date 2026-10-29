@@ -33,8 +33,16 @@ type TimelineService =
   /// its own composer's post reloads it.
   member CommitLanded: unit -> unit
 
+  /// Announces one deleted commit; the shell answers with its undo
+  /// toast. The open log page is not told: its next reload omits the
+  /// commit on its own.
+  member AnnounceDeletion: commitId: string -> unit
+
   /// The request stream. Emits on the UI thread.
   member Requests: IObservable<Request>
+
+  /// The deleted commits worth an undo toast, newest last.
+  member Deletions: IObservable<string>
 
   /// Parks one log's scroll place, so the next page of that log
   /// picks it up.

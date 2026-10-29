@@ -657,6 +657,10 @@ type MeRemotes = {
 /// direct-message settings while they are on.
 type DeviceSession = {
   User: CurrentUser
+  /// The fingerprint of the key this device signs with, so a devices
+  /// list can name its own row. Empty for a stored session that
+  /// predates it.
+  DeviceFingerprint: string
   UnreadNotificationsCount: int
   PasteisMode: bool
   TermsVersion: string
@@ -694,6 +698,20 @@ type Me = {
 module Me =
   /// Reads the signed-in account envelope, from GET /api/v1/me and the sign-in responses.
   val decode: body: string -> Result<Me, DecodeFailure>
+
+/// One device the account approved, as GET /api/v1/me/devices lists
+/// them: never the key itself, only its fingerprint.
+type Device = {
+  Id: string
+  Name: string
+  Fingerprint: string
+  ApprovedAt: DateTimeOffset
+  LastUsedAt: DateTimeOffset option
+}
+
+module Devices =
+  /// Reads the `{data: [...]}` envelope of GET /api/v1/me/devices.
+  val decode: body: string -> Result<Device list, DecodeFailure>
 
 module Failure =
   /// Reads the error envelope `{message, code}` of a signed API request.

@@ -609,8 +609,14 @@ type Shell<'env
   and 'env :> IProvideRoutes
   and 'env :> IProvideSshKeys
   and 'env :> IProvideRemotes
-  and 'env :> IProvideNatives>(env: 'env, callback: string option) as this =
+  and 'env :> IProvideNatives>
+  (env: 'env, callback: string option, ?undoWindow: TimeSpan) as this =
   inherit Window()
+
+  // The server keeps a deleted commit restorable for its undo window;
+  // the toast stands exactly that long. The parameter only shortens it
+  // for the tests.
+  let undoWindow = defaultArg undoWindow (TimeSpan.FromSeconds 30.0)
 
   // The close bypass: `Quit` raises it, so the close-to-tray guard in
   // the Closing handler stands down.
@@ -804,6 +810,93 @@ type Shell<'env
 
     let termsLayer =
       Panel().IsVisible(termsOpen).Children(termsScrim, termsHost)
+
+    // The delete undo: the server keeps a deleted commit restorable
+    // for its undo window, so a delete leaves one quiet toast over the
+    // panes. Undo restores the commit and the open log reloads it; the
+    // window's end dismisses the toast on its own.
+    let undoToast =
+      new BehaviorSubject<(string * string option) voption>(ValueNone)
+
+    let dismissUndo(commitId: string) =
+      match undoToast.Value with
+      | ValueSome(id, _) when id = commitId -> emitOnUi(undoToast, ValueNone)
+      | _ -> ()
+
+    let timeline = (env :> IProvideTimeline).Timeline
+
+    timeline.Deletions
+    |> Observable.add(fun commitId ->
+      emitOnUi(undoToast, ValueSome(commitId, None))
+
+      asyncEx {
+        do! Async.Sleep undoWindow
+        dismissUndo commitId
+      }
+      |> Async.Start)
+
+    let undoHost = ContentControl()
+
+    let restore(commitId: string) = asyncEx {
+      match session.Current with
+      | SignedIn entry ->
+        let! outcome =
+          Commits.restore(
+            env,
+            {
+              KeyFile = entry.KeyFile
+              CommitId = commitId
+            }
+          )
+
+        match outcome with
+        | Ok commit ->
+          emitOnUi(undoToast, ValueNone)
+          timeline.CommitLanded()
+
+          log.LogInformation("The commit {Commit} was restored.", commit.Id)
+        | Error error ->
+          // The window's own words: expired, or no longer deleted.
+          emitOnUi(undoToast, ValueSome(commitId, Some(describe error)))
+      | SignedOut -> emitOnUi(undoToast, ValueNone)
+    }
+
+    undoToast
+    |> Observable.add(function
+      | ValueSome(commitId, message) ->
+        undoHost.Content <-
+          Border()
+            .Name("UndoToast")
+            .Classes(Theme.name Theme.Card)
+            .Padding(16.0)
+            .Margin(24.0)
+            .HorizontalAlignment(HorizontalAlignment.Center)
+            .VerticalAlignment(VerticalAlignment.Bottom)
+            .Child(
+              StackPanel()
+                .Orientation(Orientation.Horizontal)
+                .Spacing(12.0)
+                .Children(
+                  TextBlock()
+                    .VerticalAlignment(VerticalAlignment.Center)
+                    .TextWrapping(TextWrapping.Wrap)
+                    .Text(
+                      match message with
+                      | Some word -> word
+                      | None -> "Commit deleted."
+                    ),
+                  Button()
+                    .Classes(Theme.name Theme.AccentButton)
+                    .Content("Undo")
+                    .IsVisible(message |> Option.isNone)
+                    .OnClickHandler(fun _ _ ->
+                      asyncEx { return! restore commitId }
+                      |> Async.StartImmediate)
+                )
+            )
+      | ValueNone -> undoHost.Content <- null)
+
+    let undoLayer = Panel().Children(undoHost)
 
     // The remotes entry shows only while the account carries the
     // direct messages; its badge follows the store's unread total.
@@ -1262,7 +1355,15 @@ type Shell<'env
       }
 
     this.Content <-
-      Panel().Children(split, composeLayer, helpLayer, termsLayer, bandPanel)
+      Panel()
+        .Children(
+          split,
+          composeLayer,
+          helpLayer,
+          termsLayer,
+          undoLayer,
+          bandPanel
+        )
 
     // The inbox marks everything read as it lists, so the poller stops
     // while the inbox is on screen.

@@ -19,6 +19,7 @@ let main args =
       Tests.Api.imageCommitTests
       Tests.Api.pollTests
       Tests.Api.accountApiTests
+      Tests.Api.devicesTests
       Tests.Api.listApiTests
       Tests.Api.actionApiTests
       Tests.RemotesApi.tests

@@ -9,8 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Desktop:** the app asks for the terms. When the account's own answer from the server says the terms in force were not accepted, one dialog stands over the app that cannot be clicked away: the terms and the privacy policy open in the browser from it, a ticked box arms Accept, and Accept records the version the app showed. A stored session from before this change knows nothing and never gates; the first account poll brings the server's answer.
-- **Remotes (Linux):** voice notes recorded on the web now play. A note in the web's Opus format rides the desktop's own media player — the platform demuxes, decodes, and sounds it — with the same speed cycle, live volume, position, and seek as a WAV note, and the note's bytes never touch the disk. A desktop without the media framework keeps WAV playback and says so in the log when a web note cannot play.
+- **Desktop:** the app asks for the terms. When the account's own answer from the server says the terms in force were not accepted, one dialog stands over the app that cannot be clicked away: the terms and the privacy policy open in the browser from it, a ticked box arms Accept, and Accept records the version the app showed. Accepting once satisfies every app on every device. A session saved before this change does not open the ask on its own; the first account refresh decides.
+- **Remotes (Linux):** voice notes recorded on the web now play. A note in the web's Opus format rides the desktop's own media player, with the same speed cycle, live volume, position, and seek as a WAV note, and the note's bytes never touch the disk. A desktop without the media framework keeps WAV playback and says so in the log when a web note cannot play.
+- **Settings:** the keys approved to sign as the account are listed and can be revoked. Each row shows the key's name, fingerprint, and when it was approved and last used; this app's own row is named and its revoke is worded as the sign-out it is — revoking it signs the app out at once, revoking any other key removes it from the list.
+- **Commit actions:** deleting a commit can be undone. A delete leaves one quiet toast for the site's 30-second undo window: Undo restores the commit and the log reloads with it back, the window's end dismisses the toast on its own, and a restore the server refuses answers with the site's own words.
+- **Composer:** staged images can be described. Each staged photo carries an optional description for screen readers with a live count against the site's 1000-character bound — an over-long description is refused before anything is sent, and posts that describe nothing are sent exactly as before.
 
 ## [0.4.0] - 2026-10-28
 

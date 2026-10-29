@@ -225,6 +225,42 @@ module Me =
       and Rejected<'e>
       and DecodeError<'e>
 
+module Devices =
+
+  /// One device list read.
+  type Request = { KeyFile: string }
+
+  /// One device revoked by id.
+  type RevokeRequest = { KeyFile: string; DeviceId: string }
+
+  /// Reads the keys approved to sign as the user, newest approval
+  /// first.
+  val list:
+    env: 'env * request: Request -> Async<Result<Device list, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Revokes one device. Revoking the one that signed the request
+  /// signs the app out on it — the caller knows which row is its own.
+  val revoke:
+    env: 'env * request: RevokeRequest -> Async<Result<unit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
 module Users =
 
   /// One user by username.
@@ -417,12 +453,14 @@ module Commits =
 
   /// One commit to create through the signed API. A poll rides a fresh
   /// commit with no images only, as the server takes it; images travel
-  /// as a multipart post whose payload part carries the JSON body.
+  /// as a multipart post whose payload part carries the JSON body,
+  /// with one optional description per image.
   type CreateRequest = {
     KeyFile: string
     Body: string
     Target: Target
     Images: ImageAttachment list
+    ImageDescriptions: string option list
     Poll: PollSpec option
   }
 
@@ -520,6 +558,22 @@ module Commits =
   /// Deletes one commit.
   val delete:
     env: 'env * request: ActionRequest -> Async<Result<unit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and CommitIdError<'e>
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Undoes deleting one of the user's own commits within the
+  /// server's undo window, and answers with the commit as its page
+  /// shows it.
+  val restore:
+    env: 'env * request: ActionRequest -> Async<Result<Commit, 'e>>
       when 'env :> IProvideClock
       and 'env :> IProvideNonceSource
       and 'env :> IProvideSigner

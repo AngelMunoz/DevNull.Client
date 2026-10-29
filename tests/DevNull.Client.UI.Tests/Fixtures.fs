@@ -491,6 +491,10 @@ type TestEnv
   interface IProvideNatives with
     member _.Natives = natives
 
+/// The fingerprint of the canned session's own device key, so the
+/// devices list can name its own row.
+let ownFingerprint = "SHA256:OwnDeviceFingerprint0123456789012345"
+
 let sessionOf(username: string) : DeviceSession = {
   User = {
     Id = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
@@ -498,6 +502,7 @@ let sessionOf(username: string) : DeviceSession = {
     Name = "The Octocat"
     AvatarUrl = None
   }
+  DeviceFingerprint = ownFingerprint
   UnreadNotificationsCount = 3
   PasteisMode = true
   TermsVersion = "20261001"
@@ -719,13 +724,15 @@ let ownCommitJson =
 
 /// The log of both directions: the viewer's own commit beside someone
 /// else's, so the star affordances can differ on one screen.
-let ownLogApi() =
-  let page =
-    sprintf
-      "{\"data\":[%s,%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
-      ownCommitJson
-      commitJson
+/// The log of both directions: the viewer's own commit beside someone
+/// else's, so the star affordances can differ on one screen.
+let ownLogJson =
+  sprintf
+    "{\"data\":[%s,%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
+    ownCommitJson
+    commitJson
 
+let ownLogApi() =
   FakeApi(
     (fun request ->
       if
@@ -733,13 +740,43 @@ let ownLogApi() =
       then
         ok(lookupKey + "\n")
       elif request.Target.StartsWith "/api/v1/log/" then
-        ok page
+        ok ownLogJson
       else
         (match accountAnswer request with
          | ValueSome answer -> answer
          | ValueNone -> ok "{}")),
     (fun _ -> Ok imageBytes)
   )
+
+/// The thread of the viewer's own commit, as its page shows it.
+let ownThreadPageJson = sprintf "{\"data\":%s,\"ancestors\":[]}" ownCommitJson
+
+/// The api of the undo tests: the log carries the viewer's own commit,
+/// its thread answers, the delete answers with nothing, and the
+/// restoration answers with the commit back.
+let undoApi() =
+  FakeApi(fun request ->
+    if
+      request.Method = "DELETE"
+      && request.Target.StartsWith "/api/v1/commits/018f4c1e-0aa0"
+    then
+      ok ""
+    elif request.Method = "POST" && request.Target.EndsWith "/restoration" then
+      ok(sprintf "{\"data\":%s}" ownCommitJson)
+    elif request.Target.Contains "/replies" then
+      ok
+        "{\"data\":[],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+    elif
+      request.Target.StartsWith
+        "/api/v1/commits/018f4c1e-0aa0-7c3a-9b2d-5e6f7a8b9c0d"
+    then
+      ok ownThreadPageJson
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok ownLogJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
 
 /// A reply to the first commit, for the thread page.
 let replyJson =
@@ -796,6 +833,33 @@ let threadApi() =
 let termsApi() =
   FakeApi(fun request ->
     if request.Method = "PUT" && request.Target = "/api/v1/me/terms" then
+      ok meJson
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+/// The account's approved devices, as GET /api/v1/me/devices lists
+/// them: this app's own key beside an older laptop.
+let devicesJson =
+  sprintf
+    """{"data":[{"id":"018f4c1e-dev0-7c3a-9b2d-5e6f7a8b9c0d","name":"This Fedora desktop","fingerprint":"%s","approved_at":"2026-10-01T00:00:00Z","last_used_at":"2026-10-28T00:00:00Z"},{"id":"018f4c1e-dev1-7c3a-9b2d-5e6f7a8b9c0d","name":"A Mac laptop","fingerprint":"SHA256:AnotherDeviceFingerprint0123456789012","approved_at":"2026-09-01T00:00:00Z","last_used_at":null}]}"""
+    ownFingerprint
+
+/// The api of the devices tests: the settings boot answers the account
+/// and the device list, and a revoke answers with nothing.
+let devicesApi() =
+  FakeApi(fun request ->
+    if request.Method = "GET" && request.Target = "/api/v1/me/devices" then
+      ok devicesJson
+    elif
+      request.Method = "DELETE"
+      && request.Target.StartsWith "/api/v1/me/devices/"
+    then
+      ok ""
+    elif request.Target = "/api/v1/me" then
       ok meJson
     elif request.Target.StartsWith "/api/v1/log/" then
       ok logPageJson

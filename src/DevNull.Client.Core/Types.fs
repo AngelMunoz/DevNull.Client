@@ -201,6 +201,8 @@ type ImageError<'e> =
   static abstract TooManyImages: count: int -> 'e
   static abstract ImageTooLarge: fileName: string * size: int -> 'e
   static abstract UnsupportedImage: fileName: string -> 'e
+  static abstract DescriptionTooLong: index: int * length: int -> 'e
+  static abstract TooManyDescriptions: count: int -> 'e
 
 type ReportDetailsError<'e> =
   static abstract ReportDetailsTooLong: length: int -> 'e

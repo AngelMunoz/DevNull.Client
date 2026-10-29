@@ -1,5 +1,6 @@
 module DevNull.Client.Shell
 
+open System
 open Avalonia.Controls
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.Capabilities
@@ -43,7 +44,9 @@ type Shell<'env
   and 'env :> IProvideSshKeys
   and 'env :> IProvideRemotes
   and 'env :> IProvideNatives> =
-  new: env: 'env * callback: string option -> Shell<'env>
+  new:
+    env: 'env * callback: string option * ?undoWindow: TimeSpan -> Shell<'env>
+
   inherit Window
 
   /// Walks the window in and out of fullscreen.

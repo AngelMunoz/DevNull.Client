@@ -497,6 +497,155 @@ let tests =
       })
 
     testCaseAsync
+      "the settings page lists the devices and revokes one"
+      (async {
+        let api = devicesApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        do! clickWhenShown(window, "Settings")
+
+        let! listed = showsText(window, "A Mac laptop")
+
+        Expect.isTrue listed "the other device never listed"
+
+        let! selfNamed = showsText(window, "This device")
+
+        Expect.isTrue selfNamed "this device never named"
+
+        do! clickWhenShown(window, "Revoke")
+
+        let revokedWentOut(request: HttpRequest) =
+          request.Method = "DELETE"
+          && request.Target.EndsWith "018f4c1e-dev1-7c3a-9b2d-5e6f7a8b9c0d"
+
+        let! revoked =
+          waitForAsync(
+            5000,
+            (fun () -> api.Requests),
+            (fun requests -> List.exists revokedWentOut requests)
+          )
+
+        Expect.isTrue revoked "the revoke never went out"
+
+        let! refreshed =
+          waitForAsync(
+            5000,
+            (fun () ->
+              api.Requests
+              |> List.filter(fun request ->
+                request.Method = "GET"
+                && request.Target = "/api/v1/me/devices")
+              |> List.length),
+            (fun count -> count >= 2)
+          )
+
+        Expect.isTrue refreshed "the device list never refreshed"
+      })
+
+    testCaseAsync
+      "revoking this device signs the app out"
+      (async {
+        let api = devicesApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        do! clickWhenShown(window, "Settings")
+        do! clickWhenShown(window, "Sign out on this device")
+
+        let! signedOut = showsText(window, "Sign in to /dev/null")
+
+        Expect.isTrue signedOut "the app never signed out"
+      })
+
+    testCaseAsync
+      "deleting a commit offers undo and restoring lands it"
+      (async {
+        let api = undoApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "My own commit.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "My own commit.") |> Option.iter click)
+
+        do! clickWhenShown(window, "Delete commit")
+
+        let! toast = showsText(window, "Commit deleted.")
+
+        Expect.isTrue toast "the undo toast never stood"
+
+        do! clickWhenShown(window, "Undo")
+
+        let restoredWentOut(request: HttpRequest) =
+          request.Method = "POST"
+          && request.Target =
+            "/api/v1/commits/018f4c1e-0aa0-7c3a-9b2d-5e6f7a8b9c0d/restoration"
+
+        let! restored =
+          waitForAsync(
+            5000,
+            (fun () -> api.Requests),
+            (fun requests -> List.exists restoredWentOut requests)
+          )
+
+        Expect.isTrue restored "the restoration never went out"
+
+        let! toastLeft =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> not(hasText(root, "Commit deleted.")))
+          )
+
+        Expect.isTrue toastLeft "the toast never left"
+      })
+
+    testCaseAsync
+      "the undo toast leaves when its window ends"
+      (async {
+        let api = undoApi()
+        let env = TestEnv(signedInStore(), api)
+
+        let! window =
+          probeUiAsync(fun () ->
+            Shell(env, None, undoWindow = TimeSpan.FromSeconds 1.0) :> Window)
+
+        let! _ = showAsync window
+
+        let! shown = showsText(window, "My own commit.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "My own commit.") |> Option.iter click)
+
+        do! clickWhenShown(window, "Delete commit")
+
+        let! toast = showsText(window, "Commit deleted.")
+
+        Expect.isTrue toast "the undo toast never stood"
+
+        let! left =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> not(hasText(root, "Commit deleted.")))
+          )
+
+        Expect.isTrue left "the toast outlived its window"
+
+        let restoredWentOut(request: HttpRequest) =
+          request.Method = "POST" && request.Target.EndsWith "/restoration"
+
+        Expect.isFalse
+          (api.Requests |> List.exists restoredWentOut)
+          "a restoration went out on its own"
+      })
+
+    testCaseAsync
       "the commit button opens the composer dialog off the log"
       (async {
         let api = logApi()
@@ -1042,6 +1191,168 @@ let tests =
           )
 
         Expect.isTrue loaded "the avatar never landed"
+      })
+
+    testCaseAsync
+      "a staged image's description rides the post"
+      (async {
+        let api = logApi()
+        let attachments = FakeAttachments()
+
+        let env =
+          TestEnv(signedInStore(), api :> IHttp, attachments = attachments)
+
+        attachments.PickResponse <- [ stagedImage "one.png" ]
+
+        let! window = probeUiAsync(fun () -> Shell(env, None) :> Window)
+        let! _ = showAsync window
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "AttachButton")
+            |> Option.iter(fun visual ->
+              match visual with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! staged =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "one.png"))
+          )
+
+        Expect.isTrue staged "the picked files never staged"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "ImageDescription0")
+            |> Option.iter(fun visual ->
+              match visual with
+              | :? TextBox as box -> box.Text <- "A diagram"
+              | _ -> ()))
+
+        let! counted =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "9/1000"))
+          )
+
+        Expect.isTrue counted "the description counter never counted"
+
+        do!
+          onUiAsync(fun () ->
+            visibleBoxWithWatermark(window, "What did you ship?")
+            |> Option.iter(fun box ->
+              box.Text <- "Shipped with a description"
+
+              buttonNear(box, "Commit") |> Option.iter click))
+
+        let! posted =
+          waitForAsync(
+            8000,
+            (fun () -> api.Requests),
+            (fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Method = "POST" && request.Target = "/api/v1/commits"))
+          )
+
+        Expect.isTrue posted "the v1 commit was never posted"
+
+        let post =
+          api.Requests
+          |> List.find(fun request ->
+            request.Method = "POST" && request.Target = "/api/v1/commits")
+
+        let form =
+          match post.Body with
+          | Http.HttpBody.Multipart form -> form
+          | _ -> failtest "expected a multipart body"
+
+        let payload = form.Files |> List.find(fun file -> file.Name = "payload")
+
+        let json = System.Text.Encoding.UTF8.GetString payload.Content
+
+        Expect.isTrue
+          (json.Contains "\"image_descriptions\":[\"A diagram\"]")
+          $"the payload carried the description: {json}"
+      })
+
+    testCaseAsync
+      "an over-long description refuses before the post"
+      (async {
+        let api = logApi()
+        let attachments = FakeAttachments()
+
+        let env =
+          TestEnv(signedInStore(), api :> IHttp, attachments = attachments)
+
+        attachments.PickResponse <- [ stagedImage "one.png" ]
+
+        let! window = probeUiAsync(fun () -> Shell(env, None) :> Window)
+        let! _ = showAsync window
+
+        let! _ = showsText(window, "It was DNS.")
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "AttachButton")
+            |> Option.iter(fun visual ->
+              match visual with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! staged =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "one.png"))
+          )
+
+        Expect.isTrue staged "the picked files never staged"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "ImageDescription0")
+            |> Option.iter(fun visual ->
+              match visual with
+              | :? TextBox as box -> box.Text <- String.replicate 1001 "x"
+              | _ -> ()))
+
+        do!
+          onUiAsync(fun () ->
+            visibleBoxWithWatermark(window, "What did you ship?")
+            |> Option.iter(fun box ->
+              box.Text <- "Refused description"
+
+              buttonNear(box, "Commit") |> Option.iter click))
+
+        let boundSurfaced(root: Control) =
+          root.GetVisualDescendants()
+          |> Seq.exists(fun visual ->
+            match visual with
+            | :? TextBlock as block ->
+              block.Text.Contains "1000 characters allowed"
+            | _ -> false)
+
+        let! refused = waitForAsync(5000, (fun () -> window), boundSurfaced)
+
+        Expect.isTrue refused "the description bound never surfaced"
+
+        let! settled = settleAsync()
+
+        let posted =
+          api.Requests
+          |> List.exists(fun request ->
+            request.Method = "POST" && request.Target = "/api/v1/commits")
+
+        Expect.isFalse posted "the refused post left anyway"
       })
 
     testCaseAsync
@@ -3903,6 +4214,7 @@ let tests =
           match request.Body with
           | Text body -> body
           | Multipart _ -> ""
+          | Empty -> ""
 
         let acceptance = api.Requests |> List.find acceptanceWentOut
 

@@ -99,6 +99,7 @@ let saveSession(log: ILogger, session: DeviceSession) : Result<unit, string> =
 
     json.["unread"] <- JsonValue.Create session.UnreadNotificationsCount
     json.["pasteis_mode"] <- JsonValue.Create session.PasteisMode
+    json.["device_fingerprint"] <- JsonValue.Create session.DeviceFingerprint
     json.["terms_version"] <- JsonValue.Create session.TermsVersion
 
     session.TermsAccepted
@@ -182,6 +183,10 @@ let loadSession(log: ILogger) : DeviceSession option =
         }
         UnreadNotificationsCount = unread
         PasteisMode = tryBool "pasteis_mode" root |> Option.defaultValue false
+        // A session stored before the fingerprint exists reads as
+        // unknown; the next sign-in stamps it.
+        DeviceFingerprint =
+          tryString "device_fingerprint" root |> Option.defaultValue ""
         // A session stored before the terms state exists is unknown,
         // never unaccepted: the gate stays down until the server says.
         TermsVersion = tryString "terms_version" root |> Option.defaultValue ""

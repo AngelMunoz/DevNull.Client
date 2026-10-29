@@ -399,6 +399,7 @@ let commitRequest: Commits.CreateRequest = {
   Body = "It was DNS."
   Target = Commits.New
   Images = []
+  ImageDescriptions = []
   Poll = None
 }
 
@@ -796,6 +797,57 @@ let richCommitTests =
             "deleted"
         | LiveCommit _ -> failtest "expected a tombstone"
       | Error error -> failtestf "%A" error
+    }
+  ]
+
+let devicesListJson =
+  """{"data":[{"id":"018f4c1e-dev0-7c3a-9b2d-5e6f7a8b9c0d","name":"This Fedora desktop","fingerprint":"SHA256:OwnDeviceFingerprint0123456789012345","approved_at":"2026-10-01T00:00:00Z","last_used_at":"2026-10-28T00:00:00Z"},{"id":"018f4c1e-dev1-7c3a-9b2d-5e6f7a8b9c0d","name":"A Mac laptop","fingerprint":"SHA256:AnotherDeviceFingerprint0123456789012","approved_at":"2026-09-01T00:00:00Z","last_used_at":null}]}"""
+
+let devicesTests =
+  testList "Api.devices" [
+    testAsync "reads the approved devices" {
+      let http = CapturingHttp(ok devicesListJson)
+
+      let! (result: Result<Device list, TestError>) =
+        Devices.list(envFor http, { KeyFile = "key-file" })
+
+      match result with
+      | Ok devices ->
+        Expect.equal 2 devices.Length "count"
+
+        let own = List.head devices
+
+        Expect.equal "This Fedora desktop" own.Name "name"
+
+        Expect.equal
+          (Some(DateTimeOffset(2026, 10, 28, 0, 0, 0, TimeSpan.Zero)))
+          own.LastUsedAt
+          "last used"
+
+        let other = List.item 1 devices
+
+        Expect.equal "A Mac laptop" other.Name "name"
+        Expect.equal None other.LastUsedAt "never used"
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "GET" sent.Method "method"
+      Expect.equal "/api/v1/me/devices" sent.Target "target"
+    }
+
+    testAsync "revokes one device" {
+      expectRequest
+        "revoke device"
+        (fun http ->
+          Devices.revoke(
+            envFor http,
+            {
+              KeyFile = "key-file"
+              DeviceId = "018f4c1e-dev1-7c3a-9b2d-5e6f7a8b9c0d"
+            }
+          ))
+        "DELETE"
+        "/api/v1/me/devices/018f4c1e-dev1-7c3a-9b2d-5e6f7a8b9c0d"
     }
   ]
 
@@ -1322,6 +1374,32 @@ let actionApiTests =
       Expect.equal "/api/v1/users/octocat/follow" sent.Target "target"
     }
 
+    testAsync "restores a deleted commit within its window" {
+      let uuid = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+
+      let commitRequest: Commits.ActionRequest = {
+        KeyFile = "key-file"
+        CommitId = uuid
+      }
+
+      let http = CapturingHttp(ok(sprintf """{"data":%s}""" commitJson))
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.restore(envFor http, commitRequest)
+
+      match result with
+      | Ok commit -> Expect.equal "It was DNS." commit.Body "body"
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "POST" sent.Method "method"
+
+      Expect.equal
+        ("/api/v1/commits/" + uuid + "/restoration")
+        sent.Target
+        "target"
+    }
+
     test "sends the expected methods and paths for the remaining actions" {
       let uuid = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
 
@@ -1604,6 +1682,94 @@ let imageCommitTests =
         let sent = http.Requests |> List.exactlyOne
         Expect.equal "{\"body\":\"It was DNS.\"}" (bodyText sent) "body"
       | Error error -> failtestf "%A" error
+    }
+
+    testAsync "a described image post carries its description" {
+      let http = CapturingHttp(ok createdResponse)
+
+      let request = {
+        commitRequest with
+            Images = [ stagedImage "diagram.png" ]
+            ImageDescriptions = [ Some "a diagram" ]
+      }
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(envFor http, request)
+
+      match result with
+      | Ok _ ->
+        let sent = http.Requests |> List.exactlyOne
+        let form = multipartForm sent
+
+        let payload = form.Files |> List.find(fun file -> file.Name = "payload")
+
+        Expect.equal
+          "{\"body\":\"It was DNS.\",\"image_descriptions\":[\"a diagram\"]}"
+          (System.Text.Encoding.UTF8.GetString payload.Content)
+          "payload json"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "a partly described post pads one null per undescribed image" {
+      let http = CapturingHttp(ok createdResponse)
+
+      let request = {
+        commitRequest with
+            Images = [ stagedImage "one.png"; stagedImage "two.png" ]
+            ImageDescriptions = [ Some "only the first" ]
+      }
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(envFor http, request)
+
+      match result with
+      | Ok _ ->
+        let sent = http.Requests |> List.exactlyOne
+        let form = multipartForm sent
+
+        let payload = form.Files |> List.find(fun file -> file.Name = "payload")
+
+        Expect.equal
+          "{\"body\":\"It was DNS.\",\"image_descriptions\":[\"only the first\",null]}"
+          (System.Text.Encoding.UTF8.GetString payload.Content)
+          "payload json"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "an over-long description fails before the request" {
+      let http = CapturingHttp(ok createdResponse)
+
+      let request = {
+        commitRequest with
+            Images = [ stagedImage "diagram.png" ]
+            ImageDescriptions = [ Some(String.replicate 1001 "x") ]
+      }
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(envFor http, request)
+
+      match result with
+      | Error(DescriptionTooLong(0, 1001)) ->
+        Expect.isEmpty http.Requests "no request left"
+      | other -> failtestf "expected the description bound, got %A" other
+    }
+
+    testAsync "more descriptions than images fails before the request" {
+      let http = CapturingHttp(ok createdResponse)
+
+      let request = {
+        commitRequest with
+            Images = [ stagedImage "diagram.png" ]
+            ImageDescriptions = [ Some "one"; Some "two" ]
+      }
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(envFor http, request)
+
+      match result with
+      | Error(TooManyDescriptions 2) ->
+        Expect.isEmpty http.Requests "no request left"
+      | other -> failtestf "expected the description count, got %A" other
     }
   ]
 

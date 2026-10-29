@@ -11,6 +11,7 @@ open DevNull.Client.ImageCache
 open DevNull.Client.Profiles
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
+open DevNull.Client.Timeline
 open DevNull.Client.UiClock
 open Navs
 
@@ -27,6 +28,7 @@ type Props<'env
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideProfiles
   and 'env :> IProvideSshKeys
+  and 'env :> IProvideTimeline
   and 'env :> IProvideLogging> = {
   Env: 'env
   CommitId: string
@@ -51,6 +53,7 @@ type Page<'env
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideProfiles
   and 'env :> IProvideSshKeys
+  and 'env :> IProvideTimeline
   and 'env :> IProvideLogging> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

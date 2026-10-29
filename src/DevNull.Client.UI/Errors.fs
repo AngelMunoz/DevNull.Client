@@ -34,6 +34,8 @@ type AppError =
   | PollOptionTooLong of label: string * length: int
   | DuplicatePollOption of label: string
   | PollProhibited of conflict: PollConflict
+  | ImageDescriptionTooLong of index: int * length: int
+  | TooManyImageDescriptions of count: int
   | MessageBodyTooLong of raw: string * length: int
   | VoiceTooLarge of fileName: string * size: int
   | UnsupportedVoice of fileName: string
@@ -57,6 +59,11 @@ type AppError =
     static member TooManyImages count = TooManyImages count
     static member ImageTooLarge(fileName, size) = ImageTooLarge(fileName, size)
     static member UnsupportedImage fileName = UnsupportedImage fileName
+
+    static member DescriptionTooLong(index, length) =
+      ImageDescriptionTooLong(index, length)
+
+    static member TooManyDescriptions count = TooManyImageDescriptions count
 
   interface CommitIdError<AppError> with
     static member InvalidCommitId raw = InvalidCommitId raw
@@ -175,6 +182,10 @@ let describe error =
   | PollProhibited PollOnReply -> "A poll cannot answer another commit."
   | PollProhibited PollOnQuote -> "A poll cannot quote another commit."
   | PollProhibited PollWithImages -> "A poll cannot carry images."
+  | ImageDescriptionTooLong(index, length) ->
+    $"Image {index + 1}'s description is longer than the 1000 characters allowed, got {length}."
+  | TooManyImageDescriptions count ->
+    $"There are more descriptions ({count}) than images."
   | MessageBodyTooLong(_, length) ->
     $"A message allows at most 2000 characters, got {length}."
   | VoiceTooLarge(fileName, size) ->

@@ -32,6 +32,7 @@ open DevNull.Client.Profiles
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.Theme
+open DevNull.Client.Timeline
 open DevNull.Client.UiClock
 
 // The hover card source record; the alias keeps its long name out of
@@ -49,6 +50,7 @@ type Props<'env
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideProfiles
   and 'env :> IProvideSshKeys
+  and 'env :> IProvideTimeline
   and 'env :> IProvideLogging> = {
   Env: 'env
   CommitId: string
@@ -441,6 +443,12 @@ module State =
       | Ok _ ->
         model,
         Cmd.batch [
+          // The shell answers the deletion with its undo toast; the
+          // page itself leaves for the log.
+          Cmd.ofAction(fun () ->
+            (props.Env :> IProvideTimeline).Timeline.AnnounceDeletion
+              props.CommitId)
+
           Cmd.ofEffect(fun _ -> Navigation.go(props.Nav, "/log/latest", ignore))
 
           Cmd.ofAction(fun () ->
@@ -489,6 +497,7 @@ module Parts =
     and 'env :> IProvideAttachmentSources
     and 'env :> IProvideProfiles
     and 'env :> IProvideSshKeys
+    and 'env :> IProvideTimeline
     and 'env :> IProvideLogging>
     (props: Props<'env>)
     : HoverSource voption =
@@ -892,6 +901,7 @@ type Page<'env
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideProfiles
   and 'env :> IProvideSshKeys
+  and 'env :> IProvideTimeline
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 

@@ -44,6 +44,7 @@ module State =
 
   type Model = {
     Me: Me option
+    Devices: Device list option
     Error: AppError option
     Note: string option
     Busy: bool
@@ -57,6 +58,9 @@ module State =
     | PasteisModeToggled
     | GithubSyncRequested
     | MeDone of Result<Me, AppError>
+    | DevicesDone of Result<Device list, AppError>
+    | RevokeRequested of Device
+    | RevokeDone of Result<unit, AppError> * Device
     | MeNote of string
     | CloseToTraySet of enabled: bool
     | ThemeChosen of choice: ThemeChoice
@@ -64,6 +68,7 @@ module State =
 
   let initial = {
     Me = None
+    Devices = None
     Error = None
     Note = None
     Busy = true
@@ -79,12 +84,18 @@ module State =
   let fetchMe(env, session: SignedInSession) =
     Me.get(env, { KeyFile = session.KeyFile })
 
+  let fetchDevices(env, session: SignedInSession) =
+    Devices.list(env, { KeyFile = session.KeyFile })
+
   let init (props: Props<'env>) () =
     {
       initial with
           Settings = (props.Env :> IProvideSettings).Settings.Current
     },
-    Cmd.OfAsync.perform fetchMe (props.Env, props.Session) MeDone
+    Cmd.batch [
+      Cmd.OfAsync.perform fetchMe (props.Env, props.Session) MeDone
+      Cmd.OfAsync.perform fetchDevices (props.Env, props.Session) DevicesDone
+    ]
 
   let laneIndex(lane: Lane option) : int option =
     lane
@@ -123,6 +134,55 @@ module State =
             bounded 300 (describe error)
           ))
     | MeNote note -> { model with Note = Some note }, Cmd.none
+    | DevicesDone result ->
+      match result with
+      | Ok devices -> { model with Devices = Some devices }, Cmd.none
+      | Error error ->
+        { model with Error = Some error },
+        Cmd.ofAction(fun () ->
+          log.LogWarning(
+            "The devices request failed: {Error}",
+            bounded 300 (describe error)
+          ))
+    | RevokeRequested device ->
+      let revoke() =
+        Devices.revoke(
+          props.Env,
+          {
+            KeyFile = props.Session.KeyFile
+            DeviceId = device.Id
+          }
+        )
+
+      { model with Error = None },
+      Cmd.OfAsync.perform revoke () (fun result -> RevokeDone(result, device))
+    | RevokeDone(result, device) ->
+      // Revoking the device that signed the request signs the app out
+      // on it — the server's own rule — so the page hands the
+      // sign-out to its caller; any other revoke just refreshes.
+      let own = props.Session.Session.DeviceFingerprint
+
+      let isSelf = own <> "" && own = device.Fingerprint
+
+      match result with
+      | Ok() when isSelf ->
+        model,
+        Cmd.ofAction(fun () ->
+          log.LogInformation(
+            "The signing device was revoked; the app signs out."
+          )
+
+          props.OnSignOut())
+      | Ok() ->
+        model,
+        Cmd.OfAsync.perform fetchDevices (props.Env, props.Session) DevicesDone
+      | Error error ->
+        { model with Error = Some error },
+        Cmd.ofAction(fun () ->
+          log.LogWarning(
+            "The revoke failed: {Error}",
+            bounded 300 (describe error)
+          ))
     | LaneSet index ->
       let set() =
         Me.setLane(
@@ -421,6 +481,99 @@ module Parts =
           )
       )
 
+  /// The devices row: one card per key approved to sign as the user,
+  /// with this device's own row named and its revoke worded as the
+  /// sign-out it is. Rows rebuild when the list changes.
+  let devicesRow
+    (
+      props: Props<'env>,
+      model: IObservable<State.Model>,
+      dispatch: Dispatch<State.Msg>
+    ) : Control =
+    let own = props.Session.Session.DeviceFingerprint
+
+    let dayOf(at: DateTimeOffset) =
+      at.ToString(
+        "MMM d, yyyy",
+        System.Globalization.CultureInfo.InvariantCulture
+      )
+
+    let rowOf(device: Device) : Control =
+      let isSelf = own <> "" && own = device.Fingerprint
+
+      Border()
+        .Classes(Theme.name Theme.Card)
+        .Padding(12.0)
+        .Child(
+          StackPanel()
+            .Spacing(6.0)
+            .Children(
+              StackPanel()
+                .Orientation(Orientation.Horizontal)
+                .Spacing(8.0)
+                .Children(
+                  TextBlock()
+                    .Classes(Theme.name Theme.Subtitle)
+                    .Text(device.Name),
+                  TextBlock()
+                    .Classes(Theme.name Theme.Muted)
+                    .VerticalAlignment(VerticalAlignment.Center)
+                    .Text("This device")
+                    .IsVisible(isSelf)
+                ),
+              TextBlock()
+                .Classes(Theme.name Theme.Mono, Theme.name Theme.Muted)
+                .Text(device.Fingerprint),
+              StackPanel()
+                .Orientation(Orientation.Horizontal)
+                .Spacing(8.0)
+                .Children(
+                  TextBlock()
+                    .Classes(Theme.name Theme.Muted)
+                    .Text($"Approved {dayOf device.ApprovedAt}"),
+                  TextBlock()
+                    .Classes(Theme.name Theme.Muted)
+                    .Text(
+                      match device.LastUsedAt with
+                      | Some at -> $"Last used {dayOf at}"
+                      | None -> "Never used"
+                    )
+                ),
+              Button()
+                .Classes(Theme.name Theme.DangerButton)
+                .Content(if isSelf then "Sign out on this device" else "Revoke")
+                .OnClickHandler(fun _ _ ->
+                  dispatch(State.RevokeRequested device))
+            )
+        )
+
+    let rows: IObservable<Control> =
+      model
+      |> Observable.map(fun current ->
+        match current.Devices with
+        | Some devices ->
+          if devices.IsEmpty then
+            Status.empty "No devices."
+          else
+            StackPanel()
+              .Spacing(8.0)
+              .Children([| for device in devices -> rowOf device |])
+            :> Control
+        | None -> Status.busy "Loading the devices…")
+
+    StackPanel()
+      .Spacing(8.0)
+      .Children(
+        TextBlock().Classes(Theme.name Theme.Subtitle).Text("Devices"),
+        TextBlock()
+          .Classes(Theme.name Theme.Muted)
+          .TextWrapping(TextWrapping.Wrap)
+          .Text(
+            "The keys approved to sign as you. Revoking the one this app runs on signs it out."
+          ),
+        ContentControl().Content(rows.ToBinding())
+      )
+
   /// The sign-out button; the caller owns the actual sign-out.
   let signOutButton(props: Props<'env>) : Control =
     Button()
@@ -450,6 +603,7 @@ let view
           Parts.pasteisRow(model, dispatch),
           Parts.syncButton dispatch,
           Parts.applicationRow(model, dispatch),
+          Parts.devicesRow(props, model, dispatch),
           Parts.signOutButton props,
           Parts.errorPanel model,
           Parts.noteText model,

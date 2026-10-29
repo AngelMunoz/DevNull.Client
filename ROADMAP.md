@@ -34,22 +34,23 @@ own.
    apply to every phase; the skill gate below is part of every phase's
    definition of done.
 
-## State as of 2026-10-28
+## State as of 2026-10-29
 
+- Phases 1 through 5 have landed: the terms gate, Linux playback of the web's
+  voice notes through the desktop's media framework, the devices list with
+  self-revoke, the 30-second delete undo, and per-image descriptions on
+  commits.
 - The CLI API (signed commits, key lookups) and every endpoint the client calls
-  today still match the server exactly; the server's CLI contract has not
-  changed since 2026-10-19.
-- The burst of server work from 2026-10-26 to 2026-10-28 (terms, devices,
-  search, suggestions, scheduled commits, translations, pins, restorations,
-  related commits, organization pages, user settings) is absent from Core and
-  lands phase by phase below.
+  still match the server exactly; the server's CLI contract has not changed
+  since 2026-10-19.
+- The rest of the server's 2026-10-26 to 2026-10-28 burst (search,
+  suggestions, scheduled commits, translations, pins, related commits,
+  organization pages, user settings) is absent from Core and lands phase by
+  phase below; Phase 6 — scheduled commits — is next.
 - Media needs no endpoint work: every image and voice note arrives with a URL
   signed for the user, day-stable and good until midnight UTC the day after
   tomorrow, so the players download bytes directly. Core never calls the media
   routes.
-- One real defect: the site records voice notes as Opus in WebM, and the Linux
-  head plays PCM WAV only, so voice notes recorded on the web do not play on
-  Linux. Windows plays them through its native stack. Phase 2 closes this.
 
 ## Standing rules for every phase
 
@@ -87,6 +88,8 @@ controls only on the session thread, never dispatching inside a dispatch.
 
 ## Phase 1 — Terms acceptance
 
+*Landed.*
+
 **Goal:** the app knows when the person has not accepted the current terms, asks
 them, and records the answer — at first sign-in or any time after.
 
@@ -106,6 +109,8 @@ the web page's wording, a tick box, links to the site's terms and privacy pages.
 headless test drives the prompt; changelog bullet.
 
 ## Phase 2 — Linux voice decode: Opus in WebM to PCM
+
+*Landed — through the desktop's media framework, per the design below.*
 
 **Goal:** a voice note recorded on the web plays on Linux with the same speed,
 volume, seek, and position behavior as a WAV note.
@@ -152,6 +157,8 @@ only at the end.
 
 ## Phase 3 — Devices
 
+*Landed.*
+
 **Server reference:** the device index and destroy controllers, the device
 resource (id, name, fingerprint, approved at, last used at), the web's devices
 page.
@@ -167,6 +174,8 @@ lists and revokes; a test proves the self-revoke path signs out.
 
 ## Phase 4 — Commit delete undo
 
+*Landed.*
+
 **Server reference:** the restoration controller and request (author-only,
 others see not-found; a 30-second window; the no-longer-deleted and
 window-expired answers), the web's undo toast.
@@ -180,6 +189,8 @@ show the server's messages verbatim.
 return test; timer expiry dismisses the affordance.
 
 ## Phase 5 — Image descriptions on commits
+
+*Landed.*
 
 **Server reference:** the commit-create request's description rules (a nullable
 list beside the images, each entry bounded at the server's own length), the
@@ -327,5 +338,6 @@ stays out of the tree.
   never calls them, and the signing window and day-stability already fit the
   caches.
 - **The CLI API** — verified in sync; the server's contract has not moved.
-- **Encoding on Linux** — recording stays WAV, which the site accepts; only
-  playback decode is needed.
+- **Encoding on Linux** — recording stays WAV, which the site accepts; playback
+  rides the desktop's media framework, and encoding is a possible follow-up
+  through the same framework if upload size ever matters.

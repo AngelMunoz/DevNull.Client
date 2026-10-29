@@ -22,6 +22,8 @@ type TimelineService() =
 
   let requests = new Subject<Request>()
 
+  let deletions = new Subject<string>()
+
   // The timestamp cell the gate reads; a subject stands in for a
   // mutable field, the way the shell's layout cell does.
   let lastAccepted =
@@ -51,8 +53,16 @@ type TimelineService() =
   /// its own composer's post reloads it.
   member _.CommitLanded() = requests.OnNext CommitLanded
 
+  /// Announces one deleted commit; the shell answers with its undo
+  /// toast. The open log page is not told: its next reload omits the
+  /// commit on its own.
+  member _.AnnounceDeletion(commitId: string) = deletions.OnNext commitId
+
   /// The request stream. Emits on the UI thread.
   member _.Requests: IObservable<Request> = requests
+
+  /// The deleted commits worth an undo toast, newest last.
+  member _.Deletions: IObservable<string> = deletions
 
   /// Parks one log's scroll place, so the next page of that log
   /// picks it up.

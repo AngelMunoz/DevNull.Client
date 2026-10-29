@@ -206,6 +206,7 @@ let complete
             Name = me.Profile.User.Name
             AvatarUrl = me.Profile.User.AvatarUrl
           }
+          DeviceFingerprint = args.Key.Fingerprint
           UnreadNotificationsCount = me.UnreadNotificationsCount
           PasteisMode = me.PasteisMode
           TermsVersion = me.TermsVersion

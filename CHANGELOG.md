@@ -5,15 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Fixed
-
-- **Core:** the site renamed the user field `username` to `handle` across its whole API, which broke the client's timelines, notifications, and mentions. Every decoder reads the new field, the client's own vocabulary follows the site's, and a chat message's reply id now reads as absent where the server hides it. Saved sign-in sessions keep working.
-
-### Changed
-
-- **Packaging:** the app is now built from a shared client plus one executable per platform (Windows and Linux) instead of a single cross-platform build. Nothing changes for existing installs: the shipped executable keeps its name and the `devnull://` handler keeps working. This is groundwork for platform-native features (audio, notifications) implemented per platform behind shared contracts.
+## [0.4.0] - 2026-10-28
 
 ### Added
 
@@ -30,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Remotes:** pings run both ways. The composer carries a ping button — a quiet nudge for the partner or the whole org — and a ping that lands on an open conversation logs the site's own event word (`you got a ping`) and plays the system's notification note: your own ping sounds even while muted, a partner's stays silent through a mute, and pings that were already there when the conversation opened stay still.
 - **Audio (Windows):** the microphone and speaker run through Windows' own audio stack (WinRT AudioGraph): capture at the voice-note format with a live level meter, playback with speed and volume, permission refusals named in plain words. The system notification sound plays through the OS media player.
 - **Audio (Linux, Windows):** Added the native infra in order to handle sound play.
+
+### Changed
+
+- **Packaging:** the app is now built from a shared client plus one executable per platform (Windows and Linux) instead of a single cross-platform build. Nothing changes for existing installs: the shipped executable keeps its name and the `devnull://` handler keeps working. This is groundwork for platform-native features (audio, notifications) implemented per platform behind shared contracts.
+
+### Fixed
+
+- **Core:** the site renamed the user field `username` to `handle` across its whole API, which broke the client's timelines, notifications, and mentions. Every decoder reads the new field, the client's own vocabulary follows the site's, and a chat message's reply id now reads as absent where the server hides it. Saved sign-in sessions keep working.
 
 ## [0.3.1] - 2026-10-24
 

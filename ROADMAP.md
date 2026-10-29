@@ -1,9 +1,9 @@
 # Roadmap
 
 This roadmap syncs the client with the server's public JSON and CLI API as the
-server completed it on 2026-10-28, and adds Linux playback for the web's voice
-codec. Each phase is one deliverable: Core, UI, tests, and changelog, shippable
-alone and in order.
+server completed it through 2026-10-29, and adds the burst's client remainder
+plus install spikes for both desktop heads. Each phase is one deliverable:
+Core, UI, tests, and changelog, shippable alone and in order.
 
 The server contract is read from the server repository that sits beside this
 client in the workspace. Its license is MIT (declared in its `composer.json`),
@@ -40,13 +40,25 @@ own.
   voice notes through the desktop's media framework, the devices list with
   self-revoke, the 30-second delete undo, and per-image descriptions on
   commits.
-- The CLI API (signed commits, key lookups) and every endpoint the client calls
-  still match the server exactly; the server's CLI contract has not changed
-  since 2026-10-19.
-- The rest of the server's 2026-10-26 to 2026-10-28 burst (search,
+- Production was pulled and audited again on 2026-10-29, after the server's
+  10-28/10-29 burst. Every contract below still stands as written, and the
+  server's CLI contract has not changed since 2026-10-19.
+- The rest of the server's 2026-10-26 to 2026-10-29 burst (search,
   suggestions, scheduled commits, translations, pins, related commits,
   organization pages, user settings) is absent from Core and lands phase by
   phase below; Phase 6 — scheduled commits — is next.
+- The burst also shipped past this roadmap, and the audit folded its
+  client-side remainder in: live users and the first-commit notification
+  (Phase 13), follower and following list pages (Phase 14), the commit
+  mention's organization kind (Phase 12), and the settings' show-local-time
+  choice (Phase 11).
+- Two spikes cover installation: scoop and winget on Windows (Phase 15),
+  flatpak on Linux (Phase 16). The AOT single-file publish makes both
+  manifests a thin wrapper over the release artifacts.
+- Five of the burst's features are web-only with no JSON API field: the
+  profile README and the bio's mention links wait on a server field; the
+  guest join link, the organization claim flow, and the developer count stay
+  out of scope.
 - Media needs no endpoint work: every image and voice note arrives with a URL
   signed for the user, day-stable and good until midnight UTC the day after
   tomorrow, so the players download bytes directly. Core never calls the media
@@ -291,14 +303,16 @@ a spare; refresh advances the round.
 
 **Server reference:** the user-settings controller (timezone, the follow-the-
 device language, automatic translation, the pickable languages with their
-names, the admin flag), the three preference update requests, the commit
+names, the show-local-time choice, the admin flag), the three preference
+update requests, the commit
 translation controller (a language field; the answer's display shape; a
 retryable failure with the web's exact messages), the web's language setting
 and translate components.
 
 **Client work:** Core adds the settings read and the three preference writes,
 plus the commit translate call with the retryable failure leaf. The settings
-page gains the language, automatic-translation, and timezone rows as the web
+page gains the language, automatic-translation, timezone, and show-local-time
+rows as the web
 shows them; commits gain the translate action that swaps the body and back,
 with the web's pending and failed states.
 
@@ -310,10 +324,13 @@ the retryable failure; a headless language change and a translate-retry pass.
 **Server reference:** the message resource's pinned-at field (with the reply
 reference hidden on pinned messages), the message pin controllers (org
 maintainers, under the posting-timeout guard), the organization resource and
-its mentions controller, the web's organization pages.
+its mentions controller, the commit mention's kind (`user` or
+`organization`), the web's organization pages.
 
 **Client work:** Core decodes the message pin state and adds the message pin
-and unpin calls and the organization read with its mentions. Org threads show
+and unpin calls and the organization read with its mentions. Commit mentions
+decode their kind, so a card links an @handle that names an organization to
+the organization page instead of a profile. Org threads show
 pinned messages with the maintainer's pin action; an organization route shows
 the public profile and its mentions.
 
@@ -321,7 +338,66 @@ the public profile and its mentions.
 visible to members with the action limited to maintainers; the organization
 page renders from fixtures.
 
-## Phase 13 — Release hardening
+## Phase 13 — Live users and the first-commit notification
+
+**Server reference:** the user resource's `live` field (`platform`, `url`,
+`thumbnail_url`, `ends_at` while the user streams, else null), the
+`first_commit` notification type (one notification to each follower when
+someone makes their first commit).
+
+**Client work:** Core decodes `live` on the user. Cards and lists badge a
+live user and open the stream URL. The notification inbox maps `first_commit`
+to its own glyph and sentence instead of the generic fallback.
+
+**Verify:** fixture tests for the live decode and its null case; a headless
+badge on a card; the first-commit row renders its own words.
+
+## Phase 14 — Follower and following lists
+
+**Server reference:** the follower and following index endpoints (public,
+cursor pages of users, each with the viewer's relation loaded), the web's
+follower and following pages.
+
+**Client work:** Core already carries `Users.followers` and
+`Users.following`; the profile's counts open the matching list page, rows
+reusing the profile card with the follow control. The web's mutuals page has
+no JSON API and stays web-only.
+
+**Verify:** a headless pass opens both lists from the profile and follows one
+row.
+
+## Phase 15 — Windows install: scoop and winget spikes
+
+**Goal:** the Windows head installs from a package manager manifest generated
+from the release artifacts.
+
+**Approach:** the AOT publish is one self-contained executable, so both
+manifests describe one file. A winget manifest set (version, installer,
+locale) over the released zip, with its SHA-256; a scoop manifest (JSON) over
+the same zip. Both generate at release time. The spike proves the path
+locally: `winget install --manifest` and a local scoop bucket, then an
+upgrade over the previous version. Submitting to the community manifest
+repository or a public bucket is a separate decision after the spike.
+
+**Verify:** a clean machine installs and upgrades through both managers; the
+hash pins what each one installs.
+
+## Phase 16 — Linux install: flatpak spike
+
+**Goal:** the Linux head installs as a flatpak.
+
+**Approach:** the AOT publish carries its own runtime, so the flatpak wraps
+the publish output on the freedesktop platform. A flatpak-builder manifest
+builds from the release tarball and ships the `.desktop` file, icons, and app
+metadata; the sandbox's desktop file carries the scheme so links open the
+app. The spike proves the sandbox's seams: the tray, notifications, and the
+audio stack through the desktop's portals.
+
+**Verify:** `flatpak-builder` builds and a local install runs end to end:
+sign-in, a commit, a voice note, and a scheme link from the browser. Flathub
+submission is a separate decision after the spike.
+
+## Phase 17 — Release hardening
 
 `dotnet fantomas .`; full build; both test suites; Native AOT publish of both
 heads over everything the roadmap added; one full skill-gate sweep of the whole
@@ -341,3 +417,9 @@ stays out of the tree.
 - **Encoding on Linux** — recording stays WAV, which the site accepts; playback
   rides the desktop's media framework, and encoding is a possible follow-up
   through the same framework if upload size ever matters.
+- **The profile README and the bio's mention links** — the server ships them
+  only as web page props, with no JSON API field; they land when the server
+  exposes one.
+- **The guest join link, the organization claim flow, and the developer
+  count** — web session flows and guest page props with no API surface. The
+  organization page may link the site's claim flow.

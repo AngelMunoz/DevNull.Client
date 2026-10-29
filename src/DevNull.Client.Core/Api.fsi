@@ -141,6 +141,10 @@ module Me =
   /// Sets the lane, automatic, palette, or custom color.
   type LaneRequest = { KeyFile: string; Lane: LaneChoice }
 
+  /// The terms version the app showed the person, as the server takes
+  /// it back.
+  type TermsRequest = { KeyFile: string; Version: string }
+
   /// Reads the current user and unread notification count.
   val get:
     env: 'env * request: Request -> Async<Result<Me, 'e>>
@@ -206,6 +210,20 @@ module Me =
       and Rejected<'e>
       and DecodeError<'e>
       and LaneError<'e>
+
+  /// Records that the person accepted the terms version the app showed
+  /// them, and returns the current user as `Me.get` does.
+  val acceptTerms:
+    env: 'env * request: TermsRequest -> Async<Result<Me, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
 
 module Users =
 

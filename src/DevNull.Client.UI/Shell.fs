@@ -22,6 +22,8 @@ open Navs.Avalonia
 open DevNull.Client
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Components
+open DevNull.Client.Core.Api
+open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.DeviceAuth
@@ -439,6 +441,129 @@ let composeDialog
 
   card
 
+/// The terms gate: one dialog the app shows while the account has not
+/// accepted the terms in force. Ticking the box arms Accept; Accept
+/// records the version the app showed and hands the refreshed account
+/// back, and the shell's own session refresh closes the layer. There
+/// is no close: the terms are answered, not skipped.
+let termsDialog
+  (
+    env:
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideLogging,
+    session: SignedInSession,
+    onAccepted: Me -> unit
+  ) : Control =
+  let log =
+    (env :> IProvideLogging).LoggerFactory.CreateLogger "DevNull.Client.Shell"
+
+  let agreed = new BehaviorSubject<bool>(false)
+  let busy = new BehaviorSubject<bool>(false)
+  let failure = new BehaviorSubject<string voption>(ValueNone)
+
+  let canAccept =
+    Observable.combineLatest agreed busy
+    |> Observable.map(fun (ticked, working) -> ticked && not working)
+
+  let accept() =
+    busy.OnNext true
+    failure.OnNext ValueNone
+
+    asyncEx {
+      let! outcome =
+        Me.acceptTerms(
+          env,
+          {
+            KeyFile = session.KeyFile
+            Version = session.Session.TermsVersion
+          }
+        )
+
+      match outcome with
+      | Ok me -> onAccepted me
+      | Error error -> failure.OnNext(ValueSome(describe error))
+
+      busy.OnNext false
+    }
+    |> Async.StartImmediate
+
+  let card =
+    Border()
+      .Classes(Theme.name Theme.Card)
+      .MaxWidth(520.0)
+      .Margin(24.0, Theme.bandHeight + 24.0, 24.0, 24.0)
+      .HorizontalAlignment(HorizontalAlignment.Center)
+      .VerticalAlignment(VerticalAlignment.Center)
+      .Child(
+        StackPanel()
+          .Spacing(12.0)
+          .Children(
+            TextBlock()
+              .Classes(Theme.name Theme.Title)
+              .Text("Before you continue"),
+            TextBlock()
+              .Classes(Theme.name Theme.Muted)
+              .TextWrapping(TextWrapping.Wrap)
+              .Text(
+                "Accept the terms and the privacy policy to keep using this app."
+              ),
+            StackPanel()
+              .Orientation(Orientation.Horizontal)
+              .Spacing(8.0)
+              .Children(
+                Button()
+                  .Classes(Theme.name Theme.GhostButton)
+                  .Padding(8.0, 4.0, 8.0, 4.0)
+                  .Content("Read the terms")
+                  .OnClickHandler(fun _ args ->
+                    args.Handled <- true
+
+                    match startBrowser(baseAddress + "/terms") with
+                    | Ok() -> ()
+                    | Error message ->
+                      log.LogWarning("The page did not open: {Error}", message)),
+                Button()
+                  .Classes(Theme.name Theme.GhostButton)
+                  .Padding(8.0, 4.0, 8.0, 4.0)
+                  .Content("Read the privacy policy")
+                  .OnClickHandler(fun _ args ->
+                    args.Handled <- true
+
+                    match startBrowser(baseAddress + "/privacy") with
+                    | Ok() -> ()
+                    | Error message ->
+                      log.LogWarning("The page did not open: {Error}", message))
+              ),
+            CheckBox()
+              .Content("I accept the terms and the privacy policy.")
+              .OnIsCheckedChangedHandler(fun box _ ->
+                let ticked =
+                  match box.IsChecked with
+                  | value when value.HasValue && value.Value -> true
+                  | _ -> false
+
+                agreed.OnNext ticked),
+            Button()
+              .Classes(Theme.name Theme.AccentButton)
+              .HorizontalAlignment(HorizontalAlignment.Right)
+              .Content("Accept")
+              .IsEnabled(canAccept)
+              .OnClickHandler(fun _ _ -> accept()),
+            TextBlock()
+              .Classes(Theme.name Theme.FgDanger)
+              .TextWrapping(TextWrapping.Wrap)
+              .IsVisible(failure |> Observable.map ValueOption.isSome)
+              .Text(
+                failure
+                |> Observable.map(function
+                  | ValueSome word -> word
+                  | ValueNone -> "")
+              )
+          )
+      )
+
+  card.Name <- "TermsDialog"
+  card
+
 /// Focuses the composer on screen, when one is. The site's Commit
 /// button focuses the log's inline composer instead of opening the
 /// dialog over it. A hidden composer — the shared chrome off the log —
@@ -627,6 +752,58 @@ type Shell<'env
       Panel()
         .IsVisible(helpOpen :> IObservable<bool>)
         .Children(helpScrim, helpHost)
+
+    // The terms gate: while the signed account has not accepted the
+    // terms in force, one dialog blocks the panes. Only the session's
+    // own refresh closes it, so the poller can clear it as surely as
+    // the dialog's own Accept.
+    let termsOpen =
+      session.Observe
+      |> Observable.map(fun state ->
+        match state with
+        // Unknown terms never gate: only the server's own no does.
+        | SignedIn entry -> entry.Session.TermsAccepted = Some false
+        | SignedOut -> false)
+
+    let termsHost =
+      ContentControl()
+        .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+        .VerticalContentAlignment(VerticalAlignment.Stretch)
+
+    // The open cell, the way the chrome's guard works: a poll's session
+    // refresh lands here without rebuilding the dialog, so a ticked box
+    // survives while the terms stay unaccepted.
+    let termsAsked = new BehaviorSubject<bool>(false)
+
+    termsOpen
+    |> Observable.add(fun isOpen ->
+      if termsAsked.Value <> isOpen then
+        termsAsked.OnNext isOpen
+
+        if isOpen then
+          match session.Current with
+          | SignedIn entry ->
+            termsHost.Content <-
+              termsDialog(
+                env,
+                entry,
+                fun me ->
+                  session.Refresh {
+                    entry.Session with
+                        UnreadNotificationsCount = me.UnreadNotificationsCount
+                        TermsVersion = me.TermsVersion
+                        TermsAccepted = Some me.TermsAccepted
+                  }
+              )
+          | SignedOut -> termsHost.Content <- null
+        else
+          termsHost.Content <- null)
+
+    // The scrim stays: the terms are answered, never clicked away.
+    let termsScrim = Border().Background(Brushes.solid "#8A000000")
+
+    let termsLayer =
+      Panel().IsVisible(termsOpen).Children(termsScrim, termsHost)
 
     // The remotes entry shows only while the account carries the
     // direct messages; its badge follows the store's unread total.
@@ -1084,7 +1261,8 @@ type Shell<'env
         Close = fun () -> this.Close()
       }
 
-    this.Content <- Panel().Children(split, composeLayer, helpLayer, bandPanel)
+    this.Content <-
+      Panel().Children(split, composeLayer, helpLayer, termsLayer, bandPanel)
 
     // The inbox marks everything read as it lists, so the poller stops
     // while the inbox is on screen.

@@ -42,6 +42,8 @@ let poll(context: PollContext) : Async<unit> = asyncEx {
             current.Session with
                 UnreadNotificationsCount = me.UnreadNotificationsCount
                 PasteisMode = me.PasteisMode
+                TermsVersion = me.TermsVersion
+                TermsAccepted = Some me.TermsAccepted
                 Remotes = me.Remotes
           }
         | ValueNone -> ()

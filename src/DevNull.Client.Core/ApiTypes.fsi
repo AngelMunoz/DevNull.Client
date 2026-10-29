@@ -651,12 +651,16 @@ type MeRemotes = {
 }
 
 /// One redeemed device: the user, the unread notifications in the
-/// envelope, whether the user shows pastel controls at all, and the
+/// envelope, whether the user shows pastel controls at all, the terms
+/// state the app asks on — `None` while a stored session predates it,
+/// which never gates; the first account poll fills it — and the
 /// direct-message settings while they are on.
 type DeviceSession = {
   User: CurrentUser
   UnreadNotificationsCount: int
   PasteisMode: bool
+  TermsVersion: string
+  TermsAccepted: bool option
   Remotes: MeRemotes option
 }
 
@@ -680,6 +684,9 @@ type Me = {
   AutomaticLane: int
   SponsorsUrl: string option
   GithubSyncedAt: DateTimeOffset option
+  TermsVersion: string
+  TermsAcceptedAt: DateTimeOffset option
+  TermsAccepted: bool
   UnreadNotificationsCount: int
   Remotes: MeRemotes option
 }

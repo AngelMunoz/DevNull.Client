@@ -500,6 +500,8 @@ let sessionOf(username: string) : DeviceSession = {
   }
   UnreadNotificationsCount = 3
   PasteisMode = true
+  TermsVersion = "20261001"
+  TermsAccepted = Some true
   Remotes = None
 }
 
@@ -536,6 +538,35 @@ let signedInStoreWithUnread(unread: int) =
 
 let signedOutStore() =
   SessionStore(None, devicePrivateKeyPath, ignore)
+
+/// A signed-in store whose account has not accepted the terms, so the
+/// gate dialog stands over the app.
+let signedInStoreWithoutTerms() =
+  SessionStore(
+    Some(
+      {
+        sessionOf "octocat" with
+            TermsAccepted = Some false
+      }
+    ),
+    devicePrivateKeyPath,
+    ignore
+  )
+
+/// A signed-in store whose stored session predates the terms state, so
+/// nothing knows the answer yet and the gate must stay down.
+let signedInStoreWithUnknownTerms() =
+  SessionStore(
+    Some(
+      {
+        sessionOf "octocat" with
+            TermsAccepted = None
+            TermsVersion = ""
+      }
+    ),
+    devicePrivateKeyPath,
+    ignore
+  )
 
 /// One commit as the server returns it, with one author, one body, and
 /// one image.
@@ -579,7 +610,7 @@ let ok(body: string) : HttpResponse = {
 
 /// The signed-in account, as GET /api/v1/me returns it.
 let meJson =
-  """{"data":{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","handle":"octocat","name":"The Octocat","avatar_url":null,"bio":"Builds things.","company":"GitHub","location":"San Francisco","website":"https://example.test","github_url":"https://github.com/octocat","html_url":"https://dev-null.sh/@octocat","feed_url":"https://dev-null.sh/@octocat/feed.atom","created_at":"2026-01-01T00:00:00Z","commits_count":7,"followers_count":11,"following_count":13,"lane":3,"pasteis_mode":true,"pasteis_remaining":7,"pasteis_resets_at":"2026-10-27T00:00:00Z","pasteis_received":12,"preferred_lane":null,"automatic_lane":4,"sponsors_url":null,"github_synced_at":null,"remotes":null},"unread_notifications_count":3}"""
+  """{"data":{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","handle":"octocat","name":"The Octocat","avatar_url":null,"bio":"Builds things.","company":"GitHub","location":"San Francisco","website":"https://example.test","github_url":"https://github.com/octocat","html_url":"https://dev-null.sh/@octocat","feed_url":"https://dev-null.sh/@octocat/feed.atom","created_at":"2026-01-01T00:00:00Z","commits_count":7,"followers_count":11,"following_count":13,"lane":3,"pasteis_mode":true,"pasteis_remaining":7,"pasteis_resets_at":"2026-10-27T00:00:00Z","pasteis_received":12,"preferred_lane":null,"automatic_lane":4,"sponsors_url":null,"github_synced_at":null,"terms_version":"20261001","terms_accepted_at":"2026-10-02T00:00:00Z","terms_accepted":true,"remotes":null},"unread_notifications_count":3}"""
 
 /// The author of the canned commits, as a bare user.
 let apiUserJson =
@@ -755,6 +786,19 @@ let threadApi() =
         "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
     then
       ok threadPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+/// The api of the terms test: the boot log answers, and the terms
+/// acceptance answers with the accepted account.
+let termsApi() =
+  FakeApi(fun request ->
+    if request.Method = "PUT" && request.Target = "/api/v1/me/terms" then
+      ok meJson
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
     else
       (match accountAnswer request with
        | ValueSome answer -> answer

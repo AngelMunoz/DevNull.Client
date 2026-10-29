@@ -208,6 +208,8 @@ let complete
           }
           UnreadNotificationsCount = me.UnreadNotificationsCount
           PasteisMode = me.PasteisMode
+          TermsVersion = me.TermsVersion
+          TermsAccepted = Some me.TermsAccepted
           Remotes = me.Remotes
         }
 

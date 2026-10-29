@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Desktop:** the app asks for the terms. When the account's own answer from the server says the terms in force were not accepted, one dialog stands over the app that cannot be clicked away: the terms and the privacy policy open in the browser from it, a ticked box arms Accept, and Accept records the version the app showed. A stored session from before this change knows nothing and never gates; the first account poll brings the server's answer.
+
 ## [0.4.0] - 2026-10-28
 
 ### Added

@@ -99,6 +99,11 @@ let saveSession(log: ILogger, session: DeviceSession) : Result<unit, string> =
 
     json.["unread"] <- JsonValue.Create session.UnreadNotificationsCount
     json.["pasteis_mode"] <- JsonValue.Create session.PasteisMode
+    json.["terms_version"] <- JsonValue.Create session.TermsVersion
+
+    session.TermsAccepted
+    |> Option.iter(fun accepted ->
+      json.["terms_accepted"] <- JsonValue.Create accepted)
 
     match session.Remotes with
     | Some remotes ->
@@ -177,6 +182,10 @@ let loadSession(log: ILogger) : DeviceSession option =
         }
         UnreadNotificationsCount = unread
         PasteisMode = tryBool "pasteis_mode" root |> Option.defaultValue false
+        // A session stored before the terms state exists is unknown,
+        // never unaccepted: the gate stays down until the server says.
+        TermsVersion = tryString "terms_version" root |> Option.defaultValue ""
+        TermsAccepted = tryBool "terms_accepted" root
         Remotes = remotes
       }
     | _ ->

@@ -716,12 +716,15 @@ type MeRemotes = {
 }
 
 /// One redeemed device: the user, the unread notifications in the
-/// envelope, whether the user shows pastel controls at all, and the
-/// direct-message settings while they are on.
+/// envelope, whether the user shows pastel controls at all, the terms
+/// state the app asks on, and the direct-message settings while they
+/// are on.
 type DeviceSession = {
   User: CurrentUser
   UnreadNotificationsCount: int
   PasteisMode: bool
+  TermsVersion: string
+  TermsAccepted: bool option
   Remotes: MeRemotes option
 }
 
@@ -736,6 +739,9 @@ type Me = {
   AutomaticLane: int
   SponsorsUrl: string option
   GithubSyncedAt: DateTimeOffset option
+  TermsVersion: string
+  TermsAcceptedAt: DateTimeOffset option
+  TermsAccepted: bool
   UnreadNotificationsCount: int
   Remotes: MeRemotes option
 }
@@ -1533,6 +1539,9 @@ type CurrentUserData = {
   AutomaticLane: int
   SponsorsUrl: string option
   GithubSyncedAt: DateTimeOffset option
+  TermsVersion: string
+  TermsAcceptedAt: DateTimeOffset option
+  TermsAccepted: bool
   Remotes: MeRemotes option
 }
 
@@ -1568,6 +1577,16 @@ let currentUserDataDecoder(element: JsonElement) = decode {
     Optional.Property.get ("github_synced_at", Optional.dateTimeOffset) element
     |> Result.map Option.flatten
 
+  let! termsVersion =
+    Required.Property.get ("terms_version", Required.string) element
+
+  let! termsAcceptedAt =
+    Optional.Property.get ("terms_accepted_at", Optional.dateTimeOffset) element
+    |> Result.map Option.flatten
+
+  let! termsAccepted =
+    Required.Property.get ("terms_accepted", Required.boolean) element
+
   let! remotes =
     Required.Property.get ("remotes", optionalDecoder meRemotesDecoder) element
 
@@ -1581,6 +1600,9 @@ let currentUserDataDecoder(element: JsonElement) = decode {
     AutomaticLane = automaticLane
     SponsorsUrl = sponsorsUrl
     GithubSyncedAt = githubSyncedAt
+    TermsVersion = termsVersion
+    TermsAcceptedAt = termsAcceptedAt
+    TermsAccepted = termsAccepted
     Remotes = remotes
   }
 }
@@ -1601,6 +1623,9 @@ let meDecoder(element: JsonElement) = decode {
     AutomaticLane = data.AutomaticLane
     SponsorsUrl = data.SponsorsUrl
     GithubSyncedAt = data.GithubSyncedAt
+    TermsVersion = data.TermsVersion
+    TermsAcceptedAt = data.TermsAcceptedAt
+    TermsAccepted = data.TermsAccepted
     UnreadNotificationsCount = unread
     Remotes = data.Remotes
   }

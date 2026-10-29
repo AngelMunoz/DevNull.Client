@@ -3826,4 +3826,95 @@ let tests =
           Timeline.ScrollToTop
           "the fresh first page never scrolled the feed to its top"
       })
+
+    testCaseAsync
+      "a stored session that predates the terms never gates"
+      (async {
+        let api = logApi()
+
+        let! window = startShell(signedInStoreWithUnknownTerms(), api :> IHttp)
+
+        let! usable = showsText(window, "The Octocat")
+
+        Expect.isTrue usable "the app never rendered behind the gate"
+
+        let! settled = settleAsync()
+
+        let gated =
+          window.GetVisualDescendants()
+          |> Seq.exists(fun visual -> visual.Name = "TermsDialog")
+
+        Expect.isFalse gated "unknown terms opened the gate"
+      })
+
+    testCaseAsync
+      "the terms gate asks and records the acceptance"
+      (async {
+        let api = termsApi()
+
+        let! window = startShell(signedInStoreWithoutTerms(), api :> IHttp)
+
+        let dialogStanding(root: Control) =
+          root.GetVisualDescendants()
+          |> Seq.exists(fun visual -> visual.Name = "TermsDialog")
+
+        let! standing = waitForAsync(5000, (fun () -> window), dialogStanding)
+
+        Expect.isTrue standing "the terms dialog never stood"
+
+        // Ticking the box arms the Accept button.
+        do!
+          onUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryPick(function
+              | :? CheckBox as box -> Some box
+              | _ -> None)
+            |> Option.iter(fun box -> box.IsChecked <- Nullable true))
+
+        let! armed =
+          waitForAsync(
+            5000,
+            (fun () -> buttonWithText(window, "Accept")),
+            (fun found ->
+              found
+              |> Option.map(fun button -> button.IsEnabled)
+              |> Option.defaultValue false)
+          )
+
+        Expect.isTrue armed "the accept button never armed"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "Accept") |> Option.iter click)
+
+        let acceptanceWentOut(request: HttpRequest) =
+          request.Method = "PUT" && request.Target = "/api/v1/me/terms"
+
+        let! sent =
+          waitForAsync(
+            5000,
+            (fun () -> api.Requests),
+            List.exists acceptanceWentOut
+          )
+
+        Expect.isTrue sent "the acceptance never went out"
+
+        let bodyOf(request: HttpRequest) =
+          match request.Body with
+          | Text body -> body
+          | Multipart _ -> ""
+
+        let acceptance = api.Requests |> List.find acceptanceWentOut
+
+        Expect.equal """{"version":"20261001"}""" (bodyOf acceptance) "body"
+
+        let! left =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> not(dialogStanding root))
+          )
+
+        Expect.isTrue left "the terms dialog never left"
+      })
   ]

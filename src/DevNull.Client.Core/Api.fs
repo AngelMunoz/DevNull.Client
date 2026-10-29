@@ -463,6 +463,10 @@ module Me =
 
   type LaneRequest = { KeyFile: string; Lane: LaneChoice }
 
+  /// The terms version the app showed the person, as the server takes
+  /// it back.
+  type TermsRequest = { KeyFile: string; Version: string }
+
   let get(env, request: Request) =
     Internal.sendSigned(
       env,
@@ -540,6 +544,22 @@ module Me =
         }
       )
   }
+
+  let acceptTerms(env, request: TermsRequest) =
+    let body =
+      Json.object(List.singleton("version", Encode.string request.Version))
+      |> _.ToJsonString()
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "PUT"
+        Target = "/api/v1/me/terms"
+        Body = body
+        Decode = Me.decode
+      }
+    )
 
 module Users =
 

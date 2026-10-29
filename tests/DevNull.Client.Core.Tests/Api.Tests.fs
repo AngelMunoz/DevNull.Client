@@ -224,7 +224,14 @@ let envFor(http: IHttp) =
   redeemEnv http (FixedSigner(Ok "signature"))
 
 let meJson =
-  """{"data":{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","handle":"octocat","name":"The Octocat","avatar_url":"https://avatars.example/octocat.png","bio":"Builds things.","company":"GitHub","location":"San Francisco","website":"https://example.test","github_url":"https://github.com/octocat","html_url":"https://dev-null.sh/@octocat","feed_url":"https://dev-null.sh/@octocat/feed.atom","created_at":"2026-01-01T00:00:00Z","commits_count":7,"followers_count":11,"following_count":13,"lane":3,"pasteis_mode":true,"pasteis_remaining":7,"pasteis_resets_at":"2026-10-20T00:00:00Z","pasteis_received":12,"preferred_lane":null,"automatic_lane":4,"sponsors_url":null,"github_synced_at":null,"remotes":null},"unread_notifications_count":3}"""
+  """{"data":{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","handle":"octocat","name":"The Octocat","avatar_url":"https://avatars.example/octocat.png","bio":"Builds things.","company":"GitHub","location":"San Francisco","website":"https://example.test","github_url":"https://github.com/octocat","html_url":"https://dev-null.sh/@octocat","feed_url":"https://dev-null.sh/@octocat/feed.atom","created_at":"2026-01-01T00:00:00Z","commits_count":7,"followers_count":11,"following_count":13,"lane":3,"pasteis_mode":true,"pasteis_remaining":7,"pasteis_resets_at":"2026-10-20T00:00:00Z","pasteis_received":12,"preferred_lane":null,"automatic_lane":4,"sponsors_url":null,"github_synced_at":null,"terms_version":"20261001","terms_accepted_at":"2026-10-02T00:00:00Z","terms_accepted":true,"remotes":null},"unread_notifications_count":3}"""
+
+/// The same account before the terms were accepted.
+let termsPendingJson =
+  meJson.Replace(
+    "\"terms_accepted_at\":\"2026-10-02T00:00:00Z\",\"terms_accepted\":true",
+    "\"terms_accepted_at\":null,\"terms_accepted\":false"
+  )
 
 let redeemDeviceTests =
   testList "Api.redeemDevice" [
@@ -810,11 +817,53 @@ let accountApiTests =
         Expect.equal 4 session.AutomaticLane "automatic lane"
         Expect.equal None session.PreferredLane "preferred lane"
         Expect.equal None session.SponsorsUrl "sponsors"
+        Expect.equal "20261001" session.TermsVersion "terms version"
+        Expect.equal true session.TermsAccepted "terms accepted"
+
+        Expect.equal
+          (Some(DateTimeOffset(2026, 10, 2, 0, 0, 0, TimeSpan.Zero)))
+          session.TermsAcceptedAt
+          "terms accepted at"
       | Error error -> failtestf "%A" error
 
       let sent = http.Requests |> List.exactlyOne
       Expect.equal "GET" sent.Method "method"
       Expect.equal "/api/v1/me" sent.Target "target"
+    }
+
+    testAsync "reads the terms as not accepted" {
+      let http = CapturingHttp(ok termsPendingJson)
+
+      let! (result: Result<Me, TestError>) =
+        Me.get(envFor http, { KeyFile = "key-file" })
+
+      match result with
+      | Ok session ->
+        Expect.equal "20261001" session.TermsVersion "terms version"
+        Expect.equal false session.TermsAccepted "terms accepted"
+        Expect.equal None session.TermsAcceptedAt "terms accepted at"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "accepts the terms" {
+      let http = CapturingHttp(ok meJson)
+
+      let request: Me.TermsRequest = {
+        KeyFile = "key-file"
+        Version = "20261001"
+      }
+
+      let! (result: Result<Me, TestError>) =
+        Me.acceptTerms(envFor http, request)
+
+      match result with
+      | Ok session -> Expect.equal true session.TermsAccepted "terms accepted"
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "PUT" sent.Method "method"
+      Expect.equal "/api/v1/me/terms" sent.Target "target"
+      Expect.equal """{"version":"20261001"}""" (bodyText sent) "body"
     }
 
     testAsync "turns pasteis mode on" {

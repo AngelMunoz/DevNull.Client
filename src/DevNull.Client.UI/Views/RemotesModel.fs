@@ -28,6 +28,8 @@ open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Core.Types
 open DevNull.Client.Errors
+open DevNull.Client.Env
+open Microsoft.Extensions.Logging
 open DevNull.Client.Formatting
 open DevNull.Client.Icons
 open DevNull.Client.ImageCache
@@ -54,7 +56,8 @@ type Props<'env
   and 'env :> IProvideSettings
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideNatives
-  and 'env :> IProvideRemotes> = {
+  and 'env :> IProvideRemotes
+  and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
   Nav: INavigable
@@ -1030,6 +1033,19 @@ module State =
     | None -> { next with PingHeard = 0 }, Cmd.none
 
   let update (props: Props<'env>) (msg: Msg) (model: Model) : Model * Cmd<Msg> =
+    let log =
+      props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Remotes"
+
+    // Every log line is an effect: update returns it as a command,
+    // and the loop writes it after the computation.
+    let failed what error =
+      Cmd.ofAction(fun () ->
+        log.LogWarning(
+          "The {What} failed: {Error}",
+          what,
+          bounded 300 (describe error)
+        ))
+
     match msg with
     | StoreChanged state ->
       let next = { model with State = state }
@@ -1145,21 +1161,22 @@ module State =
       if term <> termOf model.Query then
         model, Cmd.none
       else
-        match result with
-        | Ok found -> { model with Found = Some found }, Cmd.none
-        | Error error ->
-          // A failed search keeps the empty answer: the search's own
-          // rows stay quiet rather than noisy.
-          {
-            model with
-                Found =
-                  Some {
-                    Term = term
-                    Conversations = []
-                    Candidates = []
-                  }
-          },
-          Cmd.none
+
+      match result with
+      | Ok found -> { model with Found = Some found }, Cmd.none
+      | Error error ->
+        // A failed search keeps the empty answer: the search's own
+        // rows stay quiet rather than noisy. The log keeps the reason.
+        {
+          model with
+              Found =
+                Some {
+                  Term = term
+                  Conversations = []
+                  Candidates = []
+                }
+        },
+        failed $"the search for {term}" error
     | MoreWanted ->
       let list = listTab(model.State, model.Tab)
 
@@ -1244,7 +1261,11 @@ module State =
           model with
               Notice = Some "Could not load this message. Try again."
         },
-        Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogWarning(
+            "The walk to message {Message} found nothing.",
+            messageId
+          ))
     | Landed -> { model with Landing = None }, Cmd.none
     | PresentWanted ->
       {
@@ -1380,8 +1401,22 @@ module State =
               LinkChoice = LinkCard.FirstLink
               Voice = None
         },
-        Cmd.OfAsync.perform push (props.Env.Remotes, target, message) (fun () ->
-          StoreWorkDone)
+        Cmd.batch [
+          Cmd.OfAsync.perform
+            push
+            (props.Env.Remotes, target, message)
+            (fun () -> StoreWorkDone)
+
+          Cmd.ofAction(fun () ->
+            log.LogInformation(
+              "The message for {Key} goes out ({Images} images, {Voice}).",
+              ChatTargets.key target,
+              List.length model.Images,
+              match model.Voice with
+              | Some _ -> "voice attached"
+              | None -> "no voice"
+            ))
+        ]
       | Some _ when ridingAlone ->
         {
           model with
@@ -1459,7 +1494,7 @@ module State =
           model with
               Notice = Some(describe error)
         },
-        Cmd.none
+        failed "the conversation action" error
     | BlockWanted partner ->
       { model with Notice = None },
       Cmd.OfAsync.perform
@@ -1482,13 +1517,14 @@ module State =
       | Ok _ ->
         props.Env.Remotes.SetOpenTarget None
 
-        { model with Notice = None }, Cmd.none
+        { model with Notice = None },
+        Cmd.ofAction(fun () -> log.LogInformation("The block changed."))
       | Error error ->
         {
           model with
               Notice = Some(describe error)
         },
-        Cmd.none
+        failed "the block" error
     | OrgCreateWanted ->
       let name =
         model.OrgName.Trim()
@@ -1512,13 +1548,14 @@ module State =
               OrgMembers = []
               Notice = None
         },
-        Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogInformation("The org {Org} was created.", org.Id))
       | Error error ->
         {
           model with
               Notice = Some(describe error)
         },
-        Cmd.none
+        failed "the org creation" error
     | OrgRenameWanted ->
       match model.State.OpenTarget with
       | Some(Org org) ->
@@ -1668,29 +1705,38 @@ module State =
           Pinged
       | None -> model, Cmd.none
     | Pinged outcome ->
-      let said =
+      let said, logged =
         match outcome with
-        | Ok() -> None
-        | Error error -> Some(describe error)
+        | Ok() ->
+          None, Cmd.ofAction(fun () -> log.LogDebug("The ping went out."))
+        | Error error -> Some(describe error), failed "the ping" error
 
-      { model with Notice = said }, Cmd.none
+      { model with Notice = said }, logged
     | VoiceStaged outcome ->
       match outcome with
-      | Ok staged ->
+      | Ok(voice, waveform) ->
         {
           model with
               Recording = false
-              Voice = Some staged
+              Voice = Some(voice, waveform)
               Notice = None
         },
-        Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The voice note staged ({Bytes} bytes).",
+            voice.Bytes.Length
+          ))
       | Error failure ->
         {
           model with
               Recording = false
               Notice = Some(describe failure)
         },
-        Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogWarning(
+            "The voice note did not stage: {Error}",
+            bounded 300 (describe failure)
+          ))
     | VoiceDiscarded -> { model with Voice = None }, Cmd.none
 
   /// The page's inlets from outside: the shared clock, the session, the

@@ -25,6 +25,8 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
+open DevNull.Client.Env
+open Microsoft.Extensions.Logging
 open DevNull.Client.Formatting
 open DevNull.Client.Icons
 open DevNull.Client.ImageCache
@@ -49,7 +51,8 @@ type Props<'env
   and 'env :> IProvideLastVisit
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
-  and 'env :> IProvideSshKeys> = {
+  and 'env :> IProvideSshKeys
+  and 'env :> IProvideLogging> = {
   Env: 'env
   Log: LogKind
   Session: SignedInSession
@@ -221,6 +224,19 @@ module State =
       | node -> node)
 
   let update (props: Props<'env>) msg model =
+    let log = props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Log"
+    let kind = LogKinds.wire props.Log
+
+    // Every log line is an effect: update returns it as a command,
+    // and the loop writes it after the computation.
+    let failed what error =
+      Cmd.ofAction(fun () ->
+        log.LogWarning(
+          "The {What} failed: {Error}",
+          what,
+          bounded 300 (describe error)
+        ))
+
     match msg with
     | Fetched result ->
       match result with
@@ -235,14 +251,23 @@ module State =
               NewCount = None
               Ranked = page.IsRanked
         },
-        markVisit(props, page.Page.Items)
+        Cmd.batch [
+          markVisit(props, page.Page.Items)
+
+          Cmd.ofAction(fun () ->
+            log.LogDebug(
+              "The {Log} log fetched {Count} commits.",
+              kind,
+              page.Page.Items.Length
+            ))
+        ]
       | Error error ->
         {
           model with
               Loading = false
               Error = Some error
         },
-        Cmd.none
+        failed $"the {kind} log fetch" error
     | CheckNew ->
       // A ranked log is score ordered, so "newer than head" means
       // nothing; the site skips the poll there too.
@@ -261,7 +286,7 @@ module State =
                 page.NewCommitsCount |> Option.filter(fun count -> count > 0)
         },
         Cmd.none
-      | Error _ -> model, Cmd.none
+      | Error error -> model, failed "the new-commit check" error
     | NewRequested ->
       { model with NewCount = None },
       Cmd.OfAsync.perform fetch (props, None) NewFetched
@@ -281,8 +306,20 @@ module State =
               Ranked = page.IsRanked
         }
 
-        replaced, Cmd.ofEffect(fun _ -> props.Env.Timeline.ScrollToTop())
-      | Error error -> { model with Error = Some error }, Cmd.none
+        replaced,
+        Cmd.batch [
+          Cmd.ofEffect(fun _ -> props.Env.Timeline.ScrollToTop())
+
+          Cmd.ofAction(fun () ->
+            log.LogDebug(
+              "The {Log} log refreshed with {Count} commits.",
+              kind,
+              page.Page.Items.Length
+            ))
+        ]
+      | Error error ->
+        { model with Error = Some error },
+        failed $"the {kind} log refresh" error
     | ReloadRequested ->
       {
         model with
@@ -345,14 +382,15 @@ module State =
               Voting = None
               PollChoices = model.PollChoices |> Map.remove updated.Id
         },
-        Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The vote on {Commit} landed.", updated.Id))
       | Error error ->
         {
           model with
               Error = Some error
               Voting = None
         },
-        Cmd.none
+        failed "the poll vote" error
     | PreviewMoreRequested commit ->
       // The first ask reads the newest page whole, the way the site's
       // preview does; the next ones walk the cursor it left.
@@ -396,13 +434,20 @@ module State =
               Previews = model.Previews |> Map.add commitId grown
         },
         Cmd.none
-      | Error error -> { model with Error = Some error }, Cmd.none
+      | Error error ->
+        { model with Error = Some error }, failed "the thread preview" error
     | MoreRequested ->
       // A cursor means the next page; no cursor means the feed ended,
       // so a restore chase past the end asks for nothing.
       match model.NextCursor with
       | Some _ ->
-        model, Cmd.OfAsync.perform fetch (props, model.NextCursor) Appended
+        model,
+        Cmd.batch [
+          Cmd.OfAsync.perform fetch (props, model.NextCursor) Appended
+
+          Cmd.ofAction(fun () ->
+            log.LogTrace("The {Log} log asks for its next page.", kind))
+        ]
       | None -> model, Cmd.none
     | Appended result ->
       match result with
@@ -412,14 +457,25 @@ module State =
               Items = model.Items @ page.Page.Items
               NextCursor = page.Page.NextCursor
         },
-        Cmd.none
-      | Error error -> { model with Error = Some error }, Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The {Log} log grew by {Count} commits.",
+            kind,
+            page.Page.Items.Length
+          ))
+      | Error error ->
+        { model with Error = Some error }, failed "the next page" error
     | StarToggled commit ->
       { model with Error = None },
-      Cmd.OfAsync.perform
-        CommitActions.toggleStar
-        (props.Env, props.Session, commit)
-        StarDone
+      Cmd.batch [
+        Cmd.OfAsync.perform
+          CommitActions.toggleStar
+          (props.Env, props.Session, commit)
+          StarDone
+
+        Cmd.ofAction(fun () ->
+          log.LogTrace("The star on {Commit} is being toggled.", commit.Id))
+      ]
     | StarDone result ->
       match result with
       | Ok updated ->
@@ -427,8 +483,10 @@ module State =
           model with
               Items = replaceNode(model.Items, updated)
         },
-        Cmd.none
-      | Error error -> { model with Error = Some error }, Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The star on {Commit} settled.", updated.Id))
+      | Error error ->
+        { model with Error = Some error }, failed "the star" error
     | PastelGiven commit ->
       let give() =
         Pasteis.give(
@@ -447,8 +505,10 @@ module State =
           model with
               Items = replaceNode(model.Items, pastel.Commit)
         },
-        Cmd.none
-      | Error error -> { model with Error = Some error }, Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The pastel on {Commit} landed.", pastel.Commit.Id))
+      | Error error ->
+        { model with Error = Some error }, failed "the pastel" error
     | AttachedChanged attached -> { model with Attached = attached }, Cmd.none
     | ClockTicked moment -> { model with Now = moment }, Cmd.none
     | SessionChanged state ->
@@ -828,7 +888,8 @@ type Page<'env
   and 'env :> IProvideLastVisit
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
-  and 'env :> IProvideSshKeys>(props: Props<'env>) as this =
+  and 'env :> IProvideSshKeys
+  and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 
   do

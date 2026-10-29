@@ -15,6 +15,8 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
+open DevNull.Client.Env
+open Microsoft.Extensions.Logging
 open DevNull.Client.Navigation
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
@@ -26,7 +28,8 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideSession
-  and 'env :> IProvideSettings> = {
+  and 'env :> IProvideSettings
+  and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
   Nav: INavigable
@@ -90,6 +93,9 @@ module State =
       | LaneColor _ -> None)
 
   let update (props: Props<'env>) msg model =
+    let log =
+      props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Settings"
+
     match msg with
     | MeDone result ->
       match result with
@@ -100,14 +106,22 @@ module State =
               Error = None
               Me = Some me
         },
-        Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The account of {Handle} arrived.",
+            me.Profile.User.Handle
+          ))
       | Error error ->
         {
           model with
               Busy = false
               Error = Some error
         },
-        Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogWarning(
+            "The account request failed: {Error}",
+            bounded 300 (describe error)
+          ))
     | MeNote note -> { model with Note = Some note }, Cmd.none
     | LaneSet index ->
       let set() =
@@ -149,7 +163,13 @@ module State =
       let sync() =
         Me.syncGithub(props.Env, { KeyFile = props.Session.KeyFile })
 
-      { model with Error = None }, Cmd.OfAsync.perform sync () MeDone
+      { model with Error = None },
+      Cmd.batch [
+        Cmd.OfAsync.perform sync () MeDone
+
+        Cmd.ofAction(fun () ->
+          log.LogInformation("The GitHub sync was requested."))
+      ]
     | CloseToTraySet enabled ->
       let settings = {
         model.Settings with
@@ -443,7 +463,8 @@ type Page<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideSession
-  and 'env :> IProvideSettings>(props: Props<'env>) as this =
+  and 'env :> IProvideSettings
+  and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 
   do

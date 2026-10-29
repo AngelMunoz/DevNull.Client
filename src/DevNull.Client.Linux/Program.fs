@@ -4,4 +4,7 @@ open System
 open DevNull.Client.Startup
 
 [<EntryPoint; STAThread>]
-let main argv = start(Natives.services, argv)
+let main argv =
+  let logging = createLogging()
+
+  start(logging, Natives.services logging, argv)

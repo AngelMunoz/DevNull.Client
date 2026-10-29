@@ -1,5 +1,6 @@
 module DevNull.Client.SessionFiles
 
+open Microsoft.Extensions.Logging
 open DevNull.Client.Core.ApiTypes
 
 /// The verifier and state one browser approval must come back with.
@@ -13,25 +14,31 @@ val dataDirectory: string
 val writeAllTextAtomic: path: string -> content: string -> unit
 
 /// Keeps the verifier and state until the browser returns.
-val savePending: pending: PendingAuthorization -> Result<unit, string>
+val savePending:
+  log: ILogger * pending: PendingAuthorization -> Result<unit, string>
 
-/// Reads the pending verifier and state, when one exists.
-val loadPending: unit -> PendingAuthorization option
+/// Reads the pending verifier and state, when one exists. A file that
+/// exists but cannot serve the pair is a warning; an absent file is
+/// the ordinary no-sign-in-in-flight state.
+val loadPending: log: ILogger -> PendingAuthorization option
 
 /// Removes the pending verifier and state.
-val deletePending: unit -> unit
+val deletePending: log: ILogger -> unit
 
-/// Reads the stored session, when one exists.
-val loadSession: unit -> DeviceSession option
+/// Reads the stored session, when one exists. A file that exists but
+/// cannot serve a session is a warning; an absent file stays quiet,
+/// the way a probe answers.
+val loadSession: log: ILogger -> DeviceSession option
 
 /// Stores the session.
-val saveSession: session: DeviceSession -> Result<unit, string>
+val saveSession: log: ILogger * session: DeviceSession -> Result<unit, string>
 
 /// Removes the stored session.
-val clearSession: unit -> unit
+val clearSession: log: ILogger -> unit
 
 /// Stores the last sign-in error for the window that owns the UI.
-val saveLastError: message: string -> unit
+val saveLastError: log: ILogger * message: string -> unit
 
-/// Reads and clears the last sign-in error.
-val takeLastError: unit -> string option
+/// Reads and clears the last sign-in error, when one waits. An absent
+/// file stays quiet: the wait loop reads it every second.
+val takeLastError: log: ILogger -> string option

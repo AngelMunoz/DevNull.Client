@@ -1,6 +1,7 @@
 module DevNull.Client.Env
 
 open System
+open System.Diagnostics
 open System.IO
 open System.Net.Http
 open System.Net.Http.Headers
@@ -64,7 +65,7 @@ type RandomPkceSource() =
         .Replace('+', '-')
         .Replace('/', '_')
 
-type SshKeygenSigner() =
+type SshKeygenSigner(log: ILogger) =
 
   let stripArmor(armored: string) =
     armored.Split('\n')
@@ -76,31 +77,56 @@ type SshKeygenSigner() =
     let directory =
       Path.Combine(Path.GetTempPath(), "devnull." + Path.GetRandomFileName())
 
-    Directory.CreateDirectory(directory) |> ignore
+    let started = Stopwatch.StartNew()
 
-    let payloadFile = Path.Combine(directory, "commit")
+    try
+      try
+        Directory.CreateDirectory(directory) |> ignore
 
-    File.WriteAllText(payloadFile, request.Payload, UTF8Encoding(false))
+        let payloadFile = Path.Combine(directory, "commit")
 
-    let outcome: Result<string, SignFailure> =
-      match
-        SshKeygen.run(
-          $"-Y sign -f \"{request.KeyFile}\" -n {request.Namespace} \"{payloadFile}\""
+        log.LogTrace("The payload signs under {Namespace}.", request.Namespace)
+
+        File.WriteAllText(payloadFile, request.Payload, UTF8Encoding(false))
+
+        let outcome: Result<string, SignFailure> =
+          match
+            SshKeygen.run(
+              $"-Y sign -f \"{request.KeyFile}\" -n {request.Namespace} \"{payloadFile}\""
+            )
+          with
+          | Error message ->
+            log.LogWarning("ssh-keygen did not sign: {Error}", message.Trim())
+            Error { Message = message }
+          | Ok _ ->
+            try
+              File.ReadAllText(payloadFile + ".sig") |> stripArmor |> Ok
+            with ex ->
+              log.LogWarning(ex, "ssh-keygen left no signature file.")
+
+              Error { Message = ex.Message }
+
+        log.LogDebug(
+          "The payload signed in {Milliseconds} ms.",
+          started.ElapsedMilliseconds
         )
-      with
-      | Error message -> Error { Message = message }
-      | Ok _ -> File.ReadAllText(payloadFile + ".sig") |> stripArmor |> Ok
 
-    Directory.Delete(directory, true)
-
-    outcome
+        outcome
+      with ex ->
+        log.LogWarning(ex, "The signature did not happen.")
+        Error { Message = ex.Message }
+    finally
+      try
+        Directory.Delete(directory, true)
+      with :? IOException ->
+        ()
 
   interface ISigner with
     member _.Sign(request: SignRequest) : Async<Result<string, SignFailure>> =
       // ssh-keygen blocks until it exits, so it runs off the UI thread.
       asyncEx { return! Task.Run(fun () -> signSync request) }
 
-type HttpClientTransport(baseAddress: string) =
+type HttpClientTransport(baseAddress: string, log: ILogger) =
 
   let client =
     new HttpClient(
@@ -120,6 +146,8 @@ type HttpClientTransport(baseAddress: string) =
       // The caller's token reaches the socket, so a disposed page stops
       // its in-flight request instead of only its sleep.
       let! ct = Async.CancellationToken
+
+      let started = Stopwatch.StartNew()
 
       try
         use message =
@@ -164,6 +192,14 @@ type HttpClientTransport(baseAddress: string) =
         use response = response
         let! body = response.Content.ReadAsStringAsync(ct)
 
+        log.LogDebug(
+          "{Method} {Target} answered {Status} in {Milliseconds} ms.",
+          request.Method,
+          request.Target,
+          int response.StatusCode,
+          started.ElapsedMilliseconds
+        )
+
         return
           Ok {
             Status = int response.StatusCode
@@ -171,6 +207,13 @@ type HttpClientTransport(baseAddress: string) =
             Body = body
           }
       with ex ->
+        log.LogWarning(
+          ex,
+          "{Method} {Target} did not answer.",
+          request.Method,
+          request.Target
+        )
+
         return Error({ Message = ex.Message }: TransportFailure)
     }
 
@@ -178,6 +221,14 @@ type HttpClientTransport(baseAddress: string) =
       (target: string)
       : Async<Result<byte array, TransportFailure>> = asyncEx {
       let! ct = Async.CancellationToken
+      let started = Stopwatch.StartNew()
+
+      // The path alone goes to the log: a media URL's query carries the
+      // signature that grants the download.
+      let path =
+        match target.IndexOf '?' with
+        | -1 -> target
+        | i -> target[.. i - 1]
 
       try
         use message = new HttpRequestMessage(HttpMethod.Get, target)
@@ -191,8 +242,18 @@ type HttpClientTransport(baseAddress: string) =
         use response = response
         let! bytes = response.Content.ReadAsByteArrayAsync(ct)
 
+        log.LogDebug(
+          "GET {Path} answered {Status} with {Bytes} bytes in {Milliseconds} ms.",
+          path,
+          int response.StatusCode,
+          bytes.Length,
+          started.ElapsedMilliseconds
+        )
+
         return Ok bytes
       with ex ->
+        log.LogWarning(ex, "GET {Path} did not answer.", path)
+
         return Error({ Message = ex.Message }: TransportFailure)
     }
 
@@ -210,8 +271,10 @@ type AppEnv
   let clock = SystemClock()
   let nonceSource = RandomNonceSource()
   let pkceSource = RandomPkceSource()
-  let signer = SshKeygenSigner()
-  let http = HttpClientTransport(baseAddress)
+  let signer = SshKeygenSigner(logging.CreateLogger "DevNull.Client.Signer")
+
+  let http =
+    HttpClientTransport(baseAddress, logging.CreateLogger "DevNull.Client.Http")
 
   let imageCache =
     ImageCacheService(
@@ -223,35 +286,41 @@ type AppEnv
         "cache",
         "images"
       ),
-      (http :> IHttp).GetBytes
+      (http :> IHttp).GetBytes,
+      logging.CreateLogger "DevNull.Client.ImageCache"
     )
 
   // The attachment sources resolve the main window per call: the shell
   // owns the window, the env outlives it.
   let attachments =
-    AttachmentSources.desktop(fun () ->
-      match Avalonia.Application.Current with
-      | null -> ValueNone
-      | app ->
-        match app.ApplicationLifetime with
-        | :? IClassicDesktopStyleApplicationLifetime as desktop ->
-          match desktop.MainWindow with
-          | null -> ValueNone
-          | window -> ValueSome(window :> TopLevel)
-        | _ -> ValueNone)
+    AttachmentSources.desktop(
+      logging.CreateLogger "DevNull.Client.Attachments",
+      fun () ->
+        match Avalonia.Application.Current with
+        | null -> ValueNone
+        | app ->
+          match app.ApplicationLifetime with
+          | :? IClassicDesktopStyleApplicationLifetime as desktop ->
+            match desktop.MainWindow with
+            | null -> ValueNone
+            | window -> ValueSome(window :> TopLevel)
+          | _ -> ValueNone
+    )
 
   let logger = logging.CreateLogger "DevNull.Client.SettingsStore"
 
   let settings =
     AppSettingsStore(
       (match SettingsStore.load() with
-       | Ok settings -> settings
+       | Ok settings ->
+         logger.LogDebug("The settings were read.")
+         settings
        | Error message ->
          logger.LogError("The settings were not read: {Error}", message)
          None),
       fun value ->
         match SettingsStore.save value with
-        | Ok() -> ()
+        | Ok() -> logger.LogDebug("The settings were saved.")
         | Error message ->
           logger.LogError("The settings were not saved: {Error}", message)
     )
@@ -259,6 +328,8 @@ type AppEnv
   let uiClock = UiClockService(TimeSpan.FromMinutes 1.0)
 
   let lastVisit = LastVisitStore()
+
+  let profilesLog = logging.CreateLogger "DevNull.Client.Profiles"
 
   let profiles = {
     new IProfiles with
@@ -276,8 +347,17 @@ type AppEnv
 
           return
             match result with
-            | Ok details -> Some details
-            | Error _ -> None
+            | Ok details ->
+              profilesLog.LogDebug("The profile of {User} arrived.", username)
+              Some details
+            | Error error ->
+              profilesLog.LogWarning(
+                "The profile of {User} did not arrive: {Error}",
+                username,
+                bounded 300 (describe error)
+              )
+
+              None
         | ValueNone -> return None
       }
   }

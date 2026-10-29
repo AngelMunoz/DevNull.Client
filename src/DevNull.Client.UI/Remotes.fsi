@@ -188,7 +188,8 @@ type RemotesStore =
 /// one for the inbox, paused while the window is inactive or the
 /// session is signed out.
 and RemotesWatcher =
-  new: store: RemotesStore * session: SessionStore -> RemotesWatcher
+  new:
+    store: RemotesStore * session: SessionStore * log: ILogger -> RemotesWatcher
 
   /// Starts the loops under the activity gate: true while the window
   /// stands on screen. The disposable stops every loop.

@@ -30,6 +30,8 @@ open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Core.Types
 open DevNull.Client.Errors
+open DevNull.Client.Env
+open Microsoft.Extensions.Logging
 open DevNull.Client.Formatting
 open DevNull.Client.Icons
 open DevNull.Client.ImageCache
@@ -102,6 +104,7 @@ module Thread =
     Settings: AppSettingsStore
     /// The one note that may sound at a time.
     Solo: Solo
+    Log: ILogger
     /// How wide the reading pane stands, so bubbles take their
     /// fraction of it the way the site caps theirs.
     PaneWidth: IObservable<float>
@@ -294,13 +297,15 @@ module Thread =
 
   /// Everything the voice player reads: the engine the platform head
   /// passed, the transport the bytes download through, the settings
-  /// the volume lives in, the one-note stage, and the note itself.
+  /// the volume lives in, the one-note stage, the note itself, and the
+  /// logger of its failures.
   [<Struct>]
   type VoiceCtx = {
     Audio: IAudioEngine voption
     Http: IHttp
     Settings: AppSettingsStore
     Solo: Solo
+    Log: ILogger
     Source: VoiceSource
   }
 
@@ -469,9 +474,24 @@ module Thread =
         | Ok bytes, Wanting _ ->
           let next = { model with Media = Some bytes }
 
-          next, ask voice next
+          next,
+          Cmd.batch [
+            ask voice next
+
+            Cmd.ofAction(fun () ->
+              voice.Log.LogDebug(
+                "The voice note's bytes arrived ({Bytes} bytes).",
+                bytes.Length
+              ))
+          ]
         | Ok bytes, _ -> { model with Media = Some bytes }, Cmd.none
-        | Error _, _ -> { model with Phase = Failed }, Cmd.none
+        | Error failure, _ ->
+          { model with Phase = Failed },
+          Cmd.ofAction(fun () ->
+            voice.Log.LogWarning(
+              "The voice note's bytes did not download: {Error}",
+              failure.Message.Trim()
+            ))
       | Sounded sounded ->
         match sounded, model.Phase with
         | Ok playback, Wanting resume ->
@@ -491,9 +511,19 @@ module Thread =
                    | Some at when at > TimeSpan.Zero -> at
                    | _ -> playback.Position)
           },
-          Cmd.none
+          Cmd.ofAction(fun () -> voice.Log.LogDebug("The voice note sounds."))
         | Ok _, _ -> model, Cmd.none
-        | Error _, _ -> { model with Phase = Failed }, Cmd.none
+        | Error failure, _ ->
+          { model with Phase = Failed },
+          Cmd.ofAction(fun () ->
+            voice.Log.LogWarning(
+              "The voice note did not sound: {Why}",
+              match failure with
+              | AudioFailed message -> message
+              | NoDevice -> "no playback device"
+              | Denied -> "the playback device is not allowed"
+              | Busy -> "the playback device is busy"
+            ))
       | WentIdle ->
         stop model
 
@@ -1186,6 +1216,7 @@ module Thread =
                 Http = ctx.Http
                 Settings = ctx.Settings
                 Solo = ctx.Solo
+                Log = ctx.Log
                 Source = Remote clip
               }
             )
@@ -2527,15 +2558,16 @@ module Thread =
               .Orientation(Orientation.Horizontal)
               .Spacing(8.0)
               .Children(
-                voiceChip(
-                  {
-                    Audio = props.Env.Natives.Audio
-                    Http = props.Env.Http
-                    Settings = props.Env.Settings
-                    Solo = solo
-                    Source = Staged(attachment.Bytes, bars)
-                  }
-                ),
+                voiceChip {
+                  Audio = props.Env.Natives.Audio
+                  Http = props.Env.Http
+                  Settings = props.Env.Settings
+                  Solo = solo
+                  Log =
+                    props.Env.LoggerFactory.CreateLogger
+                      "DevNull.Client.Views.RemotesVoice"
+                  Source = Staged(attachment.Bytes, bars)
+                },
                 Button()
                   .Classes(Theme.name Theme.GhostButton)
                   .Padding(4.0)
@@ -3294,6 +3326,8 @@ module Thread =
       Http = props.Env.Http
       Settings = props.Env.Settings
       Solo = solo
+      Log =
+        props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.RemotesVoice"
       PaneWidth = paneWidth
     }
 

@@ -4,6 +4,7 @@ open Avalonia.Controls
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.Env
 open DevNull.Client.ImageCache
 open DevNull.Client.Natives
 open DevNull.Client.Profiles
@@ -26,6 +27,7 @@ type Page<'env
   and 'env :> IProvideSettings
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideNatives
-  and 'env :> IProvideRemotes> =
+  and 'env :> IProvideRemotes
+  and 'env :> IProvideLogging> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

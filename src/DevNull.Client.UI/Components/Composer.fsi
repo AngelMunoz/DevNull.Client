@@ -6,6 +6,7 @@ open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.Env
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 
@@ -40,7 +41,8 @@ type Props<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideAttachmentSources> = {
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
   Target: Target
@@ -62,6 +64,7 @@ type Page<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideAttachmentSources> =
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLogging> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

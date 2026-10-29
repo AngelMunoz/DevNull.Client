@@ -4,6 +4,7 @@ open System
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Platform
+open Microsoft.Extensions.Logging
 open Navs
 open DevNull.Client.Navigation
 
@@ -17,17 +18,6 @@ let raiseWindow(window: Window) : unit =
 
   window.Activate()
 
-let navigate(window: Window, router: IRouter<Control>, url: string) : unit =
-  raiseWindow window
-  go(router, url, ignore)
-
-let menuItem(label: string, onClick: unit -> unit) : NativeMenuItem =
-  let entry = NativeMenuItem(Header = label)
-
-  entry.Click.Add(fun _ -> onClick())
-
-  entry
-
 /// Everything the tray needs: the window it raises, the router it
 /// navigates, the unread count it badges, and the real quit.
 [<Struct>]
@@ -36,7 +26,21 @@ type TrayProps = {
   Router: IRouter<Control>
   Unread: IObservable<int>
   Quit: unit -> unit
+  Log: ILogger
 }
+
+let navigate(props: TrayProps, url: string) : unit =
+  raiseWindow props.Window
+
+  props.Log.LogDebug("The tray navigates to {Url}.", url)
+  go(props.Router, url, fun error -> props.Log.LogWarning("{Error}", error))
+
+let menuItem(label: string, onClick: unit -> unit) : NativeMenuItem =
+  let entry = NativeMenuItem(Header = label)
+
+  entry.Click.Add(fun _ -> onClick())
+
+  entry
 
 let install(props: TrayProps) : unit =
   let window = props.Window
@@ -51,30 +55,22 @@ let install(props: TrayProps) : unit =
 
   let menu = NativeMenu()
 
-  menu.Add(
-    menuItem(
-      "Open /dev/null",
-      fun () -> navigate(window, props.Router, "/log/latest")
-    )
-  )
+  menu.Add(menuItem("Open /dev/null", fun () -> navigate(props, "/log/latest")))
 
   menu.Add(
-    menuItem(
-      "Notifications",
-      fun () -> navigate(window, props.Router, "/notifications")
-    )
+    menuItem("Notifications", fun () -> navigate(props, "/notifications"))
   )
 
-  menu.Add(
-    menuItem("Saved", fun () -> navigate(window, props.Router, "/saved"))
-  )
+  menu.Add(menuItem("Saved", fun () -> navigate(props, "/saved")))
 
   menu.Add(NativeMenuItemSeparator())
   menu.Add(menuItem("Quit", props.Quit))
 
   icon.Menu <- menu
 
-  icon.Clicked.Add(fun _ -> raiseWindow window)
+  icon.Clicked.Add(fun _ ->
+    props.Log.LogDebug("The tray raised the window.")
+    raiseWindow window)
 
   props.Unread
   |> Observable.add(fun count ->

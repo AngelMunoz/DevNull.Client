@@ -24,6 +24,8 @@ open DevNull.Client.Core.Commit
 open DevNull.Client.Core.Http
 open DevNull.Client.Core.Types
 open DevNull.Client.Errors
+open DevNull.Client.Env
+open Microsoft.Extensions.Logging
 open DevNull.Client.Icons
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
@@ -55,7 +57,8 @@ type Props<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideAttachmentSources> = {
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
   Target: Target
@@ -137,6 +140,9 @@ module State =
     { initial with Body = seeded }, Cmd.none
 
   let update (props: Props<'env>) msg (model: Model) =
+    let log =
+      props.Env.LoggerFactory.CreateLogger "DevNull.Client.Components.Composer"
+
     match msg with
     | BodyChanged text ->
       let changed =
@@ -156,7 +162,17 @@ module State =
       // size, and the content sniff speak before the post.
       match CommitImages.parse combined with
       | Ok _ -> { model with Attachments = combined }, reclaim
-      | Error error -> { model with Error = Some error }, reclaim
+      | Error error ->
+        { model with Error = Some error },
+        Cmd.batch [
+          reclaim
+
+          Cmd.ofAction(fun () ->
+            log.LogWarning(
+              "The staged images were refused: {Error}",
+              bounded 300 (describe error)
+            ))
+        ]
     | ImageRemoved index ->
       let attachments =
         model.Attachments
@@ -256,7 +272,12 @@ module State =
       match pollSpec with
       | Error error ->
         // The refusal keeps the box open with what was typed.
-        { model with Error = Some error }, Cmd.none
+        { model with Error = Some error },
+        Cmd.ofAction(fun () ->
+          log.LogWarning(
+            "The poll was refused: {Error}",
+            bounded 300 (describe error)
+          ))
       | Ok spec ->
         { model with Busy = true; Error = None },
         Cmd.OfAsync.perform
@@ -280,16 +301,25 @@ module State =
           initial with
               Committed = model.Committed + 1
         },
-        Cmd.ofEffect(fun _ ->
-          props.OnCommitted commit
-          collectStaged())
+        Cmd.batch [
+          Cmd.ofEffect(fun _ ->
+            props.OnCommitted commit
+            collectStaged())
+
+          Cmd.ofAction(fun () ->
+            log.LogInformation("The commit {Hash} was posted.", commit.Id))
+        ]
       | Error error ->
         {
           model with
               Busy = false
               Error = Some error
         },
-        Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogWarning(
+            "The commit was not posted: {Error}",
+            bounded 300 (describe error)
+          ))
 
 /// The composer's semantic regions; the view only composes these.
 module Parts =
@@ -800,7 +830,8 @@ type Page<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideAttachmentSources>(props: Props<'env>) as this =
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 
   do

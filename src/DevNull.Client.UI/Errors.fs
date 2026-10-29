@@ -115,6 +115,16 @@ type AppError =
     static member WaveformBarOutOfRange bar = WaveformBarOutOfRange bar
     static member VoiceProhibited conflict = VoiceProhibited conflict
 
+/// Caps server-provided text for the log: a refusal carries the
+/// server's body, and the log needs the reason, not the whole payload.
+let bounded (limit: int) (text: string) : string =
+  let trimmed = text.Trim()
+
+  if trimmed.Length <= limit then
+    trimmed
+  else
+    trimmed.Substring(0, limit) + "…"
+
 /// One line of plain text per failure, for the app.
 let describe error =
   let refused (what: string) (status: int, body: string) =

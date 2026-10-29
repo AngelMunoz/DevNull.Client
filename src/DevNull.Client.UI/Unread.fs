@@ -26,9 +26,16 @@ type PollContext = {
 let poll(context: PollContext) : Async<unit> = asyncEx {
   match context.Session.SignedIn with
   | ValueSome _ ->
+    context.Log.LogTrace("The unread poll runs.")
+
     try
       match! context.Fetch() with
       | Ok me ->
+        context.Log.LogDebug(
+          "The unread poll refreshed ({Count} unread).",
+          me.UnreadNotificationsCount
+        )
+
         match context.Session.SignedIn with
         | ValueSome current ->
           context.Session.Refresh {
@@ -42,7 +49,7 @@ let poll(context: PollContext) : Async<unit> = asyncEx {
         context.Log.LogError("The unread poll failed: {Error}", describe error)
     with ex ->
       context.Log.LogError(ex, "The unread poll failed")
-  | ValueNone -> ()
+  | ValueNone -> context.Log.LogTrace("The unread poll skips while signed out.")
 }
 
 /// Waits until the inbox leaves the screen, polls, sleeps, and repeats.
@@ -92,11 +99,18 @@ type UnreadService
       DelayMs = int interval.TotalMilliseconds
     }
 
+    log.LogInformation(
+      "The unread poll started every {Seconds} seconds.",
+      interval.TotalSeconds
+    )
+
     Async.Start(loop context, source.Token)
 
     {
       new IDisposable with
-        member _.Dispose() = source.Cancel()
+        member _.Dispose() =
+          log.LogDebug("The unread poll stopped.")
+          source.Cancel()
     }
 
   /// The live unread count, derived from the session store.

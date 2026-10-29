@@ -15,6 +15,8 @@ open DevNull.Client
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.Env
+open Microsoft.Extensions.Logging
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Components.Avatar
 open DevNull.Client.Components.Composer
@@ -35,7 +37,8 @@ type Props<'env
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideTimeline
   and 'env :> IProvideRoutes
-  and 'env :> IProvideSshKeys> = {
+  and 'env :> IProvideSshKeys
+  and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
   Nav: INavigable
@@ -196,6 +199,9 @@ module State =
     Cmd.none
 
   let update (props: Props<'env>) (msg: Msg) (model: Model) : Model * Cmd<Msg> =
+    let log =
+      props.Env.LoggerFactory.CreateLogger "DevNull.Client.Components.LogChrome"
+
     match msg with
     | PathChanged path ->
       {
@@ -213,7 +219,12 @@ module State =
         Cmd.ofEffect(fun _ ->
           Parts.logTabs
           |> List.tryFind(fun tab -> tab.Kind = kind)
-          |> Option.iter(fun tab -> Navigation.go(props.Nav, tab.Url, ignore)))
+          |> Option.iter(fun tab ->
+            Navigation.go(
+              props.Nav,
+              tab.Url,
+              fun error -> log.LogWarning("{Error}", error)
+            )))
 
   /// The chrome's one inlet from outside: the route store.
   let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
@@ -249,7 +260,8 @@ type Page<'env
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideTimeline
   and 'env :> IProvideRoutes
-  and 'env :> IProvideSshKeys>(props: Props<'env>) as this =
+  and 'env :> IProvideSshKeys
+  and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 
   do

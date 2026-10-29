@@ -11,6 +11,7 @@ open DevNull.Client
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.Env
 open DevNull.Client.Icons
 open DevNull.Client.ImageCache
 open DevNull.Client.Natives
@@ -136,7 +137,8 @@ type Page<'env
   and 'env :> IProvideSettings
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideNatives
-  and 'env :> IProvideRemotes>(props: Props<'env>) as this =
+  and 'env :> IProvideRemotes
+  and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 
   do

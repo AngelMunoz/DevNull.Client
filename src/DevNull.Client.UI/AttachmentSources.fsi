@@ -25,4 +25,7 @@ type IProvideAttachmentSources =
 /// storage provider's picker and the clipboard's formats. A clipboard
 /// image stages its original PNG, JPEG, or WebP bytes; only a platform
 /// that exposes no image bytes falls back to a decoded bitmap.
-val desktop: resolve: (unit -> TopLevel voption) -> IAttachmentSources
+val desktop:
+  log: Microsoft.Extensions.Logging.ILogger *
+  resolve: (unit -> TopLevel voption) ->
+    IAttachmentSources

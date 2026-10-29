@@ -19,6 +19,8 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
+open DevNull.Client.Env
+open Microsoft.Extensions.Logging
 open DevNull.Client.ImageCache
 open DevNull.Client.Navigation
 open DevNull.Client.Profiles
@@ -34,7 +36,8 @@ type Props<'env
   and 'env :> IProvideSession
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
-  and 'env :> IProvideProfiles> = {
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
   Nav: INavigable
@@ -104,6 +107,18 @@ module State =
       | node -> node)
 
   let update (props: Props<'env>) msg model =
+    let log = props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Saved"
+
+    // Every log line is an effect: update returns it as a command,
+    // and the loop writes it after the computation.
+    let failed what error =
+      Cmd.ofAction(fun () ->
+        log.LogWarning(
+          "The {What} failed: {Error}",
+          what,
+          bounded 300 (describe error)
+        ))
+
     match msg with
     | Fetched result ->
       match result with
@@ -115,14 +130,18 @@ module State =
               Items = page.Items
               NextCursor = page.NextCursor
         },
-        Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The saved list fetched {Count} commits.",
+            page.Items.Length
+          ))
       | Error error ->
         {
           model with
               Loading = false
               Error = Some error
         },
-        Cmd.none
+        failed "the saved list fetch" error
     | MoreRequested ->
       model,
       Cmd.OfAsync.perform
@@ -137,8 +156,14 @@ module State =
               Items = model.Items @ page.Items
               NextCursor = page.NextCursor
         },
-        Cmd.none
-      | Error error -> { model with Error = Some error }, Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The saved list grew by {Count} commits.",
+            page.Items.Length
+          ))
+      | Error error ->
+        { model with Error = Some error },
+        failed "the saved list next page" error
     | StarToggled commit ->
       { model with Error = None },
       Cmd.OfAsync.perform
@@ -152,8 +177,10 @@ module State =
           model with
               Items = replaceNode(model.Items, updated)
         },
-        Cmd.none
-      | Error error -> { model with Error = Some error }, Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The star on {Commit} settled.", updated.Id))
+      | Error error ->
+        { model with Error = Some error }, failed "the star" error
     | PollChoiceChanged(commit, option, chosen) ->
       {
         model with
@@ -195,14 +222,15 @@ module State =
               Voting = None
               PollChoices = model.PollChoices |> Map.remove updated.Id
         },
-        Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The vote on {Commit} landed.", updated.Id))
       | Error error ->
         {
           model with
               Error = Some error
               Voting = None
         },
-        Cmd.none
+        failed "the poll vote" error
     | PastelGiven commit ->
       let give() =
         Pasteis.give(
@@ -221,8 +249,10 @@ module State =
           model with
               Items = replaceNode(model.Items, pastel.Commit)
         },
-        Cmd.none
-      | Error error -> { model with Error = Some error }, Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The pastel on {Commit} landed.", pastel.Commit.Id))
+      | Error error ->
+        { model with Error = Some error }, failed "the pastel" error
     | ClockTicked moment -> { model with Now = moment }, Cmd.none
     | SessionChanged state ->
       let pasteis =
@@ -354,7 +384,8 @@ type Page<'env
   and 'env :> IProvideSession
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
-  and 'env :> IProvideProfiles>(props: Props<'env>) as this =
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 
   do

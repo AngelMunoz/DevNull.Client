@@ -21,6 +21,8 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
+open DevNull.Client.Env
+open Microsoft.Extensions.Logging
 open DevNull.Client.Formatting
 open DevNull.Client.Icons
 open DevNull.Client.ImageCache
@@ -38,7 +40,8 @@ type Props<'env
   and 'env :> IProvideSession
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
-  and 'env :> IProvideProfiles> = {
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
   Nav: INavigable
@@ -159,6 +162,19 @@ module State =
       "Notifications"
 
   let update (props: Props<'env>) msg model =
+    let log =
+      props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Notifications"
+
+    // Every log line is an effect: update returns it as a command,
+    // and the loop writes it after the computation.
+    let failed what error =
+      Cmd.ofAction(fun () ->
+        log.LogWarning(
+          "The {What} failed: {Error}",
+          what,
+          bounded 300 (describe error)
+        ))
+
     match msg with
     | Fetched result ->
       match result with
@@ -170,14 +186,18 @@ module State =
               Items = page.Page.Items
               NextCursor = page.Page.NextCursor
         },
-        Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The inbox fetched {Count} notifications.",
+            page.Page.Items.Length
+          ))
       | Error error ->
         {
           model with
               Loading = false
               Error = Some error
         },
-        Cmd.none
+        failed "the inbox fetch" error
     | FilterChosen filter ->
       // Clicking the pill already in play clears the filter.
       let next = if model.Filter = filter then None else filter
@@ -222,8 +242,13 @@ module State =
               Items = model.Items @ page.Page.Items
               NextCursor = page.Page.NextCursor
         },
-        Cmd.none
-      | Error error -> { model with Error = Some error }, Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The inbox grew by {Count} notifications.",
+            page.Page.Items.Length
+          ))
+      | Error error ->
+        { model with Error = Some error }, failed "the inbox next page" error
     | GroupToggled notification ->
       let group = groupOf(notification, model)
 
@@ -264,20 +289,30 @@ module State =
       let group =
         model.Groups |> Map.tryFind groupId |> Option.defaultValue closedGroup
 
-      let next =
+      let next, logged =
         match result with
-        | Ok page -> {
+        | Ok page ->
+          {
             group with
                 Items = page.Items
                 Failed = false
-          }
-        | Error _ -> { group with Failed = true }
+          },
+          Cmd.ofAction(fun () ->
+            log.LogDebug(
+              "The group {Group} opened with {Count} notifications.",
+              groupId,
+              page.Items.Length
+            ))
+        | Error error ->
+          // The page shows a failed line; the log keeps the reason.
+          { group with Failed = true },
+          failed $"the group {groupId} fetch" error
 
       {
         model with
             Groups = model.Groups.Add(groupId, next)
       },
-      Cmd.none
+      logged
     | ClockTicked moment -> { model with Now = moment }, Cmd.none
     | SessionChanged state ->
       let unread =
@@ -795,7 +830,8 @@ type Page<'env
   and 'env :> IProvideSession
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
-  and 'env :> IProvideProfiles>(props: Props<'env>) as this =
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 
   do

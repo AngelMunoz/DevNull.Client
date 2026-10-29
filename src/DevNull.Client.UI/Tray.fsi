@@ -2,6 +2,7 @@ module DevNull.Client.Tray
 
 open System
 open Avalonia.Controls
+open Microsoft.Extensions.Logging
 open Navs
 
 /// Everything the tray needs: the window it raises, the router it
@@ -12,6 +13,7 @@ type TrayProps = {
   Router: IRouter<Control>
   Unread: IObservable<int>
   Quit: unit -> unit
+  Log: ILogger
 }
 
 /// Installs the single tray icon: an icon menu (Open, Notifications,

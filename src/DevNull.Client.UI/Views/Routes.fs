@@ -26,6 +26,10 @@ open DevNull.Client.Views
 /// Fires one navigation now and reports a failed one through the env's
 /// logger.
 let go(env: #IProvideLogging, nav: INavigable, url: string) : unit =
+  env.LoggerFactory
+    .CreateLogger("DevNull.Client.Views.Routes")
+    .LogDebug("The app navigates to {Url}.", url)
+
   Navigation.go(
     nav,
     url,
@@ -64,7 +68,7 @@ let signedIn
 let logPage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideTimeline,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideTimeline & #IProvideLogging,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -89,7 +93,7 @@ let logPage
 let commitPage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideLogging,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -116,7 +120,7 @@ let commitPage
 let quotePage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideLogging,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -140,7 +144,7 @@ let quotePage
 let signInPage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideLogging,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -154,7 +158,7 @@ let signInPage
 let notificationsPage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideLogging,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -195,7 +199,7 @@ let remotesPage
 let savedPage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideLogging,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -214,7 +218,7 @@ let savedPage
 let profilePage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideLogging,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -241,7 +245,7 @@ let profilePage
 let settingsPage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideSettings,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideSettings & #IProvideLogging,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -352,7 +356,14 @@ let build
 
     // The about page carries no session: it states what the project is
     // and that it stands alone from the service.
-    Route.define<Control>("about", "/about", fun _ _ -> AboutView.view())
+    Route.define<Control>(
+      "about",
+      "/about",
+      fun context _ ->
+        AboutView.view(
+          env.LoggerFactory.CreateLogger "DevNull.Client.Views.About"
+        )
+    )
   ]
 
   let router =

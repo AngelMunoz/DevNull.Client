@@ -21,6 +21,8 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
+open DevNull.Client.Env
+open Microsoft.Extensions.Logging
 open DevNull.Client.ImageCache
 open DevNull.Client.Navigation
 open DevNull.Client.Profiles
@@ -36,7 +38,8 @@ type Props<'env
   and 'env :> IProvideSession
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
-  and 'env :> IProvideProfiles> = {
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideLogging> = {
   Env: 'env
   Username: string
   Session: SignedInSession
@@ -172,6 +175,19 @@ module State =
          })
         CommitsFetched
 
+    let log =
+      props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Profile"
+
+    // Every log line is an effect: update returns it as a command,
+    // and the loop writes it after the computation.
+    let failed what error =
+      Cmd.ofAction(fun () ->
+        log.LogWarning(
+          "The {What} failed: {Error}",
+          what,
+          bounded 300 (describe error)
+        ))
+
     match msg with
     | Fetched result ->
       match result with
@@ -182,14 +198,15 @@ module State =
               Error = None
               Details = Some details
         },
-        Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The profile of {User} arrived.", username))
       | Error error ->
         {
           model with
               Loading = false
               Error = Some error
         },
-        Cmd.none
+        failed $"the profile of {username}" error
     | CommitsFetched result ->
       match result with
       | Ok page ->
@@ -199,8 +216,15 @@ module State =
               Commits = model.Commits @ page.Items
               NextCursor = page.NextCursor
         },
-        Cmd.none
-      | Error error -> { model with Error = Some error }, Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The commits of {User} arrived ({Count}).",
+            username,
+            page.Items.Length
+          ))
+      | Error error ->
+        { model with Error = Some error },
+        failed $"the commits of {username}" error
     | MoreCommits ->
       model,
       Cmd.OfAsync.perform
@@ -239,8 +263,10 @@ module State =
           model with
               Commits = replaceNode(model.Commits, updated)
         },
-        Cmd.none
-      | Error error -> { model with Error = Some error }, Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The star on {Commit} settled.", updated.Id))
+      | Error error ->
+        { model with Error = Some error }, failed "the star" error
     | PollChoiceChanged(commit, option, chosen) ->
       {
         model with
@@ -282,14 +308,15 @@ module State =
               Voting = None
               PollChoices = model.PollChoices |> Map.remove updated.Id
         },
-        Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The vote on {Commit} landed.", updated.Id))
       | Error error ->
         {
           model with
               Error = Some error
               Voting = None
         },
-        Cmd.none
+        failed "the poll vote" error
     | PastelGiven commit ->
       let give() =
         Pasteis.give(
@@ -308,8 +335,10 @@ module State =
           model with
               Commits = replaceNode(model.Commits, pastel.Commit)
         },
-        Cmd.none
-      | Error error -> { model with Error = Some error }, Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The pastel on {Commit} landed.", pastel.Commit.Id))
+      | Error error ->
+        { model with Error = Some error }, failed "the pastel" error
     | FollowToggled ->
       let following =
         model.Details |> Option.map _.IsFollowing |> Option.defaultValue false
@@ -357,34 +386,55 @@ module State =
       | Ok _ ->
         // the follow state lives on the profile; a refetch keeps it honest
         { model with Error = None },
-        Cmd.OfAsync.perform
-          Users.get
-          (props.Env,
-           {
-             KeyFile = props.Session.KeyFile
-             Username = username
-           })
-          Fetched
-      | Error error -> { model with Error = Some error }, Cmd.none
+        Cmd.batch [
+          Cmd.OfAsync.perform
+            Users.get
+            (props.Env,
+             {
+               KeyFile = props.Session.KeyFile
+               Username = username
+             })
+            Fetched
+
+          Cmd.ofAction(fun () ->
+            log.LogInformation("The follow of {User} changed.", username))
+        ]
+      | Error error ->
+        { model with Error = Some error },
+        failed $"the follow of {username}" error
     | MuteDone result ->
       match result with
       | Ok _ ->
         { model with Error = None },
-        Cmd.OfAsync.perform
-          Users.get
-          (props.Env,
-           {
-             KeyFile = props.Session.KeyFile
-             Username = username
-           })
-          Fetched
-      | Error error -> { model with Error = Some error }, Cmd.none
+        Cmd.batch [
+          Cmd.OfAsync.perform
+            Users.get
+            (props.Env,
+             {
+               KeyFile = props.Session.KeyFile
+               Username = username
+             })
+            Fetched
+
+          Cmd.ofAction(fun () ->
+            log.LogInformation("The mute of {User} changed.", username))
+        ]
+      | Error error ->
+        { model with Error = Some error },
+        failed $"the mute of {username}" error
     | BlockDone result ->
       match result with
       | Ok _ ->
-        Navigation.go(props.Nav, "/log/latest", ignore)
-        model, Cmd.none
-      | Error error -> { model with Error = Some error }, Cmd.none
+        model,
+        Cmd.batch [
+          Cmd.ofEffect(fun _ -> Navigation.go(props.Nav, "/log/latest", ignore))
+
+          Cmd.ofAction(fun () ->
+            log.LogInformation("The block of {User} changed.", username))
+        ]
+      | Error error ->
+        { model with Error = Some error },
+        failed $"the block of {username}" error
     | ClockTicked moment -> { model with Now = moment }, Cmd.none
     | SessionChanged state ->
       let pasteis =
@@ -902,7 +952,8 @@ type Page<'env
   and 'env :> IProvideSession
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
-  and 'env :> IProvideProfiles>(props: Props<'env>) as this =
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 
   do

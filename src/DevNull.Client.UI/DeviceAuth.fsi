@@ -1,5 +1,6 @@
 module DevNull.Client.DeviceAuth
 
+open Microsoft.Extensions.Logging
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
@@ -19,6 +20,15 @@ type SignInStart = {
   Url: string
 }
 
+/// Everything one callback completion carries: the device key, the
+/// callback URI, and the logger for the file moves and the mismatch.
+[<Struct>]
+type CompleteArgs = {
+  Key: DeviceKey
+  CallbackUri: string
+  Log: ILogger
+}
+
 /// The server the app signs in to.
 val baseAddress: string
 
@@ -27,7 +37,7 @@ val baseAddress: string
 val devicePrivateKeyPath: string
 
 /// Creates the app key when it is missing, and returns its SSH fingerprint.
-val ensureKey: unit -> Result<DeviceKey, string>
+val ensureKey: log: ILogger -> Result<DeviceKey, string>
 
 /// Starts one device authorization and returns the browser URL.
 val startAuthorization:
@@ -36,8 +46,7 @@ val startAuthorization:
 
 /// Verifies the callback state, redeems the code, and stores the session.
 val complete:
-  env: 'env * key: DeviceKey * callbackUri: string ->
-    Async<Result<DeviceSession, AppError>>
+  env: 'env * args: CompleteArgs -> Async<Result<DeviceSession, AppError>>
     when 'env :> IProvideClock
     and 'env :> IProvideNonceSource
     and 'env :> IProvideSigner

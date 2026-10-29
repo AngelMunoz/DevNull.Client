@@ -6,6 +6,7 @@ open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.Env
 open DevNull.Client.ImageCache
 open DevNull.Client.Profiles
 open DevNull.Client.SshKeys
@@ -25,7 +26,8 @@ type Props<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideProfiles
-  and 'env :> IProvideSshKeys> = {
+  and 'env :> IProvideSshKeys
+  and 'env :> IProvideLogging> = {
   Env: 'env
   CommitId: string
   Session: SignedInSession
@@ -48,6 +50,7 @@ type Page<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideProfiles
-  and 'env :> IProvideSshKeys> =
+  and 'env :> IProvideSshKeys
+  and 'env :> IProvideLogging> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

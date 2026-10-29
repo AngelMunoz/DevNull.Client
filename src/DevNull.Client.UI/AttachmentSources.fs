@@ -7,7 +7,7 @@ open Avalonia.Input
 open Avalonia.Input.Platform
 open Avalonia.Platform.Storage
 open IcedTasks
-open Serilog
+open Microsoft.Extensions.Logging
 open DevNull.Client.Core.Commit
 
 /// Worker: the two ways images enter the composer — the file picker
@@ -50,7 +50,9 @@ let readOf(file: IStorageFile) : Async<ImageAttachment option> = asyncEx {
 }
 
 /// The desktop sources over the window the resolver finds.
-let desktop(resolve: unit -> TopLevel voption) : IAttachmentSources =
+let desktop
+  (log: ILogger, resolve: unit -> TopLevel voption)
+  : IAttachmentSources =
   let pick(top: TopLevel) = asyncEx {
     let options = FilePickerOpenOptions(AllowMultiple = true)
 
@@ -60,7 +62,18 @@ let desktop(resolve: unit -> TopLevel voption) : IAttachmentSources =
 
     let! candidates = files |> Seq.map readOf |> Async.Parallel
 
-    return candidates |> Array.choose id |> List.ofArray
+    let picked = candidates |> Array.choose id |> List.ofArray
+
+    if picked.Length < candidates.Length then
+      log.LogWarning(
+        "{Skipped} of {Picked} files were not read, and stay out of the stage.",
+        candidates.Length - picked.Length,
+        candidates.Length
+      )
+
+    log.LogDebug("The picker staged {Count} images.", picked.Length)
+
+    return picked
   }
 
   // The clipboard carries the image bytes the owning app put there, in
@@ -115,7 +128,7 @@ let desktop(resolve: unit -> TopLevel voption) : IAttachmentSources =
       match! firstRawImage(clipboard, rawImageFormats) with
       | Some staged -> return Some staged
       | None ->
-        Log.Warning(
+        log.LogWarning(
           "The clipboard offers no raw image bytes; falling back to a decoded bitmap."
         )
 

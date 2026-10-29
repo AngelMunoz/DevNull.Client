@@ -1,5 +1,6 @@
 module DevNull.Client.ImageCache
 
+open Microsoft.Extensions.Logging
 open DevNull.Client.Core.Http
 
 /// The image cache worker: raw image bytes by URL. The memory tier
@@ -9,7 +10,8 @@ open DevNull.Client.Core.Http
 type ImageCacheService =
   new:
     directory: string *
-    fetch: (string -> Async<Result<byte array, TransportFailure>>) ->
+    fetch: (string -> Async<Result<byte array, TransportFailure>>) *
+    log: ILogger ->
       ImageCacheService
 
   /// The bytes of one URL, or `None` when every tier missed. The

@@ -3,6 +3,7 @@ module DevNull.Client.Views.SignInView
 open Avalonia.Controls
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.Env
 open DevNull.Client.Stores
 open Navs
 
@@ -15,7 +16,8 @@ type Props<'env
   and 'env :> IProvidePkceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideSession> = {
+  and 'env :> IProvideSession
+  and 'env :> IProvideLogging> = {
   Env: 'env
   Nav: INavigable
   OnDone: unit -> unit
@@ -30,6 +32,7 @@ type Page<'env
   and 'env :> IProvidePkceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideSession> =
+  and 'env :> IProvideSession
+  and 'env :> IProvideLogging> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

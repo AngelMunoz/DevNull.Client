@@ -15,7 +15,9 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.DeviceAuth
+open DevNull.Client.Env
 open DevNull.Client.Errors
+open Microsoft.Extensions.Logging
 open DevNull.Client.Navigation
 open DevNull.Client.SessionFiles
 open DevNull.Client.Stores
@@ -27,7 +29,8 @@ type Props<'env
   and 'env :> IProvidePkceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideSession> = {
+  and 'env :> IProvideSession
+  and 'env :> IProvideLogging> = {
   Env: 'env
   Nav: INavigable
   OnDone: unit -> unit
@@ -51,36 +54,36 @@ module State =
     | Prepared of Result<SignInStart, string>
     | SessionObserved of Result<DeviceSession, string>
 
-  let initial =
-    match loadPending() with
-    | Some _ -> { Status = AwaitingApproval "" }
-    | None -> { Status = Idle }
-
   /// One blocking sign-in start: the app key generation, the pending file,
   /// and the browser launch, all off the UI thread.
-  let prepare(env, key: DeviceKey) : Result<SignInStart, string> =
+  let prepare(log: ILogger, env, key: DeviceKey) : Result<SignInStart, string> =
     let started = startAuthorization(env, key)
 
-    match savePending started.Pending with
+    log.LogDebug("The device authorization started; the browser opens.")
+
+    match savePending(log, started.Pending) with
     | Error message -> Error message
     | Ok() ->
       match startBrowser started.Url with
       | Ok() -> Ok started
-      | Error message -> Error message
+      | Error message ->
+        log.LogWarning("The browser did not open: {Error}", message)
+        Error message
 
   /// Waits until the session file or the error file shows up, or the
   /// approval times out, the way the CLI's `devnull auth` does.
-  let awaitSession() : Async<Result<DeviceSession, string>> =
+  let awaitSession(log: ILogger) : Async<Result<DeviceSession, string>> =
     let started = DateTimeOffset.UtcNow
 
     let rec loop() = asyncEx {
-      match loadSession() with
+      match loadSession log with
       | Some session -> return Ok session
       | None ->
-        match takeLastError() with
+        match takeLastError log with
         | Some message -> return Error message
         | None when DateTimeOffset.UtcNow - started > TimeSpan.FromMinutes 5.0 ->
-          deletePending()
+          log.LogWarning("The sign-in approval timed out after 5 minutes.")
+          deletePending log
           return Error "The sign-in expired. Start again."
         | None ->
           do! Async.Sleep 1000
@@ -90,32 +93,54 @@ module State =
     loop()
 
   let init (props: Props<'env>) () =
-    match initial.Status with
-    | AwaitingApproval _ ->
-      initial, Cmd.OfAsync.perform awaitSession () SessionObserved
-    | _ -> initial, Cmd.none
+    let log = props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.SignIn"
 
-  let recordSession(props: Props<'env>, session: DeviceSession) : unit =
-    props.Env.Session.Enter {
-      Session = session
-      KeyFile = devicePrivateKeyPath
-    }
+    match loadPending log with
+    | Some _ ->
+      log.LogDebug("A sign-in is already pending; the page waits for it.")
 
-    props.OnDone()
+      { Status = AwaitingApproval "" },
+      Cmd.OfAsync.perform awaitSession log SessionObserved
+    | None -> { Status = Idle }, Cmd.none
+
+  /// The session lands, and the caller navigates away — both effects
+  /// the loop runs after update, the way navigation inside update
+  /// would dispose this program before the model is published.
+  let recordSessionCmd
+    (props: Props<'env>, log: ILogger, session: DeviceSession)
+    : Cmd<Msg> =
+    Cmd.ofEffect(fun _ ->
+      log.LogInformation(
+        "The session of {Handle} was recorded.",
+        session.User.Handle
+      )
+
+      props.Env.Session.Enter {
+        Session = session
+        KeyFile = devicePrivateKeyPath
+      }
+
+      props.OnDone())
 
   let update (props: Props<'env>) msg model =
+    let log = props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.SignIn"
+
     match msg with
     | StartRequested ->
       let work() =
         Async.AwaitTask(
           Task.Run(fun () ->
-            match ensureKey() with
+            match ensureKey log with
             | Error message -> Error message
-            | Ok key -> prepare(props.Env, key))
+            | Ok key -> prepare(log, props.Env, key))
         )
 
       ({ model with Status = Preparing }: Model),
-      Cmd.OfAsync.perform work () Prepared
+      Cmd.batch [
+        Cmd.OfAsync.perform work () Prepared
+
+        Cmd.ofAction(fun () -> log.LogInformation("The sign-in starts."))
+      ]
     | Prepared result ->
       match result with
       | Ok started ->
@@ -123,21 +148,33 @@ module State =
           model with
               Status = AwaitingApproval started.Url
         },
-        Cmd.OfAsync.perform awaitSession () SessionObserved
-      | Error message -> { model with Status = Failed message }, Cmd.none
+        Cmd.batch [
+          Cmd.OfAsync.perform awaitSession log SessionObserved
+
+          Cmd.ofAction(fun () ->
+            log.LogDebug("The approval waits in the browser."))
+        ]
+      | Error message ->
+        { model with Status = Failed message },
+        Cmd.ofAction(fun () ->
+          log.LogWarning("The sign-in could not start: {Error}", message))
     | ReopenBrowser ->
       match model.Status with
       | AwaitingApproval url ->
         match startBrowser url with
         | Ok() -> model, Cmd.none
-        | Error message -> { model with Status = Failed message }, Cmd.none
+        | Error message ->
+          { model with Status = Failed message },
+          Cmd.ofAction(fun () ->
+            log.LogWarning("The browser did not open again: {Error}", message))
       | _ -> model, Cmd.none
     | SessionObserved result ->
       match result with
-      | Ok session ->
-        recordSession(props, session)
-        model, Cmd.none
-      | Error message -> { model with Status = Failed message }, Cmd.none
+      | Ok session -> model, recordSessionCmd(props, log, session)
+      | Error message ->
+        { model with Status = Failed message },
+        Cmd.ofAction(fun () ->
+          log.LogWarning("The sign-in did not complete: {Error}", message))
 
 /// The page's semantic regions; the view only composes these.
 module Parts =
@@ -242,7 +279,8 @@ type Page<'env
   and 'env :> IProvidePkceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideSession>(props: Props<'env>) as this =
+  and 'env :> IProvideSession
+  and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 
   do

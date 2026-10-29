@@ -24,6 +24,8 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
+open DevNull.Client.Env
+open Microsoft.Extensions.Logging
 open DevNull.Client.ImageCache
 open DevNull.Client.Navigation
 open DevNull.Client.Profiles
@@ -46,7 +48,8 @@ type Props<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideProfiles
-  and 'env :> IProvideSshKeys> = {
+  and 'env :> IProvideSshKeys
+  and 'env :> IProvideLogging> = {
   Env: 'env
   CommitId: string
   Session: SignedInSession
@@ -177,6 +180,19 @@ module State =
   }
 
   let update (props: Props<'env>) msg model =
+    let log =
+      props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.CommitDetail"
+
+    // Every log line is an effect: update returns it as a command,
+    // and the loop writes it after the computation.
+    let failed what error =
+      Cmd.ofAction(fun () ->
+        log.LogWarning(
+          "The {What} failed: {Error}",
+          what,
+          bounded 300 (describe error)
+        ))
+
     match msg with
     | ThreadFetched result ->
       match result with
@@ -187,14 +203,15 @@ module State =
               Error = None
               Page = Some page
         },
-        Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The thread of {Commit} arrived.", props.CommitId))
       | Error error ->
         {
           model with
               Loading = false
               Error = Some error
         },
-        Cmd.none
+        failed "the thread fetch" error
     | RepliesFetched result ->
       match result with
       | Ok page ->
@@ -203,8 +220,14 @@ module State =
               Replies = model.Replies @ page.Items
               RepliesCursor = page.NextCursor
         },
-        Cmd.none
-      | Error error -> { model with Error = Some error }, Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The replies of {Commit} arrived ({Count}).",
+            props.CommitId,
+            page.Items.Length
+          ))
+      | Error error ->
+        { model with Error = Some error }, failed "the replies fetch" error
     | ReloadRequested ->
       {
         model with
@@ -341,7 +364,9 @@ module State =
               Expanded = model.Expanded |> Map.add commitId grown
         },
         Cmd.none
-      | Error error -> { model with Error = Some error }, Cmd.none
+      | Error error ->
+        { model with Error = Some error },
+        failed "the nested replies fetch" error
     | PastelRequested commitId ->
       let give() =
         Pasteis.give(
@@ -364,11 +389,24 @@ module State =
           }
         )
 
-      { model with Error = None }, Cmd.OfAsync.perform remove () Deleted
+      { model with Error = None },
+      Cmd.batch [
+        Cmd.OfAsync.perform remove () Deleted
+
+        Cmd.ofAction(fun () ->
+          log.LogInformation(
+            "The commit {Commit} is being deleted.",
+            props.CommitId
+          ))
+      ]
     | StarDone result ->
       match result with
-      | Ok updated -> withCommit(updated, model), Cmd.none
-      | Error error -> { model with Error = Some error }, Cmd.none
+      | Ok updated ->
+        withCommit(updated, model),
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The star on {Commit} settled.", updated.Id))
+      | Error error ->
+        { model with Error = Some error }, failed "the star" error
     | PollVotedDone result ->
       match result with
       | Ok updated ->
@@ -377,14 +415,15 @@ module State =
               Voting = None
               PollChoices = model.PollChoices |> Map.remove updated.Id
         },
-        Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The vote on {Commit} landed.", updated.Id))
       | Error error ->
         {
           model with
               Error = Some error
               Voting = None
         },
-        Cmd.none
+        failed "the poll vote" error
     | PastelGiven result ->
       match result with
       | Ok pastel ->
@@ -393,14 +432,25 @@ module State =
               Note =
                 Some $"Pastel given. {pastel.PasteisRemaining} left this cycle."
         },
-        Cmd.none
-      | Error error -> { model with Error = Some error }, Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The pastel on {Commit} landed.", pastel.Commit.Id))
+      | Error error ->
+        { model with Error = Some error }, failed "the pastel" error
     | Deleted result ->
       match result with
       | Ok _ ->
         model,
-        Cmd.ofEffect(fun _ -> Navigation.go(props.Nav, "/log/latest", ignore))
-      | Error error -> { model with Error = Some error }, Cmd.none
+        Cmd.batch [
+          Cmd.ofEffect(fun _ -> Navigation.go(props.Nav, "/log/latest", ignore))
+
+          Cmd.ofAction(fun () ->
+            log.LogInformation(
+              "The commit {Commit} was deleted.",
+              props.CommitId
+            ))
+        ]
+      | Error error ->
+        { model with Error = Some error }, failed "the commit deletion" error
     | ClockTicked moment -> { model with Now = moment }, Cmd.none
     | SessionChanged state ->
       let pasteis =
@@ -438,7 +488,8 @@ module Parts =
     and 'env :> IProvideImageCache
     and 'env :> IProvideAttachmentSources
     and 'env :> IProvideProfiles
-    and 'env :> IProvideSshKeys>
+    and 'env :> IProvideSshKeys
+    and 'env :> IProvideLogging>
     (props: Props<'env>)
     : HoverSource voption =
     let source: HoverSource = {
@@ -840,7 +891,8 @@ type Page<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideProfiles
-  and 'env :> IProvideSshKeys>(props: Props<'env>) as this =
+  and 'env :> IProvideSshKeys
+  and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 
   do

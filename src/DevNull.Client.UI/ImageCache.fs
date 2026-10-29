@@ -6,6 +6,7 @@ open System.IO
 open System.Security.Cryptography
 open System.Text
 open IcedTasks
+open Microsoft.Extensions.Logging
 open DevNull.Client.Core.Http
 
 /// The image cache worker: raw image bytes by URL, memory first, then
@@ -13,7 +14,8 @@ open DevNull.Client.Core.Http
 type ImageCacheService
   (
     directory: string,
-    fetch: string -> Async<Result<byte array, TransportFailure>>
+    fetch: string -> Async<Result<byte array, TransportFailure>>,
+    log: ILogger
   ) =
 
   let gate = obj()
@@ -52,7 +54,12 @@ type ImageCacheService
 
         // Evict oldest first until both caps hold: entries, bytes.
         while overCaps() do
-          forget order[0])
+          forget order[0]
+      else
+        log.LogTrace(
+          "The image of {Bytes} bytes stays out of the memory tier.",
+          bytes.Length
+        ))
 
   let tryMemory(url: string) =
     lock gate (fun () ->
@@ -77,8 +84,10 @@ type ImageCacheService
       Some(File.ReadAllBytes(Path.Combine(directory, fileNameOf url)))
     with
     | :? FileNotFoundException
-    | :? DirectoryNotFoundException
-    | :? IOException -> None
+    | :? DirectoryNotFoundException -> None
+    | ex ->
+      log.LogWarning(ex, "The cached image file was not read.")
+      None
 
   let rememberDisk(url: string, bytes: byte array) =
     try
@@ -87,25 +96,38 @@ type ImageCacheService
       File.WriteAllBytes(Path.Combine(directory, fileNameOf url), bytes)
     with
     | :? UnauthorizedAccessException
-    | :? IOException -> ()
+    | :? IOException ->
+      log.LogWarning("The image was not stored in the disk tier.")
 
   member _.Get(url: string) : Async<byte array option> = asyncEx {
     match tryMemory url with
-    | Some bytes -> return Some bytes
+    | Some bytes ->
+      log.LogTrace("The image came from the memory tier.")
+      return Some bytes
     | None ->
       let disk = tryDisk url
 
       match disk with
       | Some bytes ->
+        log.LogDebug("The image came from the disk tier.")
         remember(url, bytes)
         return Some bytes
       | None ->
+        log.LogTrace("The image leaves for the network.")
+
         match! fetch url with
         | Ok bytes ->
+          log.LogDebug("The image arrived ({Bytes} bytes).", bytes.Length)
           remember(url, bytes)
           rememberDisk(url, bytes)
           return Some bytes
-        | Error _ -> return None
+        | Error failure ->
+          log.LogWarning(
+            "The image was not fetched: {Error}",
+            failure.Message.Trim()
+          )
+
+          return None
   }
 
 /// Accessor for the image cache capability.

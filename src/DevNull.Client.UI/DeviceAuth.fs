@@ -5,6 +5,7 @@ open System.Diagnostics
 open System.IO
 open System.Text.RegularExpressions
 open IcedTasks
+open Microsoft.Extensions.Logging
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
@@ -24,6 +25,15 @@ type DeviceKey = {
 type SignInStart = {
   Pending: PendingAuthorization
   Url: string
+}
+
+/// Everything one callback completion carries: the device key, the
+/// callback URI, and the logger for the file moves and the mismatch.
+[<Struct>]
+type CompleteArgs = {
+  Key: DeviceKey
+  CallbackUri: string
+  Log: ILogger
 }
 
 /// The server the app signs in to.
@@ -55,19 +65,27 @@ let fingerprintOf(publicPath: string) : Result<string, string> =
 
 /// Creates the app key when it is missing, and returns its SSH
 /// fingerprint.
-let ensureKey() : Result<DeviceKey, string> =
+let ensureKey(log: ILogger) : Result<DeviceKey, string> =
   try
     Directory.CreateDirectory(keyDirectory) |> ignore
 
     let generation =
       match File.Exists devicePrivateKeyPath, File.Exists publicKeyPath with
-      | true, true -> Ok()
+      | true, true ->
+        log.LogDebug("The device key already exists.")
+        Ok()
       | true, false ->
+        log.LogWarning(
+          "The device key lost its public file; deriving it again."
+        )
+
         SshKeygen.run("-y -f \"" + devicePrivateKeyPath + "\"")
         |> Result.bind(fun publicKey ->
           writeAllTextAtomic publicKeyPath publicKey
           Ok())
       | false, _ ->
+        log.LogInformation("The device key is being generated.")
+
         SshKeygen.run(
           "-t ed25519 -f \""
           + devicePrivateKeyPath
@@ -84,6 +102,7 @@ let ensureKey() : Result<DeviceKey, string> =
         Fingerprint = fingerprint
       }))
   with ex ->
+    log.LogWarning(ex, "The device key was not prepared.")
     Error ex.Message
 
 /// Starts one device authorization and returns the browser URL.
@@ -145,23 +164,34 @@ let parseCallback(uri: string) : Result<Callback, string> =
 let complete
   (
     env: #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp,
-    key: DeviceKey,
-    callbackUri: string
+    args: CompleteArgs
   ) : Async<Result<DeviceSession, AppError>> = asyncEx {
-  match parseCallback callbackUri with
-  | Error message -> return Error(SignInFailed message)
+  let log = args.Log
+
+  match parseCallback args.CallbackUri with
+  | Error message ->
+    log.LogWarning("The sign-in callback was refused: {Error}", message)
+    return Error(SignInFailed message)
   | Ok callback ->
-    match loadPending() with
-    | None -> return Error(SignInFailed "No sign-in is pending. Start again.")
+    match loadPending(log) with
+    | None ->
+      log.LogWarning("The callback arrived with no sign-in pending.")
+      return Error(SignInFailed "No sign-in is pending. Start again.")
     | Some pending when pending.State <> callback.State ->
+      log.LogWarning(
+        "The sign-in state does not match; the callback is dropped."
+      )
+
       return
         Error(SignInFailed "The sign-in state does not match. Start again.")
     | Some pending ->
+      log.LogDebug("The callback state matched; the code is being redeemed.")
+
       let! (result: Result<Me, AppError>) =
         Device.redeem(
           env,
           {
-            KeyFile = key.PrivatePath
+            KeyFile = args.Key.PrivatePath
             Code = callback.Code
             Verifier = pending.Verifier
           }
@@ -181,12 +211,26 @@ let complete
           Remotes = me.Remotes
         }
 
-        match saveSession session with
+        match saveSession(log, session) with
         | Ok() ->
-          deletePending()
+          deletePending(log)
+
+          log.LogInformation(
+            "The device was approved for {Handle}.",
+            session.User.Handle
+          )
+
           return Ok session
-        | Error message -> return Error(SignInFailed message)
-      | Error error -> return Error error
+        | Error message ->
+          log.LogWarning("The session was not stored: {Error}", message)
+          return Error(SignInFailed message)
+      | Error error ->
+        log.LogWarning(
+          "The device code was not redeemed: {Error}",
+          bounded 300 (describe error)
+        )
+
+        return Error error
 }
 
 /// The devnull callback URI in the process arguments, when one is

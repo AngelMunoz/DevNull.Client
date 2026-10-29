@@ -386,7 +386,8 @@ type TestEnv
         Path.GetTempPath(),
         "devnull-imagecache-" + Guid.NewGuid().ToString("N")
       ),
-      http.GetBytes
+      http.GetBytes,
+      NullLogger.Instance
     )
 
   let unread =

@@ -8,6 +8,7 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Core.Types
+open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.ImageCache
 open DevNull.Client.Natives
@@ -33,7 +34,8 @@ type Props<'env
   and 'env :> IProvideSettings
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideNatives
-  and 'env :> IProvideRemotes> = {
+  and 'env :> IProvideRemotes
+  and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
   Nav: INavigable

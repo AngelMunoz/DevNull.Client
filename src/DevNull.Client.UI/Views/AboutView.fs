@@ -6,6 +6,7 @@ open Avalonia.Controls.Primitives
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
+open Microsoft.Extensions.Logging
 open DevNull.Client
 open DevNull.Client.DeviceAuth
 open DevNull.Client.Theme
@@ -21,14 +22,18 @@ let stackLine(name: string, what: string) : Control =
     )
 
 /// One outbound link button; the browser owns the page.
-let linkButton(label: string, url: string) : Control =
+let linkButton(log: ILogger, label: string, url: string) : Control =
   Button()
     .Classes(Theme.name Theme.GhostButton)
     .Padding(8.0, 4.0, 8.0, 4.0)
     .Content(label)
     .OnClickHandler(fun _ args ->
       args.Handled <- true
-      DeviceAuth.startBrowser url |> ignore)
+
+      match startBrowser url with
+      | Ok() -> ()
+      | Error message ->
+        log.LogWarning("The page did not open: {Error}", message))
 
 module Parts =
 
@@ -69,17 +74,17 @@ module Parts =
     StackPanel().Spacing(4.0).Children(lines)
 
   /// The outbound links: the service, its brand rules, its terms.
-  let links() : Control =
+  let links(log: ILogger) : Control =
     StackPanel()
       .Orientation(Orientation.Horizontal)
       .Spacing(4.0)
       .Children(
-        linkButton("dev-null.sh", "https://dev-null.sh"),
-        linkButton("brand", "https://dev-null.sh/brand"),
-        linkButton("terms", "https://dev-null.sh/terms")
+        linkButton(log, "dev-null.sh", "https://dev-null.sh"),
+        linkButton(log, "brand", "https://dev-null.sh/brand"),
+        linkButton(log, "terms", "https://dev-null.sh/terms")
       )
 
-let view() : Control =
+let view(log: ILogger) : Control =
   let content =
     StackPanel()
       .Spacing(12.0)
@@ -97,7 +102,7 @@ let view() : Control =
         TextBlock().Classes(Theme.name Theme.Subtitle).Text("Built with"),
         Parts.stack(),
         TextBlock().Classes(Theme.name Theme.Subtitle).Text("Links"),
-        Parts.links()
+        Parts.links log
       )
 
   // The page scrolls one axis: the column measures against the window,

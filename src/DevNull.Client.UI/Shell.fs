@@ -16,6 +16,7 @@ open Avalonia.VisualTree
 open NXUI.Extensions
 open IcedTasks
 open FSharp.Control.Reactive
+open Microsoft.Extensions.Logging
 open Navs
 open Navs.Avalonia
 open DevNull.Client
@@ -493,6 +494,11 @@ type Shell<'env
   do
     let session = (env :> IProvideSession).Session
 
+    let log =
+      (env :> IProvideLogging).LoggerFactory.CreateLogger "DevNull.Client.Shell"
+
+    log.LogInformation("The window opens.")
+
     this.Title <- "/dev/null"
     this.Width <- 1080.0
     this.Height <- 720.0
@@ -915,7 +921,9 @@ type Shell<'env
     router.Changed
     |> Observable.add(fun snapshot ->
       snapshot.Route
-      |> ValueOption.iter(fun route -> env.Routes.Land route.Path))
+      |> ValueOption.iter(fun route ->
+        log.LogDebug("The route landed at {Url}.", route.Path)
+        env.Routes.Land route.Path))
 
     // The shared log chrome: the tabs and the composer every log page
     // posts through. It rebuilds only when the signed-in user changes,
@@ -1087,6 +1095,10 @@ type Shell<'env
         TimeSpan.FromSeconds 45.0
       )
 
+    log.LogDebug(
+      "The unread poll and the remotes watcher start with the window."
+    )
+
     // The chat's own loops: one gate that follows the window's own
     // visibility. Polls run while the window stands on screen —
     // focused or not, the way a visible tab polls on the web — and
@@ -1117,6 +1129,7 @@ type Shell<'env
     // and the poller keep the app alive. `Quit` marks the bypass first.
     this.Closing.Add(fun args ->
       if not quitRequested.Value && settings.Current.CloseToTray then
+        log.LogDebug("The close hides the window into the tray.")
         args.Cancel <- true
         this.Hide())
 
@@ -1124,8 +1137,10 @@ type Shell<'env
       Window = this
       Router = router
       Unread = env.Unread.Count
+      Log = log
       Quit =
         fun () ->
+          log.LogInformation("The client quits from the tray.")
           quitRequested.OnNext true
           this.Close()
     }
@@ -1155,17 +1170,37 @@ type Shell<'env
 
     match callback with
     | Some uri ->
+      log.LogInformation("The sign-in callback arrived while the window runs.")
+
       asyncEx {
-        let! keyOutcome = Task.Run(fun () -> ensureKey())
+        let! keyOutcome = Task.Run(fun () -> ensureKey log)
 
         match keyOutcome with
-        | Error message -> saveLastError message
+        | Error message ->
+          log.LogWarning("The key was not prepared: {Error}", message)
+          saveLastError(log, message)
         | Ok key ->
-          let! result = complete(env, key, uri)
+          let! result =
+            complete(
+              env,
+              {
+                Key = key
+                CallbackUri = uri
+                Log = log
+              }
+            )
 
           match result with
           | Ok _ -> ()
-          | Error error -> saveLastError(describe error)
+          | Error error ->
+            let message = describe error
+
+            log.LogWarning(
+              "The sign-in callback failed: {Error}",
+              bounded 300 message
+            )
+
+            saveLastError(log, message)
 
         Routes.go(env, router, "/signin")
       }

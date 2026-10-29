@@ -521,7 +521,7 @@ module Inboxes =
     let! state = driver.Read()
 
     if state.PollingInbox || not state.WindowActive || not(driver.CanRun()) then
-      ()
+      driver.Log.LogTrace("The inbox poll waits while its gate holds.")
     else
       Guards.post(driver, fun state -> { state with PollingInbox = true })
 
@@ -613,7 +613,8 @@ module Threads =
   /// reactions changed since the last version.
   let poll(driver: Driver, target: ChatTarget) : Async<unit> = asyncEx {
     match driver.KeyFile() with
-    | ValueNone -> ()
+    | ValueNone ->
+      driver.Log.LogTrace("The thread poll skips while signed out.")
     | ValueSome keyFile ->
       let key = ChatTargets.key target
       let! state = driver.Read()
@@ -633,6 +634,8 @@ module Threads =
       | Error error ->
         driver.Log.LogWarning("The thread poll failed: {Error}", describe error)
       | Ok page ->
+        driver.Log.LogTrace("The thread poll read a fresh page.")
+
         Guards.post(
           driver,
           fun state ->
@@ -707,6 +710,11 @@ module Threads =
 
     if wasEmpty then
       Async.Start(poll(driver, target))
+
+    driver.Log.LogInformation(
+      "The message {ClientId} landed.",
+      UMX.untag message.ClientId
+    )
 
     Guards.post(
       driver,
@@ -869,7 +877,9 @@ type RemotesStore(workers: RemotesWorkers, session: SessionStore, log: ILogger) 
     Log = log
   }
 
-  let watcher = RemotesWatcher(this, session)
+  do log.LogDebug("The remotes store started.")
+
+  let watcher = RemotesWatcher(this, session, log)
 
   /// The state the mailbox last published, without a subscription.
   member _.Current: RemotesState = published.Value
@@ -1115,6 +1125,11 @@ type RemotesStore(workers: RemotesWorkers, session: SessionStore, log: ILogger) 
       match staged with
       | None -> ()
       | Some pending ->
+        driver.Log.LogDebug(
+          "The message {ClientId} was sent again.",
+          UMX.untag clientId
+        )
+
         apply(fun state -> restageSend(state, key, clientId))
 
         do! settled(Threads.deliver(driver, target, pending))
@@ -1237,7 +1252,8 @@ type RemotesStore(workers: RemotesWorkers, session: SessionStore, log: ILogger) 
                 }
               )
             with
-            | Ok() -> ()
+            | Ok() ->
+              driver.Log.LogTrace("The read went out through {Id}.", latest)
             | Error error ->
               driver.Log.LogWarning("The read failed: {Error}", describe error)
           }
@@ -1817,7 +1833,7 @@ type RemotesStore(workers: RemotesWorkers, session: SessionStore, log: ILogger) 
 /// The chat's scheduling: one reference-counted tick loop per thread,
 /// one for the inbox, paused while the window is inactive or the
 /// session is signed out.
-and RemotesWatcher(store: RemotesStore, session: SessionStore) =
+and RemotesWatcher(store: RemotesStore, session: SessionStore, log: ILogger) =
 
   let active = new BehaviorSubject<bool>(true)
 
@@ -1873,6 +1889,8 @@ and RemotesWatcher(store: RemotesStore, session: SessionStore) =
   /// waiting out the sleep each loop was left in. The disposable stops
   /// every loop.
   member _.Start(gate: IObservable<bool>) : IDisposable =
+    log.LogDebug("The remotes polls started.")
+
     let subscription =
       gate
       |> Observable.subscribe(fun value ->
@@ -1880,14 +1898,19 @@ and RemotesWatcher(store: RemotesStore, session: SessionStore) =
         store.SetWindowActive value
 
         if value then
+          log.LogDebug("The chat polls wake with the window.")
+
           for KeyValue(_, target) in watched do
             Async.Start(store.PollThread target)
 
-          Async.Start(store.PollInbox()))
+          Async.Start(store.PollInbox())
+        else
+          log.LogTrace("The chat polls pause while the window hides."))
 
     {
       new IDisposable with
         member _.Dispose() =
+          log.LogDebug("The remotes polls stopped.")
           subscription.Dispose()
 
           for source in loops.Values do
@@ -1922,6 +1945,8 @@ and RemotesWatcher(store: RemotesStore, session: SessionStore) =
       watched[key] <- target
       Async.Start(tick target, source.Token)
 
+      log.LogDebug("The thread poll for {Key} started.", key)
+
       if not usageLoaded.Value then
         usageLoaded.OnNext true
 
@@ -1934,6 +1959,7 @@ and RemotesWatcher(store: RemotesStore, session: SessionStore) =
 
           match loops.TryGetValue key with
           | true, source ->
+            log.LogDebug("The thread poll for {Key} stopped.", key)
             source.Cancel()
             source.Dispose()
 
@@ -1953,11 +1979,14 @@ and RemotesWatcher(store: RemotesStore, session: SessionStore) =
       inboxLoop.OnNext(Some source)
       Async.Start(inboxTick(), source.Token)
 
+      log.LogDebug("The inbox poll started.")
+
     {
       new IDisposable with
         member _.Dispose() =
           match inboxLoop.Value with
           | Some source ->
+            log.LogDebug("The inbox poll stopped.")
             source.Cancel()
             source.Dispose()
 

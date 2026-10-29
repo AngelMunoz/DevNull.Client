@@ -10,6 +10,7 @@ open Avalonia.Themes.Fluent
 open Microsoft.Extensions.Logging
 open NXUI.Extensions
 open Serilog
+open Serilog.Events
 open Serilog.Extensions.Logging
 open DevNull.Client.DeviceAuth
 open DevNull.Client.Env
@@ -43,8 +44,24 @@ type DesktopApp(env: AppEnv, callback: string option) =
 
     base.OnFrameworkInitializationCompleted()
 
+/// The level a `DEVNULL_LOG_LEVEL` value names, when it names one.
+let requestedLevel() : LogEventLevel option =
+  match Environment.GetEnvironmentVariable "DEVNULL_LOG_LEVEL" with
+  | null -> None
+  | raw ->
+    match raw.Trim().ToUpperInvariant() with
+    | "TRACE" -> Some LogEventLevel.Verbose
+    | "DEBUG" -> Some LogEventLevel.Debug
+    | "INFO"
+    | "INFORMATION" -> Some LogEventLevel.Information
+    | "WARN"
+    | "WARNING" -> Some LogEventLevel.Warning
+    | "ERROR" -> Some LogEventLevel.Error
+    | _ -> None
+
 /// The app log: the console plus one file per day under the app's data
-/// directory, debug-verbose in development builds.
+/// directory, debug-verbose in development builds. A `DEVNULL_LOG_LEVEL`
+/// value overrides the build's default, so a release install can trace.
 let configureLogging() =
   let folder =
     Path.Combine(
@@ -55,21 +72,43 @@ let configureLogging() =
 
   Directory.CreateDirectory(folder) |> ignore
 
+#if DEBUG
+  let defaultLevel = LogEventLevel.Debug
+#else
+  let defaultLevel = LogEventLevel.Information
+#endif
+
+  let minimum = requestedLevel() |> Option.defaultValue defaultLevel
+
   Log.Logger <-
     LoggerConfiguration()
-#if DEBUG
-      .MinimumLevel
-      .Debug()
-#else
-      .MinimumLevel
-      .Information()
-#endif
+      .MinimumLevel.Is(minimum)
       .WriteTo.Console()
       .WriteTo.File(
         Path.Combine(folder, "devnull-.log"),
         rollingInterval = RollingInterval.Day
       )
       .CreateLogger()
+
+  minimum
+
+/// The app log and the factory every logger comes from: the console
+/// plus one file per day under the app's data directory,
+/// debug-verbose in development builds. A `DEVNULL_LOG_LEVEL` value
+/// overrides the build's default, so a release install can trace. The
+/// heads call this before they build their native services, so every
+/// native worker logs through the same sink, then hand the factory to
+/// `start`.
+let createLogging() : ILoggerFactory =
+  let minimum = configureLogging()
+
+  let logging = (new LoggerFactory()).AddSerilog(Log.Logger)
+
+  logging
+    .CreateLogger("DevNull.Client.Startup")
+    .LogInformation("The client starts (log level {Level}).", minimum)
+
+  logging
 
 let mutexName = "DevNull.Client.SingleInstance"
 
@@ -84,23 +123,66 @@ let hasRunningInstance() =
 /// The second instance has no UI: it completes the sign-in callback
 /// headlessly, stores the outcome, and lets the first instance poll for
 /// the session file.
-let completeCallback (env: AppEnv) (uri: string) =
-  match ensureKey() with
-  | Error message -> saveLastError message
+let completeCallback
+  (env: AppEnv, log: Microsoft.Extensions.Logging.ILogger, uri: string)
+  : unit =
+  match ensureKey log with
+  | Error message ->
+    log.LogWarning(
+      "The sign-in callback could not prepare the key: {Error}",
+      message
+    )
+
+    saveLastError(log, message)
   | Ok key ->
-    match complete(env, key, uri) |> Async.RunSynchronously with
+    match
+      complete(
+        env,
+        {
+          Key = key
+          CallbackUri = uri
+          Log = log
+        }
+      )
+      |> Async.RunSynchronously
+    with
     | Ok _ -> ()
-    | Error error -> saveLastError(describe error)
+    | Error error ->
+      let message = describe error
+
+      log.LogWarning(
+        "The sign-in callback failed: {Error}",
+        bounded 300 message
+      )
+
+      saveLastError(log, message)
 
 /// Boots the shared client with the native services one platform head
 /// built. The head's entry point is everything platform-specific; this
-/// is everything else.
-let start(natives: NativeServices, argv: string[]) =
-  configureLogging()
+/// is everything else. The factory comes from `createLogging`.
+let start(logging: ILoggerFactory, natives: NativeServices, argv: string[]) =
+  let log = logging.CreateLogger "DevNull.Client.Startup"
 
-  let logging = (new LoggerFactory()).AddSerilog(Log.Logger)
+  log.LogDebug("The client runs with {Args} arguments.", argv.Length)
 
-  let store = SessionStore(loadSession(), devicePrivateKeyPath, clearSession)
+  let sessionLog = logging.CreateLogger "DevNull.Client.Session"
+
+  let store =
+    SessionStore(
+      (match loadSession sessionLog with
+       | Some session ->
+         log.LogInformation(
+           "The stored session of {Handle} was restored.",
+           session.User.Handle
+         )
+
+         Some session
+       | None ->
+         log.LogDebug("No stored session; the client starts signed out.")
+         None),
+      devicePrivateKeyPath,
+      fun () -> clearSession sessionLog
+    )
 
   let env = AppEnv(baseAddress, store, natives, logging)
 
@@ -112,31 +194,39 @@ let start(natives: NativeServices, argv: string[]) =
   |> Observable.add(fun value -> Theme.apply value.Theme)
 
   match natives.Registrar.Register() with
-  | Ok() -> ()
+  | Ok() -> log.LogDebug("The devnull:// scheme is registered.")
   | Error message ->
-    Log.Warning("The devnull:// scheme is not registered: {Error}", message)
+    log.LogWarning("The devnull:// scheme is not registered: {Error}", message)
 
   // A head that found no engine or no sound service keeps its silence;
   // the log names what the session runs without.
   match natives.Audio with
-  | ValueSome _ -> ()
-  | ValueNone -> Log.Warning("No audio engine: voice notes stay hidden.")
+  | ValueSome _ -> log.LogDebug("The audio engine is present.")
+  | ValueNone -> log.LogWarning("No audio engine: voice notes stay hidden.")
 
   match natives.Sounds with
-  | ValueSome _ -> ()
+  | ValueSome _ -> log.LogDebug("The system sounds are present.")
   | ValueNone ->
-    Log.Warning("No system sounds: the client stays silent on alerts.")
+    log.LogWarning("No system sounds: the client stays silent on alerts.")
 
   let callback = callbackUri argv
 
   if hasRunningInstance() then
+    log.LogDebug(
+      "Another instance owns the window; this one serves the callback only."
+    )
+
     match callback with
-    | Some uri -> completeCallback env uri
-    | None -> ()
+    | Some uri ->
+      log.LogInformation("The sign-in callback arrived at the second instance.")
+      completeCallback(env, log, uri)
+    | None -> log.LogDebug("The second instance carries no callback and exits.")
 
     0
   else
     use mutex = new Mutex(true, mutexName)
+
+    log.LogDebug("This instance owns the window.")
 
     AppBuilder
       .Configure(fun () -> DesktopApp(env, callback))

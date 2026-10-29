@@ -1,16 +1,19 @@
 module DevNull.Client.Windows.Audio
 
 open System
+open System.Diagnostics
 open System.IO
 open System.Runtime.InteropServices
 open System.Threading
 open System.Threading.Tasks
 open IcedTasks
+open Microsoft.Extensions.Logging
 open WinRT
 open Windows.Media.Audio
 open Windows.Media.Capture
 open Windows.Media.MediaProperties
 open Windows.Foundation
+open DevNull.Client.Errors
 open DevNull.Client.Natives
 
 /// The voice-note format the whole engine stays at: 16 kHz mono PCM,
@@ -156,13 +159,14 @@ let wavHeader(dataBytes: int) : byte[] =
 /// the quantum handler drains, and the meter's peak. Audio only flows
 /// along outgoing connections, so the input feeds the frame output;
 /// and the teardown runs exactly once whichever path lands first.
-type Capture(graph: AudioGraph, input: AudioDeviceInputNode) =
+type Capture(graph: AudioGraph, input: AudioDeviceInputNode, log: ILogger) =
 
   let gate = obj()
   let taken = ResizeArray<byte>()
   let mutable peak = 0.0
   let mutable running = true
   let mutable torn = false
+  let started = Stopwatch.StartNew()
 
   // The first reason the quantum drain failed, in the reader's own
   // words; a failed drain stops the capture so Stop can report it.
@@ -198,6 +202,10 @@ type Capture(graph: AudioGraph, input: AudioDeviceInputNode) =
             if loudest > peak then
               peak <- loudest)
         | Error why ->
+          // The quantum thread has nowhere else to say it; the log is
+          // the reader's only word on why the take stopped growing.
+          log.LogWarning("The recording stopped early: {Why}", why)
+
           failedWith <- Some why
           teardown())
 
@@ -230,6 +238,12 @@ type Capture(graph: AudioGraph, input: AudioDeviceInputNode) =
                 taken.Clear()
                 copy)
 
+            log.LogDebug(
+              "The recording took {Bytes} bytes over {Seconds} seconds.",
+              voice.Length,
+              started.Elapsed.TotalSeconds
+            )
+
             Ok(Array.append (wavHeader voice.Length) voice))
     }
 
@@ -237,6 +251,11 @@ type Capture(graph: AudioGraph, input: AudioDeviceInputNode) =
     member _.Cancel() =
       graph.remove_QuantumStarted quantum
       teardown()
+
+      log.LogDebug(
+        "The recording was cancelled after {Seconds} seconds.",
+        started.Elapsed.TotalSeconds
+      )
 
       lock gate (fun () -> taken.Clear()) |> ignore
 
@@ -248,13 +267,20 @@ type Playback
   (
     player: Windows.Media.Playback.MediaPlayer,
     source: Windows.Media.Core.MediaSource,
-    speed: float
+    speed: float,
+    log: ILogger
   ) =
 
   let finished = Event<unit>()
+  let started = Stopwatch.StartNew()
 
   let ended =
     TypedEventHandler<Windows.Media.Playback.MediaPlayer, obj>(fun _ _ ->
+      log.LogDebug(
+        "The note played through after {Seconds} seconds.",
+        started.Elapsed.TotalSeconds
+      )
+
       finished.Trigger())
 
   let failed =
@@ -262,7 +288,16 @@ type Playback
       Windows.Media.Playback.MediaPlayer,
       Windows.Media.Playback.MediaPlayerFailedEventArgs
      >
-      (fun _ _ -> finished.Trigger())
+      (fun _ args ->
+        // The pipeline's own word on why the note died; without it a
+        // refused decode is indistinguishable from a finished note.
+        log.LogWarning(
+          "The note did not play ({Error}): {Message}",
+          args.Error,
+          args.ErrorMessage
+        )
+
+        finished.Trigger())
 
   // The session drops the rate a caller set before the source opened;
   // the note reaches its own speed only once the media is open.
@@ -279,13 +314,20 @@ type Playback
     player.Dispose()
 
   do
+    log.LogTrace("The note starts.")
     player.add_MediaOpened opened
     player.add_MediaEnded ended
     player.add_MediaFailed failed
 
   interface IAudioPlayback with
 
-    member _.Stop() = Task.Run stop |> ignore
+    member _.Stop() =
+      Task.Run stop |> ignore
+
+      log.LogDebug(
+        "The note stopped after {Seconds} seconds.",
+        started.Elapsed.TotalSeconds
+      )
 
     member _.SetVolume(volume: float) = player.Volume <- volume
 
@@ -307,10 +349,17 @@ module private Engine =
     settings.EncodingProperties <- voiceFormat
     settings
 
-  let openCapture() : Async<Result<IMicrophoneCapture, AudioFailure>> = asyncEx {
+  let openCapture
+    (log: ILogger)
+    : Async<Result<IMicrophoneCapture, AudioFailure>> = asyncEx {
     let! created = AudioGraph.CreateAsync(graphSettings()).AsTask()
 
     if created.Status <> AudioGraphCreationStatus.Success then
+      log.LogWarning(
+        "The audio graph did not start ({Status}).",
+        created.Status
+      )
+
       return
         Error(AudioFailed($"the audio graph could not start: {created.Status}"))
     else
@@ -323,20 +372,26 @@ module private Engine =
 
       match opened.Status with
       | AudioDeviceNodeCreationStatus.Success ->
-        return Ok(Capture(graph, opened.DeviceInputNode) :> IMicrophoneCapture)
+        log.LogDebug("The audio graph opened with the microphone.")
+
+        return
+          Ok(Capture(graph, opened.DeviceInputNode, log) :> IMicrophoneCapture)
       | AudioDeviceNodeCreationStatus.AccessDenied ->
+        log.LogWarning("The microphone is not allowed to this app.")
         graph.Dispose()
         return Error Denied
       | AudioDeviceNodeCreationStatus.DeviceNotAvailable ->
+        log.LogWarning("No microphone is available.")
         graph.Dispose()
         return Error NoDevice
       | other ->
+        log.LogWarning("The microphone did not open ({Status}).", other)
         graph.Dispose()
         return Error(AudioFailed($"the microphone could not open: {other}"))
   }
 
   let openPlayback
-    (media: byte array, speed: float, volume: float)
+    (log: ILogger, media: byte array, speed: float, volume: float)
     : Async<Result<IAudioPlayback, AudioFailure>> = asyncEx {
     let player = new Windows.Media.Playback.MediaPlayer()
 
@@ -357,20 +412,28 @@ module private Engine =
         VoiceMedia.contentType media
       )
 
+    log.LogDebug(
+      "The note hands to the OS player ({Bytes} bytes, {Type}).",
+      media.Length,
+      VoiceMedia.contentType media
+    )
+
     player.Source <- source
     player.Play()
 
-    return Ok(Playback(player, source, speed) :> IAudioPlayback)
+    return Ok(Playback(player, source, speed, log) :> IAudioPlayback)
   }
 
-type WinRtEngine() =
+type WinRtEngine(logging: ILoggerFactory) =
+
+  let log = logging.CreateLogger "DevNull.Client.Windows.Audio"
 
   interface IAudioEngine with
 
-    member _.StartCapture() = Engine.openCapture()
+    member _.StartCapture() = Engine.openCapture log
 
     member _.Play(media, speed, volume) =
-      Engine.openPlayback(media, speed, volume)
+      Engine.openPlayback(log, media, speed, volume)
 
 /// The sound Windows itself plays for a system notification, from its
 /// own media folder.
@@ -380,7 +443,7 @@ let notifySound = Uri @"C:\Windows\Media\Windows Notify System Generic.wav"
 /// player serves every chime: a player created per note could be
 /// collected while its sound is still playing, and a fresh source on
 /// each call restarts the clip cleanly.
-type SystemSounds() =
+type SystemSounds(log: ILogger) =
 
   let player =
     new Windows.Media.Playback.MediaPlayer(
@@ -388,9 +451,28 @@ type SystemSounds() =
         Windows.Media.Playback.MediaPlayerAudioCategory.SoundEffects
     )
 
+  let failed =
+    TypedEventHandler<
+      Windows.Media.Playback.MediaPlayer,
+      Windows.Media.Playback.MediaPlayerFailedEventArgs
+     >
+      (fun _ args ->
+        // A missing or unreadable sound file lands here; the alert
+        // stays silent either way, so the log is its only word.
+        log.LogWarning(
+          "The notification sound did not play ({Error}): {Message}",
+          args.Error,
+          args.ErrorMessage
+        ))
+
+  do player.add_MediaFailed failed
+
   interface ISystemSounds with
     member _.Notify() =
+      log.LogTrace("The notification sound plays.")
+
       player.Source <- Windows.Media.Core.MediaSource.CreateFromUri(notifySound)
+
       player.Play()
 
   interface IDisposable with

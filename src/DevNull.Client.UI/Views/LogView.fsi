@@ -6,6 +6,7 @@ open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
@@ -31,7 +32,8 @@ type Props<'env
   and 'env :> IProvideLastVisit
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
-  and 'env :> IProvideSshKeys> = {
+  and 'env :> IProvideSshKeys
+  and 'env :> IProvideLogging> = {
   Env: 'env
   Log: LogKind
   Session: SignedInSession
@@ -154,6 +156,7 @@ module State =
       and 'env :> IProvideProfiles
       and 'env :> IProvideTimeline
       and 'env :> IProvideSshKeys
+      and 'env :> IProvideLogging
 
 /// One log timeline, self-contained: mounts the MVUish program.
 type Page<'env
@@ -168,6 +171,7 @@ type Page<'env
   and 'env :> IProvideLastVisit
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
-  and 'env :> IProvideSshKeys> =
+  and 'env :> IProvideSshKeys
+  and 'env :> IProvideLogging> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

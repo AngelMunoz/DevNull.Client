@@ -1,11 +1,14 @@
 module DevNull.Client.Linux.Audio
 
 open System
+open System.Diagnostics
 open System.IO
 open System.Runtime.InteropServices
 open System.Threading
 open System.Threading.Tasks
 open IcedTasks
+open Microsoft.Extensions.Logging
+open DevNull.Client.Errors
 open DevNull.Client.Natives
 
 module Pulse =
@@ -110,7 +113,9 @@ module Canberra =
   )
 
 /// Opens one stream and names the failure the contract expects.
-let openStream(direction: int, name: string) : Result<nativeint, AudioFailure> =
+let openStream
+  (log: ILogger, direction: int, name: string)
+  : Result<nativeint, AudioFailure> =
   let mutable error = 0
   let mutable spec = Pulse.SampleSpec(Pulse.S16Le, uint32 Pulse.Rate, 1uy)
 
@@ -128,12 +133,23 @@ let openStream(direction: int, name: string) : Result<nativeint, AudioFailure> =
     )
 
   if stream <> 0n then
+    log.LogDebug("The {Name} stream opened.", name)
+
     Ok stream
   else
-    match error with
-    | Pulse.AccessDenied -> Error Denied
-    | Pulse.NoEntity -> Error NoDevice
-    | code -> Error(AudioFailed(Pulse.pa_strerror code))
+    let failure =
+      match error with
+      | Pulse.AccessDenied -> Denied
+      | Pulse.NoEntity -> NoDevice
+      | code -> AudioFailed(Pulse.pa_strerror code)
+
+    log.LogWarning(
+      "The {Name} stream did not open: {Why}",
+      name,
+      describe(CaptureFailed failure)
+    )
+
+    Error failure
 
 /// The loudest sample in one chunk, 0 to 1, for the recording meter.
 /// The floor sample keeps an empty chunk from throwing.
@@ -171,7 +187,7 @@ let wavHeader(dataBytes: int) : byte[] =
 /// stream, the samples it took, and the meter's peak. A failed read
 /// stops the loop and names itself, so Stop can report it instead of
 /// handing back a truncated take as if it were whole.
-type Capture(stream: nativeint) =
+type Capture(stream: nativeint, log: ILogger) =
 
   let gate = obj()
   let taken = ResizeArray<byte>()
@@ -179,6 +195,7 @@ type Capture(stream: nativeint) =
   let peak = ref 0.0
   let failedWith: string option ref = ref None
   let chunk: byte[] = Array.zeroCreate 1600
+  let started = Stopwatch.StartNew()
 
   let rec step() =
     let mutable error = 0
@@ -228,8 +245,22 @@ type Capture(stream: nativeint) =
           Pulse.pa_simple_free stream
 
           match failedWith.Value with
-          | Some why -> Error(AudioFailed why)
-          | None -> Ok(Array.append (wavHeader voice.Length) voice))
+          | Some why ->
+            log.LogWarning(
+              "The recording stopped early after {Seconds} seconds: {Why}",
+              started.Elapsed.TotalSeconds,
+              why
+            )
+
+            Error(AudioFailed why)
+          | None ->
+            log.LogDebug(
+              "The recording took {Bytes} bytes over {Seconds} seconds.",
+              voice.Length,
+              started.Elapsed.TotalSeconds
+            )
+
+            Ok(Array.append (wavHeader voice.Length) voice))
     }
 
     member _.Cancel() =
@@ -237,17 +268,23 @@ type Capture(stream: nativeint) =
       reader.Join()
       Pulse.pa_simple_free stream
 
+      log.LogDebug(
+        "The recording was cancelled after {Seconds} seconds.",
+        started.Elapsed.TotalSeconds
+      )
+
       lock gate (fun () -> taken.Clear()) |> ignore
 
 /// One playback: a background writer the reader can stop early, and the
 /// event that fires when the samples run out. Volume scales each chunk
 /// as it is written, so a move lands on the note while it sounds.
-type Playback(stream: nativeint, data: byte[], volume: float) =
+type Playback(stream: nativeint, data: byte[], volume: float, log: ILogger) =
 
   let running = ref true
   let written = ref 0
   let loudness = ref volume
   let finished = Event<unit>()
+  let started = Stopwatch.StartNew()
 
   let scaled(chunk: byte[]) : byte[] =
     let samples: int16 array = Array.zeroCreate(chunk.Length / 2)
@@ -285,18 +322,38 @@ type Playback(stream: nativeint, data: byte[], volume: float) =
       let mutable error = 0
 
       if running.Value && Pulse.pa_simple_drain(stream, &error) >= 0 then
+        log.LogDebug(
+          "The note played through ({Bytes} bytes, {Seconds} seconds).",
+          data.Length,
+          started.Elapsed.TotalSeconds
+        )
+
         finished.Trigger()
+      elif running.Value then
+        // A drain that fails never fires `Ended`, so the reader would
+        // wait forever; the log names why the note stopped short.
+        log.LogWarning(
+          "The note did not play through: {Why}",
+          Pulse.pa_strerror error
+        )
 
       Pulse.pa_simple_free stream
 
     Thread(ThreadStart work, IsBackground = true)
 
-  do writer.Start()
+  do
+    log.LogTrace("The note starts ({Bytes} bytes).", data.Length)
+    writer.Start()
 
   interface IAudioPlayback with
     member _.Stop() =
       running.Value <- false
       writer.Join()
+
+      log.LogDebug(
+        "The note stopped after {Seconds} seconds.",
+        started.Elapsed.TotalSeconds
+      )
 
     member _.SetVolume(volume: float) = loudness.Value <- volume
 
@@ -329,15 +386,15 @@ let rendered(samples: int16 array, speed: float) : byte[] =
 /// The microphone and the speaker through the PulseAudio simple API,
 /// which every PipeWire and PulseAudio desktop serves. Streams stay at
 /// the voice-note format: 16 kHz mono PCM, 16-bit little-endian.
-type PulseEngine() =
+type PulseEngine(log: ILogger) =
 
   interface IAudioEngine with
 
     member _.StartCapture() = asyncEx {
       return!
         Task.Run(fun () ->
-          match openStream(Pulse.Record, "Voice note") with
-          | Ok stream -> Ok(Capture stream :> IMicrophoneCapture)
+          match openStream(log, Pulse.Record, "Voice note") with
+          | Ok stream -> Ok(Capture(stream, log) :> IMicrophoneCapture)
           | Error failure -> Error failure)
     }
 
@@ -349,20 +406,23 @@ type PulseEngine() =
           // than playing noise.
           match VoiceMedia.samples media with
           | Some samples ->
-            match openStream(Pulse.Playback, "Voice note") with
+            match openStream(log, Pulse.Playback, "Voice note") with
             | Ok stream ->
               Ok(
-                Playback(stream, rendered(samples, speed), volume)
+                Playback(stream, rendered(samples, speed), volume, log)
                 :> IAudioPlayback
               )
             | Error failure -> Error failure
-          | None -> Error(AudioFailed "this build plays WAV voice notes only"))
+          | None ->
+            log.LogWarning("The note is not a WAV; this build plays WAV only.")
+
+            Error(AudioFailed "this build plays WAV voice notes only"))
     }
 
 /// The desktop's own sounds through libcanberra: the message event of
 /// the installed XDG sound theme, the same sound the desktop's
 /// notifications play.
-type SystemSounds() =
+type SystemSounds(log: ILogger) =
 
   // play_full reads the property list after it returns, so the list
   // lives as long as the context does: one per process, played per
@@ -384,7 +444,24 @@ type SystemSounds() =
     with :? DllNotFoundException ->
       0n, 0n, false
 
+  do
+    if ready then
+      log.LogDebug("The desktop's sound theme serves the notifications.")
+    else
+      log.LogWarning("The desktop's sounds did not open; alerts stay silent.")
+
   interface ISystemSounds with
     member _.Notify() =
       if ready then
-        Canberra.ca_context_play_full(context, 0u, properties, 0n, 0n) |> ignore
+        let played =
+          Canberra.ca_context_play_full(context, 0u, properties, 0n, 0n)
+
+        if played <> 0 then
+          log.LogWarning(
+            "The notification sound did not play (error {Error}).",
+            played
+          )
+        else
+          log.LogTrace("The notification sound played.")
+      else
+        log.LogTrace("The notification sound skips; no sound service.")

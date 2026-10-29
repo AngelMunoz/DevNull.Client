@@ -5,6 +5,8 @@ open System.IO
 open System.Reactive.Subjects
 open System.Text.Json
 open System.Text.Json.Nodes
+open FSharp.Control.Reactive
+open IcedTasks
 
 /// The theme variants the app follows: the system, or one pinned.
 type ThemeChoice =
@@ -35,13 +37,44 @@ type AppSettings = {
   VoiceVolume: float
 }
 
+/// The live local settings: one state stream for readers, one writer
+/// stream for the file. Every write — immediate or settled — funnels
+/// through the writer stream, which hands each to the `persist` hook
+/// serialized, so no two writes ever cross and no member decides
+/// timing inline. The store never touches the file system itself.
 type AppSettingsStore(settings: AppSettings, persist: AppSettings -> unit) =
 
-  let subject = new BehaviorSubject<AppSettings>(settings)
+  let state = new BehaviorSubject<AppSettings>(settings)
 
-  let emit value =
-    if subject.Value <> value then
-      subject.OnNext value
+  // The file's own stream: one writer at the end of it, and the
+  // subject's serialized hand-off means the thread a change came from
+  // stops mattering.
+  let disk = new System.Reactive.Subjects.Subject<AppSettings>()
+
+  do disk |> Observable.add persist
+
+  // The drafts arrive at typing speed, so their writes settle once
+  // the typing rests: each park starts a settle, a newer park
+  // cancels it, and the surviving settle writes the settings as they
+  // stand then.
+  let parks = new System.Reactive.Subjects.Subject<unit>()
+
+  do
+    parks
+    |> Observable.map(fun () -> asyncEx {
+      do! Async.Sleep 500
+      return state.Value
+    })
+    |> Observable.switchAsync
+    |> Observable.add disk.OnNext
+
+  let publish(value: AppSettings) =
+    if state.Value <> value then
+      state.OnNext value
+
+  let change(value: AppSettings) =
+    disk.OnNext value
+    publish value
 
   new(settings: AppSettings option, persist: AppSettings -> unit) =
     AppSettingsStore(
@@ -56,60 +89,48 @@ type AppSettingsStore(settings: AppSettings, persist: AppSettings -> unit) =
       persist
     )
 
-  member _.Current: AppSettings = subject.Value
+  member _.Current: AppSettings = state.Value
 
-  member _.Observe: IObservable<AppSettings> =
-    subject :> IObservable<AppSettings>
+  member _.Observe: IObservable<AppSettings> = state :> IObservable<AppSettings>
 
   member _.SetCloseToTray(enabled: bool) : unit =
-    let next = {
-      subject.Value with
-          CloseToTray = enabled
-    }
-
-    persist next
-    emit next
+    change(
+      {
+        state.Value with
+            CloseToTray = enabled
+      }
+    )
 
   member _.SetTheme(choice: ThemeChoice) : unit =
-    let next = { subject.Value with Theme = choice }
-
-    persist next
-    emit next
+    change({ state.Value with Theme = choice })
 
   member _.SetSidebarExpanded(expanded: bool) : unit =
-    let next = {
-      subject.Value with
-          SidebarExpanded = expanded
-    }
+    change(
+      {
+        state.Value with
+            SidebarExpanded = expanded
+      }
+    )
 
-    persist next
-    emit next
-
-  /// Parks one conversation's unsent draft; an empty text drops it.
+  /// Parks one conversation's unsent draft at once; an empty text
+  /// drops it. The file's own copy settles once the typing rests.
   member _.SetChatDraft(key: string, text: string) : unit =
     let drafts =
       if String.IsNullOrWhiteSpace text then
-        Map.remove key subject.Value.ChatDrafts
+        Map.remove key state.Value.ChatDrafts
       else
-        Map.add key text subject.Value.ChatDrafts
+        Map.add key text state.Value.ChatDrafts
 
-    let next = {
-      subject.Value with
-          ChatDrafts = drafts
-    }
+    publish({ state.Value with ChatDrafts = drafts })
+    parks.OnNext()
 
-    persist next
-    emit next
-
-  /// Persists the voice-note volume, then publishes it.
   member _.SetVoiceVolume(volume: float) : unit =
-    let next = {
-      subject.Value with
-          VoiceVolume = volume
-    }
-
-    persist next
-    emit next
+    change(
+      {
+        state.Value with
+            VoiceVolume = volume
+      }
+    )
 
 type IProvideSettings =
   abstract Settings: AppSettingsStore

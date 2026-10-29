@@ -28,8 +28,12 @@ type AppSettings = {
   VoiceVolume: float
 }
 
-/// The live local settings: one subject, persists through the `persist`
-/// hook, so the store never touches the file system itself.
+/// The live local settings: one state stream for readers, one writer
+/// stream for the file. Every write — immediate or settled — funnels
+/// through the writer stream, which hands each to the `persist` hook
+/// serialized, so no two writes ever cross and no member decides
+/// timing inline: rare changes write at once, drafts settle once the
+/// typing rests. The store never touches the file system itself.
 type AppSettingsStore =
   new:
     settings: AppSettings * persist: (AppSettings -> unit) -> AppSettingsStore
@@ -46,19 +50,20 @@ type AppSettingsStore =
   /// Every settings change, starting with the current one.
   member Observe: IObservable<AppSettings>
 
-  /// Persists the flag, then publishes it.
+  /// Writes the flag, then publishes it.
   member SetCloseToTray: enabled: bool -> unit
 
-  /// Persists the choice, then publishes it.
+  /// Writes the choice, then publishes it.
   member SetTheme: choice: ThemeChoice -> unit
 
-  /// Persists the sidebar width choice, then publishes it.
+  /// Writes the sidebar width choice, then publishes it.
   member SetSidebarExpanded: expanded: bool -> unit
 
-  /// Parks one conversation's unsent draft; an empty text drops it.
+  /// Parks one conversation's unsent draft at once; an empty text
+  /// drops it. The file's own copy settles once the typing rests.
   member SetChatDraft: key: string * text: string -> unit
 
-  /// Persists the voice-note volume, then publishes it.
+  /// Writes the voice-note volume, then publishes it.
   member SetVoiceVolume: volume: float -> unit
 
 /// Accessor for the settings store capability.

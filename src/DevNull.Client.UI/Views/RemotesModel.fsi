@@ -113,7 +113,6 @@ module State =
     | ReadSettled of went: bool
     | StoreWorkDone
     | DraftChanged of text: string * caret: int
-    | DraftSettled of text: string
     | ImageRemoved of index: int
     | LinkChosen of LinkCard
     | ReplyWanted of Message

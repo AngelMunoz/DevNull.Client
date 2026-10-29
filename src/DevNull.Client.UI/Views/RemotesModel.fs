@@ -164,7 +164,6 @@ module State =
     | ReadSettled of went: bool
     | StoreWorkDone
     | DraftChanged of text: string * caret: int
-    | DraftSettled of text: string
     | ImageRemoved of index: int
     | LinkChosen of LinkCard
     | ReplyWanted of Message
@@ -856,10 +855,6 @@ module State =
     |> Map.tryFind key
     |> Option.filter(fun text -> text <> "")
 
-  /// One debounced beat, so the stash parks only once the typing
-  /// rests.
-  let rest() : Async<unit> = asyncEx { do! Async.Sleep 300 }
-
   /// One push, through the store.
   let push
     (store: RemotesStore, target: ChatTarget, message: OutgoingMessage)
@@ -1320,18 +1315,12 @@ module State =
             (fun () -> StoreWorkDone))
         |> Option.defaultValue Cmd.none
 
-      // The stash parks once the typing rests, and only if the text
-      // still stands then.
-      next,
-      Cmd.batch [
-        typing
-        Cmd.OfAsync.perform rest () (fun () -> DraftSettled text)
-      ]
-    | DraftSettled text ->
-      if text = model.Draft then
-        props.Env.Settings.SetChatDraft(model.DraftKey, text)
+      // The stash parks with the change itself: the file's own copy
+      // rests inside the store, so a fast section switch — or a page
+      // that ends mid-word — never loses what was typed.
+      props.Env.Settings.SetChatDraft(model.DraftKey, text)
 
-      model, Cmd.none
+      next, typing
     | ImageRemoved index ->
       if index >= 0 && index < List.length model.Images then
         {

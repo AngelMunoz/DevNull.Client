@@ -1995,14 +1995,26 @@ let composerTests =
       "the stash restores an unsent draft"
       (async {
         let api = composerApi(quietThread(), Stored)
-        let! window = startShell(remotesOnStore(false, 0), api)
+        let env = TestEnv(remotesOnStore(false, 0), api)
+
+        let! window = probeUiAsync(fun () -> Shell(env, None) :> Window)
+        let! _ = showAsync window
 
         do! openConversationAsync window
         do! typeIntoComposer(window, "unsent words")
 
-        // The stash parks once the typing rests.
-        do! Async.Sleep 450
-        do! settleAsync()
+        // The stash parks with the change itself; the wait stands on
+        // the store's own word, never on a clock.
+        let! parked =
+          waitForAsync(
+            5000,
+            (fun () ->
+              (env :> DevNull.Client.SettingsStore.IProvideSettings)
+                .Settings.Current.ChatDrafts),
+            (fun drafts -> Map.tryFind "hubot" drafts = Some "unsent words")
+          )
+
+        Expect.isTrue parked "the draft never parked"
 
         do! clickWhenShown(window, "Settings")
         do! openRemotesAsync window

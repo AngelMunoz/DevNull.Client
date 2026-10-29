@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Remotes:** a chat draft typed just before leaving the page survives the leave. The words now park as they are typed and the on-disk copy settles once the typing rests, so a quick switch away and back — or a busy moment in the interface — no longer drops them.
+
 ## [0.5.0] - 2026-10-29
 
 ### Added

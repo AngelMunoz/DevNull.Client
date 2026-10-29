@@ -5,12 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-10-29
+
+### Added
+
+- **Composer:** a commit can be scheduled. The clock toggle beside the poll button opens a picker bounded the way the site's is — a day within thirty, an hour, a five-minute step — and the commit button becomes Schedule commit; images, descriptions, and a poll ride along. The queue is private: a Scheduled commits page lists what waits with its moment and status, offers Commit now (the row settles in place, its body kept, and goes through the usual review) and Cancel, moves between its pages, and answers a conflict with the server's own words.
 
 ### Fixed
 
 - **Desktop:** the name this install carries on the site's devices page follows its own platform — a Linux machine no longer introduces itself as a Windows one.
 - **Remotes:** a chat draft typed just before leaving the page survives the leave. The words now park as they are typed and the on-disk copy settles once the typing rests, so a quick switch away and back — or a busy moment in the interface — no longer drops them.
+- **Threads:** a reply posted from a commit's thread shows on the thread at once. The page re-reads the replies when the reply lands, instead of waiting for the next visit.
 
 ## [0.5.0] - 2026-10-29
 

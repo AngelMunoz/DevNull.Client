@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "skills": {
+    "fsharp-async-composition": {
+      "source": "TheAngryByrd/fsharp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/fsharp-async-composition/SKILL.md",
+      "computedHash": "fc39fb956b839e930131c0d4f088b63a3f18adf41494de2ddcdf8e5bcda0c64c"
+    },
+    "fsharp-env-capabilities": {
+      "source": "TheAngryByrd/fsharp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/fsharp-env-capabilities/SKILL.md",
+      "computedHash": "de03b6e64f5e93b6c13cb8a64e6d9e2274e1542bde0b812b25490d3dc19f8416"
+    },
+    "fsharp-failure-paths": {
+      "source": "TheAngryByrd/fsharp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/fsharp-failure-paths/SKILL.md",
+      "computedHash": "ecef6c78a488abc9e55eae3a7244d42cc00fb23891c0d661e97d064df5a26aa3"
+    },
+    "fsharp-function-parameters": {
+      "source": "AngelMunoz/opinionated-fsharp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/fsharp-function-parameters/SKILL.md",
+      "computedHash": "57d28ea9d1f0e5dc7e785fbaa365887e39aa05f5be60bda3303c22b4d0a0cf73"
+    },
+    "fsharp-idiom-review": {
+      "source": "TheAngryByrd/fsharp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/fsharp-idiom-review/SKILL.md",
+      "computedHash": "868006a47256d72664ef38f97dc595dcf07a4ce6fab0a4f5d8673cb19b21321e"
+    },
+    "fsharp-iwsam-errors": {
+      "source": "TheAngryByrd/fsharp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/fsharp-iwsam-errors/SKILL.md",
+      "computedHash": "41bf8a566a7aa85e145fb5b4a3bbd05a26b7ea64d4c8d56aa8d3825775b9a023"
+    },
+    "fsharp-module-shape": {
+      "source": "AngelMunoz/opinionated-fsharp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/fsharp-module-shape/SKILL.md",
+      "computedHash": "b27ab763ac316494f9a56910271277d10be68bc60df4fa277f0f1b6122aade8d"
+    },
+    "fsharp-native-aot": {
+      "source": "TheAngryByrd/fsharp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/fsharp-native-aot/SKILL.md",
+      "computedHash": "c58678d17a34c26860bcae6164017f810ecd2bba3021500470e39c65d36d33d5"
+    },
+    "fsharp-nullness-interop": {
+      "source": "TheAngryByrd/fsharp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/fsharp-nullness-interop/SKILL.md",
+      "computedHash": "f887fd35c61620cbf039e1c37c2d8628f18a22ca5d5cf0e8a52d31d11c65552c"
+    },
+    "fsharp-signature-files": {
+      "source": "TheAngryByrd/fsharp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/fsharp-signature-files/SKILL.md",
+      "computedHash": "30befd61af6ee740b37c9b557ad58671c0e103ee19ee7764934228a654501a5a"
+    },
+    "parse-dont-validate": {
+      "source": "TheAngryByrd/fsharp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/parse-dont-validate/SKILL.md",
+      "computedHash": "c2f2587fe9dee260adbdb98c608aa3b763f12f03d5f781d7cfd58fc041599879"
+    }
+  }
+}

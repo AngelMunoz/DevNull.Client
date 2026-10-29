@@ -8,7 +8,7 @@
 #
 # The session, the device key, and the settings are shared with the
 # Debug build through ~/.local/share/DevNull: after one login here,
-# `dotnet run --project src/DevNull.Client` starts signed in.
+# `dotnet run --project src/DevNull.Client.Linux` starts signed in.
 
 set -euo pipefail
 
@@ -25,6 +25,6 @@ case "$(uname -m)" in
   *) rid=linux-x64 ;;
 esac
 
-dotnet publish src/DevNull.Client -c Release -r "$rid" --self-contained
+dotnet publish src/DevNull.Client.Linux -c Release -r "$rid" --self-contained
 
-exec "src/DevNull.Client/bin/Release/net10.0/$rid/publish/DevNull.Client"
+exec "src/DevNull.Client.Linux/bin/Release/net10.0/$rid/publish/DevNull.Client"

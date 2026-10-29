@@ -14,6 +14,7 @@
     <Compile Include="Payload.Tests.fs" />
     <Compile Include="Api.Tests.fs" />
     <Compile Include="Remotes.Tests.fs" />
+    <Compile Include="Scheduled.Tests.fs" />
     <Compile Include="Commit.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

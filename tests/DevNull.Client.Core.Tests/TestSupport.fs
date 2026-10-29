@@ -1,5 +1,6 @@
 module Tests.TestSupport
 
+open System
 open Expecto
 open FSharp.UMX
 open DevNull.Client.Core
@@ -45,6 +46,8 @@ type TestError =
   | WrongWaveformCount of count: int
   | WaveformBarOutOfRange of bar: int
   | VoiceProhibited of conflict: VoiceConflict
+  | ScheduledInPast of moment: DateTimeOffset
+  | ScheduledTooFar of moment: DateTimeOffset
 
   interface CommitBodyError<TestError> with
     static member BodyTooShort(raw, length) = BodyTooShort(raw, length)
@@ -122,6 +125,10 @@ type TestError =
     static member WrongWaveformCount count = WrongWaveformCount count
     static member WaveformBarOutOfRange bar = WaveformBarOutOfRange bar
     static member VoiceProhibited conflict = VoiceProhibited conflict
+
+  interface ScheduledError<TestError> with
+    static member ScheduledInPast moment = ScheduledInPast moment
+    static member ScheduledTooFar moment = ScheduledTooFar moment
 
 type FixedClock(timestamp: int64) =
 

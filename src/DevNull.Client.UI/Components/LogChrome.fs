@@ -139,6 +139,9 @@ module Parts =
         Session = props.Session
         Target = Composer.Fresh
         OnCommitted = fun _ -> props.Env.Timeline.CommitLanded()
+        OnScheduled = ValueNone
+        OnOpenQueue =
+          ValueSome(fun () -> Navigation.go(props.Nav, "/scheduled", ignore))
         Register = ValueNone
         Draft = ValueNone
       }

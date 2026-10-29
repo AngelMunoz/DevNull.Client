@@ -388,6 +388,68 @@ module PollSpecs =
 
   let duration(spec: PollSpec) = spec.Duration
 
+type LinkCard =
+  | FirstLink
+  | NoCard
+  | CardOf of url: string
+
+type ScheduledStatus =
+  | StillScheduled
+  | SubmittedAs of status: CommitStatus
+  | CommitDeleted
+
+module ScheduledStatuses =
+
+  let parse(raw: string) =
+    match raw with
+    | "scheduled" -> StillScheduled
+    | "deleted" -> CommitDeleted
+    | status -> SubmittedAs(CommitStatuses.parse status)
+
+type ScheduledCommit = {
+  Id: string
+  Body: string option
+  BodySegments: Segment list
+  PreviewSegments: Segment list option
+  PollOptions: string list option
+  ImageCount: int
+  ScheduledAt: DateTimeOffset
+  SubmittedAt: DateTimeOffset option
+  Status: ScheduledStatus
+}
+
+type ScheduledPage = {
+  Items: ScheduledCommit list
+  CurrentPage: int
+  LastPage: int
+  Total: int
+}
+
+type ScheduledMoment = { Moment: DateTimeOffset }
+
+type ScheduledError<'e> =
+  static abstract ScheduledInPast: moment: DateTimeOffset -> 'e
+  static abstract ScheduledTooFar: moment: DateTimeOffset -> 'e
+
+module ScheduledMoments =
+
+  let maxDays = 30
+
+  let parse<'e when ScheduledError<'e>>
+    (now: DateTimeOffset, moment: DateTimeOffset)
+    : Result<ScheduledMoment, 'e> =
+    if moment <= now then
+      Error('e.ScheduledInPast moment)
+    elif moment > now.AddDays(float maxDays) then
+      Error('e.ScheduledTooFar moment)
+    else
+      Ok { Moment = moment }
+
+  let moment(scheduled: ScheduledMoment) = scheduled.Moment
+
+  let wire(scheduled: ScheduledMoment) =
+    scheduled.Moment.ToString("yyyy-MM-dd'T'HH:mm:sszzz")
+
 type PastelResult = {
   Commit: Commit
   PasteisRemaining: int
@@ -2265,6 +2327,86 @@ let commitPreviewDataDecoder(element: JsonElement) = decode {
   }
 }
 
+let scheduledCommitDecoder(element: JsonElement) = decode {
+  let! id = Required.Property.get ("id", Required.string) element
+
+  let! body =
+    Optional.Property.get ("body", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! bodySegments =
+    Required.Property.list ("body_segments", segmentDecoder) element
+
+  let! previewSegments =
+    Optional.Property.get
+      ("preview_segments", optionalListDecoder segmentDecoder)
+      element
+    |> Result.map Option.flatten
+
+  let! pollOptions =
+    Optional.Property.get
+      ("poll_options", optionalListDecoder Required.string)
+      element
+    |> Result.map Option.flatten
+
+  let! imageCount = Required.Property.get ("image_count", Required.int) element
+
+  let! scheduledAt =
+    Required.Property.get ("scheduled_at", Required.dateTimeOffset) element
+
+  let! submittedAt =
+    Optional.Property.get ("submitted_at", Optional.dateTimeOffset) element
+    |> Result.map Option.flatten
+
+  let! status =
+    Required.Property.get ("status", Required.string) element
+    |> Result.map ScheduledStatuses.parse
+
+  return {
+    Id = id
+    Body = body
+    BodySegments = bodySegments
+    PreviewSegments = previewSegments
+    PollOptions = pollOptions
+    ImageCount = imageCount
+    ScheduledAt = scheduledAt
+    SubmittedAt = submittedAt
+    Status = status
+  }
+}
+
+type ScheduledMeta = {
+  CurrentPage: int
+  LastPage: int
+  Total: int
+}
+
+let scheduledMetaDecoder(element: JsonElement) = decode {
+  let! currentPage =
+    Required.Property.get ("current_page", Required.int) element
+
+  let! lastPage = Required.Property.get ("last_page", Required.int) element
+  let! total = Required.Property.get ("total", Required.int) element
+
+  return {
+    CurrentPage = currentPage
+    LastPage = lastPage
+    Total = total
+  }
+}
+
+let scheduledPageDecoder(element: JsonElement) = decode {
+  let! items = Required.Property.list ("data", scheduledCommitDecoder) element
+  let! meta = Required.Property.get ("meta", scheduledMetaDecoder) element
+
+  return {
+    Items = items
+    CurrentPage = meta.CurrentPage
+    LastPage = meta.LastPage
+    Total = meta.Total
+  }
+}
+
 let inline decodeMe(body: string) : Result<Me, DecodeFailure> =
   parseBody body meDecoder
 
@@ -2363,6 +2505,16 @@ let inline decodeCommitPreview
   (body: string)
   : Result<CommitPreview, DecodeFailure> =
   parseBody body (Required.Property.get("data", commitPreviewDataDecoder))
+
+let inline decodeScheduledPage
+  (body: string)
+  : Result<ScheduledPage, DecodeFailure> =
+  parseBody body scheduledPageDecoder
+
+let inline decodeScheduledCommit
+  (body: string)
+  : Result<ScheduledCommit, DecodeFailure> =
+  parseBody body (Required.Property.get("data", scheduledCommitDecoder))
 
 module Me =
   let decode(body: string) = decodeMe body
@@ -2476,6 +2628,11 @@ module MessageLinkPreview =
 
 module CommitPreview =
   let decode(body: string) = decodeCommitPreview body
+
+module ScheduledCommits =
+  let decodePage(body: string) = decodeScheduledPage body
+
+  let decode(body: string) = decodeScheduledCommit body
 
 type TransportError<'e> =
   static abstract TransportFailed: message: string -> 'e

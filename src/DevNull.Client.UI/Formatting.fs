@@ -2,6 +2,7 @@ module DevNull.Client.Formatting
 
 open System
 open System.Globalization
+open System.Text.RegularExpressions
 
 let timeAgo(now: DateTimeOffset, at: DateTimeOffset) : string =
   let span = now - at
@@ -30,3 +31,9 @@ let dayLabel(now: DateTimeOffset, day: DateTimeOffset) : string =
     "Yesterday"
   else
     day'.ToString("ddd, MMM d", CultureInfo.InvariantCulture)
+
+let plainText(html: string) : string =
+  Regex.Replace(html, "<[^>]+>", "")
+  |> System.Net.WebUtility.HtmlDecode
+  |> Option.ofObj
+  |> Option.defaultValue ""

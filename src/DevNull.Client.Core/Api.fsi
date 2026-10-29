@@ -616,6 +616,88 @@ module Commits =
       and Rejected<'e>
       and DecodeError<'e>
 
+module ScheduledCommits =
+
+  /// One queue page read: the page number, one-based.
+  type ListRequest = { KeyFile: string; Page: int }
+
+  /// One commit to queue: a body, images with their descriptions, a
+  /// poll as a fresh commit carries them, a link-card choice, and the
+  /// moment it submits. No replies, no quotes — the server refuses
+  /// both.
+  type CreateRequest = {
+    KeyFile: string
+    Body: string
+    Images: ImageAttachment list
+    ImageDescriptions: string option list
+    Poll: PollSpec option
+    Card: LinkCard
+    ScheduledAt: ScheduledMoment
+  }
+
+  /// One queued commit acted on by id.
+  type ActionRequest = {
+    KeyFile: string
+    ScheduledCommitId: string
+  }
+
+  /// Reads the queue, waiting entries first, twenty a page.
+  val list:
+    env: 'env * request: ListRequest -> Async<Result<ScheduledPage, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Queues one commit and answers with it as the queue shows it.
+  val create:
+    env: 'env * request: CreateRequest -> Async<Result<ScheduledCommit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and CommitBodyError<'e>
+      and ImageError<'e>
+      and PollError<'e>
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Cancels one queued commit. One already submitted or canceled
+  /// answers the server's conflict message verbatim.
+  val cancel:
+    env: 'env * request: ActionRequest -> Async<Result<unit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Submits one queued commit now, before its time, and answers with
+  /// it as the queue now shows it: submitted, its body hidden.
+  val submitNow:
+    env: 'env * request: ActionRequest -> Async<Result<ScheduledCommit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
 module Stars =
 
   /// The starred commits, one cursor page at a time. Starring is also
@@ -819,12 +901,9 @@ module Remotes =
     ReactionsAfter: int option
   }
 
-  /// Which link gets the card on a pushed message: the first one, a
-  /// chosen one, or none.
-  type LinkCard =
-    | FirstLink
-    | NoCard
-    | CardOf of url: string
+  /// Which link gets the card on a pushed message or a queued commit:
+  /// the first one, a chosen one, or none.
+  type LinkCard = DevNull.Client.Core.ApiTypes.LinkCard
 
   /// One message to push to a partner or an org. The body, the images,
   /// or the voice note may carry it alone; a voice note rides alone, or

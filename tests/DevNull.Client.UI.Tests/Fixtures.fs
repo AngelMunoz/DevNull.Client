@@ -828,6 +828,53 @@ let threadApi() =
        | ValueSome answer -> answer
        | ValueNone -> ok "{}"))
 
+/// The reply a landed post stores: the words the composer typed, as
+/// the server would echo them.
+let landedReplyJson =
+  """{"id":"018f4c1e-aaaa-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"f1e2d3c","body":"Fresh from the thread test","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-aaaa-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:30:19Z","stars_count":0,"replies_count":0,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"images":[]}"""
+
+/// The replies page once the reply landed: the canned reply plus the
+/// fresh one, the page the reload reads.
+let landedRepliesPageJson =
+  sprintf
+    "{\"data\":[%s,%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+    replyJson
+    landedReplyJson
+
+/// The api of the landed-reply test: the thread answers from cans the
+/// way the thread api does, but the replies endpoint answers the plain
+/// page until the reply post lands, then the page that carries the
+/// posted reply — the page the reload must read.
+let replyingThreadApi() =
+  let posts = ResizeArray<string>()
+
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    elif request.Method = "POST" && request.Target = "/api/v1/commits" then
+      posts.Add request.Target
+
+      ok(sprintf "{\"data\":%s}" landedReplyJson)
+    elif
+      request.Method = "GET"
+      && request.Target.StartsWith(
+        "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d/replies"
+      )
+    then
+      if posts.Count > 0 then
+        ok landedRepliesPageJson
+      else
+        ok repliesPageJson
+    elif
+      request.Target.StartsWith
+        "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+    then
+      ok threadPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
 /// The api of the terms test: the boot log answers, and the terms
 /// acceptance answers with the accepted account.
 let termsApi() =

@@ -215,6 +215,27 @@ let savedPage
       }
   )
 
+/// The scheduled queue: the private list of commits the composer's
+/// Schedule action queued, one offset page at a time.
+let scheduledPage
+  (
+    env:
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideLogging,
+    nav: INavigable,
+    context: RouteContext
+  ) : Control =
+  signedIn(
+    env,
+    "Sign in to read the scheduled list.",
+    fun session ->
+      ScheduledView.Page {
+        Env = env
+        Session = session
+        Nav = nav
+        Context = context
+      }
+  )
+
 let profilePage
   (
     env:
@@ -330,6 +351,13 @@ let build
       "saved",
       "/saved",
       fun context nav -> savedPage(env, nav, context)
+    )
+    |> gated
+
+    Route.define<Control>(
+      "scheduled",
+      "/scheduled",
+      fun context nav -> scheduledPage(env, nav, context)
     )
     |> gated
 

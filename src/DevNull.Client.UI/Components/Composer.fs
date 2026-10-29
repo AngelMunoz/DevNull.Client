@@ -63,12 +63,19 @@ type Props<'env
   Session: SignedInSession
   Target: Target
   OnCommitted: Commit -> unit
+  OnScheduled: (ScheduledCommit -> unit) voption
+  OnOpenQueue: (unit -> unit) voption
   Register: (IDisposable -> unit) voption
   Draft: DraftSource voption
 }
 
 /// The composer's state logic: model, messages, and update.
 module State =
+
+  /// The moment the person picked, as the panel takes it: a day offset
+  /// from today, an hour, and a five-minute step.
+  [<Struct>]
+  type Pick = { Day: int; Hour: int; Minute: int }
 
   type Model = {
     Busy: bool
@@ -80,6 +87,11 @@ module State =
     /// parallel to the attachments by index.
     Descriptions: string list
     Poll: PollDraft option
+    /// The schedule mode: on when the next submit queues instead of
+    /// posting.
+    Scheduling: bool
+    /// The picked moment; none until a day is chosen.
+    Picked: Pick voption
   }
 
   type Msg =
@@ -94,7 +106,12 @@ module State =
     | PollOptionAdded
     | PollOptionRemoved of index: int
     | PollDurationPicked of PollDuration
+    | ScheduleToggled
+    | ScheduleDayPicked of day: int
+    | ScheduleHourPicked of hour: int
+    | ScheduleMinutePicked of minute: int
     | Committed of Result<Commit, AppError>
+    | Scheduled of Result<ScheduledCommit, AppError>
 
   let initial = {
     Busy = false
@@ -104,6 +121,8 @@ module State =
     Attachments = []
     Descriptions = []
     Poll = None
+    Scheduling = false
+    Picked = ValueNone
   }
 
   /// The staging path allocates large-object arrays an idle composer
@@ -135,6 +154,21 @@ module State =
     | Fresh -> Commits.New
     | ReplyTo parentId -> Commits.ReplyTo parentId
     | Quoting quotedId -> Commits.Quote quotedId
+
+  /// The local now, from the env's clock.
+  let localNow(props: Props<'env>) : DateTimeOffset =
+    DateTimeOffset.FromUnixTimeSeconds(props.Env.Clock.UnixNow()).ToLocalTime()
+
+  /// The picked moment in local time: the day offset lands on the
+  /// calendar date, the hour and minute set the time, and the offset is
+  /// today's.
+  let pickedMoment(now: DateTimeOffset, pick: Pick) : DateTimeOffset =
+    let date = now.DateTime.AddDays(float pick.Day)
+
+    let withTime =
+      DateTime(date.Year, date.Month, date.Day, pick.Hour, pick.Minute, 0)
+
+    DateTimeOffset(withTime, now.Offset)
 
   let init (props: Props<'env>) () =
     let seeded =
@@ -285,6 +319,39 @@ module State =
         model.Poll |> Option.map(fun poll -> { poll with Duration = duration })
 
       { model with Poll = changed }, Cmd.none
+    | ScheduleToggled ->
+      // The toggle resets the pick, as the site's picker does.
+      {
+        model with
+            Scheduling = not model.Scheduling
+            Picked = ValueNone
+            Error = None
+      },
+      Cmd.none
+    | ScheduleDayPicked day ->
+      let picked =
+        match model.Picked with
+        | ValueSome pick -> ValueSome { pick with Day = day }
+        | ValueNone ->
+          // The site's defaults: the next hour today, nine on any other
+          // day.
+          let now = localNow props
+          let hour = if day = 0 then min (now.Hour + 1) 23 else 9
+
+          ValueSome { Day = day; Hour = hour; Minute = 0 }
+
+      { model with Picked = picked }, Cmd.none
+    | ScheduleHourPicked hour ->
+      let picked =
+        model.Picked |> ValueOption.map(fun pick -> { pick with Hour = hour })
+
+      { model with Picked = picked }, Cmd.none
+    | ScheduleMinutePicked minute ->
+      let picked =
+        model.Picked
+        |> ValueOption.map(fun pick -> { pick with Minute = minute })
+
+      { model with Picked = picked }, Cmd.none
     | Submitted body ->
       // The poll speaks at the post: the same parse the server runs,
       // before the request leaves.
@@ -309,21 +376,60 @@ module State =
             bounded 300 (describe error)
           ))
       | Ok spec ->
-        { model with Busy = true; Error = None },
-        Cmd.OfAsync.perform
-          Commits.create
-          (props.Env,
-           {
-             KeyFile = props.Session.KeyFile
-             Body = body
-             Target = apiTarget props.Target
-             Images = model.Attachments
-             ImageDescriptions =
-               model.Descriptions
-               |> List.map(fun text -> if text = "" then None else Some text)
-             Poll = spec
-           })
-          Committed
+        let descriptions =
+          model.Descriptions
+          |> List.map(fun text -> if text = "" then None else Some text)
+
+        if model.Scheduling then
+          // The window speaks before the request: the same bounds the
+          // server runs, against the clock the env carries.
+          let moment =
+            model.Picked
+            |> ValueOption.map(fun pick ->
+              let now = localNow props
+              ScheduledMoments.parse(now, pickedMoment(now, pick)))
+
+          match moment with
+          | ValueSome(Error error) ->
+            { model with Error = Some error },
+            Cmd.ofAction(fun () ->
+              log.LogWarning(
+                "The moment was refused: {Error}",
+                bounded 300 (describe error)
+              ))
+          | ValueSome(Ok at) ->
+            { model with Busy = true; Error = None },
+            Cmd.OfAsync.perform
+              ScheduledCommits.create
+              (props.Env,
+               {
+                 KeyFile = props.Session.KeyFile
+                 Body = body
+                 Images = model.Attachments
+                 ImageDescriptions = descriptions
+                 Poll = spec
+                 Card = FirstLink
+                 ScheduledAt = at
+               })
+              Scheduled
+          | ValueNone ->
+            // No moment picked: the button stays off; a stray submit
+            // leaves the panel as it is.
+            model, Cmd.none
+        else
+          { model with Busy = true; Error = None },
+          Cmd.OfAsync.perform
+            Commits.create
+            (props.Env,
+             {
+               KeyFile = props.Session.KeyFile
+               Body = body
+               Target = apiTarget props.Target
+               Images = model.Attachments
+               ImageDescriptions = descriptions
+               Poll = spec
+             })
+            Committed
     | Committed result ->
       match result with
       | Ok commit ->
@@ -351,6 +457,38 @@ module State =
         Cmd.ofAction(fun () ->
           log.LogWarning(
             "The commit was not posted: {Error}",
+            bounded 300 (describe error)
+          ))
+    | Scheduled result ->
+      match result with
+      | Ok queued ->
+        {
+          initial with
+              Committed = model.Committed + 1
+        },
+        Cmd.batch [
+          match props.OnScheduled with
+          | ValueSome on -> Cmd.ofEffect(fun _ -> on queued)
+          | ValueNone -> ()
+
+          Cmd.ofEffect(fun _ -> collectStaged())
+
+          Cmd.ofAction(fun () ->
+            log.LogInformation(
+              "The commit {Id} was scheduled for {Moment}.",
+              queued.Id,
+              queued.ScheduledAt
+            ))
+        ]
+      | Error error ->
+        {
+          model with
+              Busy = false
+              Error = Some error
+        },
+        Cmd.ofAction(fun () ->
+          log.LogWarning(
+            "The commit was not scheduled: {Error}",
             bounded 300 (describe error)
           ))
 
@@ -661,6 +799,32 @@ module Parts =
       .OnClickHandler(fun _ _ -> dispatch State.PollToggled)
     |> withTip "Add poll"
 
+  /// The schedule button: the clock entry beside the poll button. A
+  /// reply or quote hides it — the server takes a scheduled commit as
+  /// neither.
+  let scheduleButton
+    (
+      props: Props<'env>,
+      model: IObservable<State.Model>,
+      dispatch: Dispatch<State.Msg>
+    ) : Control =
+    let offered =
+      match props.Target with
+      | Fresh -> true
+      | _ -> false
+
+    Button()
+      .Name("ScheduleButton")
+      .Classes(Theme.name Theme.GhostButton)
+      .Width(32.0)
+      .Height(32.0)
+      .Padding(Thickness(0.0))
+      .Content(Icons.iconAt(Glyph.Clock, 20.0))
+      .IsVisible(offered)
+      .IsEnabled(model |> Observable.map(fun current -> not current.Busy))
+      .OnClickHandler(fun _ _ -> dispatch State.ScheduleToggled)
+    |> withTip "Schedule for later"
+
   /// One option box of the poll builder: the text rides the model the
   /// way the body does, so the structure rebuilds only when the option
   /// count moves. The site caps an option at 50 characters.
@@ -848,8 +1012,144 @@ module Parts =
         |> _.ToBinding()
       )
 
-  /// The action row: the attach and poll buttons and the commit button
-  /// docked right, the error line filling the rest.
+  /// The labels of the day list: today, tomorrow, then the calendar
+  /// dates of the window the server allows.
+  let dayLabels(now: DateTimeOffset) : string array = [|
+    for day in 0 .. ScheduledMoments.maxDays ->
+      match day with
+      | 0 -> "Today"
+      | 1 -> "Tomorrow"
+      | _ -> now.DateTime.AddDays(float day).ToString("MMM d")
+  |]
+
+  /// The hour labels, two digits, twenty-four hours.
+  let hourLabels: string array = [| for hour in 0..23 -> hour.ToString("00") |]
+
+  /// The minute labels, one per five-minute step.
+  let minuteLabels: string array = [|
+    for step in 0..11 -> (step * 5).ToString("00")
+  |]
+
+  /// The schedule panel under the poll builder: the site's picker as
+  /// three selects — a day of the window, an hour, a five-minute step —
+  /// the window's help line, and the link into the queue. The hour and
+  /// minute stay off until a day is picked, the way the site's picker
+  /// does.
+  let schedulePanel
+    (
+      props: Props<'env>,
+      model: IObservable<State.Model>,
+      dispatch: Dispatch<State.Msg>
+    ) : Control =
+    let now = State.localNow props
+
+    let dayCombo =
+      ComboBox()
+        .Name("ScheduleDay")
+        .MinWidth(128.0)
+        .MinHeight(32.0)
+        .ItemsSource(dayLabels now)
+        .SelectedIndex(
+          model
+          |> Observable.map(fun current ->
+            current.Picked
+            |> ValueOption.map _.Day
+            |> ValueOption.defaultValue -1)
+          |> Observable.distinctUntilChanged
+        )
+        .OnSelectionChangedHandler(fun picker _ ->
+          if picker.SelectedIndex >= 0 then
+            dispatch(State.ScheduleDayPicked picker.SelectedIndex))
+
+    let hourCombo =
+      ComboBox()
+        .Name("ScheduleHour")
+        .MinWidth(72.0)
+        .MinHeight(32.0)
+        .ItemsSource(hourLabels)
+        .IsEnabled(
+          model |> Observable.map(fun current -> current.Picked.IsSome)
+        )
+        .SelectedIndex(
+          model
+          |> Observable.map(fun current ->
+            current.Picked
+            |> ValueOption.map _.Hour
+            |> ValueOption.defaultValue -1)
+          |> Observable.distinctUntilChanged
+        )
+        .OnSelectionChangedHandler(fun picker _ ->
+          if picker.SelectedIndex >= 0 then
+            dispatch(State.ScheduleHourPicked picker.SelectedIndex))
+
+    let minuteCombo =
+      ComboBox()
+        .Name("ScheduleMinute")
+        .MinWidth(72.0)
+        .MinHeight(32.0)
+        .ItemsSource(minuteLabels)
+        .IsEnabled(
+          model |> Observable.map(fun current -> current.Picked.IsSome)
+        )
+        .SelectedIndex(
+          model
+          |> Observable.map(fun current ->
+            current.Picked
+            |> ValueOption.map(fun pick -> pick.Minute / 5)
+            |> ValueOption.defaultValue -1)
+          |> Observable.distinctUntilChanged
+        )
+        .OnSelectionChangedHandler(fun picker _ ->
+          if picker.SelectedIndex >= 0 then
+            dispatch(State.ScheduleMinutePicked(picker.SelectedIndex * 5)))
+
+    let pickerRow =
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Spacing(8.0)
+        .Children(
+          TextBlock()
+            .Classes(Theme.name Theme.Muted)
+            .Text("Submit at")
+            .VerticalAlignment(VerticalAlignment.Center),
+          dayCombo,
+          hourCombo,
+          TextBlock().Classes(Theme.name Theme.Muted).Text(":"),
+          minuteCombo
+        )
+
+    let help =
+      TextBlock()
+        .Classes(Theme.name Theme.Muted)
+        .FontSize(12.0)
+        .TextWrapping(TextWrapping.Wrap)
+        .Text(
+          $"Within {ScheduledMoments.maxDays} days. Private until submitted; then submitted for review, not published automatically."
+        )
+
+    let queueLink =
+      match props.OnOpenQueue with
+      | ValueSome openQueue ->
+        Button()
+          .Name("ScheduledCommitsLink")
+          .Classes(Theme.name Theme.GhostButton, Theme.name Theme.FgAccent)
+          .Padding(6.0, 2.0, 6.0, 2.0)
+          .HorizontalAlignment(HorizontalAlignment.Left)
+          .Content("Scheduled commits →")
+          .OnClickHandler(fun _ _ -> openQueue())
+        :> Control
+      | ValueNone -> Panel() :> Control
+
+    Border()
+      .Classes(Theme.name Theme.Hairline)
+      .BorderThickness(Thickness(1.0))
+      .CornerRadius(8.0)
+      .Padding(12.0)
+      .Child(StackPanel().Spacing(8.0).Children(pickerRow, help, queueLink))
+      .IsVisible(model |> Observable.map _.Scheduling)
+
+  /// The action row: the attach, poll, and schedule buttons and the
+  /// commit button docked right, the error line filling the rest.
   let actionRow
     (
       props: Props<'env>,
@@ -857,13 +1157,28 @@ module Parts =
       dispatch: Dispatch<State.Msg>,
       body: TextBox
     ) : Control =
+    let commitLabel(current: State.Model) =
+      if current.Scheduling then "Schedule commit" else "Commit"
+
     DockPanel()
       .LastChildFill(true)
       .Children(
         Button()
           .Classes(Theme.name Theme.AccentButton)
-          .Content("Commit")
-          .IsEnabled(model |> Observable.map(fun current -> not current.Busy))
+          .Content(
+            TextBlock()
+              .Text(
+                model
+                |> Observable.map commitLabel
+                |> Observable.distinctUntilChanged
+              )
+          )
+          .IsEnabled(
+            model
+            |> Observable.map(fun current ->
+              not current.Busy
+              && (not current.Scheduling || current.Picked.IsSome))
+          )
           .OnClickHandler(fun _ _ ->
             dispatch(
               State.Submitted(
@@ -873,6 +1188,7 @@ module Parts =
           .DockRight(),
         attachButton(props, model, dispatch),
         pollButton(props, model, dispatch),
+        scheduleButton(props, model, dispatch),
         errorLine model
       )
 
@@ -895,6 +1211,7 @@ let view
       body,
       Parts.attachmentStrip(model, dispatch),
       Parts.pollPanel(model, dispatch),
+      Parts.schedulePanel(props, model, dispatch),
       Parts.actionRow(props, model, dispatch, body)
     )
 

@@ -423,6 +423,8 @@ let composeDialog
               Session = session
               Target = Composer.Fresh
               OnCommitted = fun _ -> close()
+              OnScheduled = ValueSome(fun _ -> close())
+              OnOpenQueue = ValueNone
               Register = ValueNone
               Draft = ValueNone
             }

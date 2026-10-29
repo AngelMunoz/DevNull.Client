@@ -2314,6 +2314,68 @@ let tests =
       })
 
     testCaseAsync
+      "a landed reply shows on the thread at once"
+      (async {
+        let api = replyingThreadApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "It was DNS.") |> Option.iter click)
+
+        let! thread = showsText(window, "Back to the log")
+
+        Expect.isTrue thread "the thread never rendered"
+
+        let! revealed =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "ReplyButton")),
+            (fun control ->
+              control
+              |> Option.map(fun found -> found :? Button)
+              |> Option.defaultValue false)
+          )
+
+        Expect.isTrue revealed "the reply button never appeared"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "ReplyButton")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! typed =
+          waitForAsync(
+            5000,
+            (fun () -> textBoxWithWatermark(window, "Write your reply…")),
+            Option.isSome
+          )
+
+        Expect.isTrue typed "the reply composer never appeared"
+
+        do!
+          onUiAsync(fun () ->
+            textBoxWithWatermark(window, "Write your reply…")
+            |> Option.iter(fun box ->
+              box.Text <- "Fresh from the thread test"
+
+              buttonNear(box, "Commit") |> Option.iter click))
+
+        // The reload a landed reply triggers re-reads the replies, so
+        // the fresh reply renders without leaving the page.
+        let! landed = showsText(window, "Fresh from the thread test")
+
+        Expect.isTrue landed "the landed reply never showed on the thread"
+      })
+
+    testCaseAsync
       "giving a pastel posts the pastel"
       (async {
         let! window = startShell(signedInStore(), threadApi() :> IHttp)

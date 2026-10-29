@@ -878,6 +878,46 @@ module Commits =
       | Some error -> Error error
       | None -> Ok descriptions
 
+  /// The image-descriptions field as a post rides it: one slot per
+  /// image, an undescribed image carrying null. A post that describes
+  /// nothing leaves the field out entirely; fewer descriptions than
+  /// images still send one slot per image.
+  let descriptionsField
+    (descriptions: string option list, images: PostableImage list)
+    =
+    let describesNothing =
+      descriptions |> List.forall(fun description -> description = None)
+
+    match images, describesNothing with
+    | [], _
+    | _, true -> []
+    | _ ->
+      let encoded =
+        descriptions
+        |> List.map(fun description ->
+          description
+          |> Option.map Encode.string
+          |> Option.defaultValue(Encode.Null()))
+
+      let padding =
+        List.replicate (images.Length - encoded.Length) (Encode.Null())
+
+      List.singleton("image_descriptions", Json.sequence(encoded @ padding, id))
+
+  /// The poll field, when a poll rides the post.
+  let pollField(poll: PollSpec option) =
+    poll
+    |> Option.map(fun spec ->
+      Json.object [
+        "options", Json.sequence(PollSpecs.options spec, Encode.string)
+        "duration", Encode.int(PollDurations.wire(PollSpecs.duration spec))
+      ])
+    |> Option.map(fun pollJson ->
+      // The upcast is needed: this standalone let has no Json.object
+      // argument position to make the JsonObject a JsonNode.
+      List.singleton("poll", pollJson :> System.Text.Json.Nodes.JsonNode))
+    |> Option.defaultValue []
+
   let create(env, request: CreateRequest) = asyncResult {
     let! body = CommitBodies.parse request.Body
 
@@ -900,52 +940,17 @@ module Commits =
     let! descriptions =
       checkDescriptions(request.ImageDescriptions, request.Images)
 
-    // The descriptions ride the payload exactly as a pushed message's
-    // do: one slot per image, an undescribed image carrying null. A
-    // post that describes nothing leaves the field out entirely, the
-    // way a description-less post always did.
-    let describesNothing =
-      descriptions |> List.forall(fun description -> description = None)
-
-    let descriptionsJson =
-      match images, describesNothing with
-      | [], _
-      | _, true -> None
-      | _ ->
-        let encoded =
-          descriptions
-          |> List.map(fun description ->
-            description
-            |> Option.map Encode.string
-            |> Option.defaultValue(Encode.Null()))
-
-        // Fewer descriptions than images still send one slot per image.
-        let padding =
-          List.replicate (images.Length - encoded.Length) (Encode.Null())
-
-        Some("image_descriptions", Json.sequence(encoded @ padding, id))
-
-    let pollJson =
-      poll
-      |> Option.map(fun spec ->
-        Json.object [
-          "options", Json.sequence(PollSpecs.options spec, Encode.string)
-          "duration", Encode.int(PollDurations.wire(PollSpecs.duration spec))
-        ])
-
     let json =
-      Json.object [
-        "body", Encode.string(CommitBodies.value body)
-        match target with
-        | Some(name, value) -> name, value
-        | None -> ()
-        match descriptionsJson with
-        | Some(name, value) -> name, value
-        | None -> ()
-        match pollJson |> Option.map(fun poll -> "poll", poll) with
-        | Some(name, value) -> name, value
-        | None -> ()
-      ]
+      Json.object(
+        List.concat [
+          List.singleton("body", Encode.string(CommitBodies.value body))
+          match target with
+          | Some(name, value) -> List.singleton(name, value)
+          | None -> ()
+          descriptionsField(descriptions, images)
+          pollField poll
+        ]
+      )
       |> _.ToJsonString()
 
     let baseCall: Internal.SignedCall<Commit> = {
@@ -1111,6 +1116,126 @@ module Commits =
         }
       )
   }
+
+module ScheduledCommits =
+
+  type ListRequest = { KeyFile: string; Page: int }
+
+  type CreateRequest = {
+    KeyFile: string
+    Body: string
+    Images: ImageAttachment list
+    ImageDescriptions: string option list
+    Poll: PollSpec option
+    Card: LinkCard
+    ScheduledAt: ScheduledMoment
+  }
+
+  type ActionRequest = {
+    KeyFile: string
+    ScheduledCommitId: string
+  }
+
+  let path(id: string, suffix: string) =
+    "/api/v1/scheduled-commits/" + Uri.EscapeDataString id + suffix
+
+  let list(env, request: ListRequest) =
+    let target =
+      Internal.withQuery(
+        "/api/v1/scheduled-commits",
+        List.singleton("page", string request.Page)
+      )
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target = target
+        Body = ""
+        Decode = ApiTypes.ScheduledCommits.decodePage
+      }
+    )
+
+  let create(env, request: CreateRequest) = asyncResult {
+    let! body = CommitBodies.parse request.Body
+
+    let! poll = Commits.checkPoll(request.Poll, Commits.New, request.Images)
+
+    let! images = DevNull.Client.Core.Commit.CommitImages.parse request.Images
+
+    let! descriptions =
+      Commits.checkDescriptions(request.ImageDescriptions, request.Images)
+
+    let json =
+      Json.object(
+        List.concat [
+          List.singleton("body", Encode.string(CommitBodies.value body))
+
+          (match request.Card with
+           | FirstLink -> []
+           | NoCard -> List.singleton("link_preview_url", Encode.Null())
+           | CardOf url -> List.singleton("link_preview_url", Encode.string url))
+
+          Commits.descriptionsField(descriptions, images)
+          Commits.pollField poll
+
+          List.singleton(
+            "scheduled_at",
+            Encode.string(ScheduledMoments.wire request.ScheduledAt)
+          )
+        ]
+      )
+      |> _.ToJsonString()
+
+    let baseCall: Internal.SignedCall<ScheduledCommit> = {
+      KeyFile = request.KeyFile
+      Method = "POST"
+      Target = "/api/v1/scheduled-commits"
+      Body = json
+      Decode = ApiTypes.ScheduledCommits.decode
+    }
+
+    return!
+      match images with
+      | [] -> Internal.sendSigned(env, baseCall)
+      | staged ->
+        Internal.sendSignedImage(
+          env,
+          {
+            KeyFile = baseCall.KeyFile
+            Method = baseCall.Method
+            Target = baseCall.Target
+            Body = baseCall.Body
+            Images = staged
+            Decode = baseCall.Decode
+          }
+        )
+  }
+
+  let cancel(env, request: ActionRequest) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "DELETE"
+        Target = path(request.ScheduledCommitId, "")
+        Body = ""
+        Decode = Internal.decodeUnit
+      }
+    )
+
+  let submitNow(env, request: ActionRequest) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "POST"
+        Target = path(request.ScheduledCommitId, "/submission")
+        Body = ""
+        Decode = ApiTypes.ScheduledCommits.decode
+      }
+    )
 
 module Stars =
 
@@ -1343,10 +1468,7 @@ module Remotes =
     ReactionsAfter: int option
   }
 
-  type LinkCard =
-    | FirstLink
-    | NoCard
-    | CardOf of url: string
+  type LinkCard = DevNull.Client.Core.ApiTypes.LinkCard
 
   type PushRequest = {
     KeyFile: string

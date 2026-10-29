@@ -354,6 +354,73 @@ module PollSpecs =
   /// The time the poll stays open.
   val duration: spec: PollSpec -> PollDuration
 
+/// Which link gets the card on a pushed message or a queued commit: the
+/// first one, a chosen one, or none.
+type LinkCard =
+  | FirstLink
+  | NoCard
+  | CardOf of url: string
+
+/// What became of one queued commit: still waiting, submitted (with the
+/// commit's moderation status), or deleted after submission.
+type ScheduledStatus =
+  | StillScheduled
+  | SubmittedAs of status: CommitStatus
+  | CommitDeleted
+
+module ScheduledStatuses =
+  /// Reads the wire status: `scheduled`, `deleted`, or the submitted
+  /// commit's own status. An unknown status stays raw inside it.
+  val parse: raw: string -> ScheduledStatus
+
+/// One commit the user queued, as the scheduled index returns it. The
+/// body is hidden once the commit was submitted.
+type ScheduledCommit = {
+  Id: string
+  Body: string option
+  BodySegments: Segment list
+  PreviewSegments: Segment list option
+  PollOptions: string list option
+  ImageCount: int
+  ScheduledAt: DateTimeOffset
+  SubmittedAt: DateTimeOffset option
+  Status: ScheduledStatus
+}
+
+/// One page of the scheduled queue: offset pagination, twenty a page,
+/// unlike the cursor pages elsewhere.
+type ScheduledPage = {
+  Items: ScheduledCommit list
+  CurrentPage: int
+  LastPage: int
+  Total: int
+}
+
+/// A scheduled commit's moment, as the server bounds it: strictly after
+/// now, at most thirty days out.
+type ScheduledMoment = private { Moment: DateTimeOffset }
+
+type ScheduledError<'e> =
+  static abstract ScheduledInPast: moment: DateTimeOffset -> 'e
+  static abstract ScheduledTooFar: moment: DateTimeOffset -> 'e
+
+module ScheduledMoments =
+
+  /// The window the server allows, in days.
+  val maxDays: int
+
+  /// Reads one moment against the window the server allows around
+  /// `now`.
+  val parse<'e when ScheduledError<'e>> :
+    now: DateTimeOffset * moment: DateTimeOffset -> Result<ScheduledMoment, 'e>
+
+  /// The moment itself.
+  val moment: scheduled: ScheduledMoment -> DateTimeOffset
+
+  /// The wire format: ISO-8601 with offset and seconds precision, as
+  /// the server's format rule takes it.
+  val wire: scheduled: ScheduledMoment -> string
+
 /// The result of giving a pastel.
 type PastelResult = {
   Commit: Commit
@@ -808,6 +875,13 @@ module MessageLinkPreview =
 module CommitPreview =
   /// Reads one draft as the commit it would become.
   val decode: body: string -> Result<CommitPreview, DecodeFailure>
+
+module ScheduledCommits =
+  /// Reads the offset-paginated queue index.
+  val decodePage: body: string -> Result<ScheduledPage, DecodeFailure>
+
+  /// Reads one queued commit from its `{data: ...}` envelope.
+  val decode: body: string -> Result<ScheduledCommit, DecodeFailure>
 
 /// The transport could not reach the server.
 type TransportError<'e> =

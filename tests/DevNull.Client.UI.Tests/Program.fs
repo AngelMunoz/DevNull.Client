@@ -6,6 +6,7 @@ open DevNull.Client.UI.Tests
 open DevNull.Client.UI.Tests.Natives
 open DevNull.Client.UI.Tests.Remotes
 open DevNull.Client.UI.Tests.RemotesView
+open DevNull.Client.UI.Tests.Scheduled
 
 [<EntryPoint>]
 let main argv =
@@ -13,6 +14,7 @@ let main argv =
     testList "devnull client ui" [
       Natives.tests
       App.tests
+      Scheduled.tests
       Shortcuts.tests
       Unread.tests
       // The memory budgets measure deltas, so the leak suite runs

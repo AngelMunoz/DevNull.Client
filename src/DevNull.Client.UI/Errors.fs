@@ -1,5 +1,6 @@
 module DevNull.Client.Errors
 
+open System
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Types
 open DevNull.Client.Natives
@@ -44,6 +45,8 @@ type AppError =
   | VoiceProhibited of conflict: VoiceConflict
   | SignInFailed of message: string
   | CaptureFailed of failure: AudioFailure
+  | ScheduledInPast of moment: DateTimeOffset
+  | ScheduledTooFar of moment: DateTimeOffset
 
   interface CommitBodyError<AppError> with
     static member BodyTooShort(raw, length) = BodyTooShort(raw, length)
@@ -121,6 +124,10 @@ type AppError =
     static member WrongWaveformCount count = WrongWaveformCount count
     static member WaveformBarOutOfRange bar = WaveformBarOutOfRange bar
     static member VoiceProhibited conflict = VoiceProhibited conflict
+
+  interface ScheduledError<AppError> with
+    static member ScheduledInPast moment = ScheduledInPast moment
+    static member ScheduledTooFar moment = ScheduledTooFar moment
 
 /// Caps server-provided text for the log: a refusal carries the
 /// server's body, and the log needs the reason, not the whole payload.
@@ -200,6 +207,8 @@ let describe error =
     "A voice note cannot ride beside a message body."
   | VoiceProhibited VoiceWithImages -> "A voice note cannot ride beside images."
   | SignInFailed message -> message
+  | ScheduledInPast _ -> "The scheduled moment must be later than now."
+  | ScheduledTooFar _ -> "The scheduled moment allows at most 30 days ahead."
   | CaptureFailed NoDevice -> "No microphone was found."
   | CaptureFailed Denied -> "The microphone is not allowed to this app."
   | CaptureFailed Busy -> "The microphone is busy with another app."

@@ -1,7 +1,6 @@
 module DevNull.Client.Components.CommitCard
 
 open System
-open System.Text.RegularExpressions
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Documents
@@ -100,15 +99,6 @@ let selectedOption
 
 /// The card's semantic regions; the view only composes these.
 module Parts =
-
-  /// The server renders code blocks as html; the client shows the text
-  /// with the tags off and the entities the highlighter escaped put back:
-  /// tags go first, so an escaped `<` survives as the character it is.
-  let plainText(html: string) : string =
-    Regex.Replace(html, "<[^>]+>", "")
-    |> System.Net.WebUtility.HtmlDecode
-    |> Option.ofObj
-    |> Option.defaultValue ""
 
   /// One piece of a text run after the mentions split: plain prose,
   /// or one interactive handle.

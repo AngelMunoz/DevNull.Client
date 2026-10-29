@@ -105,6 +105,8 @@
     <Compile Include="Views\RemotesView.fs" />
     <Compile Include="Views\SavedView.fsi" />
     <Compile Include="Views\SavedView.fs" />
+    <Compile Include="Views\ScheduledView.fsi" />
+    <Compile Include="Views\ScheduledView.fs" />
     <Compile Include="Views\ProfileView.fsi" />
     <Compile Include="Views\ProfileView.fs" />
     <Compile Include="Views\SettingsView.fsi" />

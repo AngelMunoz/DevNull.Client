@@ -49,6 +49,7 @@ type Glyph =
   | Trash
   | Vibrate
   | Stop
+  | Clock
 
 let pathData glyph =
   match glyph with
@@ -124,6 +125,8 @@ let pathData glyph =
   | Vibrate ->
     "M16,2H8V6H16V2M16,8H8V16H16V8M16,18H8V22H16V18M7,9H3V15H7V9M21,9H17V15H21V9Z"
   | Stop -> "M18,18V6H6V18H18Z"
+  | Clock ->
+    "M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2ZM12.5,7V12.2L17,14.8L16.3,16.1L11,13V7H12.5Z"
 
 let geometryCache = new ConcurrentDictionary<Glyph, StreamGeometry>()
 

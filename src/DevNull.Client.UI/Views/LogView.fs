@@ -723,6 +723,8 @@ module Parts =
                     fun _ ->
                       props.Env.Timeline.ForgetDraft commit.Id
                       dispatch(State.ReplyPosted commit.Id)
+                  OnScheduled = ValueNone
+                  OnOpenQueue = ValueNone
                   Register = ValueNone
                   Draft =
                     ValueSome {

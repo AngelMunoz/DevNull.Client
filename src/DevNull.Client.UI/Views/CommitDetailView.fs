@@ -231,15 +231,27 @@ module State =
       | Error error ->
         { model with Error = Some error }, failed "the replies fetch" error
     | ReloadRequested ->
+      // The whole thread re-reads, replies from their first page: a
+      // landed reply arrives through the same read as everything else,
+      // so it shows at once instead of on the next visit.
       {
         model with
             Loading = true
             Error = None
+            Replies = []
+            RepliesCursor = None
       },
-      Cmd.OfAsync.perform
-        thread
-        (props.Env, props.Session, props.CommitId)
-        ThreadFetched
+      Cmd.batch [
+        Cmd.OfAsync.perform
+          thread
+          (props.Env, props.Session, props.CommitId)
+          ThreadFetched
+
+        Cmd.OfAsync.perform
+          replies
+          (props.Env, props.Session, props.CommitId, None)
+          RepliesFetched
+      ]
     | MoreReplies ->
       model,
       Cmd.OfAsync.perform
@@ -824,6 +836,8 @@ module Parts =
         Session = props.Session
         Target = Composer.ReplyTo props.CommitId
         OnCommitted = fun _ -> dispatch State.ReloadRequested
+        OnScheduled = ValueNone
+        OnOpenQueue = ValueNone
         Register = ValueNone
         Draft = ValueNone
       }
@@ -835,6 +849,8 @@ module Parts =
         Target = Composer.Quoting props.CommitId
         OnCommitted =
           fun commit -> Navigation.go(props.Nav, "/commit/" + commit.Id, ignore)
+        OnScheduled = ValueNone
+        OnOpenQueue = ValueNone
         Register = ValueNone
         Draft = ValueNone
       }

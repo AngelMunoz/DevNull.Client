@@ -48,6 +48,11 @@ type Props<'env
   Target: Target
   /// Runs with the created commit, on the UI thread.
   OnCommitted: Commit -> unit
+  /// Runs with the queued commit when one was scheduled, on the UI
+  /// thread.
+  OnScheduled: (ScheduledCommit -> unit) voption
+  /// Opens the scheduled queue, from the schedule panel's link.
+  OnOpenQueue: (unit -> unit) voption
   /// Where the composer's program lifetime lands. A host whose page
   /// is cached between visits (the log) registers the lifetime with
   /// the route; every other host leaves it empty and the composer

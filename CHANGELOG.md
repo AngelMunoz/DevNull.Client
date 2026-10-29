@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Desktop:** the app asks for the terms. When the account's own answer from the server says the terms in force were not accepted, one dialog stands over the app that cannot be clicked away: the terms and the privacy policy open in the browser from it, a ticked box arms Accept, and Accept records the version the app showed. A stored session from before this change knows nothing and never gates; the first account poll brings the server's answer.
+- **Remotes (Linux):** voice notes recorded on the web now play. A note in the web's Opus format rides the desktop's own media player — the platform demuxes, decodes, and sounds it — with the same speed cycle, live volume, position, and seek as a WAV note, and the note's bytes never touch the disk. A desktop without the media framework keeps WAV playback and says so in the log when a web note cannot play.
 
 ## [0.4.0] - 2026-10-28
 

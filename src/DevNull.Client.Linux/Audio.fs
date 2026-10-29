@@ -385,8 +385,12 @@ let rendered(samples: int16 array, speed: float) : byte[] =
 
 /// The microphone and the speaker through the PulseAudio simple API,
 /// which every PipeWire and PulseAudio desktop serves. Streams stay at
-/// the voice-note format: 16 kHz mono PCM, 16-bit little-endian.
+/// the voice-note format: 16 kHz mono PCM, 16-bit little-endian. A
+/// note in a compressed container rides the desktop's media framework
+/// instead, the way the Windows head hands its notes to the OS player.
 type PulseEngine(log: ILogger) =
+
+  let mediaFramework = GStreamer.initialize log
 
   interface IAudioEngine with
 
@@ -401,22 +405,37 @@ type PulseEngine(log: ILogger) =
     member _.Play(media, speed, volume) = asyncEx {
       return!
         Task.Run(fun () ->
-          // PulseAudio's simple API takes PCM only; a WAV is already
-          // that, and any other container names its refusal rather
-          // than playing noise.
-          match VoiceMedia.samples media with
-          | Some samples ->
-            match openStream(log, Pulse.Playback, "Voice note") with
-            | Ok stream ->
-              Ok(
-                Playback(stream, rendered(samples, speed), volume, log)
-                :> IAudioPlayback
-              )
-            | Error failure -> Error failure
-          | None ->
-            log.LogWarning("The note is not a WAV; this build plays WAV only.")
+          // The simple API takes PCM only; a WAV is already that, and
+          // every other note rides the desktop's media framework the
+          // way the Windows head hands its notes to the OS player —
+          // the platform names a format it cannot take.
+          match VoiceMedia.contentType media with
+          | "audio/wav" ->
+            match VoiceMedia.samples media with
+            | Some samples ->
+              match openStream(log, Pulse.Playback, "Voice note") with
+              | Ok stream ->
+                Ok(
+                  Playback(stream, rendered(samples, speed), volume, log)
+                  :> IAudioPlayback
+                )
+              | Error failure -> Error failure
+            | None ->
+              log.LogWarning("The note carries a WAV this build cannot read.")
 
-            Error(AudioFailed "this build plays WAV voice notes only"))
+              Error(AudioFailed "the note's WAV could not be read")
+          | _ ->
+            if mediaFramework then
+              GStreamer.play(log, media, speed, volume)
+            else
+              log.LogWarning(
+                "The web note cannot play: the desktop's media framework is missing."
+              )
+
+              Error(
+                AudioFailed
+                  "web voice notes need the desktop's media framework"
+              ))
     }
 
 /// The desktop's own sounds through libcanberra: the message event of

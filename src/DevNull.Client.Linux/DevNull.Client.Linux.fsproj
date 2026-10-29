@@ -14,6 +14,8 @@
   <ItemGroup>
     <Compile Include="Registrar.fsi" />
     <Compile Include="Registrar.fs" />
+    <Compile Include="GStreamer.fsi" />
+    <Compile Include="GStreamer.fs" />
     <Compile Include="Audio.fsi" />
     <Compile Include="Audio.fs" />
     <Compile Include="Natives.fsi" />

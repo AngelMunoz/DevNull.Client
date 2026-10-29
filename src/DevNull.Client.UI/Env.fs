@@ -73,7 +73,7 @@ type SshKeygenSigner(log: ILogger) =
     |> Array.filter(fun line -> not(line.StartsWith "-"))
     |> String.concat ""
 
-  let signSync(request: SignRequest) : Result<string, SignFailure> =
+  let sign(request: SignRequest) : Async<Result<string, SignFailure>> = asyncEx {
     let directory =
       Path.Combine(Path.GetTempPath(), "devnull." + Path.GetRandomFileName())
 
@@ -89,14 +89,16 @@ type SshKeygenSigner(log: ILogger) =
 
         File.WriteAllText(payloadFile, request.Payload, UTF8Encoding(false))
 
+        let! signed =
+          SshKeygen.run(
+            $"-Y sign -f \"{request.KeyFile}\" -n {request.Namespace} \"{payloadFile}\""
+          )
+
         let outcome: Result<string, SignFailure> =
-          match
-            SshKeygen.run(
-              $"-Y sign -f \"{request.KeyFile}\" -n {request.Namespace} \"{payloadFile}\""
-            )
-          with
+          match signed with
           | Error message ->
             log.LogWarning("ssh-keygen did not sign: {Error}", message.Trim())
+
             Error { Message = message }
           | Ok _ ->
             try
@@ -111,20 +113,21 @@ type SshKeygenSigner(log: ILogger) =
           started.ElapsedMilliseconds
         )
 
-        outcome
+        return outcome
       with ex ->
         log.LogWarning(ex, "The signature did not happen.")
-        Error { Message = ex.Message }
+
+        return Error { Message = ex.Message }
     finally
       try
         Directory.Delete(directory, true)
       with :? IOException ->
         ()
+  }
 
   interface ISigner with
     member _.Sign(request: SignRequest) : Async<Result<string, SignFailure>> =
-      // ssh-keygen blocks until it exits, so it runs off the UI thread.
-      asyncEx { return! Task.Run(fun () -> signSync request) }
+      sign request
 
 type HttpClientTransport(baseAddress: string, log: ILogger) =
 

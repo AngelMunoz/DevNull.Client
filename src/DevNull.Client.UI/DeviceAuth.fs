@@ -4,6 +4,7 @@ open System
 open System.Diagnostics
 open System.IO
 open System.Text.RegularExpressions
+open FsToolkit.ErrorHandling
 open IcedTasks
 open Microsoft.Extensions.Logging
 open DevNull.Client.Core.Api
@@ -47,63 +48,77 @@ let devicePrivateKeyPath = Path.Combine(keyDirectory, "device")
 
 let publicKeyPath = devicePrivateKeyPath + ".pub"
 
+/// The name this install carries on the site's devices page, and the
+/// comment its key file wears.
+let deviceName =
+  let platform =
+    if OperatingSystem.IsWindows() then "Windows"
+    elif OperatingSystem.IsMacOS() then "macOS"
+    else "Linux"
+
+  $"devnull on {platform}"
+
 /// The SSH fingerprint of one public key file.
-let fingerprintOf(publicPath: string) : Result<string, string> =
-  SshKeygen.run("-lf \"" + publicPath + "\"")
-  |> Result.bind(fun output ->
-    output.Split(
-      [| ' '; '\t'; '\r'; '\n' |],
-      StringSplitOptions.RemoveEmptyEntries
-    )
-    |> Array.tryFind(fun token ->
-      token.StartsWith("SHA256:", StringComparison.Ordinal))
-    |> function
-      | Some token when Regex.IsMatch(token, "^SHA256:[A-Za-z0-9+/]{43}$") ->
-        Ok token
-      | Some token -> Error $"Unexpected fingerprint: {token}"
-      | None -> Error "ssh-keygen did not report a SHA256 fingerprint.")
+let fingerprintOf(publicPath: string) : Async<Result<string, string>> =
+  asyncResult {
+    let! output = SshKeygen.run $"-lf \"{publicPath}\""
+
+    let found =
+      output.Split(
+        [| ' '; '\t'; '\r'; '\n' |],
+        StringSplitOptions.RemoveEmptyEntries
+      )
+      |> Array.tryFind(fun token ->
+        token.StartsWith("SHA256:", StringComparison.Ordinal))
+
+    let! token =
+      found
+      |> Result.requireSome "ssh-keygen did not report a SHA256 fingerprint."
+
+    if Regex.IsMatch(token, "^SHA256:[A-Za-z0-9+/]{43}$") then
+      return token
+    else
+      return! Error $"Unexpected fingerprint: {token}"
+  }
 
 /// Creates the app key when it is missing, and returns its SSH
 /// fingerprint.
-let ensureKey(log: ILogger) : Result<DeviceKey, string> =
+let ensureKey(log: ILogger) : Async<Result<DeviceKey, string>> = asyncResult {
   try
     Directory.CreateDirectory(keyDirectory) |> ignore
 
-    let generation =
-      match File.Exists devicePrivateKeyPath, File.Exists publicKeyPath with
-      | true, true ->
+    if File.Exists devicePrivateKeyPath then
+      if File.Exists publicKeyPath then
         log.LogDebug("The device key already exists.")
-        Ok()
-      | true, false ->
+      else
         log.LogWarning(
           "The device key lost its public file; deriving it again."
         )
 
-        SshKeygen.run("-y -f \"" + devicePrivateKeyPath + "\"")
-        |> Result.bind(fun publicKey ->
-          writeAllTextAtomic publicKeyPath publicKey
-          Ok())
-      | false, _ ->
-        log.LogInformation("The device key is being generated.")
+        let! derived = SshKeygen.run($"-y -f \"{devicePrivateKeyPath}\"")
 
+        do! writeAllTextAtomic publicKeyPath derived
+    else
+      log.LogInformation("The device key is being generated.")
+
+      do!
         SshKeygen.run(
-          "-t ed25519 -f \""
-          + devicePrivateKeyPath
-          + "\" -N \"\" -C \"devnull on Windows\""
+          $"-t ed25519 -f \"{devicePrivateKeyPath}\" -N \"\" -C \"{deviceName}\""
         )
-        |> Result.map ignore
+        |> Async.Ignore
 
-    generation
-    |> Result.bind(fun () ->
-      fingerprintOf publicKeyPath
-      |> Result.map(fun fingerprint -> {
-        PrivatePath = devicePrivateKeyPath
-        PublicPath = publicKeyPath
-        Fingerprint = fingerprint
-      }))
+    let! fingerprint = fingerprintOf publicKeyPath
+
+    return {
+      PrivatePath = devicePrivateKeyPath
+      PublicPath = publicKeyPath
+      Fingerprint = fingerprint
+    }
   with ex ->
     log.LogWarning(ex, "The device key was not prepared.")
-    Error ex.Message
+
+    return! Error ex.Message
+}
 
 /// Starts one device authorization and returns the browser URL.
 let startAuthorization
@@ -112,7 +127,7 @@ let startAuthorization
   let request: Device.AuthorizationRequest = {
     BaseAddress = baseAddress
     Fingerprint = key.Fingerprint
-    DeviceName = "devnull on Windows"
+    DeviceName = deviceName
     RedirectUri = "devnull://auth/callback"
   }
 
@@ -173,7 +188,7 @@ let complete
     log.LogWarning("The sign-in callback was refused: {Error}", message)
     return Error(SignInFailed message)
   | Ok callback ->
-    match loadPending(log) with
+    match! loadPending(log) with
     | None ->
       log.LogWarning("The callback arrived with no sign-in pending.")
       return Error(SignInFailed "No sign-in is pending. Start again.")
@@ -214,7 +229,7 @@ let complete
           Remotes = me.Remotes
         }
 
-        match saveSession(log, session) with
+        match! saveSession(log, session) with
         | Ok() ->
           deletePending(log)
 
@@ -242,6 +257,53 @@ let callbackUri(argv: string array) : string option =
   argv
   |> Array.tryFind(fun argument ->
     argument.StartsWith("devnull://", StringComparison.OrdinalIgnoreCase))
+
+/// Completes one sign-in callback end to end: prepares the key,
+/// redeems the code through `complete`, stores the session, and
+/// writes the error file for the waiting sign-in page when any step
+/// refuses. The one sequence both the running window and the headless
+/// second instance run.
+let finish
+  (
+    env: #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp,
+    uri: string,
+    log: ILogger
+  ) : Async<Result<DeviceSession, AppError>> = asyncEx {
+  match! ensureKey log with
+  | Error message ->
+    log.LogWarning(
+      "The sign-in callback could not prepare the key: {Error}",
+      message
+    )
+
+    do! saveLastError(log, message)
+
+    return Error(SignInFailed message)
+  | Ok key ->
+    let! outcome =
+      complete(
+        env,
+        {
+          Key = key
+          CallbackUri = uri
+          Log = log
+        }
+      )
+
+    match outcome with
+    | Ok _ -> return outcome
+    | Error error ->
+      let message = describe error
+
+      log.LogWarning(
+        "The sign-in callback failed: {Error}",
+        bounded 300 message
+      )
+
+      do! saveLastError(log, message)
+
+      return outcome
+}
 
 /// Opens the system browser at the authorization URL.
 let startBrowser(url: string) : Result<unit, string> =

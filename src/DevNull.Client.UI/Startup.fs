@@ -122,40 +122,12 @@ let hasRunningInstance() =
 
 /// The second instance has no UI: it completes the sign-in callback
 /// headlessly, stores the outcome, and lets the first instance poll for
-/// the session file.
+/// the session file. The sync wait is the one sanctioned bridge — this
+/// process must finish before it exits.
 let completeCallback
   (env: AppEnv, log: Microsoft.Extensions.Logging.ILogger, uri: string)
   : unit =
-  match ensureKey log with
-  | Error message ->
-    log.LogWarning(
-      "The sign-in callback could not prepare the key: {Error}",
-      message
-    )
-
-    saveLastError(log, message)
-  | Ok key ->
-    match
-      complete(
-        env,
-        {
-          Key = key
-          CallbackUri = uri
-          Log = log
-        }
-      )
-      |> Async.RunSynchronously
-    with
-    | Ok _ -> ()
-    | Error error ->
-      let message = describe error
-
-      log.LogWarning(
-        "The sign-in callback failed: {Error}",
-        bounded 300 message
-      )
-
-      saveLastError(log, message)
+  DeviceAuth.finish(env, uri, log) |> Async.Ignore |> Async.RunSynchronously
 
 /// Boots the shared client with the native services one platform head
 /// built. The head's entry point is everything platform-specific; this
@@ -167,19 +139,25 @@ let start(logging: ILoggerFactory, natives: NativeServices, argv: string[]) =
 
   let sessionLog = logging.CreateLogger "DevNull.Client.Session"
 
+  // The boot read runs once, before any window exists: this is the
+  // one place the async reader is waited on, because the store the
+  // window boots from must exist first.
+  let restored =
+    match loadSession sessionLog |> Async.RunSynchronously with
+    | Some session ->
+      log.LogInformation(
+        "The stored session of {Handle} was restored.",
+        session.User.Handle
+      )
+
+      Some session
+    | None ->
+      log.LogDebug("No stored session; the client starts signed out.")
+      None
+
   let store =
     SessionStore(
-      (match loadSession sessionLog with
-       | Some session ->
-         log.LogInformation(
-           "The stored session of {Handle} was restored.",
-           session.User.Handle
-         )
-
-         Some session
-       | None ->
-         log.LogDebug("No stored session; the client starts signed out.")
-         None),
+      restored,
       devicePrivateKeyPath,
       fun () -> clearSession sessionLog
     )

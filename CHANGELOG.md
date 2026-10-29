@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Desktop:** the name this install carries on the site's devices page follows its own platform — a Linux machine no longer introduces itself as a Windows one.
 - **Remotes:** a chat draft typed just before leaving the page survives the leave. The words now park as they are typed and the on-disk copy settles once the typing rests, so a quick switch away and back — or a busy moment in the interface — no longer drops them.
 
 ## [0.5.0] - 2026-10-29

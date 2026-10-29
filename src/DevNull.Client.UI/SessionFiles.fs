@@ -4,6 +4,7 @@ open System
 open System.IO
 open System.Text.Json
 open System.Text.Json.Nodes
+open IcedTasks
 open Microsoft.Extensions.Logging
 open DevNull.Client.Core.ApiTypes
 
@@ -23,7 +24,9 @@ let sessionPath = Path.Combine(dataDirectory, "session.json")
 
 let errorPath = Path.Combine(dataDirectory, "last-error.txt")
 
-let readAllTextShared(path: string) =
+// The content of one file, read off the caller's thread. The share
+// flags keep the read working beside a writer's atomic move.
+let private readAllTextShared(path: string) : Async<string> = asyncEx {
   use stream =
     new FileStream(
       path,
@@ -33,31 +36,43 @@ let readAllTextShared(path: string) =
     )
 
   use reader = new StreamReader(stream)
-  reader.ReadToEnd()
+  return! reader.ReadToEndAsync()
+}
 
-let writeAllTextAtomic (path: string) (content: string) =
+// One file written through a temporary sibling, so a reader never
+// sees a half-written body. The body write leaves the caller's
+// thread; the move that publishes it is directory metadata, and
+// staying sync is the deliberate line.
+let writeAllTextAtomic (path: string) (content: string) : Async<unit> = asyncEx {
   let temporary = path + ".tmp"
-  File.WriteAllText(temporary, content)
+  do! File.WriteAllTextAsync(temporary, content)
   File.Move(temporary, path, true)
+}
 
 let savePending
   (log: ILogger, pending: PendingAuthorization)
-  : Result<unit, string> =
+  : Async<Result<unit, string>> = asyncEx {
   try
-    Directory.CreateDirectory(dataDirectory) |> ignore
+    do Directory.CreateDirectory(dataDirectory) |> ignore
+
     let json = JsonObject()
     json.["verifier"] <- JsonValue.Create pending.Verifier
     json.["state"] <- JsonValue.Create pending.State
-    writeAllTextAtomic pendingPath (json.ToJsonString())
+
+    do! writeAllTextAtomic pendingPath (json.ToJsonString())
+
     log.LogDebug("The pending sign-in was stored.")
-    Ok()
+    return Ok()
   with ex ->
     log.LogWarning(ex, "The pending sign-in was not stored.")
-    Error ex.Message
+    return Error ex.Message
+}
 
-let loadPending(log: ILogger) : PendingAuthorization option =
+let loadPending(log: ILogger) : Async<PendingAuthorization option> = asyncEx {
   try
-    use document = JsonDocument.Parse(readAllTextShared pendingPath)
+    let! text = readAllTextShared pendingPath
+
+    use document = JsonDocument.Parse(text)
     let root = document.RootElement
 
     match root.TryGetProperty "verifier", root.TryGetProperty "state" with
@@ -65,19 +80,24 @@ let loadPending(log: ILogger) : PendingAuthorization option =
       match
         verifier.GetString() |> Option.ofObj, state.GetString() |> Option.ofObj
       with
-      | Some verifier, Some state -> Some { Verifier = verifier; State = state }
+      | Some verifier, Some state ->
+        return Some { Verifier = verifier; State = state }
       | _ ->
         log.LogWarning("The pending sign-in file names no verifier and state.")
-        None
+
+        return None
     | _ ->
       log.LogWarning("The pending sign-in file names no verifier and state.")
-      None
+
+      return None
   with
   | :? FileNotFoundException
-  | :? DirectoryNotFoundException -> None
+  | :? DirectoryNotFoundException -> return None
   | ex ->
     log.LogWarning(ex, "The pending sign-in file was not read.")
-    None
+
+    return None
+}
 
 let deletePending(log: ILogger) =
   try
@@ -86,9 +106,12 @@ let deletePending(log: ILogger) =
   with ex ->
     log.LogWarning(ex, "The pending sign-in file was not removed.")
 
-let saveSession(log: ILogger, session: DeviceSession) : Result<unit, string> =
+let saveSession
+  (log: ILogger, session: DeviceSession)
+  : Async<Result<unit, string>> = asyncEx {
   try
-    Directory.CreateDirectory(dataDirectory) |> ignore
+    do Directory.CreateDirectory(dataDirectory) |> ignore
+
     let json = JsonObject()
     json.["id"] <- JsonValue.Create session.User.Id
     json.["username"] <- JsonValue.Create session.User.Handle
@@ -115,12 +138,14 @@ let saveSession(log: ILogger, session: DeviceSession) : Result<unit, string> =
       json.["remotes_unread"] <- JsonValue.Create remotes.UnreadCount
     | None -> ()
 
-    writeAllTextAtomic sessionPath (json.ToJsonString())
+    do! writeAllTextAtomic sessionPath (json.ToJsonString())
+
     log.LogDebug("The session of {Handle} was stored.", session.User.Handle)
-    Ok()
+    return Ok()
   with ex ->
     log.LogWarning(ex, "The session was not stored.")
-    Error ex.Message
+    return Error ex.Message
+}
 
 let inline tryString (name: string) (root: JsonElement) =
   match root.TryGetProperty name with
@@ -142,9 +167,11 @@ let inline tryBool (name: string) (root: JsonElement) =
   | true, value when value.ValueKind = JsonValueKind.False -> Some false
   | _ -> None
 
-let loadSession(log: ILogger) : DeviceSession option =
+let loadSession(log: ILogger) : Async<DeviceSession option> = asyncEx {
   try
-    use document = JsonDocument.Parse(readAllTextShared sessionPath)
+    let! text = readAllTextShared sessionPath
+
+    use document = JsonDocument.Parse(text)
     let root = document.RootElement
 
     match
@@ -174,34 +201,39 @@ let loadSession(log: ILogger) : DeviceSession option =
 
       log.LogDebug("The stored session of {Handle} was read.", username)
 
-      Some {
-        User = {
-          Id = id
-          Handle = username
-          Name = name
-          AvatarUrl = tryString "avatar_url" root
+      return
+        Some {
+          User = {
+            Id = id
+            Handle = username
+            Name = name
+            AvatarUrl = tryString "avatar_url" root
+          }
+          UnreadNotificationsCount = unread
+          PasteisMode = tryBool "pasteis_mode" root |> Option.defaultValue false
+          // A session stored before the fingerprint exists reads as
+          // unknown; the next sign-in stamps it.
+          DeviceFingerprint =
+            tryString "device_fingerprint" root |> Option.defaultValue ""
+          // A session stored before the terms state exists is unknown,
+          // never unaccepted: the gate stays down until the server says.
+          TermsVersion =
+            tryString "terms_version" root |> Option.defaultValue ""
+          TermsAccepted = tryBool "terms_accepted" root
+          Remotes = remotes
         }
-        UnreadNotificationsCount = unread
-        PasteisMode = tryBool "pasteis_mode" root |> Option.defaultValue false
-        // A session stored before the fingerprint exists reads as
-        // unknown; the next sign-in stamps it.
-        DeviceFingerprint =
-          tryString "device_fingerprint" root |> Option.defaultValue ""
-        // A session stored before the terms state exists is unknown,
-        // never unaccepted: the gate stays down until the server says.
-        TermsVersion = tryString "terms_version" root |> Option.defaultValue ""
-        TermsAccepted = tryBool "terms_accepted" root
-        Remotes = remotes
-      }
     | _ ->
       log.LogWarning("The stored session file carries no usable session.")
-      None
+
+      return None
   with
   | :? FileNotFoundException
-  | :? DirectoryNotFoundException -> None
+  | :? DirectoryNotFoundException -> return None
   | ex ->
     log.LogWarning(ex, "The stored session file was not read.")
-    None
+
+    return None
+}
 
 let clearSession(log: ILogger) : unit =
   try
@@ -210,23 +242,32 @@ let clearSession(log: ILogger) : unit =
   with ex ->
     log.LogWarning(ex, "The stored session file was not removed.")
 
-let saveLastError(log: ILogger, message: string) =
+let saveLastError(log: ILogger, message: string) : Async<unit> = asyncEx {
   try
-    Directory.CreateDirectory(dataDirectory) |> ignore
-    writeAllTextAtomic errorPath message
+    do Directory.CreateDirectory(dataDirectory) |> ignore
+
+    do! writeAllTextAtomic errorPath message
+
     log.LogDebug("The sign-in error was stored for the window to read.")
   with ex ->
     log.LogWarning(ex, "The sign-in error was not stored.")
+}
 
-let takeLastError(log: ILogger) : string option =
+let takeLastError(log: ILogger) : Async<string option> = asyncEx {
   try
-    let message = readAllTextShared errorPath
+    let! message = readAllTextShared errorPath
+
+    // The delete is directory metadata: taking the message does not
+    // wait on the disk for it.
     File.Delete errorPath
+
     log.LogDebug("The stored sign-in error was taken.")
-    Some message
+    return Some message
   with
   | :? FileNotFoundException
-  | :? DirectoryNotFoundException -> None
+  | :? DirectoryNotFoundException -> return None
   | ex ->
     log.LogWarning(ex, "The stored sign-in error was not read.")
-    None
+
+    return None
+}

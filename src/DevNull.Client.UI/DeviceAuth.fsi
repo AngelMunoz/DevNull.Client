@@ -36,17 +36,35 @@ val baseAddress: string
 /// request after sign-in uses.
 val devicePrivateKeyPath: string
 
-/// Creates the app key when it is missing, and returns its SSH fingerprint.
-val ensureKey: log: ILogger -> Result<DeviceKey, string>
+/// The SSH fingerprint of one public key file.
+val fingerprintOf: publicPath: string -> Async<Result<string, string>>
+
+/// Creates the app key when it is missing, and returns its SSH
+/// fingerprint.
+val ensureKey: log: ILogger -> Async<Result<DeviceKey, string>>
 
 /// Starts one device authorization and returns the browser URL.
 val startAuthorization:
   env: #IProvidePkceSource & #IProvideNonceSource * key: DeviceKey ->
     SignInStart
 
-/// Verifies the callback state, redeems the code, and stores the session.
+/// Verifies the callback state, redeems the code, and stores the
+/// session.
 val complete:
   env: 'env * args: CompleteArgs -> Async<Result<DeviceSession, AppError>>
+    when 'env :> IProvideClock
+    and 'env :> IProvideNonceSource
+    and 'env :> IProvideSigner
+    and 'env :> IProvideHttp
+
+/// Completes one sign-in callback end to end: prepares the key,
+/// redeems the code through `complete`, stores the session, and
+/// writes the error file for the waiting sign-in page when any step
+/// refuses. The one sequence both the running window and the headless
+/// second instance run.
+val finish:
+  env: 'env * uri: string * log: ILogger ->
+    Async<Result<DeviceSession, AppError>>
     when 'env :> IProvideClock
     and 'env :> IProvideNonceSource
     and 'env :> IProvideSigner

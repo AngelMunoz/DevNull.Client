@@ -131,6 +131,10 @@
     <!-- Async: asyncEx binds the Task-based .NET APIs without AwaitTask -->
     <PackageReference Include="IcedTasks" />
 
+    <!-- Processes: the ssh-keygen runs, buffered, bounded, killed on
+         the bound -->
+    <PackageReference Include="CLIWrap" />
+
     <!-- Logging: Serilog console + rolling file, bridged for the router -->
     <PackageReference Include="Serilog" />
     <PackageReference Include="Serilog.Extensions.Logging" />

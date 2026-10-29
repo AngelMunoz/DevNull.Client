@@ -18,11 +18,15 @@ module Desktop =
       ".ssh"
     )
 
-  let firstLineOf(path: string) : string option =
+  // The probes answer empty on the IO failures a desktop can produce —
+  // a folder it cannot read, a file that vanished mid-listing — and
+  // let anything louder surface.
+  let private firstLineOf(path: string) : string option =
     try
       File.ReadLines path |> Seq.tryHead
-    with _ ->
-      None
+    with
+    | :? IOException
+    | :? UnauthorizedAccessException -> None
 
   let candidates() : string array =
     try
@@ -30,11 +34,14 @@ module Desktop =
       |> Array.choose firstLineOf
       |> Array.filter(fun line ->
         line.StartsWith "ssh-ed25519 " || line.StartsWith "ssh-rsa ")
-      |> Array.map(fun line ->
-        let parts = line.Split(' ')
-        parts[0] + " " + parts[1])
+      |> Array.choose(fun line ->
+        match line.Split(' ', StringSplitOptions.RemoveEmptyEntries) with
+        | [| kind; key; _ |] -> Some $"{kind} {key}"
+        | _ -> None)
       |> Array.distinct
-    with _ -> [||]
+    with
+    | :? IOException
+    | :? UnauthorizedAccessException -> [||]
 
   let privatePathOf(keyId: string) =
     try
@@ -42,8 +49,9 @@ module Desktop =
       |> Array.tryFind(fun pub ->
         firstLineOf pub |> Option.exists(fun line -> line.StartsWith keyId))
       |> Option.map(fun pub -> pub.Substring(0, pub.Length - 4))
-    with _ ->
-      None
+    with
+    | :? IOException
+    | :? UnauthorizedAccessException -> None
 
   let sources() : ISshKeys = {
     new ISshKeys with

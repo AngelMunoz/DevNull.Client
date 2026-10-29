@@ -1452,34 +1452,7 @@ type Shell<'env
       log.LogInformation("The sign-in callback arrived while the window runs.")
 
       asyncEx {
-        let! keyOutcome = Task.Run(fun () -> ensureKey log)
-
-        match keyOutcome with
-        | Error message ->
-          log.LogWarning("The key was not prepared: {Error}", message)
-          saveLastError(log, message)
-        | Ok key ->
-          let! result =
-            complete(
-              env,
-              {
-                Key = key
-                CallbackUri = uri
-                Log = log
-              }
-            )
-
-          match result with
-          | Ok _ -> ()
-          | Error error ->
-            let message = describe error
-
-            log.LogWarning(
-              "The sign-in callback failed: {Error}",
-              bounded 300 message
-            )
-
-            saveLastError(log, message)
+        do! DeviceAuth.finish(env, uri, log) |> Async.Ignore
 
         Routes.go(env, router, "/signin")
       }

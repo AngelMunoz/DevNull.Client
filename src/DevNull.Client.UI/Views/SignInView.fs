@@ -17,6 +17,7 @@ open DevNull.Client.Core.Http
 open DevNull.Client.DeviceAuth
 open DevNull.Client.Env
 open DevNull.Client.Errors
+open FsToolkit.ErrorHandling
 open Microsoft.Extensions.Logging
 open DevNull.Client.Navigation
 open DevNull.Client.SessionFiles
@@ -51,24 +52,52 @@ module State =
   type Msg =
     | StartRequested
     | ReopenBrowser
+    | PendingChecked of PendingAuthorization option
     | Prepared of Result<SignInStart, string>
     | SessionObserved of Result<DeviceSession, string>
 
-  /// One blocking sign-in start: the app key generation, the pending file,
-  /// and the browser launch, all off the UI thread.
-  let prepare(log: ILogger, env, key: DeviceKey) : Result<SignInStart, string> =
+  /// One sign-in start: the app key generation, the pending file, and
+  /// the browser launch.
+  let prepare
+    (log: ILogger, env, key: DeviceKey)
+    : Async<Result<SignInStart, string>> = asyncResult {
     let started = startAuthorization(env, key)
 
     log.LogDebug("The device authorization started; the browser opens.")
 
-    match savePending(log, started.Pending) with
-    | Error message -> Error message
-    | Ok() ->
-      match startBrowser started.Url with
-      | Ok() -> Ok started
-      | Error message ->
-        log.LogWarning("The browser did not open: {Error}", message)
-        Error message
+    do! savePending(log, started.Pending)
+
+    match startBrowser started.Url with
+    | Ok() -> return started
+    | Error message ->
+      log.LogWarning("The browser did not open: {Error}", message)
+
+      return! Error message
+  }
+
+  /// Wakes when anything under the app's data folder changes — the
+  /// second instance's session or error file, or its own log lines —
+  /// and on a backstop beat either way: the change makes the common
+  /// case instant, the beat keeps the wait correct when a change
+  /// lands before the watch does.
+  let waitForChange() : Async<unit> = asyncEx {
+    let touched =
+      TaskCompletionSource<unit>(
+        TaskCreationOptions.RunContinuationsAsynchronously
+      )
+
+    use watcher = new IO.FileSystemWatcher(dataDirectory)
+
+    watcher.Changed.Add(fun _ -> touched.TrySetResult() |> ignore)
+    watcher.Created.Add(fun _ -> touched.TrySetResult() |> ignore)
+    watcher.Renamed.Add(fun _ -> touched.TrySetResult() |> ignore)
+    watcher.EnableRaisingEvents <- true
+
+    do!
+      Task.WhenAny(touched.Task, Task.Delay 1000)
+      |> Async.AwaitTask
+      |> Async.Ignore
+  }
 
   /// Waits until the session file or the error file shows up, or the
   /// approval times out, the way the CLI's `devnull auth` does.
@@ -76,17 +105,17 @@ module State =
     let started = DateTimeOffset.UtcNow
 
     let rec loop() = asyncEx {
-      match loadSession log with
+      match! loadSession log with
       | Some session -> return Ok session
       | None ->
-        match takeLastError log with
+        match! takeLastError log with
         | Some message -> return Error message
         | None when DateTimeOffset.UtcNow - started > TimeSpan.FromMinutes 5.0 ->
           log.LogWarning("The sign-in approval timed out after 5 minutes.")
           deletePending log
           return Error "The sign-in expired. Start again."
         | None ->
-          do! Async.Sleep 1000
+          do! waitForChange()
           return! loop()
     }
 
@@ -95,13 +124,9 @@ module State =
   let init (props: Props<'env>) () =
     let log = props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.SignIn"
 
-    match loadPending log with
-    | Some _ ->
-      log.LogDebug("A sign-in is already pending; the page waits for it.")
-
-      { Status = AwaitingApproval "" },
-      Cmd.OfAsync.perform awaitSession log SessionObserved
-    | None -> { Status = Idle }, Cmd.none
+    // The pending check rides a command, so the page builds without
+    // touching the disk.
+    { Status = Idle }, Cmd.OfAsync.perform loadPending log PendingChecked
 
   /// The session lands, and the caller navigates away — both effects
   /// the loop runs after update, the way navigation inside update
@@ -127,13 +152,11 @@ module State =
 
     match msg with
     | StartRequested ->
-      let work() =
-        Async.AwaitTask(
-          Task.Run(fun () ->
-            match ensureKey log with
-            | Error message -> Error message
-            | Ok key -> prepare(log, props.Env, key))
-        )
+      let work() = asyncResult {
+        let! key = ensureKey log
+
+        return! prepare(log, props.Env, key)
+      }
 
       ({ model with Status = Preparing }: Model),
       Cmd.batch [
@@ -141,6 +164,14 @@ module State =
 
         Cmd.ofAction(fun () -> log.LogInformation("The sign-in starts."))
       ]
+    | PendingChecked pending ->
+      match pending with
+      | Some _ ->
+        log.LogDebug("A sign-in is already pending; the page waits for it.")
+
+        ({ Status = AwaitingApproval "" }: Model),
+        Cmd.OfAsync.perform awaitSession log SessionObserved
+      | None -> model, Cmd.none
     | Prepared result ->
       match result with
       | Ok started ->

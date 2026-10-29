@@ -13,14 +13,17 @@ let main argv =
   let tests =
     testList "devnull client ui" [
       Natives.tests
+      // The memory budgets measure deltas, so the leak suite runs
+      // first, before any page test: every mounted shell and store
+      // that ran earlier settles into the measured window (12.5 MB
+      // with the app suite alone, 16.1 MB once the scheduled pages
+      // joined), and the gate must measure the soak's own work, not
+      // the order it ran in.
+      Leaks.tests
       App.tests
       Scheduled.tests
       Shortcuts.tests
       Unread.tests
-      // The memory budgets measure deltas, so the leak suite runs
-      // before the chat pages: their mounted shells and stores would
-      // otherwise settle into the measured window.
-      Leaks.tests
       Remotes.tests
       RemotesView.tests
       RemotesView.threadTests

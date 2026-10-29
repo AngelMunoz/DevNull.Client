@@ -116,34 +116,39 @@ the WebM/WAV sniffing), the shared natives contract (the head owns decoding),
 and the Linux head's playback pipeline (16 kHz mono S16LE over the desktop's
 audio client, with speed by resample and position from samples served).
 
-**Design first, per Principle 2:** design the decode path for what the bytes
-are — a browser-produced Matroska container with one Opus track — and for what
-playback needs: decoded samples in the voice-note's PCM shape. If the cleanest
-shape is a decoder of its own with its own contract, build that; the existing
-shared media helper may grow, be reshaped, or be replaced by it. The Windows
-head's native path stays as is; the Linux head consumes the decode however the
-design lands it. Recording on Linux stays WAV — the site accepts it, and the
-cap holds for the minute-long notes the web allows — so this phase decodes and
-never encodes.
+**Design first, per Principle 2:** the playback path is the platform's own
+media stack, exactly as the Windows head hands its notes to the OS player. The
+Linux counterpart is the desktop's media framework: probe its library at head
+start; when present, a note's bytes play through its ready-made player element
+— decode, demux, resample, and output all native — steered by a thin
+platform-invocation layer. When the probe finds nothing, the head keeps the
+current PCM path: WAV notes play as today, a WebM note names why it cannot
+play, and one log line says the desktop's media framework is missing so the
+word is traceable. No managed decoder is written; the fallback is the
+documented cut, not a second implementation. Recording on Linux stays WAV —
+the site accepts it, and the cap holds for the minute-long notes the web
+allows — so this phase only plays.
 
-**Approach:** pure managed decode, no new native dependency, because the Linux
-head's rule is to carry only what every desktop serves. A minimal EBML/WebM
-reader in F# with parse leaves for the header, the single audio track, its
-codec private data (pre-skip, input rate, channels), and the clustered frames;
-the Concentus package (pure C#, MIT) for the Opus frames at 48 kHz; a small FIR
-decimation to the voice-note's 16 kHz; then the existing playback pipeline
-unchanged. Malformed, truncated, or non-conforming input is a decode failure
-value with a message that names the container problem.
+**Approach:** one probe for the framework's library, one `gst_init` on first
+use, and a player element per note: the bytes ride a memory file (a
+file-descriptor URI), the element's state machine runs the note, the bus is
+polled from an async loop for the end and for failures, the position is
+queried, seeking with a rate covers the three speeds, and the volume property
+covers loudness. Every playback-contract member maps to one native feature;
+no managed binding package is added, and the system library links dynamically
+under its own license. The probe decides at startup which path each note
+takes, and the content-type sniff the Core already does picks WAV versus the
+player.
 
-**Verify:** unit tests over the decoder with a committed web-recorded fixture —
-decoded length within tolerance of the payload's duration, malformed and
-non-Opus fixtures decode to failure values, and the WAV path decodes
-byte-identically to today (both-directions regression). A headless test drives
-a WebM note through the voice player where it failed before. A manual pass on a
-clean Fedora KDE machine plays a WebM note and a WAV note end to end. The skill
-gate runs over the new module pair, with `fsharp-verify-api` on the Concentus
-signatures and an `fsharp-native-aot` publish proof of the Linux head in this
-phase, not only at the end.
+**Verify:** a headless test drives a WebM note through the voice player where
+it failed before, with the player faked behind the head's own seam, and a
+missing-framework probe keeps the WAV path and the named WebM failure (both
+directions). A manual pass on a clean Fedora KDE machine plays a WebM note
+from the web and a WAV note end to end — start, speed cycle, volume, seek, and
+the position bar — with the framework present and, after hiding the library,
+the named failure in its place. The skill gate runs over the new module pair,
+with an `fsharp-native-aot` publish proof of the Linux head in this phase, not
+only at the end.
 
 ## Phase 3 — Devices
 

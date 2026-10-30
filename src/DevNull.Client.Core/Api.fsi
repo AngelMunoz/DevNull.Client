@@ -555,6 +555,21 @@ module Commits =
       and Rejected<'e>
       and DecodeError<'e>
 
+  /// Reads the commits closest in meaning to one commit, closest
+  /// first. Nothing close answers an empty list.
+  val related:
+    env: 'env * request: ShowRequest -> Async<Result<CommitNode list, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and CommitIdError<'e>
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
   /// Deletes one commit.
   val delete:
     env: 'env * request: ActionRequest -> Async<Result<unit, 'e>>
@@ -739,6 +754,45 @@ module Stars =
 
   /// Removes the star from one commit.
   val unstar:
+    env: 'env * request: ActionRequest -> Async<Result<Commit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and CommitIdError<'e>
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+module CommitPins =
+
+  /// One of the author's own top-level commits to pin or unpin. The
+  /// server refuses anything else, so the surface that offers the
+  /// action never arms it there.
+  type ActionRequest = { KeyFile: string; CommitId: string }
+
+  /// Pins one commit to the top of the author's profile, replacing
+  /// the one pinned before, and answers with the commit as its page
+  /// shows it, `is_pinned` on.
+  val pin:
+    env: 'env * request: ActionRequest -> Async<Result<Commit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and CommitIdError<'e>
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Takes the pin off the profile. Only the pinned commit's own unpin
+  /// clears it; any other answers the commit unchanged, `is_pinned`
+  /// off.
+  val unpin:
     env: 'env * request: ActionRequest -> Async<Result<Commit, 'e>>
       when 'env :> IProvideClock
       and 'env :> IProvideNonceSource

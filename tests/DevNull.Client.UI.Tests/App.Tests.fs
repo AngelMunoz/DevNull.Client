@@ -2847,8 +2847,8 @@ let tests =
         let! window = startShell(signedInStore(), mentionLogApi() :> IHttp)
 
         // The handled click never runs here: it would launch a real
-        // browser. The card being its own button, with the outside
-        // url on it, is the contract.
+        // browser. The card being its own button, with the site's own
+        // line on it, is the contract.
         let! preview =
           waitForAsync(
             5000,
@@ -2865,9 +2865,9 @@ let tests =
 
         Expect.isTrue titled "the preview title never rendered"
 
-        let! addressed = showsText(window, "https://example.test/postmortem")
+        let! sited = showsText(window, "example.test")
 
-        Expect.isTrue addressed "the preview address never rendered"
+        Expect.isTrue sited "the preview site line never rendered"
       })
 
     testCaseAsync
@@ -3130,6 +3130,271 @@ let tests =
         let! badges = showsText(window, "1/1 badges")
 
         Expect.isTrue badges "the badge count never rendered"
+      })
+
+    testCaseAsync
+      "the profile shows the pinned commit above an empty feed"
+      (async {
+        let! window = startShell(signedInStore(), pinApi true :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Profile")
+
+        let! caption = showsText(window, "Pinned")
+
+        Expect.isTrue caption "the pinned caption never rendered"
+
+        let! pinned = showsText(window, "My own commit.")
+
+        Expect.isTrue pinned "the pinned commit never rendered"
+
+        // A profile with nothing but a pinned commit is not an empty
+        // one: the slot carries it.
+        let! empty =
+          probeUiAsync(fun () -> visibleText(window, "No commits yet."))
+
+        Expect.isFalse empty "the pinned-only profile read as empty"
+      })
+
+    testCaseAsync
+      "pinning a commit from the profile moves it into the slot"
+      (async {
+        let api = pinApi false
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Profile")
+
+        let! row = showsText(window, "My own commit.")
+
+        Expect.isTrue row "the profile feed never rendered"
+
+        do! clickWhenShown(window, "Pin")
+
+        let! noted = showsText(window, "Commit pinned to your profile.")
+
+        Expect.isTrue noted "the pin's own words never showed"
+
+        let! caption = showsText(window, "Pinned")
+
+        Expect.isTrue caption "the pinned caption never rendered"
+
+        Expect.exists
+          api.Requests
+          (fun request ->
+            request.Method = "PUT"
+            && request.Target =
+              "/api/v1/commits/018f4c1e-0aa0-7c3a-9b2d-5e6f7a8b9c0d/pin")
+          "the pin request"
+      })
+
+    testCaseAsync
+      "unpinning from the slot returns the commit to the feed"
+      (async {
+        let! window = startShell(signedInStore(), pinApi true :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Profile")
+
+        let! caption = showsText(window, "Pinned")
+
+        Expect.isTrue caption "the pinned caption never rendered"
+
+        do! clickWhenShown(window, "Unpin")
+
+        let! noted = showsText(window, "Commit unpinned.")
+
+        Expect.isTrue noted "the unpin's own words never showed"
+
+        let! gone =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> not(hasText(root, "Pinned")))
+          )
+
+        Expect.isTrue gone "the pinned caption never left"
+
+        let! row = showsText(window, "My own commit.")
+
+        Expect.isTrue row "the unpinned commit never returned to the feed"
+      })
+
+    testCaseAsync
+      "a pin made on a thread shows on the profile"
+      (async {
+        let api = pinApi false
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "My own commit.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "My own commit.") |> Option.iter click)
+
+        let! thread = showsText(window, "Back to the log")
+
+        Expect.isTrue thread "the thread never rendered"
+
+        do! clickWhenShown(window, "Pin")
+
+        let! noted = showsText(window, "Commit pinned to your profile.")
+
+        Expect.isTrue noted "the pin never settled on the thread"
+
+        do! clickWhenShown(window, "Profile")
+
+        let! caption = showsText(window, "Pinned")
+
+        Expect.isTrue caption "the profile never showed the pinned slot"
+
+        let! pinned = showsText(window, "My own commit.")
+
+        Expect.isTrue pinned "the profile never showed the pinned commit"
+      })
+
+    testCaseAsync
+      "the thread lists the related commits under it"
+      (async {
+        let api = relatedApi secondCommitJson
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "It was DNS.") |> Option.iter click)
+
+        let! heading = showsText(window, "Related commits")
+
+        Expect.isTrue heading "the related heading never rendered"
+
+        let! related = showsText(window, "Second commit.")
+
+        Expect.isTrue related "the related commit never rendered"
+
+        Expect.exists
+          api.Requests
+          (fun request ->
+            request.Target =
+              "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d/related")
+          "the related request"
+      })
+
+    testCaseAsync
+      "a wide link preview never pushes the related cards past the column"
+      (async {
+        let previewCommitJson =
+          secondCommitJson
+            .Replace("018f4c1e-9999", "018f4c1e-9998")
+            .Replace(
+              "\"body_segments\":[]",
+              "\"body_segments\":[],\"link_preview\":{\"url\":\"https://guides.rubyonrails.org/action_controller_overview.html\",\"title\":\"Rails Guides — Action Controller Overview\",\"description\":null,\"image_url\":null,\"site_name\":\"guides.rubyonrails.org\",\"is_pending\":false,\"embed\":null}"
+            )
+
+        let api = relatedApi $"{previewCommitJson},{secondCommitJson}"
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "It was DNS.") |> Option.iter click)
+
+        let! sited = showsText(window, "guides.rubyonrails.org")
+
+        Expect.isTrue sited "the preview's site line never rendered"
+
+        do! settleAsync()
+
+        // The related rows must share the reading column's right edge
+        // with the focused card above: a preview that measured its
+        // whole URL once pushed them under the scrollbar.
+        let! aligned =
+          probeUiAsync(fun () ->
+            let rightAt(control: Control) =
+              let corner = control.TranslatePoint(Point(0.0, 0.0), window)
+
+              if corner.HasValue then
+                Some(corner.Value.X + control.Bounds.Width)
+              else
+                None
+
+            let rowsOf(root: Control) : Button list =
+              root.GetVisualDescendants()
+              |> Seq.choose(function
+                | :? Button as button when
+                  button.Classes.Contains(Theme.name Theme.CommitRow)
+                  ->
+                  Some button
+                | _ -> None)
+              |> List.ofSeq
+
+            let section =
+              window.GetVisualDescendants()
+              |> Seq.tryFind(fun visual -> visual.Name = "RelatedCommits")
+              |> Option.map(fun visual -> visual :?> Control)
+
+            match section with
+            | Some section ->
+              let related = section |> rowsOf |> List.choose rightAt
+
+              let focused =
+                window
+                |> rowsOf
+                |> List.filter(fun row ->
+                  row.GetVisualAncestors()
+                  |> Seq.forall(fun ancestor -> ancestor <> section))
+                |> List.choose rightAt
+                |> List.tryHead
+
+              match focused, related with
+              | Some edge, edges when not edges.IsEmpty ->
+                edges |> List.forall(fun right -> abs(right - edge) < 0.5)
+              | _ -> false
+            | None -> false)
+
+        Expect.isTrue aligned "the related cards left the reading column"
+      })
+
+    testCaseAsync
+      "a thread with nothing related shows no section"
+      (async {
+        let! window = startShell(signedInStore(), relatedApi "" :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "It was DNS.") |> Option.iter click)
+
+        let! thread = showsText(window, "Back to the log")
+
+        Expect.isTrue thread "the thread never rendered"
+
+        do! settleAsync()
+
+        let! section =
+          probeUiAsync(fun () -> visibleText(window, "Related commits"))
+
+        Expect.isFalse section "an empty related list still drew its section"
       })
 
     testCaseAsync

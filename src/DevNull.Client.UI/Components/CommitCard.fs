@@ -34,7 +34,8 @@ type MentionTone =
 
 /// What one card reports up: open the thread, toggle the star, give a
 /// pastel, start a quote, reveal the reply composer, choose a poll
-/// option, ask for the vote, or walk more replies of a thread preview.
+/// option, ask for the vote, walk more replies of a thread preview, or
+/// pin the commit to the author's profile.
 [<Struct>]
 type Event =
   | Opened of Commit
@@ -46,13 +47,24 @@ type Event =
   | QuoteRequested of Commit
   | PollChoiceChanged of Commit * PollOption * chosen: bool
   | PollVoteRequested of Commit
+  | PinToggled of Commit
+
+/// The pin affordance one host may offer: the command the toggle runs,
+/// and the commit id whose pin call is in flight, so its button
+/// disables while the server answers.
+[<Struct>]
+type PinToggle = {
+  Command: Commit -> unit
+  Busy: IObservable<string option>
+}
 
 /// One commit row. `OnEvent` receives every interaction. Every card
 /// rides the graph rail with its author's avatar; dense rows (the
 /// replies of a thread) shrink the node. `Now` is the clock the poll's
 /// status follows; `Voting` names the commit whose vote is in flight,
 /// so the button disables; `PollChoice` is the option the page model
-/// holds for this commit.
+/// holds for this commit; `Pin` offers the profile pin on the author's
+/// own top-level commits, where the host decides to show it at all.
 [<Struct>]
 type Props = {
   Commit: Commit
@@ -65,6 +77,7 @@ type Props = {
   Dense: bool
   Images: ImageCacheService
   Flyout: Source voption
+  Pin: PinToggle voption
 }
 
 /// One poll choice change, in the shape the page model stores it.
@@ -672,10 +685,27 @@ module Parts =
 
     StackPanel().Margin(0.0, 12.0, 0.0, 0.0).Children(body)
 
+  /// The site's own line: the name the page declares, or its host
+  /// without "www.". The site's card never shows the whole URL — the
+  /// URL's natural width would push the card past its column.
+  let siteLine(preview: LinkPreview) : string =
+    match preview.SiteName with
+    | Some name -> name
+    | None ->
+      let host =
+        match Uri.TryCreate(preview.Url, UriKind.Absolute) with
+        | true, uri -> uri.Host
+        | false, _ -> preview.Url
+
+      if host.StartsWith("www.", StringComparison.Ordinal) then
+        host.Substring 4
+      else
+        host
+
   /// The link preview: its own surface, a click away from the card it
   /// rides in. The handled click opens the outside resource and never
   /// falls through to the commit's thread.
-  let linkPreviewView(preview: LinkPreview) : Control =
+  let linkPreviewView(preview: LinkPreview, title: string) : Control =
     Button()
       .Name("LinkPreviewCard")
       .Classes(Theme.name Theme.GhostButton, Theme.name Theme.Hairline)
@@ -689,14 +719,15 @@ module Parts =
           .Spacing(2.0)
           .Children(
             TextBlock()
-              .Text(preview.Title |> Option.defaultValue preview.Url)
-              .TextWrapping(TextWrapping.Wrap)
-              // The right margin keeps shaped lines inside the box.
-              .Margin(0.0, 0.0, 4.0, 0.0),
+              .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
+              .Text(siteLine preview)
+              .TextTrimming(TextTrimming.CharacterEllipsis),
             TextBlock()
-              .Classes(Theme.name Theme.Mono)
-              .Text(preview.Url)
-              .TextTrimming(TextTrimming.CharacterEllipsis)
+              .Text(title)
+              .TextWrapping(TextWrapping.Wrap)
+              .MaxLines(2)
+              // The right margin keeps shaped lines inside the box.
+              .Margin(0.0, 0.0, 4.0, 0.0)
           )
       )
       .OnClickHandler(fun _ args ->
@@ -982,6 +1013,37 @@ module Parts =
         fun _ -> onEvent(QuoteRequested commit)
       )
 
+    // The profile pin: the author's own top-level commits only — the
+    // server refuses anything else — and only where the host offers
+    // it. The pinned flag flips the glyph and the word, the site's
+    // pair, and the flight of the call disables the button.
+    let pin: Control =
+      match props.Pin with
+      | ValueSome toggle when
+        commit.Author.Id = props.ViewerId && commit.ParentId = None
+        ->
+        let pinned = commit.IsPinned
+        let glyph = if pinned then Glyph.PinOff else Glyph.Pin
+        let word = if pinned then "Unpin" else "Pin"
+
+        let button =
+          iconAction(
+            "PinButton",
+            glyph,
+            ValueSome word,
+            fun _ -> toggle.Command commit
+          )
+
+        ToolTip.SetTip(
+          button,
+          if pinned then "Unpin from profile" else "Pin to profile"
+        )
+
+        button.IsEnabled(
+          toggle.Busy |> Observable.map(fun busy -> busy <> Some commit.Id)
+        )
+      | _ -> Panel()
+
     let link =
       iconAction(
         "LinkButton",
@@ -990,7 +1052,7 @@ module Parts =
         fun button -> copyLink(button, commit.HtmlUrl)
       )
 
-    let leftChildren: Control array = [| reply; star; pastel; quote |]
+    let leftChildren: Control array = [| reply; star; pastel; quote; pin |]
 
     DockPanel()
       .LastChildFill(true)
@@ -1038,9 +1100,12 @@ let view(props: Props) : Control =
     | Some quoted -> Parts.quotedView(props.OnEvent, quoted)
     | None -> ()
 
+    // A preview the page behind never titled stays absent, the way the
+    // site's own card does.
     match commit.LinkPreview with
-    | Some preview -> Parts.linkPreviewView preview
-    | None -> ()
+    | Some({ Title = Some title } as preview) ->
+      Parts.linkPreviewView(preview, title)
+    | _ -> ()
   |]
 
   let body = StackPanel().Margin(0.0, 2.0, 0.0, 0.0).Children(bodyChildren)
@@ -1162,7 +1227,8 @@ let tombstone() : Control =
 
 /// Everything one card row needs from its host page: where its events
 /// go, the live pastéis flag and clock, the poll choices, the row's
-/// density, and the image cache.
+/// density, the image cache, and the profile pin affordance, when the
+/// host shows one at all.
 [<Struct>]
 type RowProps = {
   OnEvent: Event -> unit
@@ -1174,6 +1240,7 @@ type RowProps = {
   Dense: bool
   Images: ImageCacheService
   Flyout: Source voption
+  Pin: PinToggle voption
 }
 
 /// One commit row over a feed node: the card with the host's event
@@ -1197,6 +1264,7 @@ let feedRow (props: RowProps) (node: CommitNode) : Control =
       Dense = props.Dense
       Images = props.Images
       Flyout = props.Flyout
+      Pin = props.Pin
     }
   | Tombstone _ -> tombstone()
 

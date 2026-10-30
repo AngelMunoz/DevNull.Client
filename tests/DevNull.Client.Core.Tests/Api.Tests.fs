@@ -1310,6 +1310,109 @@ let actionApiTests =
         "target"
     }
 
+    testAsync "pins one of the author's own commits" {
+      let http = CapturingHttp(ok(sprintf """{"data":%s}""" richCommitJson))
+
+      let request: CommitPins.ActionRequest = {
+        KeyFile = "key-file"
+        CommitId = "018F4C1E-6F8A-7C3A-9B2D-5E6F7A8B9C0D"
+      }
+
+      let! (result: Result<Commit, TestError>) =
+        CommitPins.pin(envFor http, request)
+
+      match result with
+      | Ok commit ->
+        Expect.equal true commit.IsPinned "the answer carries the new pin"
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "PUT" sent.Method "method"
+      Expect.equal "" (bodyText sent) "the pin carries no body"
+
+      Expect.equal
+        "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d/pin"
+        sent.Target
+        "target"
+    }
+
+    testAsync "unpins the pinned commit" {
+      let http = CapturingHttp(ok starResponse)
+
+      let request: CommitPins.ActionRequest = {
+        KeyFile = "key-file"
+        CommitId = "018F4C1E-6F8A-7C3A-9B2D-5E6F7A8B9C0D"
+      }
+
+      let! (result: Result<Commit, TestError>) =
+        CommitPins.unpin(envFor http, request)
+
+      match result with
+      | Ok commit ->
+        Expect.equal false commit.IsPinned "the answer carries the pin off"
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "DELETE" sent.Method "method"
+
+      Expect.equal
+        "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d/pin"
+        sent.Target
+        "target"
+    }
+
+    testAsync "reads the related commits, closest first" {
+      let http =
+        CapturingHttp(
+          ok(sprintf """{"data":[%s,%s]}""" richCommitJson commitJson)
+        )
+
+      let request: Commits.ShowRequest = {
+        KeyFile = "key-file"
+        CommitId = "018F4C1E-6F8A-7C3A-9B2D-5E6F7A8B9C0D"
+      }
+
+      let! (result: Result<CommitNode list, TestError>) =
+        Commits.related(envFor http, request)
+
+      match result with
+      | Ok nodes ->
+        Expect.equal 2 nodes.Length "two related commits"
+
+        match nodes with
+        | LiveCommit first :: _ ->
+          Expect.equal
+            "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+            first.Id
+            "closest first"
+        | _ -> failtest "expected live commits"
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "GET" sent.Method "method"
+
+      Expect.equal
+        "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d/related"
+        sent.Target
+        "target"
+    }
+
+    testAsync "a commit with nothing close answers an empty related list" {
+      let http = CapturingHttp(ok """{"data":[]}""")
+
+      let request: Commits.ShowRequest = {
+        KeyFile = "key-file"
+        CommitId = "018F4C1E-6F8A-7C3A-9B2D-5E6F7A8B9C0D"
+      }
+
+      let! (result: Result<CommitNode list, TestError>) =
+        Commits.related(envFor http, request)
+
+      match result with
+      | Ok nodes -> Expect.equal 0 nodes.Length "nothing related"
+      | Error error -> failtestf "%A" error
+    }
+
     testAsync "mutes a user" {
       let http = CapturingHttp(ok muteResponse)
 

@@ -80,12 +80,17 @@ module State =
     Page: CommitPage option
     Replies: CommitNode list
     RepliesCursor: string option
+    /// The commits closest in meaning to the focused one, closest
+    /// first; a failed read stays an empty list and shows nothing.
+    Related: CommitNode list
     Note: string option
     Now: DateTimeOffset
     Pasteis: bool
     Replying: bool
     /// The commit whose poll vote is in flight, so its buttons disable.
     Voting: string option
+    /// The commit whose pin call is in flight, so its button disables.
+    Pinning: string option
     /// The option a viewer picked in each open poll, by commit id.
     PollChoices: Map<string, string>
     /// Whether the quote composer is armed: from the route, or from
@@ -99,6 +104,7 @@ module State =
   type Msg =
     | ThreadFetched of Result<CommitPage, AppError>
     | RepliesFetched of Result<Page<CommitNode>, AppError>
+    | RelatedFetched of Result<CommitNode list, AppError>
     | ReloadRequested
     | MoreReplies
     | CardEvent of CommitCard.Event
@@ -108,6 +114,8 @@ module State =
     | PollVotedDone of Result<Commit, AppError>
     | PastelGiven of Result<PastelResult, AppError>
     | Deleted of Result<unit, AppError>
+    | PinToggled of Commit
+    | PinDone of pinned: bool * Result<Commit, AppError>
     | ClockTicked of moment: DateTimeOffset
     | SessionChanged of state: SessionState
     | NodeMoreRequested of Commit
@@ -119,11 +127,13 @@ module State =
     Page = None
     Replies = []
     RepliesCursor = None
+    Related = []
     Note = None
     Now = DateTimeOffset.UtcNow
     Pasteis = false
     Replying = false
     Voting = None
+    Pinning = None
     PollChoices = Map.empty
     Quoting = false
     Expanded = Map.empty
@@ -131,6 +141,15 @@ module State =
 
   let thread(env, session: SignedInSession, commitId: string) =
     Commits.show(
+      env,
+      {
+        KeyFile = session.KeyFile
+        CommitId = commitId
+      }
+    )
+
+  let related(env, session: SignedInSession, commitId: string) =
+    Commits.related(
       env,
       {
         KeyFile = session.KeyFile
@@ -167,6 +186,14 @@ module State =
         replies
         (props.Env, props.Session, props.CommitId, None)
         RepliesFetched
+
+      // The related commits read beside the thread itself, the moment
+      // the page mounts: nothing of it blocks the thread, and a failed
+      // read renders nothing.
+      Cmd.OfAsync.perform
+        related
+        (props.Env, props.Session, props.CommitId)
+        RelatedFetched
     ]
 
   let withCommit(updated: Commit, model: Model) : Model = {
@@ -335,6 +362,94 @@ module State =
       model,
       Cmd.ofEffect(fun _ ->
         Navigation.go(props.Nav, "/commit/" + commit.Id, ignore))
+    | CardEvent(CommitCard.PinToggled commit) ->
+      model, Cmd.ofMsg(PinToggled commit)
+    | PinToggled commit ->
+      // The card's own gate already says this is the author's
+      // top-level commit; the flag on it says which way the toggle
+      // goes.
+      let pin = not commit.IsPinned
+
+      let call() =
+        let request: CommitPins.ActionRequest = {
+          KeyFile = props.Session.KeyFile
+          CommitId = commit.Id
+        }
+
+        if pin then
+          CommitPins.pin(props.Env, request)
+        else
+          CommitPins.unpin(props.Env, request)
+
+      {
+        model with
+            Pinning = Some commit.Id
+            Error = None
+            Note = None
+      },
+      Cmd.batch [
+        Cmd.OfAsync.perform call () (fun result -> PinDone(pin, result))
+
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The pin of {Commit} is being {State}.",
+            commit.Id,
+            if pin then "set" else "cleared"
+          ))
+      ]
+    | PinDone(pinned, result) ->
+      match result with
+      | Ok updated ->
+        {
+          withCommit(updated, model) with
+              Pinning = None
+              Note =
+                Some(
+                  if pinned then
+                    "Commit pinned to your profile."
+                  else
+                    "Commit unpinned."
+                )
+        },
+        Cmd.ofAction(fun () ->
+          match pinned with
+          | true ->
+            log.LogInformation(
+              "The commit {Commit} was pinned to the profile.",
+              updated.Id
+            )
+          | false ->
+            log.LogInformation(
+              "The pin of the commit {Commit} was taken off.",
+              updated.Id
+            ))
+      | Error error ->
+        {
+          model with
+              Pinning = None
+              Error = Some error
+        },
+        failed "the profile pin" error
+    | RelatedFetched result ->
+      match result with
+      | Ok nodes ->
+        { model with Related = nodes },
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The related commits of {Commit} arrived ({Count}).",
+            props.CommitId,
+            nodes.Length
+          ))
+      | Error error ->
+        // The section stays absent: a failed read must not paint the
+        // page's error surface, which speaks for the thread itself.
+        model,
+        Cmd.ofAction(fun () ->
+          log.LogWarning(
+            "The related commits of {Commit} did not arrive: {Error}",
+            props.CommitId,
+            bounded 300 (describe error)
+          ))
     | NodeMoreRequested commit ->
       // The first ask reads the newest page whole, the way the site's
       // preview does; the next ones walk the cursor it left.
@@ -546,6 +661,15 @@ module Parts =
     Dense = dense
     Images = ctx.Images
     Flyout = ctx.Flyout
+
+    // The card's own gate decides whether the pin arms — the author's
+    // top-level commits — so the focused card and every related card
+    // may carry the affordance.
+    Pin =
+      ValueSome {
+        Command = State.PinToggled >> ctx.Dispatch
+        Busy = ctx.Model |> Observable.map _.Pinning
+      }
   }
 
   /// The "Show N more" walk of one node's replies, the muted dot of
@@ -863,11 +987,60 @@ module Parts =
         quote.IsVisible(model |> Observable.map(fun current -> current.Quoting))
       )
 
+  /// The related-commits section under the thread: the heading over
+  /// the commits closest in meaning to the focused one, drawn as feed
+  /// cards. Nothing close — or a read that failed — renders nothing at
+  /// all, the way the site's section stays absent.
+  let related(ctx: Ctx, model: IObservable<State.Model>) : Control =
+    let header =
+      Border()
+        .Classes(Theme.name Theme.Hairline)
+        .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
+        .Child(
+          TextBlock()
+            .Classes(Theme.name Theme.Subtitle)
+            .Margin(0.0, 12.0, 0.0, 8.0)
+            .Text("Related commits")
+        )
+
+    let rows =
+      ItemsControl()
+        .ItemTemplate(
+          FuncDataTemplate<CommitNode>(
+            (fun node _ -> CommitCard.feedRow (commitCtx(ctx, false)) node),
+            false
+          )
+        )
+        .BindItemsSource(
+          model |> Observable.map(fun current -> current.Related),
+          FeedParts.nodeKey
+        )
+
+    Border()
+      .Name("RelatedCommits")
+      .Classes(Theme.name Theme.Hairline)
+      .BorderThickness(Thickness(0.0, 1.0, 0.0, 0.0))
+      .Margin(0.0, 16.0, 0.0, 0.0)
+      .Child(StackPanel().Children(header, rows))
+      .IsVisible(
+        model
+        |> Observable.map(fun current ->
+          current.Page.IsSome && not current.Related.IsEmpty)
+      )
+
 let view
   (props: Props<'env>)
   (model: IObservable<State.Model>)
   (dispatch: Dispatch<State.Msg>)
   : Control =
+
+  let ctx: Parts.Ctx = {
+    Dispatch = dispatch
+    Model = model
+    ViewerId = props.Session.Session.User.Id
+    Images = props.Env.ImageCache
+    Flyout = Parts.flyoutOf props
+  }
 
   let content =
     StackPanel()
@@ -878,32 +1051,22 @@ let view
         Parts.noteLine model,
         Parts.busy model,
         Parts.ancestors(props, model),
-        Parts.cardHost {
-          Dispatch = dispatch
-          Model = model
-          ViewerId = props.Session.Session.User.Id
-          Images = props.Env.ImageCache
-          Flyout = Parts.flyoutOf props
-        },
+        Parts.cardHost ctx,
         // The replies tie into the card's rail directly; the page-level
         // affordances follow the chain, the way the site's thread does.
-        Parts.replies {
-          Dispatch = dispatch
-          Model = model
-          ViewerId = props.Session.Session.User.Id
-          Images = props.Env.ImageCache
-          Flyout = Parts.flyoutOf props
-        },
+        Parts.replies ctx,
         Parts.moreReplies(dispatch, model),
         Parts.threadActions(props, dispatch, model),
-        Parts.answerComposer(props, dispatch, model)
+        Parts.answerComposer(props, dispatch, model),
+        Parts.related(ctx, model)
       )
 
   // The page scrolls one axis: a wrapped body and composer measure
-  // against the column, never an unbounded extent.
+  // against the column, never an unbounded extent. The rows run edge
+  // to edge of the reading column, the width the feed hands its own
+  // cards — a horizontal inset here narrows every card below it.
   ScrollViewer()
     .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
-    .Padding(Theme.pagePadding)
     .Content(content)
 
 type Page<'env

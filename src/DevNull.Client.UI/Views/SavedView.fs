@@ -304,6 +304,7 @@ module Parts =
         dispatch(State.PollVoteRequested commit)
       | CommitCard.QuoteRequested c ->
         Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
+      | CommitCard.PinToggled _ -> ()
     Pasteis = model |> Observable.map _.Pasteis
     ViewerId = props.Session.Session.User.Id
     Now = model |> Observable.map _.Now
@@ -319,6 +320,7 @@ module Parts =
             Navigation.go(props.Nav, "/profile/" + username, ignore)
         Cache = props.Env.ImageCache
       }
+    Pin = ValueNone
   }
 
   /// The saved list itself: the virtualized feed over the rows.

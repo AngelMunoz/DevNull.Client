@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Commit actions:** one of your own commits can be pinned to the top of your profile. The pin sits with the star, pastel, and quote actions on your top-level commits — on your profile's feed and on its thread — and flips between Pin and Unpin as the pin moves; the profile shows the pinned commit under a Pinned mark above everything else, where it stays until you unpin it.
+- **Threads:** each thread lists the related commits under it — the commits closest to it in meaning, as full cards you can open, star, and answer from. A thread with nothing close shows nothing.
+
+### Fixed
+
+- **Threads:** the thread page hands its cards the reading column's full width, the same width the feed hands its own — a page-wide inset had narrowed every card on it, and the widest lines slid past the column's edge.
+- **Commit cards:** a link card no longer widens with its address: it follows the site's own — the site's name (or its host) on the mono line, the title at two lines, and a link whose page never gave a title stays absent.
+
 ## [0.6.0] - 2026-10-29
 
 ### Added

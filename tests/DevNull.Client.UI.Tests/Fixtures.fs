@@ -828,6 +828,111 @@ let threadApi() =
        | ValueSome answer -> answer
        | ValueNone -> ok "{}"))
 
+/// The viewer's own commit with its pin on, as the pin's answer and
+/// the profile's pinned slot carry it.
+let pinnedOwnCommitJson =
+  ownCommitJson.Replace("\"is_pinned\":false", "\"is_pinned\":true")
+
+/// The profile answer carrying the pinned commit above the feed.
+let pinnedProfileJson =
+  profileJson.Replace(
+    "\"pinned_commit\":null",
+    sprintf "\"pinned_commit\":%s" pinnedOwnCommitJson
+  )
+
+/// One commits page of one node.
+let commitsPageOf(node: string) : string =
+  sprintf
+    "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+    node
+
+/// The api of the pin tests: one pin rides the server or it does not,
+/// and every answer follows that one bit — the pin's calls, the
+/// profile's slot, and the commits list, which keeps the pinned commit
+/// out of itself.
+let pinApi(startingPinned: bool) =
+  let pins = ResizeArray<string>()
+
+  if startingPinned then
+    pins.Add "seeded"
+
+  FakeApi(fun request ->
+    if
+      request.Method = "PUT"
+      && request.Target =
+        "/api/v1/commits/018f4c1e-0aa0-7c3a-9b2d-5e6f7a8b9c0d/pin"
+    then
+      pins.Add request.Target
+
+      ok(sprintf "{\"data\":%s}" pinnedOwnCommitJson)
+    elif
+      request.Method = "DELETE"
+      && request.Target =
+        "/api/v1/commits/018f4c1e-0aa0-7c3a-9b2d-5e6f7a8b9c0d/pin"
+    then
+      pins.Clear()
+
+      ok(sprintf "{\"data\":%s}" ownCommitJson)
+    elif request.Target = "/api/v1/users/octocat" then
+      if pins.Count = 0 then
+        ok profileJson
+      else
+        ok pinnedProfileJson
+    elif
+      request.Target.StartsWith "/api/v1/users/octocat/commits"
+      && not(request.Target.Contains "replies=1")
+    then
+      if pins.Count = 0 then
+        ok(commitsPageOf ownCommitJson)
+      else
+        ok(commitsPageOf "")
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok ownLogJson
+    elif
+      request.Target.StartsWith
+        "/api/v1/commits/018f4c1e-0aa0-7c3a-9b2d-5e6f7a8b9c0d/replies"
+    then
+      ok
+        "{\"data\":[],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+    elif
+      request.Target.StartsWith
+        "/api/v1/commits/018f4c1e-0aa0-7c3a-9b2d-5e6f7a8b9c0d/related"
+    then
+      ok "{\"data\":[]}"
+    elif
+      request.Target.StartsWith
+        "/api/v1/commits/018f4c1e-0aa0-7c3a-9b2d-5e6f7a8b9c0d"
+    then
+      ok ownThreadPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+/// The api of the related-commits tests: the thread of the canned
+/// commit answers with a chosen related list.
+let relatedApi(related: string) =
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    elif
+      request.Target.StartsWith
+        "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d/related"
+    then
+      ok(sprintf "{\"data\":[%s]}" related)
+    elif request.Target.Contains "/replies" then
+      ok
+        "{\"data\":[],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+    elif
+      request.Target.StartsWith
+        "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+    then
+      ok threadPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
 /// The reply a landed post stores: the words the composer typed, as
 /// the server would echo them.
 let landedReplyJson =

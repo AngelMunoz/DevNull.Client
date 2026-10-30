@@ -57,6 +57,14 @@ module State =
     | Commits
     | Replies
 
+  /// One row of the profile feed: the pinned caption, the pinned
+  /// commit it marks, or one commit of the list.
+  [<Struct>]
+  type FeedRow =
+    | PinnedCaption
+    | PinnedNode of node: CommitNode
+    | FeedNode of node: CommitNode
+
   type Model = {
     Loading: bool
     Error: AppError option
@@ -68,11 +76,14 @@ module State =
     Pasteis: bool
     Voting: string option
     PollChoices: Map<string, string>
+    Pinning: string option
+    Note: string option
   }
 
   type Msg =
     | Fetched of Result<ProfileDetails, AppError>
     | CommitsFetched of Result<Page<CommitNode>, AppError>
+    | CommitsRefreshed of Result<Page<CommitNode>, AppError>
     | MoreCommits
     | TabChosen of Tab
     | StarToggled of Commit
@@ -88,6 +99,8 @@ module State =
     | FollowDone of Result<unit, AppError>
     | MuteDone of Result<MuteResult, AppError>
     | BlockDone of Result<BlockResult, AppError>
+    | PinToggled of Commit
+    | PinDone of pinned: bool * Result<Commit, AppError>
     | ClockTicked of moment: DateTimeOffset
     | SessionChanged of state: SessionState
 
@@ -96,6 +109,26 @@ module State =
     |> List.map(function
       | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
       | node -> node)
+
+  /// The key of one feed row: the pinned rows carry their own so the
+  /// pinned commit can appear above while its feed copy stays its own
+  /// row.
+  let inline rowKey(row: FeedRow) : string =
+    match row with
+    | PinnedCaption -> "pinned-caption"
+    | PinnedNode node -> "pinned:" + FeedParts.nodeKey node
+    | FeedNode node -> FeedParts.nodeKey node
+
+  /// The rows one profile render lists: the pinned commit under its
+  /// caption first — the Commits tab only, as the site shows it — then
+  /// the feed.
+  let rowsOf(model: Model) : FeedRow list =
+    let pinned =
+      match model.Tab, model.Details |> Option.bind _.PinnedCommit with
+      | Commits, Some node -> [ PinnedCaption; PinnedNode node ]
+      | _ -> []
+
+    pinned @ (model.Commits |> List.map FeedNode)
 
   let initial = {
     Loading = true
@@ -108,6 +141,8 @@ module State =
     Pasteis = false
     Voting = None
     PollChoices = Map.empty
+    Pinning = None
+    Note = None
   }
 
   /// One feed read: whose commits, which tab, and the pager cursor.
@@ -267,6 +302,120 @@ module State =
           log.LogDebug("The star on {Commit} settled.", updated.Id))
       | Error error ->
         { model with Error = Some error }, failed "the star" error
+    | PinToggled commit ->
+      // The card's own gate already says this is the author's
+      // top-level commit; the flag on it says which way the toggle
+      // goes.
+      let pin = not commit.IsPinned
+
+      let call() =
+        let request: CommitPins.ActionRequest = {
+          KeyFile = props.Session.KeyFile
+          CommitId = commit.Id
+        }
+
+        if pin then
+          CommitPins.pin(props.Env, request)
+        else
+          CommitPins.unpin(props.Env, request)
+
+      {
+        model with
+            Pinning = Some commit.Id
+            Error = None
+            Note = None
+      },
+      Cmd.batch [
+        Cmd.OfAsync.perform call () (fun result -> PinDone(pin, result))
+
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The pin of {Commit} is being {State}.",
+            commit.Id,
+            if pin then "set" else "cleared"
+          ))
+      ]
+    | PinDone(pinned, result) ->
+      match result with
+      | Ok updated ->
+        // The slot moves at once from the answer; the feed read below
+        // reconciles where the commit itself sits, which only the
+        // server knows after a pin.
+        let details =
+          model.Details
+          |> Option.map(fun details -> {
+            details with
+                PinnedCommit =
+                  (if pinned then Some(LiveCommit updated) else None)
+          })
+
+        let commits =
+          if pinned then
+            model.Commits
+            |> List.filter(fun node -> FeedParts.nodeKey node <> updated.Id)
+          else
+            model.Commits
+
+        {
+          model with
+              Pinning = None
+              Note =
+                Some(
+                  if pinned then
+                    "Commit pinned to your profile."
+                  else
+                    "Commit unpinned."
+                )
+              Details = details
+              Commits = commits
+        },
+        Cmd.batch [
+          Cmd.OfAsync.perform
+            fetchCommits
+            (props.Env,
+             {
+               Session = props.Session
+               Username = username
+               Replies = model.Tab = Replies
+               Cursor = None
+             })
+            CommitsRefreshed
+
+          Cmd.ofAction(fun () ->
+            match pinned with
+            | true ->
+              log.LogInformation(
+                "The commit {Commit} was pinned to the profile.",
+                updated.Id
+              )
+            | false ->
+              log.LogInformation(
+                "The pin of the commit {Commit} was taken off.",
+                updated.Id
+              ))
+        ]
+      | Error error ->
+        {
+          model with
+              Pinning = None
+              Error = Some error
+        },
+        failed "the profile pin" error
+    | CommitsRefreshed result ->
+      // The read after a settled pin: it replaces the list, because
+      // the server moved the commit in it. A failure keeps the
+      // already-patched rows and says so in the log only — the pin
+      // itself succeeded.
+      match result with
+      | Ok page ->
+        {
+          model with
+              Commits = page.Items
+              NextCursor = page.NextCursor
+        },
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The commits of {User} were read again.", username))
+      | Error error -> model, failed "the commits refresh" error
     | PollChoiceChanged(commit, option, chosen) ->
       {
         model with
@@ -817,6 +966,7 @@ module Parts =
         dispatch(State.PollVoteRequested commit)
       | CommitCard.QuoteRequested c ->
         Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
+      | CommitCard.PinToggled c -> dispatch(State.PinToggled c)
     Pasteis = model |> Observable.map _.Pasteis
     ViewerId = props.Session.Session.User.Id
     Now = model |> Observable.map _.Now
@@ -832,7 +982,27 @@ module Parts =
             Navigation.go(props.Nav, "/profile/" + username, ignore)
         Cache = props.Env.ImageCache
       }
+
+    // The card's own gate decides whether the pin arms — the author's
+    // top-level commits — so every row may carry the affordance: a
+    // stranger's profile never arms it, a reply never does.
+    Pin =
+      ValueSome {
+        Command = State.PinToggled >> dispatch
+        Busy = model |> Observable.map _.Pinning
+      }
   }
+
+  /// One commit row: the card with its reply preview under it, or the
+  /// deletion marker.
+  let commitRow(ctx: CommitCard.RowProps, node: CommitNode) : Control =
+    let card = CommitCard.feedRow ctx node
+
+    match node with
+    | LiveCommit commit ->
+      StackPanel().Children(card, CommitCard.replyBlock(ctx, commit, ValueNone))
+      : Control
+    | Tombstone _ -> card
 
   /// The commits feed under the tabs.
   let commits
@@ -844,18 +1014,14 @@ module Parts =
     let ctx = commitCtx(props, dispatch, model)
 
     Feed.view {
-      Items = model |> Observable.map _.Commits
-      KeyOf = FeedParts.nodeKey
+      Items = model |> Observable.map State.rowsOf
+      KeyOf = State.rowKey
       Row =
-        fun node ->
-          let card = CommitCard.feedRow ctx node
-
-          match node with
-          | LiveCommit commit ->
-            StackPanel()
-              .Children(card, CommitCard.replyBlock(ctx, commit, ValueNone))
-            : Control
-          | Tombstone _ -> card
+        fun row ->
+          match row with
+          | State.PinnedCaption -> FeedParts.pinnedRow()
+          | State.PinnedNode node -> commitRow(ctx, node)
+          | State.FeedNode node -> commitRow(ctx, node)
       Footer =
         ValueSome(
           PageChrome.loadMore(
@@ -906,7 +1072,17 @@ module Parts =
       .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
       .Child(strip.Children(buttons))
 
-  /// The tabbed body: the strip over the feed.
+  /// The transient note line — the pin's own words after it settles.
+  let noteLine(model: IObservable<State.Model>) : Control =
+    TextBlock()
+      .Classes(Theme.name Theme.Muted)
+      .Text(
+        model
+        |> Observable.map(fun current -> current.Note |> Option.defaultValue "")
+      )
+      .IsVisible(model |> Observable.map _.Note.IsSome)
+
+  /// The tabbed body: the strip over the note over the feed.
   let body
     (
       props: Props<'env>,
@@ -915,11 +1091,12 @@ module Parts =
     ) : Control =
     let root = Grid()
 
-    root.RowDefinitions <- RowDefinitions("Auto,*")
+    root.RowDefinitions <- RowDefinitions("Auto,Auto,*")
 
     root.Children(
       tabStrip(dispatch, model).Row(0),
-      commits(props, dispatch, model).Row(1)
+      noteLine(model).Row(1).Margin(0.0, 8.0, 0.0, 0.0),
+      commits(props, dispatch, model).Row(2)
     )
 
 let view
@@ -936,7 +1113,19 @@ let view
     Busy = fun current -> current.Loading, "Loading the profile…"
     Empty =
       fun current ->
-        not current.Loading && current.Error.IsNone && current.Commits.IsEmpty,
+        // A profile with nothing but a pinned commit shows the pinned
+        // slot, not the empty state — the server keeps the pinned
+        // commit out of the list itself.
+        let pinned =
+          match current.Tab with
+          | State.Commits ->
+            current.Details |> Option.bind _.PinnedCommit |> Option.isSome
+          | State.Replies -> false
+
+        not current.Loading
+        && current.Error.IsNone
+        && current.Commits.IsEmpty
+        && not pinned,
         (match current.Tab with
          | State.Commits -> "No commits yet."
          | State.Replies -> "No replies yet.")

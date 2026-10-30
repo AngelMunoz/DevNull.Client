@@ -8,7 +8,8 @@ open DevNull.Client.Components.UserFlyout
 
 /// What one card reports up: open the thread, toggle the star, give a
 /// pastel, start a quote, reveal the reply composer, choose a poll
-/// option, ask for the vote, or walk more replies of a thread preview.
+/// option, ask for the vote, walk more replies of a thread preview, or
+/// pin the commit to the author's profile.
 [<Struct>]
 type Event =
   | Opened of Commit
@@ -20,6 +21,16 @@ type Event =
   | QuoteRequested of Commit
   | PollChoiceChanged of Commit * PollOption * chosen: bool
   | PollVoteRequested of Commit
+  | PinToggled of Commit
+
+/// The pin affordance one host may offer: the command the toggle runs,
+/// and the commit id whose pin call is in flight, so its button
+/// disables while the server answers.
+[<Struct>]
+type PinToggle = {
+  Command: Commit -> unit
+  Busy: IObservable<string option>
+}
 
 /// One commit row. `OnEvent` receives every interaction. Every card
 /// rides the graph rail with its author's avatar; dense rows (the
@@ -31,7 +42,9 @@ type Event =
 /// `Images` loads the author avatar and the commit's images; `Flyout`
 /// is the hover card source for the author, when the host has one.
 /// `Voting` names the commit whose vote is in flight; `PollChoice` is
-/// the option the page model holds for this commit.
+/// the option the page model holds for this commit; `Pin` offers the
+/// profile pin on the author's own top-level commits, where the host
+/// decides to show it at all.
 [<Struct>]
 type Props = {
   Commit: Commit
@@ -44,6 +57,7 @@ type Props = {
   Dense: bool
   Images: ImageCacheService
   Flyout: Source voption
+  Pin: PinToggle voption
 }
 
 /// Renders one commit as a row of the log.
@@ -87,8 +101,9 @@ val body:
 
 /// Everything one card row needs from its host page: where its events
 /// go, the signed-in viewer, the live pastéis flag and clock, the poll
-/// choices, the row's density, the image cache, and the hover card
-/// source.
+/// choices, the row's density, the image cache, the hover card
+/// source, and the profile pin affordance, when the host shows one at
+/// all.
 [<Struct>]
 type RowProps = {
   OnEvent: Event -> unit
@@ -100,6 +115,7 @@ type RowProps = {
   Dense: bool
   Images: ImageCacheService
   Flyout: Source voption
+  Pin: PinToggle voption
 }
 
 /// One commit row over a feed node: the card with the host's event

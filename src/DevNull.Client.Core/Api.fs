@@ -1037,6 +1037,25 @@ module Commits =
       )
   }
 
+  /// Reads the commits closest in meaning to one commit, closest first:
+  /// a plain collection, nothing of it paginated. Nothing close answers
+  /// an empty list.
+  let related(env, request: ShowRequest) = asyncResult {
+    let! path = Internal.commitPath("/related", request.CommitId)
+
+    return!
+      Internal.sendSigned(
+        env,
+        {
+          KeyFile = request.KeyFile
+          Method = "GET"
+          Target = path
+          Body = ""
+          Decode = RelatedCommits.decode
+        }
+      )
+  }
+
   let delete(env, request: ActionRequest) = asyncResult {
     let! path = Internal.commitPath("", request.CommitId)
 
@@ -1282,6 +1301,48 @@ module Stars =
 
   let unstar(env, request: ActionRequest) = asyncResult {
     let! path = Internal.commitPath("/star", request.CommitId)
+
+    return!
+      Internal.sendSigned(
+        env,
+        {
+          KeyFile = request.KeyFile
+          Method = "DELETE"
+          Target = path
+          Body = ""
+          Decode = Commit.decodeCreated
+        }
+      )
+  }
+
+module CommitPins =
+
+  type ActionRequest = { KeyFile: string; CommitId: string }
+
+  /// Pins one of the author's own top-level commits to the top of
+  /// their profile, replacing the one pinned before, and answers with
+  /// the commit as its page shows it, `is_pinned` on.
+  let pin(env, request: ActionRequest) = asyncResult {
+    let! path = Internal.commitPath("/pin", request.CommitId)
+
+    return!
+      Internal.sendSigned(
+        env,
+        {
+          KeyFile = request.KeyFile
+          Method = "PUT"
+          Target = path
+          Body = ""
+          Decode = Commit.decodeCreated
+        }
+      )
+  }
+
+  /// Takes the pin off the profile. Only the pinned commit's own
+  /// unpin clears it; any other answers the commit unchanged. The
+  /// answer is the commit as its page shows it, `is_pinned` off.
+  let unpin(env, request: ActionRequest) = asyncResult {
+    let! path = Internal.commitPath("/pin", request.CommitId)
 
     return!
       Internal.sendSigned(

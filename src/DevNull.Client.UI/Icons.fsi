@@ -49,6 +49,8 @@ type Glyph =
   | Vibrate
   | Stop
   | Clock
+  | Pin
+  | PinOff
 
 /// One icon ready to place: the glyph in the default size, 18 device
 /// independent pixels.

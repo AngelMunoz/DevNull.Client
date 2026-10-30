@@ -796,6 +796,12 @@ module CommitNode =
   /// Reads a cursor page of commits and tombstones.
   val decodePage: body: string -> Result<Page<CommitNode>, DecodeFailure>
 
+module RelatedCommits =
+  /// Reads the plain `{data: [...]}` collection of GET
+  /// /api/v1/commits/{commit}/related: the commits closest in meaning
+  /// to one commit, closest first, nothing paginated.
+  val decode: body: string -> Result<CommitNode list, DecodeFailure>
+
 module User =
   /// Reads a cursor page of users.
   val decodePage: body: string -> Result<Page<User>, DecodeFailure>

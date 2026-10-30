@@ -14,6 +14,11 @@ val dayRow: label: string -> Control
 /// The unread marker: the mono HEAD label beside a dashed rule.
 val lastVisitRow: unit -> Control
 
+/// The pinned-commit caption: the rail runs on in the neutral tone,
+/// the pin glyph and the mono muted label ride the content column —
+/// the site's mark above the pinned commit on a profile.
+val pinnedRow: unit -> Control
+
 /// One dashed lane-colored vertical rail segment, centered at the
 /// given offset from its host's left edge. The thread rail chains row
 /// to row; every row draws its own segment.

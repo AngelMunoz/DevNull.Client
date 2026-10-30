@@ -674,6 +674,7 @@ module Parts =
         dispatch(State.PollChoiceChanged(commit, option, chosen))
       | CommitCard.PollVoteRequested commit ->
         dispatch(State.PollVoteRequested commit)
+      | CommitCard.PinToggled _ -> ()
     Pasteis = model |> Observable.map _.Pasteis
     ViewerId = props.Session.Session.User.Id
     Now = model |> Observable.map _.Now
@@ -682,6 +683,7 @@ module Parts =
     Dense = false
     Images = props.Env.ImageCache
     Flyout = flyoutOf props
+    Pin = ValueNone
   }
 
   /// One feed row: a separator, a commit card with its revealed reply

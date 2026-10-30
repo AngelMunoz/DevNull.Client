@@ -827,8 +827,13 @@ let parseBody
   : Result<'value, DecodeFailure> =
   try
     JDeck.Decoding.fromString(body, decoder) |> Result.mapError toDecodeFailure
-  with :? JsonException as ex ->
-    Error(failure "$" ex.Message)
+  with
+  // JDeck answers a mistyped field with an exception — a list field
+  // handed an object throws InvalidOperationException, a malformed
+  // number a JsonException — and a payload that cannot be read is a
+  // decode failure, never a faulted command.
+  | :? JsonException as ex -> Error(failure "$" ex.Message)
+  | :? InvalidOperationException as ex -> Error(failure "$" ex.Message)
 
 let inline optionalDecoder
   (decoder: JDeck.Decoder<'value>)
@@ -2424,6 +2429,11 @@ let inline decodeCommitList
   : Result<Page<CommitNode>, DecodeFailure> =
   parseBody body (pageDecoder commitNodeDecoder)
 
+let inline decodeRelatedCommits
+  (body: string)
+  : Result<CommitNode list, DecodeFailure> =
+  parseBody body (Required.Property.list("data", commitNodeDecoder))
+
 let inline decodeUserList(body: string) : Result<Page<User>, DecodeFailure> =
   parseBody body (pageDecoder userDecoder)
 
@@ -2568,6 +2578,9 @@ module CommitPage =
 
 module CommitNode =
   let decodePage(body: string) = decodeCommitList body
+
+module RelatedCommits =
+  let decode(body: string) = decodeRelatedCommits body
 
 module User =
   let decodePage(body: string) = decodeUserList body

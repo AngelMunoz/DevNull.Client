@@ -70,6 +70,36 @@ let lastVisitRow() : Control =
       rule
     )
 
+/// The pinned-commit caption: the rail runs on in the neutral tone,
+/// the pin glyph and the mono muted label ride the content column —
+/// the site's mark above the pinned commit on a profile.
+let pinnedRow() : Control =
+  let grid = Grid()
+
+  grid.ColumnDefinitions <- ColumnDefinitions("64,*")
+
+  let line =
+    Border()
+      .Width(2.0)
+      .HorizontalAlignment(HorizontalAlignment.Center)
+      .VerticalAlignment(VerticalAlignment.Stretch)
+      .Classes(Theme.name Theme.RailBack)
+
+  let caption =
+    StackPanel()
+      .Orientation(Orientation.Horizontal)
+      .Spacing(6.0)
+      .Margin(0.0, 12.0, 16.0, 4.0)
+      .Name("PinnedCaption")
+      .Children(
+        Icons.iconAt(Icons.Glyph.Pin, 12.0).Classes(Theme.name Theme.FgMuted),
+        TextBlock()
+          .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
+          .Text("Pinned")
+      )
+
+  grid.Children(line.Column(0), caption.Column(1))
+
 /// One dashed lane-colored vertical rail segment, centered at the
 /// given offset from its host's left edge. The thread rail chains row
 /// to row; every row draws its own segment.

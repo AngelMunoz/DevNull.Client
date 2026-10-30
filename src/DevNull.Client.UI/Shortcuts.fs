@@ -19,6 +19,8 @@ open DevNull.Client.Theme
 type Actions = {
   /// Opens the compose dialog.
   Compose: unit -> unit
+  /// Opens the search dialog.
+  Search: unit -> unit
   /// Opens the bindings list.
   Help: unit -> unit
   /// The escape: closes the top overlay, else leaves fullscreen.
@@ -83,14 +85,21 @@ let install(props: Props) : unit =
     InputElement.KeyDownEvent,
     (fun _ args ->
       // The chrome pair answers even mid-sentence: fullscreen and the
-      // escape own the window, not the caret.
-      match args.Key with
-      | Key.F11 when not(held args) ->
+      // escape own the window, not the caret. The search's pair joins
+      // them — the site's own Ctrl K opens the palette while typing.
+      match args.Key, args.KeyModifiers with
+      | Key.F11, modifiers when modifiers = KeyModifiers.None ->
         args.Handled <- true
         props.Actions.ToggleFullScreen()
-      | Key.Escape when not(held args) ->
+      | Key.Escape, modifiers when modifiers = KeyModifiers.None ->
         args.Handled <- true
         props.Actions.Escape()
+      | Key.K, modifiers when
+        modifiers &&& (KeyModifiers.Control ||| KeyModifiers.Meta)
+        <> KeyModifiers.None
+        ->
+        args.Handled <- true
+        props.Actions.Search()
       | _ when held args -> ()
       | _ when props.OverlayOpen() || typing props.Root ->
         pending.Deadline <- ValueNone
@@ -285,6 +294,7 @@ let bindings: (string * string array) array = [|
   "Reply to the focused commit", [| "R" |]
   "Quote the focused commit", [| "Q" |]
   "Write a commit", [| "C" |]
+  "Search", [| "Ctrl K" |]
   "Go to your log", [| "G"; "L" |]
   "Go to trending", [| "G"; "E" |]
   "Go to your profile", [| "G"; "P" |]

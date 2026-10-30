@@ -29,6 +29,7 @@ let userOf(id: string, username: string, name: string) : User = {
   Handle = username
   Name = name
   AvatarUrl = None
+  Bio = None
   Lane = None
   CommitsCount = None
   FollowersCount = None

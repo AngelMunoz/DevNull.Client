@@ -11,6 +11,7 @@ open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
 open DevNull.Client.Natives
 open DevNull.Client.Profiles
+open DevNull.Client.RecentSearchStore
 open DevNull.Client.Remotes
 open DevNull.Client.RouteStore
 open DevNull.Client.SettingsStore
@@ -38,6 +39,7 @@ type Shell<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLastVisit
+  and 'env :> IProvideRecentSearches
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
   and 'env :> IProvideRoutes

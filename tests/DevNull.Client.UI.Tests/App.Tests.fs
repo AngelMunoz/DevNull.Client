@@ -7,6 +7,7 @@ module DevNull.Client.UI.Tests.App
 open System
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.Documents
 open Avalonia.Controls.Primitives
 open Avalonia.Controls.Shapes
 open Avalonia.Headless
@@ -15,12 +16,16 @@ open Avalonia.Styling
 open Avalonia.VisualTree
 
 open Expecto
+open Microsoft.Extensions.Logging.Abstractions
 
 open DevNull.Client
+open DevNull.Client.Components.SearchParts
 open DevNull.Client.Core
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Http
+open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
+open DevNull.Client.RecentSearchStore
 open DevNull.Client.SettingsStore
 open DevNull.Client.Shell
 open DevNull.Client.Stores
@@ -126,6 +131,18 @@ let startShellSeeded
     return! showAsync window
   }
 
+/// Builds and shows the shell over one test env with a pre-seeded
+/// recent-search store.
+let startShellWithRecents
+  (store: SessionStore, http: IHttp, recents: RecentSearchStore)
+  : Async<Window> =
+  let env = TestEnv(store, http, recentSearches = recents)
+
+  async {
+    let! window = probeUiAsync(fun () -> Shell(env, None) :> Window)
+    return! showAsync window
+  }
+
 /// Waits until a TextBlock under the window carries the text.
 let showsText(window: Window, text: string) : Async<bool> =
   waitForAsync(5000, (fun () -> window), (fun root -> hasText(root, text)))
@@ -136,8 +153,15 @@ let visibleText(root: Control, text: string) : bool =
   root.GetVisualDescendants()
   |> Seq.exists(fun visual ->
     match visual with
-    | :? TextBlock as block -> block.Text = text && effectiveVisible block
+    | :? TextBlock as block ->
+      textBlockShows(block, text) && effectiveVisible block
     | _ -> false)
+
+/// Waits until an effectively visible TextBlock under the window
+/// carries the text: hidden empty panels and collapsed sections stay
+/// in the tree, and visibility is the claim.
+let seesVisible(window: Window, text: string) : Async<bool> =
+  waitForAsync(5000, (fun () -> window), (fun root -> visibleText(root, text)))
 
 /// Clicks one button by its text once it shows up.
 let clickWhenShown(window: Window, text: string) : Async<unit> = async {
@@ -3373,6 +3397,330 @@ let tests =
       })
 
     testCaseAsync
+      "the search pair opens the palette"
+      (async {
+        let! window =
+          startShell(signedInStore(), searchApi(false, false) :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            window.RaiseEvent(
+              KeyEventArgs(
+                RoutedEvent = InputElement.KeyDownEvent,
+                Key = Key.K,
+                KeyModifiers = KeyModifiers.Control
+              )
+            ))
+
+        let! opened = seesVisible(window, "Search developers or commits")
+
+        Expect.isTrue opened "the search dialog never opened"
+      })
+
+    testCaseAsync
+      "the search dialog lists people and commits as they land"
+      (async {
+        let api = searchApi(false, false)
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Search")
+
+        let! boxShown =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "SearchInput")),
+            Option.isSome
+          )
+
+        Expect.isTrue boxShown "the search box never appeared"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "SearchInput")
+            |> Option.iter(fun control ->
+              (control :?> TextBox).Text <- "kai kou"))
+
+        let! person = seesVisible(window, "@kai-kou")
+
+        Expect.isTrue person "the person never listed"
+
+        let! heading = seesVisible(window, "Most relevant commits")
+
+        Expect.isTrue heading "the commits heading never showed"
+
+        let! found = seesVisible(window, "It was DNS.")
+
+        Expect.isTrue found "the commit never listed"
+
+        let! seeAll = seesVisible(window, "See all matching commits")
+
+        Expect.isTrue seeAll "the see-all row never showed"
+
+        Expect.exists
+          api.Requests
+          (fun request -> request.Target = "/api/v1/search/users?q=kai%20kou")
+          "the people search"
+
+        Expect.exists
+          api.Requests
+          (fun request ->
+            request.Target = "/api/v1/search/commits?q=kai%20kou&limit=5")
+          "the commit search with the dialog's limit"
+      })
+
+    testCaseAsync
+      "opening a person from the dialog lands on the profile"
+      (async {
+        let api = searchApi(false, false)
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Search")
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "SearchInput")
+            |> Option.iter(fun control ->
+              (control :?> TextBox).Text <- "kai kou"))
+
+        let! settled = seesVisible(window, "@kai-kou")
+
+        Expect.isTrue settled "the search never settled"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "kai kou") |> Option.iter click)
+
+        let! gone = seesVisible(window, "Search developers or commits")
+
+        Expect.isFalse gone "the dialog never closed"
+
+        Expect.exists
+          api.Requests
+          (fun request -> request.Target = "/api/v1/users/kai-kou")
+          "the profile read"
+      })
+
+    testCaseAsync
+      "a commit term under the server's minimum never searches commits"
+      (async {
+        let api = searchApi(false, false)
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Search")
+
+        let! boxShown =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "SearchInput")),
+            Option.isSome
+          )
+
+        Expect.isTrue boxShown "the search box never appeared"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "SearchInput")
+            |> Option.iter(fun control -> (control :?> TextBox).Text <- "ab"))
+
+        do! Async.Sleep 700
+
+        Expect.isFalse
+          (api.Requests
+           |> List.exists(fun request ->
+             request.Target.StartsWith "/api/v1/search/commits"))
+          "a short term searched commits"
+
+        Expect.exists
+          api.Requests
+          (fun request -> request.Target = "/api/v1/search/users?q=ab")
+          "the people search still ran"
+      })
+
+    testCaseAsync
+      "the slow-down answer shows the site's own line"
+      (async {
+        let! window =
+          startShell(signedInStore(), searchApi(true, false) :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Search")
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "SearchInput")
+            |> Option.iter(fun control ->
+              (control :?> TextBox).Text <- "rails"))
+
+        let! slowed =
+          seesVisible(window, "error: too many searches, give it a few seconds")
+
+        Expect.isTrue slowed "the slow-down line never showed"
+      })
+
+    testCaseAsync
+      "a search that finds nothing says so"
+      (async {
+        let! window =
+          startShell(signedInStore(), searchApi(false, true) :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Search")
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "SearchInput")
+            |> Option.iter(fun control -> (control :?> TextBox).Text <- "zzz"))
+
+        let! nothing = seesVisible(window, "fatal: nothing matches 'zzz'")
+
+        Expect.isTrue nothing "the fatal line never showed"
+      })
+
+    testCaseAsync
+      "a settled search becomes a recent"
+      (async {
+        let recents = RecentSearchStore(Map.empty, ignore)
+
+        let! window =
+          startShellWithRecents(
+            signedInStore(),
+            searchApi(false, false) :> IHttp,
+            recents
+          )
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Search")
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "SearchInput")
+            |> Option.iter(fun control ->
+              (control :?> TextBox).Text <- "kai kou"))
+
+        let! settled = seesVisible(window, "@kai-kou")
+
+        Expect.isTrue settled "the search never settled"
+
+        // The commit answer is the settle's other half; only then does
+        // the term become a recent.
+        let! answered = seesVisible(window, "It was DNS.")
+
+        Expect.isTrue answered "the commit answer never settled"
+
+        let! stored =
+          waitForAsync(
+            5000,
+            (fun () -> recents),
+            (fun store ->
+              not(store.Recent("018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d").IsEmpty))
+          )
+
+        Expect.isTrue stored "the term never became a recent"
+
+        // The escape closes the palette; a reopen lists the term.
+        do!
+          onUiAsync(fun () ->
+            window.RaiseEvent(
+              KeyEventArgs(
+                RoutedEvent = InputElement.KeyDownEvent,
+                Key = Key.Escape
+              )
+            ))
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> not(visibleText(root, "Search developers or commits")))
+          )
+
+        Expect.isTrue closed "the palette never closed"
+
+        do! clickWhenShown(window, "Search")
+
+        let! recent = seesVisible(window, "Recent searches")
+
+        Expect.isTrue recent "the recents heading never showed"
+
+        let! row = seesVisible(window, "kai kou")
+
+        Expect.isTrue row "the remembered term never listed"
+      })
+
+    testCaseAsync
+      "see all lands on the results page with the term"
+      (async {
+        let api = searchApi(false, false)
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Search")
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "SearchInput")
+            |> Option.iter(fun control ->
+              (control :?> TextBox).Text <- "shippin"))
+
+        let! settled = seesVisible(window, "@kai-kou")
+
+        Expect.isTrue settled "the search never settled"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "See all matching commits")
+            |> Option.iter click)
+
+        let! counted = seesVisible(window, "1 match")
+
+        Expect.isTrue counted "the results page never counted its match"
+
+        let! boxHeld =
+          waitForAsync(
+            5000,
+            (fun () ->
+              controlByName(window, "SearchBox")
+              |> Option.map(fun control -> control :?> TextBox)),
+            (fun box -> box |> Option.map(_.Text) = Some "shippin")
+          )
+
+        Expect.isTrue boxHeld "the page never held the term"
+
+        Expect.exists
+          api.Requests
+          (fun request -> request.Target = "/api/v1/search/commits?q=shippin")
+          "the page asked for a page of results"
+      })
+
+    testCaseAsync
       "a thread with nothing related shows no section"
       (async {
         let! window = startShell(signedInStore(), relatedApi "" :> IHttp)
@@ -4556,4 +4904,107 @@ let tests =
 
         Expect.isTrue left "the terms dialog never left"
       })
+
+    testList "search row identity" [
+      testCaseAsync
+        "a wide handle trims inside its row"
+        (async {
+          let images =
+            ImageCacheService(
+              System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                "devnull-searchidentity-" + Guid.NewGuid().ToString("N")
+              ),
+              (fun _ -> async { return Ok [||] }),
+              NullLogger.Instance
+            )
+
+          let ctx: RowCtx = {
+            Images = images
+            Flyout = ValueNone
+            Now = DateTimeOffset.UtcNow
+          }
+
+          let commit: Commit = {
+            Id = "01a15638-ae71-733c-89b3-373a1a0c538a"
+            ShortHash = "e31db7c"
+            Body = "Where is the cool F# people?"
+            BodySegments = []
+            PreviewSegments = None
+            Mentions = []
+            ParentId = None
+            Parent = None
+            HtmlUrl = "/commit/01a15638"
+            CreatedAt = DateTimeOffset.UtcNow
+            StarsCount = None
+            RepliesCount = None
+            Status = Approved
+            Author = {
+              Id = "01a15638-ae71-733c-89b3-373a1a0c538a"
+              Handle = String.replicate 300 "n"
+              Name = "found"
+              AvatarUrl = None
+              Bio = None
+              Lane = None
+              CommitsCount = None
+              FollowersCount = None
+              FollowingCount = None
+              IsFollowed = None
+              FollowsYou = None
+            }
+            Images = []
+            Starred = None
+            IsPinned = false
+            PasteisCount = 0
+            QuotedCommitId = None
+            QuotedCommit = None
+            Poll = None
+            LinkPreview = None
+            ReplyPreview = None
+          }
+
+          // The row sits in a 360-wide host: the identity line must trim
+          // to fit it, never overflow past it.
+          let hostWidth = 360.0
+
+          let metaRight(root: Control) : float =
+            root.GetVisualDescendants()
+            |> Seq.choose(fun visual ->
+              match visual with
+              | :? TextBlock as block when block.Inlines <> null ->
+                let carriesHandle =
+                  block.Inlines
+                  |> Seq.exists(fun inlineNode ->
+                    match inlineNode with
+                    | :? Run as run ->
+                      run.Text <> null && run.Text.StartsWith "@"
+                    | _ -> false)
+
+                if carriesHandle then Some block.Bounds.Right else None
+              | _ -> None)
+            |> Seq.tryHead
+            |> Option.defaultValue infinity
+
+          let! window =
+            probeUiAsync(fun () ->
+              Window(
+                Content =
+                  Border(
+                    Width = hostWidth,
+                    Child = commitIdentity(ctx, commit)
+                  )
+              ))
+
+          do! showAsync window |> Async.Ignore
+
+          let! within =
+            waitForAsync(
+              5000,
+              (fun () -> metaRight window),
+              (fun right -> right <= hostWidth + 1.0)
+            )
+
+          Expect.isTrue within "the identity line overflowed its row"
+        })
+    ]
   ]

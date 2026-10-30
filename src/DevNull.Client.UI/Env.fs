@@ -22,6 +22,7 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Errors
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
+open DevNull.Client.RecentSearchStore
 open DevNull.Client.Natives
 open DevNull.Client.Profiles
 open DevNull.Client.SessionFiles
@@ -332,6 +333,8 @@ type AppEnv
 
   let lastVisit = LastVisitStore()
 
+  let recentSearches = RecentSearchStore()
+
   let profilesLog = logging.CreateLogger "DevNull.Client.Profiles"
 
   let profiles = {
@@ -441,6 +444,9 @@ type AppEnv
 
   interface IProvideLastVisit with
     member _.LastVisit = lastVisit
+
+  interface IProvideRecentSearches with
+    member _.RecentSearches = recentSearches
 
   interface IProvideProfiles with
     member _.Profiles = profiles

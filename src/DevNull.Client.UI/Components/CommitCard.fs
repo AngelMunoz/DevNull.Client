@@ -147,6 +147,7 @@ module Parts =
     Handle = username
     Name = username
     AvatarUrl = None
+    Bio = None
     Lane = None
     CommitsCount = None
     FollowersCount = None

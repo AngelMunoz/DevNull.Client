@@ -10,6 +10,7 @@ open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
 open DevNull.Client.Natives
 open DevNull.Client.Profiles
+open DevNull.Client.RecentSearchStore
 open DevNull.Client.Remotes
 open DevNull.Client.SettingsStore
 open DevNull.Client.SshKeys
@@ -45,6 +46,7 @@ val build:
     and 'env :> IProvideImageCache
     and 'env :> IProvideAttachmentSources
     and 'env :> IProvideLastVisit
+    and 'env :> IProvideRecentSearches
     and 'env :> IProvideProfiles
     and 'env :> IProvideTimeline
     and 'env :> IProvideSshKeys

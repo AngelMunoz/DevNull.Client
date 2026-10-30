@@ -1,11 +1,13 @@
 module DevNull.Client.Views.Routes
 
+open System
 open Avalonia.Controls
 open Microsoft.Extensions.Logging
 open Navs
 open Navs.Avalonia
 open DevNull.Client
 open DevNull.Client.Components
+open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
@@ -13,6 +15,7 @@ open DevNull.Client.DeviceAuth
 open DevNull.Client.Env
 open DevNull.Client.ImageCache
 open DevNull.Client.Profiles
+open DevNull.Client.RecentSearchStore
 open DevNull.Client.Remotes
 open DevNull.Client.RemotesState
 open DevNull.Client.SettingsStore
@@ -286,9 +289,66 @@ let settingsPage
       }
   )
 
+/// The term a route hands the page, unescaped: a path segment, not a
+/// query — this router's matchers read only the segments they declare.
+let termOf(context: RouteContext) : string =
+  context.GetParam "term"
+  |> ValueOption.map(fun (raw: string) -> Uri.UnescapeDataString raw)
+  |> ValueOption.defaultValue ""
+
+let searchPage
+  (
+    env:
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideImageCache & #IProvideProfiles & #IProvideTimeline & #IProvideLogging & #IProvideRecentSearches,
+    nav: INavigable,
+    context: RouteContext
+  ) : Control =
+  signedIn(
+    env,
+    "Sign in to search.",
+    fun session ->
+      let log = env.LoggerFactory.CreateLogger "DevNull.Client.Views.Search"
+
+      // The page's own session: its commits channel runs alone, the
+      // way the page's submit does, and it dies with the route.
+      let searches =
+        new Search.Session(
+          (fun term ->
+            DevNull.Client.Core.Api.Search.users(
+              env,
+              {
+                KeyFile = session.KeyFile
+                Term = term
+              }
+            )),
+          (fun term ->
+            DevNull.Client.Core.Api.Search.commits(
+              env,
+              {
+                KeyFile = session.KeyFile
+                Term = term
+                Limit = None
+              }
+            )),
+          log
+        )
+
+      context.AddDisposable searches
+
+      SearchView.Page {
+        Env = env
+        SignedIn = session
+        Term = termOf context
+        Recents = env.RecentSearches
+        Searches = searches
+        Nav = nav
+        Context = context
+      }
+  )
+
 let build
   (env:
-    #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideTimeline & #IProvideSettings & #IProvideLogging & #IProvideRemotes)
+    #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideImageCache & #IProvideProfiles & #IProvideTimeline & #IProvideSettings & #IProvideLogging & #IProvideRemotes & #IProvideRecentSearches)
   : RouterShell =
   let bootUrl =
     match env.Session.SignedIn with
@@ -379,6 +439,23 @@ let build
       "settings",
       "/settings",
       fun context nav -> settingsPage(env, nav, context)
+    )
+    |> gated
+
+    // The search page: a bare path opens an empty box, a term in the
+    // path opens the search for it. A query string cannot carry it —
+    // this router matches only the segments a route declares.
+    Route.define<Control>(
+      "search",
+      "/search",
+      fun context nav -> searchPage(env, nav, context)
+    )
+    |> gated
+
+    Route.define<Control>(
+      "search-term",
+      "/search/:term",
+      fun context nav -> searchPage(env, nav, context)
     )
     |> gated
 

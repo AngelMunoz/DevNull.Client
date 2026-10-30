@@ -23,6 +23,7 @@ type User = {
   Handle: string
   Name: string
   AvatarUrl: string option
+  Bio: string option
   Lane: Lane option
   CommitsCount: int option
   FollowersCount: int option
@@ -801,6 +802,29 @@ module RelatedCommits =
   /// /api/v1/commits/{commit}/related: the commits closest in meaning
   /// to one commit, closest first, nothing paginated.
   val decode: body: string -> Result<CommitNode list, DecodeFailure>
+
+module SearchUsers =
+  /// Reads the plain `{data: [...]}` collection of GET
+  /// /api/v1/search/users: the people matching a name or handle,
+  /// the server's eight at most.
+  val decode: body: string -> Result<User list, DecodeFailure>
+
+module SearchCommits =
+  /// Reads the plain `{data: [...]}` collection of GET
+  /// /api/v1/search/commits: the commits nearest in meaning to the
+  /// term, closest first, possibly fewer than the limit asked for.
+  val decode: body: string -> Result<CommitNode list, DecodeFailure>
+
+module SearchTerms =
+  /// The people term to send: its trimmed words without the leading
+  /// `@`, or none when nothing is left to match.
+  val peopleTerm: raw: string -> string voption
+
+  /// The commit term to send, or none while it is under the server's
+  /// three-character minimum or over its hundred-character maximum: a
+  /// shorter one is never embedded, so the app is told rather than
+  /// sent nothing.
+  val commitTerm: raw: string -> string voption
 
 module User =
   /// Reads a cursor page of users.

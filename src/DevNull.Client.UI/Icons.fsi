@@ -27,6 +27,7 @@ type Glyph =
   | Maximize
   | Restore
   | ArrowUp
+  | ArrowRight
   | At
   | UserPlus
   | ChevronsUp
@@ -36,6 +37,7 @@ type Glyph =
   | PanelLeftOpen
   | Check
   | Pastel
+  | Pen
   | Poll
   | Info
   | Mic
@@ -51,6 +53,7 @@ type Glyph =
   | Clock
   | Pin
   | PinOff
+  | Search
 
 /// One icon ready to place: the glyph in the default size, 18 device
 /// independent pixels.

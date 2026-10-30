@@ -1357,6 +1357,61 @@ module CommitPins =
       )
   }
 
+module Search =
+
+  type UsersRequest = { KeyFile: string; Term: string }
+
+  type CommitsRequest = {
+    KeyFile: string
+    Term: string
+    Limit: int option
+  }
+
+  /// Reads the people matching a name or handle, as the site's search
+  /// finds them: the server's eight at most, exact handles first, the
+  /// viewer's muted and blocked left out.
+  let users(env, request: UsersRequest) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target =
+          Internal.withQuery(
+            "/api/v1/search/users",
+            List.singleton("q", request.Term)
+          )
+        Body = ""
+        Decode = SearchUsers.decode
+      }
+    )
+
+  /// Reads the commits nearest in meaning to the term, closest first,
+  /// possibly fewer than the limit asked for once the server leaves the
+  /// irrelevant ones out. Fifteen searches a minute, tops.
+  let commits(env, request: CommitsRequest) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target =
+          Internal.withQuery(
+            "/api/v1/search/commits",
+            [
+              "q", request.Term
+              yield!
+                Internal.optionalParameter(
+                  "limit",
+                  request.Limit |> Option.map string
+                )
+            ]
+          )
+        Body = ""
+        Decode = SearchCommits.decode
+      }
+    )
+
 module Pasteis =
 
   type ActionRequest = { KeyFile: string; CommitId: string }

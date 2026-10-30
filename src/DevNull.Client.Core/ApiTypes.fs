@@ -23,6 +23,7 @@ type User = {
   Handle: string
   Name: string
   AvatarUrl: string option
+  Bio: string option
   Lane: Lane option
   CommitsCount: int option
   FollowersCount: int option
@@ -886,6 +887,10 @@ let userDecoder(element: JsonElement) = decode {
     Optional.Property.get ("avatar_url", Optional.string) element
     |> Result.map Option.flatten
 
+  let! bio =
+    Optional.Property.get ("bio", Optional.string) element
+    |> Result.map Option.flatten
+
   let! lane =
     Optional.Property.get ("lane", optionalDecoder laneDecoder) element
     |> Result.map Option.flatten
@@ -915,6 +920,7 @@ let userDecoder(element: JsonElement) = decode {
     Handle = handle
     Name = name
     AvatarUrl = avatarUrl
+    Bio = bio
     Lane = lane
     CommitsCount = commitsCount
     FollowersCount = followersCount
@@ -2434,6 +2440,9 @@ let inline decodeRelatedCommits
   : Result<CommitNode list, DecodeFailure> =
   parseBody body (Required.Property.list("data", commitNodeDecoder))
 
+let inline decodeFoundUsers(body: string) : Result<User list, DecodeFailure> =
+  parseBody body (Required.Property.list("data", userDecoder))
+
 let inline decodeUserList(body: string) : Result<Page<User>, DecodeFailure> =
   parseBody body (pageDecoder userDecoder)
 
@@ -2581,6 +2590,41 @@ module CommitNode =
 
 module RelatedCommits =
   let decode(body: string) = decodeRelatedCommits body
+
+module SearchUsers =
+  let decode(body: string) = decodeFoundUsers body
+
+module SearchCommits =
+  // The same plain `{data: [...]}` collection the related list answers.
+  let decode(body: string) = decodeRelatedCommits body
+
+/// The server's own term rules, so the app hears them before the server
+/// does: a people term is its trimmed words without the leading `@`, and
+/// a commit term under three characters is never embedded — the server
+/// would refuse it, so the caller is told to search nothing.
+module SearchTerms =
+  /// The people term to send, or none when nothing is left to match.
+  let peopleTerm(raw: string) : string voption =
+    let trimmed = raw.Trim()
+
+    let withoutAt =
+      if trimmed.StartsWith("@", StringComparison.Ordinal) then
+        trimmed.Substring 1
+      else
+        trimmed
+
+    if withoutAt = "" then ValueNone else ValueSome withoutAt
+
+  /// The commit term to send, or none while it is under the server's
+  /// minimum or over its maximum: a shorter one is never embedded, so
+  /// the app is told rather than sent nothing.
+  let commitTerm(raw: string) : string voption =
+    let trimmed = raw.Trim()
+
+    if String.length trimmed < 3 || String.length trimmed > 100 then
+      ValueNone
+    else
+      ValueSome trimmed
 
 module User =
   let decodePage(body: string) = decodeUserList body

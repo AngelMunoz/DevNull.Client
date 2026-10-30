@@ -1413,6 +1413,103 @@ let actionApiTests =
       | Error error -> failtestf "%A" error
     }
 
+    testAsync "searches people by name or handle" {
+      let http =
+        CapturingHttp(
+          ok
+            """{"data":[{"id":"01a15638-ae71-733c-89b3-373a1a0c538a","handle":"kai-kou","name":"kai kou","avatar_url":null,"bio":"Writes about Rails.","lane":3}]}"""
+        )
+
+      let request: Search.UsersRequest = { KeyFile = "key-file"; Term = "kai" }
+
+      let! (result: Result<User list, TestError>) =
+        Search.users(envFor http, request)
+
+      match result with
+      | Ok users ->
+        Expect.equal 1 users.Length "one person found"
+
+        match users with
+        | user :: _ ->
+          Expect.equal "kai-kou" user.Handle "the handle"
+
+          Expect.equal (Some "Writes about Rails.") user.Bio "the bio"
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "GET" sent.Method "method"
+      Expect.equal "/api/v1/search/users?q=kai" sent.Target "target"
+    }
+
+    testAsync "searches commits by meaning with the limit asked for" {
+      let http = CapturingHttp(ok(sprintf """{"data":[%s]}""" commitJson))
+
+      let request: Search.CommitsRequest = {
+        KeyFile = "key-file"
+        Term = "rails hosting"
+        Limit = Some 5
+      }
+
+      let! (result: Result<CommitNode list, TestError>) =
+        Search.commits(envFor http, request)
+
+      match result with
+      | Ok nodes -> Expect.equal 1 nodes.Length "one commit found"
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+
+      Expect.equal
+        "/api/v1/search/commits?q=rails%20hosting&limit=5"
+        sent.Target
+        "target"
+    }
+
+    testAsync "a commit search without a limit asks for a page" {
+      let http = CapturingHttp(ok """{"data":[]}""")
+
+      let request: Search.CommitsRequest = {
+        KeyFile = "key-file"
+        Term = "rails"
+        Limit = None
+      }
+
+      let! (_: Result<CommitNode list, TestError>) =
+        Search.commits(envFor http, request)
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "/api/v1/search/commits?q=rails" sent.Target "target"
+    }
+
+    testCase "the people term drops its at and its blanks" (fun () ->
+      Expect.equal
+        (ValueSome "octocat")
+        (SearchTerms.peopleTerm "@octocat")
+        "the at goes"
+
+      Expect.equal
+        (ValueSome "kai kou")
+        (SearchTerms.peopleTerm " kai kou ")
+        "the edges trim"
+
+      Expect.equal ValueNone (SearchTerms.peopleTerm " @ ") "nothing left")
+
+    testCase "the commit term holds the server's bounds" (fun () ->
+      Expect.equal
+        ValueNone
+        (SearchTerms.commitTerm " ab ")
+        "under the minimum"
+
+      Expect.equal
+        (ValueSome "abc")
+        (SearchTerms.commitTerm " abc ")
+        "at the minimum"
+
+      Expect.equal
+        ValueNone
+        (SearchTerms.commitTerm(String('a', 101)))
+        "over the maximum")
+
     testAsync "mutes a user" {
       let http = CapturingHttp(ok muteResponse)
 

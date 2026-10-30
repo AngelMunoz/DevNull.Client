@@ -424,16 +424,21 @@ module Parts =
   let searchBox
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =
-    TextBox()
-      .Name("RemotesSearch")
-      .PlaceholderText("search")
-      .Text(model |> Observable.map _.Query |> _.ToBinding())
-      .OnTextChangedHandler(fun box _ ->
-        box.Text
-        |> Option.ofObj
-        |> Option.defaultValue ""
-        |> State.Searched
-        |> dispatch)
+    let txt =
+      TextBox()
+        .Name("RemotesSearch")
+        .PlaceholderText("search")
+        .Text(model |> Observable.map _.Query |> _.ToBinding())
+
+    txt.TextChanged
+    |> Observable.map(fun _ ->
+      txt.Text |> Option.ofObj |> Option.defaultValue "")
+    |> Observable.filter(String.IsNullOrWhiteSpace >> not)
+    |> Observable.distinctUntilChanged
+    |> Observable.throttle(TimeSpan.FromMilliseconds(300.))
+    |> Observable.add(State.Searched >> dispatch)
+
+    txt
 
   /// The inbox column's rows: virtualized and keyed. The scroll-end
   /// probe asks the update for the next page; the guards there keep it

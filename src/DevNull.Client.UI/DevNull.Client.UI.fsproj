@@ -19,6 +19,8 @@
     <Compile Include="SettingsStore.fs" />
     <Compile Include="LastVisitStore.fsi" />
     <Compile Include="LastVisitStore.fs" />
+    <Compile Include="RecentSearchStore.fsi" />
+    <Compile Include="RecentSearchStore.fs" />
     <Compile Include="Theme.fsi" />
     <Compile Include="Theme.fs" />
     <Compile Include="Icons.fsi" />
@@ -45,6 +47,8 @@
     <Compile Include="Unread.fs" />
     <Compile Include="Timeline.fsi" />
     <Compile Include="Timeline.fs" />
+    <Compile Include="Search.fsi" />
+    <Compile Include="Search.fs" />
     <Compile Include="RouteStore.fsi" />
     <Compile Include="RouteStore.fs" />
     <Compile Include="RemotesState.fsi" />
@@ -79,6 +83,10 @@
     <Compile Include="Components\UserFlyout.fs" />
     <Compile Include="Components\CommitCard.fsi" />
     <Compile Include="Components\CommitCard.fs" />
+    <Compile Include="Components\SearchParts.fsi" />
+    <Compile Include="Components\SearchParts.fs" />
+    <Compile Include="Components\SearchDialog.fsi" />
+    <Compile Include="Components\SearchDialog.fs" />
     <Compile Include="Components\Composer.fsi" />
     <Compile Include="Components\Composer.fs" />
     <Compile Include="Components\Feed.fsi" />
@@ -113,6 +121,8 @@
     <Compile Include="Views\SettingsView.fs" />
     <Compile Include="Views\AboutView.fsi" />
     <Compile Include="Views\AboutView.fs" />
+    <Compile Include="Views\SearchView.fsi" />
+    <Compile Include="Views\SearchView.fs" />
     <Compile Include="Views\Routes.fsi" />
     <Compile Include="Views\Routes.fs" />
     <Compile Include="Shell.fsi" />

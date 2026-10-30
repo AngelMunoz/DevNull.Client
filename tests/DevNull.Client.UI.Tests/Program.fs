@@ -7,6 +7,7 @@ open DevNull.Client.UI.Tests.Natives
 open DevNull.Client.UI.Tests.Remotes
 open DevNull.Client.UI.Tests.RemotesView
 open DevNull.Client.UI.Tests.Scheduled
+open DevNull.Client.UI.Tests.Search
 
 [<EntryPoint>]
 let main argv =
@@ -21,6 +22,7 @@ let main argv =
       // the order it ran in.
       Leaks.tests
       App.tests
+      Search.tests
       Scheduled.tests
       Shortcuts.tests
       Unread.tests

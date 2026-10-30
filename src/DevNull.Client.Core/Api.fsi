@@ -805,6 +805,50 @@ module CommitPins =
       and Rejected<'e>
       and DecodeError<'e>
 
+module Search =
+
+  /// One people search: a term the caller already normalized through
+  /// `SearchTerms.peopleTerm`.
+  type UsersRequest = { KeyFile: string; Term: string }
+
+  /// One commit search: a term the caller already normalized through
+  /// `SearchTerms.commitTerm`, and the limit to ask for.
+  type CommitsRequest = {
+    KeyFile: string
+    Term: string
+    Limit: int option
+  }
+
+  /// Reads the people matching a name or handle, as the site's search
+  /// finds them: the server's eight at most, exact handles first, the
+  /// viewer's muted and blocked left out.
+  val users:
+    env: 'env * request: UsersRequest -> Async<Result<User list, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Reads the commits nearest in meaning to the term, closest first,
+  /// possibly fewer than the limit asked for once the server leaves the
+  /// irrelevant ones out. Fifteen searches a minute, tops.
+  val commits:
+    env: 'env * request: CommitsRequest -> Async<Result<CommitNode list, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
 module Pasteis =
 
   /// One commit to give a pastel to.

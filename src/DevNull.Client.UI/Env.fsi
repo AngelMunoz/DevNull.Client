@@ -7,6 +7,7 @@ open DevNull.Client.Core.Http
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
 open DevNull.Client.Profiles
+open DevNull.Client.RecentSearchStore
 open DevNull.Client.SettingsStore
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
@@ -51,5 +52,6 @@ type AppEnv =
   interface IProvideImageCache
   interface IProvideAttachmentSources
   interface IProvideLastVisit
+  interface IProvideRecentSearches
   interface IProvideProfiles
   interface IProvideSshKeys

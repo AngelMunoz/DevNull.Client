@@ -18,6 +18,7 @@ open DevNull.Client.Errors
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
 open DevNull.Client.Natives
+open DevNull.Client.RecentSearchStore
 open DevNull.Client.Profiles
 open DevNull.Client.Remotes
 open DevNull.Client.RouteStore
@@ -337,6 +338,7 @@ type TestEnv
     ?settings: AppSettingsStore,
     ?attachments: FakeAttachments,
     ?lastVisit: LastVisitStore,
+    ?recentSearches: RecentSearchStore,
     ?profiles: FakeProfiles,
     ?sshKeys: FakeSshKeys,
     ?audio: FakeAudio,
@@ -352,6 +354,11 @@ type TestEnv
   // The in-memory marker store: no test touches the marker file.
   let lastVisitStore =
     lastVisit |> Option.defaultWith(fun () -> LastVisitStore(Map.empty, ignore))
+
+  // The in-memory recent searches: no test touches the recents file.
+  let recentSearchStore =
+    recentSearches
+    |> Option.defaultWith(fun () -> RecentSearchStore(Map.empty, ignore))
 
   let profileWorker = profiles |> Option.defaultWith(fun () -> FakeProfiles())
 
@@ -482,6 +489,9 @@ type TestEnv
   interface IProvideLastVisit with
     member _.LastVisit = lastVisitStore
 
+  interface IProvideRecentSearches with
+    member _.RecentSearches = recentSearchStore
+
   interface IProvideProfiles with
     member _.Profiles = profileWorker
 
@@ -611,6 +621,13 @@ let ok(body: string) : HttpResponse = {
   Status = 200
   Headers = []
   Body = body
+}
+
+/// One refusal with the server's own words.
+let refused(status: int, message: string) : HttpResponse = {
+  Status = status
+  Headers = []
+  Body = sprintf "{\"message\":\"%s\"}" message
 }
 
 /// The signed-in account, as GET /api/v1/me returns it.
@@ -927,6 +944,36 @@ let relatedApi(related: string) =
       request.Target.StartsWith
         "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
     then
+      ok threadPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+/// The people a search finds, as GET /api/v1/search/users answers.
+let searchUsersJson =
+  """{"data":[{"id":"01a15638-ae71-733c-89b3-373a1a0c538a","handle":"kai-kou","name":"kai kou","avatar_url":null,"bio":"Writes about Rails.","lane":3}]}"""
+
+/// The api of the search tests: people and commits answer their
+/// searches, the slow-down flag answers the commit search with the
+/// server's own refusal, and the empty flag answers both with nothing.
+let searchApi(slowDown: bool, empty: bool) =
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/search/users" then
+      if empty then ok """{"data":[]}""" else ok searchUsersJson
+    elif request.Target.StartsWith "/api/v1/search/commits" then
+      if slowDown then
+        refused(429, "Slow down: too many searches. Give it a few seconds.")
+      elif empty then
+        ok """{"data":[]}"""
+      else
+        ok(sprintf "{\"data\":[%s]}" commitJson)
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    elif request.Target.Contains "/replies" then
+      ok
+        "{\"data\":[],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+    elif request.Target.StartsWith "/api/v1/commits/" then
       ok threadPageJson
     else
       (match accountAnswer request with

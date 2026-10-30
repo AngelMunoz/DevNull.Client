@@ -35,6 +35,7 @@ open DevNull.Client.LastVisitStore
 open DevNull.Client.Navigation
 open DevNull.Client.Natives
 open DevNull.Client.Profiles
+open DevNull.Client.RecentSearchStore
 open DevNull.Client.Remotes
 open DevNull.Client.RemotesState
 open DevNull.Client.SessionFiles
@@ -606,6 +607,7 @@ type Shell<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLastVisit
+  and 'env :> IProvideRecentSearches
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
   and 'env :> IProvideRoutes
@@ -732,6 +734,69 @@ type Shell<'env
       Panel()
         .IsVisible(composeOpen :> IObservable<bool>)
         .Children(composeScrim, composeHost)
+
+    // The search dialog: the site's command palette, one overlay
+    // beside the composer. It opens only signed in, and its own
+    // session dies with the page it built.
+    let searchOpen = new BehaviorSubject<bool>(false)
+
+    let searchHost =
+      ContentControl()
+        .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+        .VerticalContentAlignment(Avalonia.Layout.VerticalAlignment.Stretch)
+
+    let closeSearch() = searchOpen.OnNext false
+
+    searchOpen
+    |> Observable.add(fun isOpen ->
+      if isOpen then
+        match session.Current with
+        | SignedIn entry ->
+          let log =
+            env.LoggerFactory.CreateLogger "DevNull.Client.SearchDialog"
+
+          let searches =
+            new Search.Session(
+              (fun term ->
+                DevNull.Client.Core.Api.Search.users(
+                  env,
+                  { KeyFile = entry.KeyFile; Term = term }
+                )),
+              (fun term ->
+                DevNull.Client.Core.Api.Search.commits(
+                  env,
+                  {
+                    KeyFile = entry.KeyFile
+                    Term = term
+                    Limit = Some 5
+                  }
+                )),
+              log
+            )
+
+          searchHost.Content <-
+            SearchDialog.Page(
+              {
+                Env = env
+                SignedIn = entry
+                Searches = searches
+                Recents = (env :> IProvideRecentSearches).RecentSearches
+                Nav = router
+                OpenCompose = fun () -> composeOpen.OnNext true
+                Close = closeSearch
+              }
+            )
+        | SignedOut -> closeSearch()
+      else
+        searchHost.Content <- null)
+
+    let searchScrim =
+      Border()
+        .Background(Brushes.solid "#8A000000")
+        .OnPointerPressedHandler(fun _ _ -> closeSearch())
+
+    let searchLayer =
+      Panel().IsVisible(searchOpen).Children(searchScrim, searchHost)
 
     // The bindings list: the same overlay shape as the compose dialog,
     // built on open and released on close.
@@ -1081,10 +1146,36 @@ type Shell<'env
         Theme.bindClass(button, Theme.RailItem, compact)
         button
 
+      // The site's search row: the palette's opener, right under the
+      // nav items. The pair that opens it lives in the bindings sheet,
+      // not on the row.
+      let searchRow =
+        let button =
+          Button()
+            .Name("NavSearchButton")
+            .Classes(Theme.name Theme.NavItem)
+            .Content(
+              StackPanel()
+                .Orientation(Orientation.Horizontal)
+                .Spacing(10.0)
+                .Children(
+                  Icons.icon Glyph.Search,
+                  TextBlock()
+                    .Text("Search")
+                    .IsVisible(compact |> Observable.map not)
+                )
+            )
+            .OnClickHandler(fun _ _ -> searchOpen.OnNext true)
+
+        ToolTip.SetTip(button, "Search")
+        Theme.bindClass(button, Theme.RailItem, compact)
+        button
+
       let navChildren: Control array = [|
         header
         for entry in entries do
           item entry
+        searchRow
         commitButton
         collapse
       |]
@@ -1362,6 +1453,7 @@ type Shell<'env
           split,
           composeLayer,
           helpLayer,
+          searchLayer,
           termsLayer,
           undoLayer,
           bandPanel
@@ -1435,18 +1527,21 @@ type Shell<'env
       Root = this
       Actions = {
         Compose = fun () -> composeOpen.OnNext true
+        Search = fun () -> searchOpen.OnNext true
         Help = fun () -> helpOpen.OnNext true
         Escape =
           fun () ->
-            match helpOpen.Value, composeOpen.Value with
-            | true, _ -> closeHelp()
-            | _, true -> closeCompose()
-            | _, _ -> this.ExitFullScreen()
+            match searchOpen.Value, helpOpen.Value, composeOpen.Value with
+            | true, _, _ -> closeSearch()
+            | _, true, _ -> closeHelp()
+            | _, _, true -> closeCompose()
+            | _, _, _ -> this.ExitFullScreen()
         Navigate = navigate
         ToggleFullScreen = this.ToggleFullScreen
         WalkCards = fun step -> Shortcuts.moveCardFocus(this, step)
       }
-      OverlayOpen = fun () -> composeOpen.Value || helpOpen.Value
+      OverlayOpen =
+        fun () -> composeOpen.Value || helpOpen.Value || searchOpen.Value
     }
 
     match callback with

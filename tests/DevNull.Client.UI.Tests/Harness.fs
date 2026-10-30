@@ -127,15 +127,27 @@ let mountAsync(control: Control) : Async<Window> =
     window.Show()
     window)
 
+/// True when a TextBlock renders the text: as its own text, or as one
+/// inline run — a line built of runs (the search identity lines)
+/// carries its pieces there.
+let textBlockShows(block: TextBlock, text: string) : bool =
+  block.Text = text
+  || (block.Inlines <> null
+      && block.Inlines
+         |> Seq.exists(fun inlineNode ->
+           match inlineNode with
+           | :? Avalonia.Controls.Documents.Run as run -> run.Text = text
+           | _ -> false))
+
 /// True when a TextBlock under the root carries the text.
 let hasText(root: Control, text: string) : bool =
   match root with
-  | :? TextBlock as textBlock when textBlock.Text = text -> true
+  | :? TextBlock as textBlock -> textBlockShows(textBlock, text)
   | _ ->
     root.GetVisualDescendants()
     |> Seq.exists(fun visual ->
       match visual with
-      | :? TextBlock as textBlock -> textBlock.Text = text
+      | :? TextBlock as textBlock -> textBlockShows(textBlock, text)
       | _ -> false)
 
 /// Every button whose content subtree carries the text.

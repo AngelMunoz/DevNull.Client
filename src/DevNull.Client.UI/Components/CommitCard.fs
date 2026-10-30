@@ -694,7 +694,8 @@ module Parts =
     | None ->
       let host =
         match Uri.TryCreate(preview.Url, UriKind.Absolute) with
-        | true, uri -> uri.Host
+        | true, NonNull uri -> uri.Host
+        | true, _
         | false, _ -> preview.Url
 
       if host.StartsWith("www.", StringComparison.Ordinal) then

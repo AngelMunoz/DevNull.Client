@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-30
+
 ### Added
 
 - **Commit actions:** one of your own commits can be pinned to the top of your profile. The pin sits with the star, pastel, and quote actions on your top-level commits — on your profile's feed and on its thread — and flips between Pin and Unpin as the pin moves; the profile shows the pinned commit under a Pinned mark above everything else, where it stays until you unpin it.
 - **Threads:** each thread lists the related commits under it — the commits closest to it in meaning, as full cards you can open, star, and answer from. A thread with nothing close shows nothing.
+- **Search:** Ctrl K opens the site's search palette anywhere — even mid-sentence — and the sidebar carries a Search row for it. The palette finds people by name or handle and commits by what they are about, with the site's own pauses while you type, the slow-down line when the server asks for a rest, and the fatal line when nothing matches. Enter opens a person's profile or a commit's thread; "Write a commit" is a few keystrokes away. Each search you settle on becomes one of your three recents for the next open. "See all matching commits" opens the results page: the term in its box, the match count, the same cards as the feed, and the quiet suggestions while the box is empty.
 
 ### Fixed
 

@@ -889,13 +889,23 @@ let tests =
 
         Expect.isTrue cleared "the composer kept the sent body"
 
-        let reloads =
-          api.Requests
-          |> List.filter(fun request ->
-            request.Method = "GET"
-            && request.Target.StartsWith "/api/v1/log/latest")
+        // The commit lands through the timeline service, so the reload
+        // follows the post by a few dispatcher hops: it is waited for,
+        // never read at once.
+        let! reloaded =
+          waitForAsync(
+            8000,
+            (fun () -> api.Requests),
+            (fun requests ->
+              requests
+              |> List.filter(fun request ->
+                request.Method = "GET"
+                && request.Target.StartsWith "/api/v1/log/latest")
+              |> List.length
+              |> fun count -> count > 1)
+          )
 
-        Expect.isGreaterThan reloads.Length 1 "the log never reloaded"
+        Expect.isTrue reloaded "the log never reloaded"
       })
 
     testCaseAsync
@@ -1486,13 +1496,23 @@ let tests =
           "Shipped with pictures"
           "the signed payload"
 
-        let reloads =
-          api.Requests
-          |> List.filter(fun request ->
-            request.Method = "GET"
-            && request.Target.StartsWith "/api/v1/log/latest")
+        // The commit lands through the timeline service, so the reload
+        // follows the post by a few dispatcher hops: it is waited for,
+        // never read at once.
+        let! reloaded =
+          waitForAsync(
+            8000,
+            (fun () -> api.Requests),
+            (fun requests ->
+              requests
+              |> List.filter(fun request ->
+                request.Method = "GET"
+                && request.Target.StartsWith "/api/v1/log/latest")
+              |> List.length
+              |> fun count -> count > 1)
+          )
 
-        Expect.isGreaterThan reloads.Length 1 "the log never reloaded"
+        Expect.isTrue reloaded "the log never reloaded"
       })
 
     testCaseAsync

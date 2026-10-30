@@ -183,3 +183,156 @@ let tests =
         Expect.equal 0 calls.Count "a short term never asked"
       })
   ]
+
+/// The completion session checks: one call per pause with the newest
+/// query, repeats from memory while the composer remembers, fresh
+/// answers for a reply's composer, and the slow-down answer.
+let completionTests =
+  testList "completion session" [
+    testCaseAsync
+      "one settled call per pause of typing"
+      (async {
+        let calls = ResizeArray<string>()
+        let found = ResizeArray<MentionsFound>()
+
+        use session =
+          new CompletionSession(
+            {
+              Mentions =
+                fun query ->
+                  calls.Add query
+
+                  async {
+                    return
+                      Ok {
+                        Users = [ personOf query ]
+                        Organizations = []
+                      }
+                      : Result<MentionResults, AppError>
+                  }
+              Issue = fun _ -> async { return Ok None }
+              Remember = true
+            },
+            NullLogger.Instance
+          )
+
+        session.Mentions
+        |> Observable.filter(fun answer -> answer.Query <> "")
+        |> Observable.add found.Add
+
+        session.Set(ValueSome "kai")
+        session.Set(ValueSome "kai")
+        session.Set(ValueSome "ka")
+        do! settle()
+
+        Expect.equal
+          [ "ka" ]
+          (calls |> Seq.toList)
+          "the pause collapsed the typing"
+
+        Expect.equal 1 found.Count "one answer published"
+        Expect.equal "ka" found[0].Query "the answer carries its query"
+      })
+
+    testCaseAsync
+      "a repeat query answers from memory"
+      (async {
+        let calls = ResizeArray<string>()
+        let found = ResizeArray<MentionsFound>()
+
+        use session =
+          new CompletionSession(
+            {
+              Mentions =
+                fun query ->
+                  calls.Add query
+
+                  async { return Ok { Users = []; Organizations = [] } }
+              Issue = fun _ -> async { return Ok None }
+              Remember = true
+            },
+            NullLogger.Instance
+          )
+
+        session.Mentions |> Observable.add found.Add
+
+        session.Set(ValueSome "ka")
+        do! settle()
+        session.Set ValueNone
+        do! settle()
+        session.Set(ValueSome "ka")
+        do! settle()
+
+        Expect.equal 1 calls.Count "asked once"
+
+        Expect.equal
+          2
+          (found |> Seq.filter(fun answer -> answer.Query = "ka") |> Seq.length)
+          "the repeat answered from memory"
+      })
+
+    testCaseAsync
+      "a reply's composer asks again for a repeat query"
+      (async {
+        let calls = ResizeArray<string>()
+
+        use session =
+          new CompletionSession(
+            {
+              Mentions =
+                fun query ->
+                  calls.Add query
+
+                  async { return Ok { Users = []; Organizations = [] } }
+              Issue = fun _ -> async { return Ok None }
+              Remember = false
+            },
+            NullLogger.Instance
+          )
+
+        session.Set(ValueSome "ka")
+        do! settle()
+        session.Set ValueNone
+        do! settle()
+        session.Set(ValueSome "ka")
+        do! settle()
+
+        Expect.equal 2 calls.Count "every repeat asked"
+      })
+
+    testCaseAsync
+      "a refusal to slow down settles as the throttled answer"
+      (async {
+        let found = ResizeArray<MentionsFound>()
+
+        use session =
+          new CompletionSession(
+            {
+              Mentions =
+                fun _ -> async {
+                  return
+                    Error(
+                      AppError.Refused(
+                        429,
+                        None,
+                        "Slow down: too many searches. Give it a few seconds."
+                      )
+                    )
+                }
+              Issue = fun _ -> async { return Ok None }
+              Remember = true
+            },
+            NullLogger.Instance
+          )
+
+        session.Mentions |> Observable.add found.Add
+
+        session.Set(ValueSome "ka")
+        do! settle()
+
+        Expect.isTrue
+          (found
+           |> Seq.exists(fun answer -> answer.Query = "ka" && answer.Throttled))
+          "the slow-down answer"
+      })
+  ]

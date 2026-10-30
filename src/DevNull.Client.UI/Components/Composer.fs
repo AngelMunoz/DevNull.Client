@@ -3,8 +3,11 @@ module DevNull.Client.Components.Composer
 open System
 open System.IO
 open System.Runtime
+open System
+open System.Reactive.Subjects
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.Primitives
 open Avalonia.Input
 open Avalonia.Layout
 open Avalonia.Media
@@ -21,15 +24,20 @@ open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Commit
+open DevNull.Client.Core.Completion
 open DevNull.Client.Core.Http
 open DevNull.Client.Core.Types
 open DevNull.Client.Errors
 open DevNull.Client.Env
+open DevNull.Client.ImageCache
 open Microsoft.Extensions.Logging
 open DevNull.Client.Icons
+open DevNull.Client.Search
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.Theme
+
+module Flyout = DevNull.Client.Components.Completion
 
 /// What the composer answers to: a fresh commit, a reply, or a quote.
 [<Struct>]
@@ -57,6 +65,7 @@ type Props<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLogging> = {
   Env: 'env
@@ -77,6 +86,89 @@ module State =
   [<Struct>]
   type Pick = { Day: int; Hour: int; Minute: int }
 
+  /// The completion lane over the body: the trigger the caret sits
+  /// in, the rows the newest answer settled into, and the row the keys
+  /// hold. The issue reference the person closed by hand stays closed
+  /// until the text moves past it.
+  type CompletionState = {
+    Trigger: Trigger voption
+    Users: User list
+    Organizations: Organization list
+    Issue: Issue option
+    Active: int
+    Searching: bool
+    Throttled: bool
+    Dismissed: (int * string) voption
+  }
+
+  let closedCompletion = {
+    Trigger = ValueNone
+    Users = []
+    Organizations = []
+    Issue = None
+    Active = 0
+    Searching = false
+    Throttled = false
+    Dismissed = ValueNone
+  }
+
+  /// The query the trigger holds, empty for a bare `@`.
+  let inline queryOf(completion: CompletionState) =
+    match completion.Trigger with
+    | ValueSome(Mention(_, query)) -> query
+    | ValueSome(IssueRef _)
+    | ValueNone -> ""
+
+  /// How many rows the keys walk: the people and organizations
+  /// together, or the one issue card.
+  let inline completionCount(completion: CompletionState) =
+    match completion.Trigger with
+    | ValueSome(IssueRef _) -> if completion.Issue.IsSome then 1 else 0
+    | ValueSome(Mention _)
+    | ValueNone ->
+      List.length completion.Users + List.length completion.Organizations
+
+  /// Whether the flyout stands: a trigger the person did not close,
+  /// with rows to walk, an answer on its way, a slow-down to say, or —
+  /// for a mention — a query whose quiet states belong on screen.
+  let inline completionOpen(completion: CompletionState) =
+    match completion.Trigger with
+    | ValueNone -> false
+    | ValueSome(IssueRef _) -> completion.Issue.IsSome
+    | ValueSome(Mention _) ->
+      completion.Searching
+      || completion.Throttled
+      || completionCount completion > 0
+      || queryOf completion <> ""
+
+  /// The completion state the text and caret leave: a new trigger
+  /// resets the rows and the armed row, and the issue reference the
+  /// person closed by hand stays closed while the text still holds
+  /// it.
+  let trackCompletion(current: CompletionState, text: string, caret: int) =
+
+    let opened(trigger: Trigger) = {
+      closedCompletion with
+          Trigger = ValueSome trigger
+          Searching = true
+          Dismissed = current.Dismissed
+    }
+
+    match triggerAt(text, caret) with
+    | ValueNone -> {
+        closedCompletion with
+            Dismissed = current.Dismissed
+      }
+    | ValueSome(IssueRef(start, digits) as trigger) ->
+      if current.Dismissed = ValueSome(start, digits) then
+        {
+          closedCompletion with
+              Dismissed = current.Dismissed
+        }
+      else
+        opened trigger
+    | ValueSome trigger -> opened trigger
+
   type Model = {
     Busy: bool
     Error: AppError option
@@ -92,11 +184,14 @@ module State =
     Scheduling: bool
     /// The picked moment; none until a day is chosen.
     Picked: Pick voption
+    /// The completion lane over the body.
+    Completion: CompletionState
   }
 
   type Msg =
     | Submitted of body: string
     | BodyChanged of text: string
+    | CompletionTracked of text: string * caret: int
     | AttachRequested
     | ImagesAdded of ImageAttachment list
     | ImageRemoved of index: int
@@ -112,6 +207,11 @@ module State =
     | ScheduleMinutePicked of minute: int
     | Committed of Result<Commit, AppError>
     | Scheduled of Result<ScheduledCommit, AppError>
+    | MentionsArrived of MentionsFound
+    | IssueArrived of IssueFound
+    | CompletionStepped of step: int
+    | CompletionHovered of index: int
+    | CompletionClosed
 
   let initial = {
     Busy = false
@@ -123,6 +223,7 @@ module State =
     Poll = None
     Scheduling = false
     Picked = ValueNone
+    Completion = closedCompletion
   }
 
   /// The staging path allocates large-object arrays an idle composer
@@ -189,7 +290,104 @@ module State =
         | ValueSome draft -> Cmd.ofEffect(fun _ -> draft.Changed text)
         | ValueNone -> Cmd.none
 
-      { model with Body = text }, changed
+      // The lane re-tracks one beat later, off the settled caret; until
+      // it does, the rows the old trigger held cannot stand.
+      {
+        model with
+            Body = text
+            Completion = {
+              closedCompletion with
+                  Dismissed = model.Completion.Dismissed
+            }
+      },
+      changed
+    | CompletionTracked(text, caret) ->
+      {
+        model with
+            Completion = trackCompletion(model.Completion, text, caret)
+      },
+      Cmd.none
+    | MentionsArrived found ->
+      match model.Completion.Trigger with
+      | ValueSome(Mention(_, query)) when query = found.Query ->
+        {
+          model with
+              Completion = {
+                model.Completion with
+                    Users = found.Results.Users
+                    Organizations = found.Results.Organizations
+                    Searching = false
+                    Throttled = found.Throttled
+              }
+        },
+        Cmd.none
+      // An answer for a trigger the caret already left behind never
+      // shows.
+      | ValueSome(Mention _)
+      | ValueSome(IssueRef _)
+      | ValueNone -> model, Cmd.none
+    | IssueArrived found ->
+      match model.Completion.Trigger with
+      | ValueSome(IssueRef(_, digits)) when digits = found.Digits ->
+        {
+          model with
+              Completion = {
+                model.Completion with
+                    Issue = found.Issue
+                    Searching = false
+                    Throttled = found.Throttled
+              }
+        },
+        Cmd.none
+      // An answer for a trigger the caret already left behind never
+      // shows.
+      | ValueSome(IssueRef _)
+      | ValueSome(Mention _)
+      | ValueNone -> model, Cmd.none
+    | CompletionStepped step ->
+      let count = completionCount model.Completion
+
+      if count = 0 then
+        model, Cmd.none
+      else
+        let at = (model.Completion.Active + step + count) % count
+
+        {
+          model with
+              Completion = { model.Completion with Active = at }
+        },
+        Cmd.none
+    | CompletionHovered index ->
+      // A hover that lands on the row the keys already armed is quiet:
+      // a pointer resting over a row must not fight the keys.
+      let count = completionCount model.Completion
+
+      if count = 0 || index = model.Completion.Active then
+        model, Cmd.none
+      else
+        let at = Math.Max(0, Math.Min(index, count - 1))
+
+        {
+          model with
+              Completion = { model.Completion with Active = at }
+        },
+        Cmd.none
+    | CompletionClosed ->
+      // An issue card closed by hand stays closed until the text moves
+      // past it; anything else simply closes.
+      let dismissed =
+        match model.Completion.Trigger with
+        | ValueSome(IssueRef(start, digits)) -> ValueSome(start, digits)
+        | _ -> ValueNone
+
+      {
+        model with
+            Completion = {
+              closedCompletion with
+                  Dismissed = dismissed
+            }
+      },
+      Cmd.none
     | AttachRequested ->
       // The picker is modal; the answer arrives as one message.
       model, Cmd.OfAsync.perform props.Env.Attachments.PickFiles () ImagesAdded
@@ -492,6 +690,22 @@ module State =
             bounded 300 (describe error)
           ))
 
+  /// The completion session's answers enter the program through the
+  /// engine's subscription set, and the session itself retires with
+  /// it.
+  let subscribe (session: CompletionSession) (_: Model) : Sub<Msg> =
+    Sub.batch [
+      Sub.fromObservable
+        "completion-mentions"
+        (session.Mentions |> Observable.map MentionsArrived)
+
+      Sub.fromObservable
+        "completion-issues"
+        (session.Issues |> Observable.map IssueArrived)
+
+      Sub.ofId "completion-session" (fun _ -> session :> IDisposable)
+    ]
+
 /// The composer's semantic regions; the view only composes these.
 module Parts =
 
@@ -538,11 +752,17 @@ module Parts =
         |> _.ToBinding()
       )
       .OnTextChangedHandler(fun box _ ->
-        box.Text
-        |> Option.ofObj
-        |> Option.defaultValue ""
-        |> State.BodyChanged
-        |> dispatch)
+        let text = box.Text |> Option.ofObj |> Option.defaultValue ""
+
+        dispatch(State.BodyChanged text)
+
+        // The caret rides one beat later: a text set from code reports
+        // its change before the caret move that follows it, and the
+        // completion reads the caret only here.
+        Dispatcher.UIThread.Post(fun () ->
+          let caret = min box.CaretIndex text.Length
+
+          dispatch(State.CompletionTracked(text, caret))))
 
   /// The box's key lane. The platform's paste gesture asks the
   /// attachment sources first — a clipboard image stages, clipboard
@@ -598,6 +818,304 @@ module Parts =
           |> Async.StartImmediate),
       RoutingStrategies.Tunnel
     )
+
+  /// Everything the completion lane reads: the props it calls through,
+  /// the model it draws from, the dispatch it speaks to, and the body
+  /// box it completes into.
+  type CompletionCtx<'env
+    when 'env :> IProvideClock
+    and 'env :> IProvideNonceSource
+    and 'env :> IProvideSigner
+    and 'env :> IProvideHttp
+    and 'env :> IProvideImageCache
+    and 'env :> IProvideAttachmentSources
+    and 'env :> IProvideLogging> = {
+    Props: Props<'env>
+    Model: IObservable<State.Model>
+    Dispatch: Dispatch<State.Msg>
+    Body: TextBox
+  }
+
+  /// The composer's own completion session: the site's suggestions,
+  /// gated by the composer's own reply or quote context. A reply's
+  /// participants change, so its composer answers every query fresh;
+  /// every other target remembers its answers.
+  let completionSession(props: Props<'env>) : CompletionSession =
+    let log =
+      props.Env.LoggerFactory.CreateLogger "DevNull.Client.Components.Composer"
+
+    let reply, quote =
+      match props.Target with
+      | ReplyTo parentId -> ValueSome parentId, ValueNone
+      | Quoting quotedId -> ValueNone, ValueSome quotedId
+      | Fresh -> ValueNone, ValueNone
+
+    new CompletionSession(
+      {
+        Mentions =
+          fun query ->
+            Suggestions.mentions(
+              props.Env,
+              {
+                KeyFile = props.Session.KeyFile
+                Query = query
+                Reply = reply
+                Quote = quote
+              }
+            )
+        Issue =
+          fun digits ->
+            Suggestions.issue(
+              props.Env,
+              {
+                KeyFile = props.Session.KeyFile
+                Number = digits
+              }
+            )
+        Remember = reply |> ValueOption.isNone
+      },
+      log
+    )
+
+  /// The completion lane over the body: the site's own suggestions,
+  /// on the same gated pipes the search palette runs. The lane feeds
+  /// the session from the model's trigger, arms the flyout, walks the
+  /// keys through the armed row, and carries the completion into the
+  /// box. Its view-side feeds ride one keyed subscription set ended
+  /// by the body's own detach; the session's answers ride the
+  /// program's subscription instead.
+  let completionLane
+    (ctx: CompletionCtx<'env>, session: CompletionSession)
+    : Popup =
+    let props = ctx.Props
+
+    let log =
+      props.Env.LoggerFactory.CreateLogger "DevNull.Client.Components.Composer"
+
+    // The keys decide against the completion state as it stands, so
+    // the model's stream rides a behavior subject one lookup reads.
+    let latest =
+      new BehaviorSubject<State.CompletionState>(State.closedCompletion)
+
+    // The completion lands in the box itself, so the change rides the
+    // same text-changed path typing does, and the caret the surgery
+    // computed follows it in the same beat.
+    let applied(next: string, caret: int) =
+      ctx.Body.Text <- next
+      ctx.Body.CaretIndex <- caret
+
+    let completeMention(handle: string) =
+      match latest.Value.Trigger with
+      | ValueSome(Mention _ as trigger) ->
+        let text = ctx.Body.Text |> Option.ofObj |> Option.defaultValue ""
+
+        let next, caret = mentionCompleted(text, trigger, handle)
+
+        applied(next, caret)
+
+        log.LogDebug("The mention completion picked {Handle}.", handle)
+      // The caret already left the mention behind.
+      | ValueSome(IssueRef _)
+      | ValueNone -> ()
+
+    let completeIssue(issue: Issue) =
+      match latest.Value.Trigger with
+      | ValueSome(IssueRef _ as trigger) ->
+        let text = ctx.Body.Text |> Option.ofObj |> Option.defaultValue ""
+
+        let next, caret = issueCompleted(text, trigger, issue.Url)
+
+        applied(next, caret)
+
+        log.LogDebug("The issue completion picked {Number}.", issue.Number)
+      // The caret already left the reference behind.
+      | ValueSome(Mention _)
+      | ValueNone -> ()
+
+    // The pick the keys answer: the armed row, clamped into the rows
+    // the newest state holds.
+    let picked() =
+      let completion = latest.Value
+      let count = State.completionCount completion
+      let active = min completion.Active (count - 1)
+
+      match completion.Trigger, active with
+      | ValueSome(IssueRef _), _ when completion.Issue.IsSome ->
+        completion.Issue |> Option.iter completeIssue
+      | ValueSome(Mention _), at when at >= 0 ->
+        match List.tryItem at completion.Users with
+        | Some user -> completeMention user.Handle
+        | None ->
+          completion.Organizations
+          |> List.tryItem(at - List.length completion.Users)
+          |> Option.iter(fun organization ->
+            completeMention organization.Handle)
+      // Nothing stands at the armed place.
+      | ValueSome(IssueRef _), _
+      | ValueSome(Mention _), _
+      | ValueNone, _ -> ()
+
+    // The keys the open completion owns: the arrows walk the rows and
+    // wrap, a plain Enter or Tab picks, and Escape closes — an issue
+    // card closed by hand stays closed until the text moves past it.
+    // The platform's commit pair keeps its modifier, so it never meets
+    // the completion's plain Enter.
+    let plain(args: KeyEventArgs) = args.KeyModifiers = KeyModifiers.None
+
+    ctx.Body.AddHandler(
+      InputElement.KeyDownEvent,
+      (fun _ args ->
+        if not args.Handled && State.completionOpen latest.Value then
+          match args.Key with
+          | Key.Down
+          | Key.Up when State.completionCount latest.Value > 0 ->
+            args.Handled <- true
+
+            ctx.Dispatch(
+              State.CompletionStepped(if args.Key = Key.Down then 1 else -1)
+            )
+          | Key.Enter
+          | Key.Tab when plain args ->
+            args.Handled <- true
+            picked()
+          | Key.Escape ->
+            args.Handled <- true
+            ctx.Dispatch State.CompletionClosed
+          | _ -> ()),
+      RoutingStrategies.Tunnel
+    )
+
+    // Focus leaving the box closes the flyout, the site's own blur.
+    ctx.Body.LostFocus.Add(fun _ -> ctx.Dispatch State.CompletionClosed)
+
+    // The flyout under the box: the site's list, armed by the model's
+    // completion state.
+    let viewState =
+      ctx.Model
+      |> Observable.map(fun current ->
+        let count = State.completionCount current.Completion
+
+        let state: Flyout.View = {
+          Query = State.queryOf current.Completion
+          Caption =
+            match props.Target with
+            | Fresh -> State.queryOf current.Completion = ""
+            | ReplyTo _
+            | Quoting _ -> false
+          Users = current.Completion.Users
+          Organizations = current.Completion.Organizations
+          Issue = current.Completion.Issue
+          Searching = current.Completion.Searching
+          Throttled = current.Completion.Throttled
+          Active =
+            if count = 0 then
+              0
+            else
+              min current.Completion.Active (count - 1)
+        }
+
+        state)
+      |> Observable.distinctUntilChanged
+
+    let flyout =
+      Flyout.view(
+        viewState,
+        {
+          PickPerson = fun user -> completeMention user.Handle
+          PickOrganization =
+            fun organization -> completeMention organization.Handle
+          PickIssue = completeIssue
+          Hovered = State.CompletionHovered >> ctx.Dispatch
+        },
+        props.Env.ImageCache
+      )
+
+    let popup =
+      Popup()
+        .Name("CompletionFlyout")
+        .PlacementTarget(ctx.Body)
+        .Placement(PlacementMode.Bottom)
+        .Child(
+          Border()
+            .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
+            .BorderThickness(1.0)
+            .CornerRadius(8.0)
+            .Padding(4.0)
+            .MaxWidth(288.0)
+            .Child(
+              ScrollViewer()
+                .Name("CompletionScroller")
+                .MaxHeight(320.0)
+                .Content(flyout)
+            )
+        )
+
+    // The lane's view-side feeds ride one keyed subscription set
+    // ended by the body's own detach, the pattern the feed's scroll
+    // listener uses: the queries the session asks — from the model's
+    // own trigger, so the two can never drift apart — the armed state
+    // the keys read, the flyout's open state (the house sets a popup's
+    // open by hand, an observable binding never opens it), and the
+    // armed row riding into view.
+    let lane =
+      Sub.ofId "completion-lane" (fun _ ->
+        let queries =
+          ctx.Model
+          |> Observable.map(fun current ->
+            match current.Completion.Trigger with
+            | ValueSome(Mention(_, query)) -> ValueSome query
+            | ValueSome(IssueRef _)
+            | ValueNone -> ValueNone)
+          |> Observable.distinctUntilChanged
+          |> Observable.subscribe session.Set
+
+        let digits =
+          ctx.Model
+          |> Observable.map(fun current ->
+            match current.Completion.Trigger with
+            | ValueSome(IssueRef(_, digits)) -> ValueSome digits
+            | ValueSome(Mention _)
+            | ValueNone -> ValueNone)
+          |> Observable.distinctUntilChanged
+          |> Observable.subscribe session.SetIssue
+
+        let armed =
+          ctx.Model
+          |> Observable.map _.Completion
+          |> Observable.subscribe latest.OnNext
+
+        let opened =
+          ctx.Model
+          |> Observable.map(fun current ->
+            State.completionOpen current.Completion)
+          |> Observable.distinctUntilChanged
+          |> Observable.subscribe(fun isOpen -> popup.IsOpen <- isOpen)
+
+        let follow =
+          SearchParts.followArmed(
+            viewState |> Observable.map(fun current -> current.Active),
+            "CompletionRow",
+            (fun () ->
+              match TopLevel.GetTopLevel(ctx.Body) with
+              | null -> ValueNone
+              | root -> ValueSome(root :> Visual))
+          )
+
+        {
+          new IDisposable with
+            member _.Dispose() =
+              for feed in [ queries; digits; armed; opened; follow ] do
+                feed.Dispose()
+
+              latest.OnCompleted()
+        })
+      |> Sub.untilDetached ctx.Body
+      |> List.exactlyOne
+      |> snd
+
+    lane ignore |> ignore
+
+    popup
 
   /// Every landed commit leaves the box empty for the next one: the
   /// model resets its body, and the box's one-way text binding follows.
@@ -1194,6 +1712,7 @@ module Parts =
 
 let view
   (props: Props<'env>)
+  (session: CompletionSession)
   (model: IObservable<State.Model>)
   (dispatch: Dispatch<State.Msg>)
   : Control =
@@ -1202,31 +1721,53 @@ let view
 
   Parts.keyLane(props, dispatch, body)
 
+  let flyout =
+    Parts.completionLane(
+      {
+        Props = props
+        Model = model
+        Dispatch = dispatch
+        Body = body
+      },
+      session
+    )
+
   // No box: the composer rides the rail plain, the way the site's does
   // on the log and the thread; a host that wants a card wraps it.
-  StackPanel()
-    .Margin(0.0, 0.0, 0.0, 12.0)
-    .Spacing(8.0)
-    .Children(
-      body,
-      Parts.attachmentStrip(model, dispatch),
-      Parts.pollPanel(model, dispatch),
-      Parts.schedulePanel(props, model, dispatch),
-      Parts.actionRow(props, model, dispatch, body)
-    )
+  let panel =
+    StackPanel()
+      .Margin(0.0, 0.0, 0.0, 12.0)
+      .Spacing(8.0)
+      .Children(
+        body,
+        flyout,
+        Parts.attachmentStrip(model, dispatch),
+        Parts.pollPanel(model, dispatch),
+        Parts.schedulePanel(props, model, dispatch),
+        Parts.actionRow(props, model, dispatch, body)
+      )
+
+  panel
 
 type Page<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 
   do
+    let session = Parts.completionSession props
+
     let program =
-      Program.mkProgram (State.init props) (State.update props) (view props)
+      Program.mkProgram
+        (State.init props)
+        (State.update props)
+        (view props session)
+      |> Program.withSubscription(State.subscribe session)
 
     match props.Register with
     | ValueNone ->

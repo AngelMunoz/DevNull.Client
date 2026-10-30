@@ -77,6 +77,8 @@
     <Compile Include="Components\ImageViewer.fs" />
     <Compile Include="Components\Avatar.fsi" />
     <Compile Include="Components\Avatar.fs" />
+    <Compile Include="Components\Completion.fsi" />
+    <Compile Include="Components\Completion.fs" />
     <Compile Include="Components\ProfileCard.fsi" />
     <Compile Include="Components\ProfileCard.fs" />
     <Compile Include="Components\UserFlyout.fsi" />

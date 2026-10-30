@@ -14,6 +14,7 @@
     <Compile Include="Unread.Tests.fs" />
     <Compile Include="Remotes.Tests.fs" />
     <Compile Include="App.Tests.fs" />
+    <Compile Include="Composer.Tests.fs" />
     <Compile Include="Search.Tests.fs" />
     <Compile Include="Scheduled.Tests.fs" />
     <Compile Include="Shortcuts.Tests.fs" />

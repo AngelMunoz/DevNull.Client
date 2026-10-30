@@ -1,6 +1,7 @@
 module DevNull.Client.Components.SearchParts
 
 open System
+open Avalonia
 open Avalonia.Controls
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.ImageCache
@@ -58,6 +59,14 @@ val termIdentity: term: string -> Control
 
 /// The see-all row's content: the accent words and their arrow.
 val seeAllIdentity: unit -> Control
+
+/// Rides the armed row into view: every armed index brings the row it
+/// names into view, searched from the root the caller reads at each
+/// step — the palette's scroller stands in one tree, while a popup's
+/// rows live under the window's overlay only while it stands.
+val followArmed:
+  armed: IObservable<int> * prefix: string * root: (unit -> Visual voption) ->
+    IDisposable
 
 /// One status line, the site's quiet mono sentence.
 val statusLine: text: string -> Control

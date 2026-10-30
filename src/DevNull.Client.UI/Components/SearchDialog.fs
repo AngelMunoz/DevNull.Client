@@ -599,14 +599,11 @@ module Parts =
     // listener dies with the scroller, the way the feed's does.
     let follow =
       Sub.ofId "follow-armed" (fun _ ->
-        model
-        |> Observable.map(fun current -> current.Active)
-        |> Observable.distinctUntilChanged
-        |> Observable.subscribe(fun index ->
-          if index > 0 then
-            scroller.GetVisualDescendants()
-            |> Seq.tryFind(fun visual -> visual.Name = $"SearchRow{index}")
-            |> Option.iter(fun visual -> (visual :?> Control).BringIntoView())))
+        followArmed(
+          (model |> Observable.map(fun current -> current.Active)),
+          "SearchRow",
+          (fun () -> ValueSome(scroller :> Visual))
+        ))
       |> Sub.untilDetached scroller
       |> List.exactlyOne
       |> snd

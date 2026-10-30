@@ -1510,6 +1510,95 @@ let actionApiTests =
         (SearchTerms.commitTerm(String('a', 101)))
         "over the maximum")
 
+    testAsync "suggests the people and organizations to mention" {
+      let http =
+        CapturingHttp(
+          ok
+            """{"data":[{"id":"01a15638-ae71-733c-89b3-373a1a0c538a","handle":"kai-kou","name":"kai kou","avatar_url":null}],"organizations":[{"handle":"acme","name":"Acme","avatar_url":null}]}"""
+        )
+
+      let request: Suggestions.MentionsRequest = {
+        KeyFile = "key-file"
+        Query = "kai"
+        Reply = ValueSome "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+        Quote = ValueNone
+      }
+
+      let! (result: Result<MentionResults, TestError>) =
+        Suggestions.mentions(envFor http, request)
+
+      match result with
+      | Ok found ->
+        Expect.equal 1 found.Users.Length "one person"
+
+        Expect.equal
+          "acme"
+          (List.exactlyOne found.Organizations).Handle
+          "one organization"
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "GET" sent.Method "method"
+
+      Expect.equal
+        "/api/v1/search/mentions?q=kai&reply=018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+        sent.Target
+        "target"
+    }
+
+    testAsync "a bare @ asks with an empty query" {
+      let http = CapturingHttp(ok """{"data":[],"organizations":[]}""")
+
+      let request: Suggestions.MentionsRequest = {
+        KeyFile = "key-file"
+        Query = ""
+        Reply = ValueNone
+        Quote = ValueSome "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+      }
+
+      let! (_: Result<MentionResults, TestError>) =
+        Suggestions.mentions(envFor http, request)
+
+      let sent = http.Requests |> List.exactlyOne
+
+      Expect.equal
+        "/api/v1/search/mentions?q=&quote=018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+        sent.Target
+        "target"
+    }
+
+    testAsync "reads the issue a number names, or none" {
+      let http =
+        CapturingHttp(
+          ok
+            """{"issue":{"number":12,"title":"It was DNS","url":"https://github.com/dev-null/sh/issues/12"}}"""
+        )
+
+      let request: Suggestions.IssueRequest = {
+        KeyFile = "key-file"
+        Number = "12"
+      }
+
+      let! (result: Result<Issue option, TestError>) =
+        Suggestions.issue(envFor http, request)
+
+      match result with
+      | Ok(Some issue) ->
+        Expect.equal 12 issue.Number "number"
+        Expect.equal "It was DNS" issue.Title "title"
+      | other -> failtestf "%A" other
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "/api/v1/search/issues?q=12" sent.Target "target"
+
+      let none = CapturingHttp(ok """{"issue":null}""")
+
+      let! (empty: Result<Issue option, TestError>) =
+        Suggestions.issue(envFor none, request)
+
+      Expect.equal (Ok None) empty "no issue"
+    }
+
     testAsync "mutes a user" {
       let http = CapturingHttp(ok muteResponse)
 

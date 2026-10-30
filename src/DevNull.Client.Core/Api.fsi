@@ -849,6 +849,52 @@ module Search =
       and Rejected<'e>
       and DecodeError<'e>
 
+module Suggestions =
+
+  /// One mention completion: the query as typed after the `@` — empty
+  /// for a bare `@` — and the commit the composer answers to, a reply
+  /// or a quote, never both.
+  type MentionsRequest = {
+    KeyFile: string
+    Query: string
+    Reply: string voption
+    Quote: string voption
+  }
+
+  /// One issue completion: the digits as typed after the `#`.
+  type IssueRequest = { KeyFile: string; Number: string }
+
+  /// Reads the people and organizations the site's own composer
+  /// suggests for a mention: at most six people — the people followed
+  /// first, a reply's participants first in a reply, the quoted author
+  /// first in a quote — and at most three organizations once the query
+  /// has letters.
+  val mentions:
+    env: 'env * request: MentionsRequest -> Async<Result<MentionResults, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Reads the issue or pull request a number names, as the site's
+  /// own composer suggests it, or none when the site knows of none.
+  val issue:
+    env: 'env * request: IssueRequest -> Async<Result<Issue option, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
 module Pasteis =
 
   /// One commit to give a pastel to.

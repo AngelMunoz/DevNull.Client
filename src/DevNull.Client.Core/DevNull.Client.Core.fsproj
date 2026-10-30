@@ -23,6 +23,8 @@
     <Compile Include="Payload.fs" />
     <Compile Include="Commit.fsi" />
     <Compile Include="Commit.fs" />
+    <Compile Include="Completion.fsi" />
+    <Compile Include="Completion.fs" />
     <Compile Include="Api.fsi" />
     <Compile Include="Api.fs" />
   </ItemGroup>

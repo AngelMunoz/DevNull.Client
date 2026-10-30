@@ -34,19 +34,20 @@ own.
    apply to every phase; the skill gate below is part of every phase's
    definition of done.
 
-## State as of 2026-10-29
+## State as of 2026-10-30
 
-- Phases 1 through 5 have landed: the terms gate, Linux playback of the web's
+- Phases 1 through 8 have landed: the terms gate, Linux playback of the web's
   voice notes through the desktop's media framework, the devices list with
-  self-revoke, the 30-second delete undo, and per-image descriptions on
-  commits.
+  self-revoke, the 30-second delete undo, per-image descriptions on commits,
+  scheduled commits, the profile pin with related commits, and search.
+- Phase 9 — composer suggestions — has landed in the working tree and waits
+  on its release.
 - Production was pulled and audited again on 2026-10-29, after the server's
   10-28/10-29 burst. Every contract below still stands as written, and the
   server's CLI contract has not changed since 2026-10-19.
-- The rest of the server's 2026-10-26 to 2026-10-29 burst (search,
-  suggestions, scheduled commits, translations, pins, related commits,
-  organization pages, user settings) is absent from Core and lands phase by
-  phase below; Phase 6 — scheduled commits — is next.
+- The rest of the server's 2026-10-26 to 2026-10-29 burst (suggestions,
+  translations, organization pages, user settings) is absent from Core and
+  lands phase by phase below; Phase 10 — who to follow — is next.
 - The burst also shipped past this roadmap, and the audit folded its
   client-side remainder in: live users and the first-commit notification
   (Phase 13), follower and following list pages (Phase 14), the commit
@@ -269,6 +270,8 @@ and fewer-results note; people rows reuse the profile card and flyout.
 headless type-see-open pass across both tabs.
 
 ## Phase 9 — Composer suggestions
+
+*Landed.*
 
 **Server reference:** the mention-suggestion controller (a term plus the
 composer's context parameters; the answer is people beside an organizations

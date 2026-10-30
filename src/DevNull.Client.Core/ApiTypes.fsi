@@ -32,6 +32,30 @@ type User = {
   FollowsYou: bool option
 }
 
+/// One organization a mention can name: the profile the site's own
+/// suggestion carries, as its completion row shows it.
+type Organization = {
+  Handle: string
+  Name: string
+  AvatarUrl: string option
+}
+
+/// One issue or pull request a `#number` reference can name: the card
+/// the site's own suggestion carries.
+type Issue = {
+  Number: int
+  Title: string
+  Url: string
+}
+
+/// One mention answer: the people to mention — at most six, the people
+/// the viewer follows first — and the organizations beside them, at
+/// most three and only once the query has letters.
+type MentionResults = {
+  Users: User list
+  Organizations: Organization list
+}
+
 /// One image on a commit, as the signed API returns it.
 type Image = {
   Id: string
@@ -814,6 +838,18 @@ module SearchCommits =
   /// /api/v1/search/commits: the commits nearest in meaning to the
   /// term, closest first, possibly fewer than the limit asked for.
   val decode: body: string -> Result<CommitNode list, DecodeFailure>
+
+module MentionSuggestions =
+  /// Reads the `{data: [...], organizations: [...]}` answer of GET
+  /// /api/v1/search/mentions: the people to mention and the
+  /// organizations beside them.
+  val decode: body: string -> Result<MentionResults, DecodeFailure>
+
+module IssueSuggestions =
+  /// Reads the `{issue: {...} | null}` answer of GET
+  /// /api/v1/search/issues: the issue or pull request the number
+  /// names, or none when the site knows of none.
+  val decode: body: string -> Result<Issue option, DecodeFailure>
 
 module SearchTerms =
   /// The people term to send: its trimmed words without the leading

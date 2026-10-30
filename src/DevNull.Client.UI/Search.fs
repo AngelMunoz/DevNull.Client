@@ -1,6 +1,7 @@
 module DevNull.Client.Search
 
 open System
+open System.Collections.Generic
 open System.Reactive.Subjects
 open FSharp.Control.Reactive
 open IcedTasks
@@ -214,3 +215,163 @@ type Session
       commitPipe.Dispose()
       peopleFound.OnCompleted()
       commitsFound.OnCompleted()
+
+/// One settled mention answer: the query it answers, the people and
+/// organizations found, and whether the server asked to slow down.
+[<Struct>]
+type MentionsFound = {
+  Query: string
+  Results: MentionResults
+  Throttled: bool
+}
+
+/// One settled issue answer: the digits it answers, the issue when the
+/// site knows one, and whether the server asked to slow down.
+[<Struct>]
+type IssueFound = {
+  Digits: string
+  Issue: Issue option
+  Throttled: bool
+}
+
+/// Everything one composer's completions read: the two calls with
+/// their host's own context closed in, and whether repeat queries
+/// answer from the session's own memory.
+[<Struct>]
+type CompletionCalls = {
+  Mentions: string -> Async<Result<MentionResults, AppError>>
+  Issue: string -> Async<Result<Issue option, AppError>>
+  Remember: bool
+}
+
+/// One composer's completions, on the same gated pipes the search
+/// session runs: both channels wait out the site's own pause — the
+/// same one hundred and twenty milliseconds the people search waits —
+/// answer for the newest query only, and settle a refusal to slow
+/// down as the throttled answer. A remembered query answers from
+/// memory without a call, the way the site's composer caches its
+/// suggestions; a reply's composer asks every time, because its
+/// participants change.
+type CompletionSession(calls: CompletionCalls, log: ILogger) =
+
+  let mentionGate = new BehaviorSubject<string voption>(ValueNone)
+  let issueGate = new BehaviorSubject<string voption>(ValueNone)
+
+  let emptyMentions = {
+    Query = ""
+    Results = { Users = []; Organizations = [] }
+    Throttled = false
+  }
+
+  let mentionFound = new BehaviorSubject<MentionsFound>(emptyMentions)
+
+  let issueFound =
+    new BehaviorSubject<IssueFound> {
+      Digits = ""
+      Issue = None
+      Throttled = false
+    }
+
+  let memory = Dictionary<string, MentionResults>()
+
+  // The call remembers its own answer before it publishes, so the
+  // pipe below can serve the repeat from memory.
+  let callMentions(query: string) = async {
+    let! answer = calls.Mentions query
+
+    match answer, calls.Remember with
+    | Ok results, true -> memory[query] <- results
+    | Ok _, false -> () // a reply's composer answers every query fresh
+    | Error _, _ -> () // a failed read is not remembered
+
+    return answer
+  }
+
+  let mentionChannel: Channel<MentionResults, MentionsFound> = {
+    Gate = mentionGate
+    Call = callMentions
+    Found = mentionFound
+    Build =
+      fun query results -> {
+        Query = query
+        Results = results
+        Throttled = false
+      }
+    Empty = fun query -> { emptyMentions with Query = query }
+    Throttled =
+      fun query -> {
+        emptyMentions with
+            Query = query
+            Throttled = true
+      }
+    Log = log
+    What = "mention completion"
+  }
+
+  let issueChannel: Channel<Issue option, IssueFound> = {
+    Gate = issueGate
+    Call = calls.Issue
+    Found = issueFound
+    Build =
+      fun digits issue -> {
+        Digits = digits
+        Issue = issue
+        Throttled = false
+      }
+    Empty =
+      fun digits -> {
+        Digits = digits
+        Issue = None
+        Throttled = false
+      }
+    Throttled =
+      fun digits -> {
+        Digits = digits
+        Issue = None
+        Throttled = true
+      }
+    Log = log
+    What = "issue completion"
+  }
+
+  // The mention pipe answers from memory first; the issue pipe is the
+  // plain gated pipe the search session runs.
+  let mentionPipe =
+    mentionGate
+    |> Observable.distinctUntilChanged
+    |> Observable.throttle peopleWindow
+    |> Observable.subscribe(fun gated ->
+      match gated with
+      | ValueSome query when calls.Remember && memory.ContainsKey query ->
+        mentionFound.OnNext(mentionChannel.Build query memory[query])
+
+        log.LogDebug(
+          "The mention completion for {Query} answered from memory.",
+          query
+        )
+      | _ -> run(mentionChannel, gated))
+
+  let issuePipe =
+    issueGate
+    |> Observable.distinctUntilChanged
+    |> Observable.throttle peopleWindow
+    |> Observable.subscribe(fun gated -> run(issueChannel, gated))
+
+  /// The mention query as typed; the same query again asks nothing.
+  member _.Set(query: string voption) = mentionGate.OnNext query
+
+  /// The issue digits as typed; the same digits again ask nothing.
+  member _.SetIssue(digits: string voption) = issueGate.OnNext digits
+
+  /// Every settled mention answer, newest query only.
+  member _.Mentions: IObservable<MentionsFound> = mentionFound :> _
+
+  /// Every settled issue answer, newest digits only.
+  member _.Issues: IObservable<IssueFound> = issueFound :> _
+
+  interface IDisposable with
+    member _.Dispose() =
+      mentionPipe.Dispose()
+      issuePipe.Dispose()
+      mentionFound.OnCompleted()
+      issueFound.OnCompleted()

@@ -32,6 +32,30 @@ type User = {
   FollowsYou: bool option
 }
 
+/// One organization a mention can name: the profile the site's own
+/// suggestion carries, as its completion row shows it.
+type Organization = {
+  Handle: string
+  Name: string
+  AvatarUrl: string option
+}
+
+/// One issue or pull request a `#number` reference can name: the card
+/// the site's own suggestion carries.
+type Issue = {
+  Number: int
+  Title: string
+  Url: string
+}
+
+/// One mention answer: the people to mention — at most six, the people
+/// the viewer follows first — and the organizations beside them, at
+/// most three and only once the query has letters.
+type MentionResults = {
+  Users: User list
+  Organizations: Organization list
+}
+
 type Image = {
   Id: string
   Width: int
@@ -2590,6 +2614,58 @@ module CommitNode =
 
 module RelatedCommits =
   let decode(body: string) = decodeRelatedCommits body
+
+let organizationDecoder(element: JsonElement) = decode {
+  let! handle = Required.Property.get ("handle", Required.string) element
+  let! name = Required.Property.get ("name", Required.string) element
+
+  let! avatarUrl =
+    Optional.Property.get ("avatar_url", Optional.string) element
+    |> Result.map Option.flatten
+
+  return {
+    Handle = handle
+    Name = name
+    AvatarUrl = avatarUrl
+  }
+}
+
+let issueDecoder(element: JsonElement) = decode {
+  let! number = Required.Property.get ("number", Required.int) element
+  let! title = Required.Property.get ("title", Required.string) element
+  let! url = Required.Property.get ("url", Required.string) element
+
+  return {
+    Number = number
+    Title = title
+    Url = url
+  }
+}
+
+let decodeMentionResults(body: string) =
+  parseBody body (fun element -> decode {
+    let! users = Required.Property.list ("data", userDecoder) element
+
+    let! organizations =
+      Required.Property.list ("organizations", organizationDecoder) element
+
+    return {
+      Users = users
+      Organizations = organizations
+    }
+  })
+
+let decodeIssueAnswer(body: string) =
+  parseBody
+    body
+    (Optional.Property.get("issue", optionalDecoder issueDecoder)
+     >> Result.map Option.flatten)
+
+module MentionSuggestions =
+  let decode(body: string) = decodeMentionResults body
+
+module IssueSuggestions =
+  let decode(body: string) = decodeIssueAnswer body
 
 module SearchUsers =
   let decode(body: string) = decodeFoundUsers body

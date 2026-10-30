@@ -1412,6 +1412,65 @@ module Search =
       }
     )
 
+module Suggestions =
+
+  type MentionsRequest = {
+    KeyFile: string
+    Query: string
+    Reply: string voption
+    Quote: string voption
+  }
+
+  type IssueRequest = { KeyFile: string; Number: string }
+
+  /// Reads the people and organizations the site's own composer
+  /// suggests for a mention: at most six people — the people followed
+  /// first, a reply's participants first in a reply, the quoted author
+  /// first in a quote — and at most three organizations once the query
+  /// has letters.
+  let mentions(env, request: MentionsRequest) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target =
+          Internal.withQuery(
+            "/api/v1/search/mentions",
+            [
+              "q", request.Query
+              yield!
+                Internal.optionalParameter(
+                  "reply",
+                  request.Reply |> ValueOption.toOption
+                )
+              yield!
+                Internal.optionalParameter(
+                  "quote",
+                  request.Quote |> ValueOption.toOption
+                )
+            ]
+          )
+        Body = ""
+        Decode = MentionSuggestions.decode
+      }
+    )
+
+  /// Reads the issue or pull request a number names, as the site's
+  /// own composer suggests it, or none when the site knows of none.
+  let issue(env, request: IssueRequest) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target =
+          Internal.withQuery("/api/v1/search/issues", [ "q", request.Number ])
+        Body = ""
+        Decode = IssueSuggestions.decode
+      }
+    )
+
 module Pasteis =
 
   type ActionRequest = { KeyFile: string; CommitId: string }

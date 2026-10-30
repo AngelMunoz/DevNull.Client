@@ -3,6 +3,7 @@ module DevNull.Client.UI.Tests.Program
 open Expecto
 
 open DevNull.Client.UI.Tests
+open DevNull.Client.UI.Tests.Composer
 open DevNull.Client.UI.Tests.Natives
 open DevNull.Client.UI.Tests.Remotes
 open DevNull.Client.UI.Tests.RemotesView
@@ -23,6 +24,8 @@ let main argv =
       Leaks.tests
       App.tests
       Search.tests
+      Search.completionTests
+      Composer.tests
       Scheduled.tests
       Shortcuts.tests
       Unread.tests

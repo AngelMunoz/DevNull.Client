@@ -1,6 +1,7 @@
 module DevNull.Client.Components.SearchDialog
 
 open System
+open System.Reactive.Subjects
 open System.Text.RegularExpressions
 open Avalonia
 open Avalonia.Controls
@@ -346,7 +347,11 @@ module State =
     | ClockTicked moment -> { model with Now = moment }, Cmd.none
 
   /// The dialog's inlets: its session's two channels and the clock.
-  let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
+  /// The view fills the lane holder with its own subscription.
+  let subscribe
+    (props: Props<'env>, lane: BehaviorSubject<Sub<Msg>>)
+    (_: Model)
+    : Sub<Msg> =
     [
       Sub.fromObservable
         "people"
@@ -359,8 +364,31 @@ module State =
       Sub.fromObservable
         "clock"
         (props.Env.UiClock.Minute |> Observable.map ClockTicked)
+
+      Sub.ofId "search-lane-holder" (fun _ -> {
+        new IDisposable with
+          member _.Dispose() =
+            lane.OnCompleted()
+            lane.Dispose()
+      })
+
+      lane.Value
     ]
     |> Sub.batch
+
+/// The props and the lane subscription one dialog view reads and fills.
+type ViewCtx<'env
+  when 'env :> IProvideClock
+  and 'env :> IProvideNonceSource
+  and 'env :> IProvideSigner
+  and 'env :> IProvideHttp
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideLogging> = {
+  Props: Props<'env>
+  Lane: BehaviorSubject<Sub<State.Msg>>
+}
 
 /// The dialog's semantic regions.
 module Parts =
@@ -521,7 +549,9 @@ module Parts =
       ctx: SearchParts.RowCtx,
       model: IObservable<State.Model>,
       dispatch: Dispatch<State.Msg>
-    ) : Control =
+    ) : Control * Sub<State.Msg> =
+    let rows = new BehaviorSubject<Control array>([||])
+
     let build(entries: State.Entry list) : Control =
       let headingOf(entry: State.Entry, seen: string) : string =
         match entry with
@@ -543,7 +573,9 @@ module Parts =
         | State.Recent _ -> "recent"
         | State.Suggestion _ -> "suggestion"
 
-      let rowOf(seen: string, index: int, entry: State.Entry) : Control list =
+      let rowOf
+        (seen: string, index: int, entry: State.Entry)
+        : Control option * Control list =
         let headingText = headingOf(entry, seen)
 
         let content: Control =
@@ -565,26 +597,39 @@ module Parts =
         let armed =
           model |> Observable.map(fun current -> current.Active = index)
 
-        [
+        let option = optionRow(ctx, dispatch, armed, index, entry, content)
+
+        let children = [
           if headingText <> "" then
             SearchParts.heading headingText
 
-          optionRow(ctx, dispatch, armed, index, entry, content)
+          option
         ]
 
-      let children =
+        Some option, children
+
+      let rowsAndChildren =
         List.indexed entries
         |> List.mapFold
           (fun seen (index, entry) -> rowOf(seen, index, entry), mark entry)
           ""
         |> fst
-        |> List.concat
-        |> Array.ofList
 
-      if children.Length = 0 then
-        SearchParts.statusLine "Searching…"
-      else
-        ItemsControl().ItemsSource(children)
+      let children = rowsAndChildren |> List.collect snd |> Array.ofList
+
+      let controls = rowsAndChildren |> List.choose fst |> Array.ofList
+
+      let built =
+        if children.Length = 0 then
+          SearchParts.statusLine "Searching…"
+        else
+          ItemsControl().ItemsSource(children)
+
+      // The rows attach when the content control takes the list. The
+      // post runs after that, so the armed row can find its scroller.
+      Dispatcher.UIThread.Post(fun () -> rows.OnNext controls)
+
+      built
 
     let content =
       model
@@ -595,22 +640,26 @@ module Parts =
     let scroller =
       ScrollViewer().MaxHeight(460.0).Content(content |> _.ToBinding())
 
-    // The keys' row rides into view the moment it becomes armed. The
-    // listener dies with the scroller, the way the feed's does.
-    let follow =
+    // The keys' row rides into view the moment it becomes armed, and
+    // when a new answer replaces the rows while row zero is armed. The
+    // subscription retires with the scroller, the way the feed's does.
+    let followSub =
       Sub.ofId "follow-armed" (fun _ ->
-        followArmed(
-          (model |> Observable.map(fun current -> current.Active)),
-          "SearchRow",
-          (fun () -> ValueSome(scroller :> Visual))
-        ))
+        let feed =
+          SearchParts.followRows(
+            (model |> Observable.map(fun current -> current.Active)),
+            rows :> IObservable<Control array>
+          )
+
+        {
+          new IDisposable with
+            member _.Dispose() =
+              feed.Dispose()
+              rows.OnCompleted()
+        })
       |> Sub.untilDetached scroller
-      |> List.exactlyOne
-      |> snd
 
-    follow ignore |> ignore
-
-    scroller
+    scroller, followSub
 
   /// The footer: the keys the dialog answers, as the site lists them.
   let footer() : Control =
@@ -636,12 +685,14 @@ module Parts =
       )
 
 let view
-  (props: Props<'env>)
+  (viewCtx: ViewCtx<'env>)
   (model: IObservable<State.Model>)
   (dispatch: Dispatch<State.Msg>)
   : Control =
 
-  let ctx: SearchParts.RowCtx = {
+  let props = viewCtx.Props
+
+  let rowCtx: SearchParts.RowCtx = {
     Images = props.Env.ImageCache
     Flyout =
       ValueSome {
@@ -658,6 +709,10 @@ let view
     Now = DateTimeOffset.UtcNow
   }
 
+  let listControl, followSub = Parts.list(rowCtx, model, dispatch)
+
+  viewCtx.Lane.OnNext followSub
+
   let card =
     Border()
       .Name("SearchDialogCard")
@@ -671,7 +726,7 @@ let view
           .Children(
             Parts.inputRow(model, dispatch),
             Parts.status model,
-            Parts.list(ctx, model, dispatch),
+            listControl,
             Border()
               .Classes(Theme.name Theme.Hairline)
               .BorderThickness(Thickness(0.0, 1.0, 0.0, 0.0))
@@ -700,9 +755,14 @@ type Page<'env
   inherit UserControl()
 
   do
+    let lane = new BehaviorSubject<Sub<State.Msg>>(Sub.none)
+
     let program =
-      Program.mkProgram (State.initial props) (State.update props) (view props)
-      |> Program.withSubscription(State.subscribe props)
+      Program.mkProgram
+        (State.initial props)
+        (State.update props)
+        (view { Props = props; Lane = lane })
+      |> Program.withSubscription(State.subscribe(props, lane))
 
     let root, _ = Program.runWithLifetime this () program
 

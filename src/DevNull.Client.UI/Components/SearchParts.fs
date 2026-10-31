@@ -8,7 +8,6 @@ open Avalonia.Controls.Documents
 open Avalonia.Controls.Shapes
 open Avalonia.Layout
 open Avalonia.Media
-open Avalonia.VisualTree
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open DevNull.Client
@@ -230,23 +229,17 @@ let seeAllIdentity() : Control =
       Icons.iconAt(Glyph.ArrowRight, 16.0)
     )
 
-/// Rides the armed row into view: every armed index brings the row it
-/// names into view, searched from the root the caller reads at each
-/// step — the palette's scroller stands in one tree, while a popup's
-/// rows live under the window's overlay only while it stands.
-let followArmed
-  (armed: IObservable<int>, prefix: string, root: unit -> Visual voption)
+/// Rides the armed row into view: the active index names one of the
+/// row controls the caller built, and the row itself finds its
+/// scroller. Every index counts, including zero.
+let followRows
+  (active: IObservable<int>, rows: IObservable<Control array>)
   : IDisposable =
-  armed
-  |> Observable.distinctUntilChanged
-  |> Observable.subscribe(fun index ->
-    if index > 0 then
-      match root() with
-      | ValueSome tree ->
-        tree.GetVisualDescendants()
-        |> Seq.tryFind(fun visual -> visual.Name = $"{prefix}{index}")
-        |> Option.iter(fun visual -> (visual :?> Control).BringIntoView())
-      | ValueNone -> ())
+  Observable.combineLatest active rows
+  |> Observable.subscribe(fun (index, controls) ->
+    controls
+    |> Array.tryItem index
+    |> Option.iter(fun row -> row.BringIntoView()))
 
 /// One status line, the site's quiet mono sentence.
 let statusLine(text: string) : Control =

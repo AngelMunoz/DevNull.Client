@@ -335,4 +335,59 @@ let completionTests =
            |> Seq.exists(fun answer -> answer.Query = "ka" && answer.Throttled))
           "the slow-down answer"
       })
+
+    testCaseAsync
+      "a failed mention call settles as an empty answer"
+      (async {
+        let found = ResizeArray<MentionsFound>()
+
+        use session =
+          new CompletionSession(
+            {
+              Mentions = fun _ -> async { return failwith "boom" }
+              Issue = fun _ -> async { return Ok None }
+              Remember = true
+            },
+            NullLogger.Instance
+          )
+
+        session.Mentions
+        |> Observable.filter(fun answer -> answer.Query <> "")
+        |> Observable.add found.Add
+
+        session.Set(ValueSome "ka")
+        do! settle()
+
+        Expect.equal 1 found.Count "the failure settled"
+
+        Expect.equal
+          0
+          found[0].Results.Users.Length
+          "the failed answer is empty"
+      })
+
+    testCaseAsync
+      "a bare @ asks without the pause"
+      (async {
+        let calls = ResizeArray<string>()
+
+        use session =
+          new CompletionSession(
+            {
+              Mentions =
+                fun query ->
+                  calls.Add query
+
+                  async { return Ok { Users = []; Organizations = [] } }
+              Issue = fun _ -> async { return Ok None }
+              Remember = true
+            },
+            NullLogger.Instance
+          )
+
+        session.Set(ValueSome "")
+        do! Async.Sleep 100
+
+        Expect.equal [ "" ] (calls |> Seq.toList) "the bare @ asked at once"
+      })
   ]

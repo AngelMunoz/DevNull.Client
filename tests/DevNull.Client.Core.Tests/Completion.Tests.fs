@@ -8,12 +8,21 @@ open System
 open Expecto
 open DevNull.Client.Core.Completion
 
+let issueNumber(raw: string) =
+  match IssueNumber.parse raw with
+  | ValueSome parsed -> parsed
+  | ValueNone -> failtestf "The test issue number %s is invalid." raw
+
 let tests =
   testList "completion" [
     testCase
       "a bare @ at the start of the text triggers an empty query"
       (fun () ->
         Expect.equal (ValueSome(Mention(0, ""))) (triggerAt("@", 1)) "a bare @")
+
+    testCase "a caret outside the text never triggers" (fun () ->
+      Expect.equal ValueNone (triggerAt("hi", -1)) "before the text"
+      Expect.equal ValueNone (triggerAt("hi", 3)) "after the text")
 
     testCase "an @ glued to a word never triggers" (fun () ->
       Expect.equal ValueNone (triggerAt("a@kai", 5)) "glued to a word"
@@ -45,17 +54,17 @@ let tests =
 
     testCase "a number after a hash triggers an issue reference" (fun () ->
       Expect.equal
-        (ValueSome(IssueRef(4, "12")))
+        (ValueSome(IssueRef(4, issueNumber "12")))
         (triggerAt("see #12", 7))
         "in prose"
 
       Expect.equal
-        (ValueSome(IssueRef(0, "12")))
+        (ValueSome(IssueRef(0, issueNumber "12")))
         (triggerAt("#12", 3))
         "at the start"
 
       Expect.equal
-        (ValueSome(IssueRef(5, "12")))
+        (ValueSome(IssueRef(5, issueNumber "12")))
         (triggerAt("see (#12", 8))
         "after an opening bracket")
 
@@ -94,7 +103,7 @@ let tests =
         "three digits with a letter"
 
       Expect.equal
-        (ValueSome(IssueRef(0, "123")))
+        (ValueSome(IssueRef(0, issueNumber "123")))
         (triggerAt("#123", 4))
         "a plain number")
 
@@ -112,19 +121,47 @@ let tests =
         (mentionCompleted("@ka you", Mention(0, "ka"), "kai"))
         "no second space")
 
-    testCase
-      "an issue completes to its address with the caret right after"
-      (fun () ->
-        Expect.equal
-          ("see https://x.test/1 ", 20)
-          (issueCompleted("see #12", IssueRef(4, "12"), "https://x.test/1"))
-          "the caret sits right after the address")
+    testCase "an issue completes past its added spacing" (fun () ->
+      Expect.equal
+        ("see https://x.test/1 ", 21)
+        (issueCompleted(
+          "see #12",
+          IssueRef(4, issueNumber "12"),
+          "https://x.test/1"
+        ))
+        "the caret sits past the space")
 
     testCase
-      "a trigger the text no longer holds leaves the text alone"
+      "an issue keeps the caret at the address when whitespace follows"
       (fun () ->
         Expect.equal
-          ("other", 5)
+          ("see https://x.test/1 you", 20)
+          (issueCompleted(
+            "see #12 you",
+            IssueRef(4, issueNumber "12"),
+            "https://x.test/1"
+          ))
+          "the caret sits at the address end")
+
+    testCase
+      "a trigger the text no longer holds keeps the caret at its end"
+      (fun () ->
+        Expect.equal
+          ("other", 3)
           (mentionCompleted("other", Mention(0, "ka"), "kai"))
-          "stale")
+          "the text is unchanged and the caret stays")
+
+    testCase
+      "an issue number holds one to ten digits, none opening with a zero"
+      (fun () ->
+        Expect.equal
+          (ValueSome "12")
+          (IssueNumber.parse "12" |> ValueOption.map IssueNumber.value)
+          "valid"
+
+        Expect.equal ValueNone (IssueNumber.parse "0") "zero"
+        Expect.equal ValueNone (IssueNumber.parse "012") "leading zero"
+        Expect.equal ValueNone (IssueNumber.parse "") "empty"
+        Expect.equal ValueNone (IssueNumber.parse "12345678901") "eleven"
+        Expect.equal ValueNone (IssueNumber.parse "12a") "a letter")
   ]

@@ -7,6 +7,7 @@ module DevNull.Client.UI.Tests.Composer
 // refusal to slow down shows its sentence.
 
 open System
+open Avalonia
 open Avalonia.Controls
 open Avalonia.Input
 open Avalonia.Interactivity
@@ -203,7 +204,11 @@ let tests =
             (fun () -> textBoxWithWatermark(window, "What did you ship?")),
             (fun box ->
               box
-              |> Option.map(fun control -> control.Text = $"see {address} ")
+              |> Option.map(fun control ->
+                let text =
+                  control.Text |> Option.ofObj |> Option.defaultValue ""
+
+                text = $"see {address} " && control.CaretIndex = text.Length)
               |> Option.defaultValue false)
           )
 
@@ -260,6 +265,21 @@ let tests =
             | :? ScrollViewer as found -> Some found
             | _ -> None)
 
+        let rowVisible(name: string) =
+          match scroller() with
+          | None -> false
+          | Some found ->
+            window.GetVisualDescendants()
+            |> Seq.tryFind(fun visual -> visual.Name = name)
+            |> Option.map(fun row ->
+              let point = row.TranslatePoint(Point(0.0, 0.0), found)
+
+              point.HasValue
+              && point.Value.Y >= -1.0
+              && point.Value.Y + row.Bounds.Height
+                 <= found.Viewport.Height + 1.0)
+            |> Option.defaultValue false
+
         let! before =
           probeUiAsync(fun () ->
             scroller() |> Option.map(fun opened -> opened.Offset.Y))
@@ -278,36 +298,37 @@ let tests =
             |> Option.map(fun walked ->
               walked.Offset.Y, walked.Extent.Height, walked.Viewport.Height))
 
-        let! dump =
-          probeUiAsync(fun () ->
-            let rows =
-              window.GetVisualDescendants()
-              |> Seq.filter(fun visual ->
-                visual.Name <> null && visual.Name.StartsWith "CompletionRow")
-              |> Seq.length
-
-            let armed =
-              window.GetVisualDescendants()
-              |> Seq.tryFind(fun visual -> visual.Name = "CompletionRow7")
-
-            (rows, armed |> Option.map(fun visual -> visual.Bounds.Height))
-
-          )
-
         match before, after with
-        | Some opened, Some(walked, extent, viewport) when walked > opened + 1.0 ->
-          Expect.isGreaterThan extent viewport "the list overflowed"
         | Some opened, Some(walked, extent, viewport) ->
-          failtestf
-            "DIAG rows=%d armedRow7=%A before=%f after=%f extent=%f viewport=%f"
-            (fst dump)
-            (snd dump)
-            opened
-            walked
-            extent
-            viewport
-        | Some _, None
-        | None, _ -> failtestf "DIAG the scroller vanished rows=%d" (fst dump)
+          Expect.isGreaterThan extent viewport "the list overflowed"
+          Expect.isGreaterThan walked (opened + 1.0) "the list scrolled"
+        | Some _, None -> failtest "the scroller vanished"
+        | None, _ -> failtest "the scroller never stood"
+
+        let! armedVisible = probeUiAsync(fun () -> rowVisible "CompletionRow7")
+
+        Expect.isTrue armedVisible "the armed row is visible"
+
+        // Two more steps wrap from the last row to row zero. Row zero
+        // must be visible, even when the caption above it scrolls out.
+        do! press(window, Key.Down)
+        do! press(window, Key.Down)
+        do! Async.Sleep 300
+        do! pumpAsync()
+
+        let! wrapped = probeUiAsync(fun () -> rowVisible "CompletionRow0")
+
+        Expect.isTrue wrapped "row zero is visible after the wrap"
+
+        // A new answer replaces the rows while row zero is armed. The
+        // new first row must be visible too.
+        do! typeIntoComposer(window, "@person9")
+        do! Async.Sleep 400
+        do! pumpAsync()
+
+        let! reset = probeUiAsync(fun () -> rowVisible "CompletionRow0")
+
+        Expect.isTrue reset "row zero is visible for a new answer"
       })
 
     testCaseAsync

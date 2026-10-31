@@ -6,6 +6,7 @@ open FSharp.UMX
 open JDeck
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
+open DevNull.Client.Core.Completion
 open DevNull.Client.Core.Http
 open DevNull.Client.Core.Pkce
 open DevNull.Client.Core.Types
@@ -1421,7 +1422,7 @@ module Suggestions =
     Quote: string voption
   }
 
-  type IssueRequest = { KeyFile: string; Number: string }
+  type IssueRequest = { KeyFile: string; Number: IssueNumber }
 
   /// Reads the people and organizations the site's own composer
   /// suggests for a mention: at most six people — the people followed
@@ -1465,7 +1466,10 @@ module Suggestions =
         KeyFile = request.KeyFile
         Method = "GET"
         Target =
-          Internal.withQuery("/api/v1/search/issues", [ "q", request.Number ])
+          Internal.withQuery(
+            "/api/v1/search/issues",
+            [ "q", IssueNumber.value request.Number ]
+          )
         Body = ""
         Decode = IssueSuggestions.decode
       }

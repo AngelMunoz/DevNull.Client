@@ -4,6 +4,7 @@ open System
 open FSharp.UMX
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
+open DevNull.Client.Core.Completion
 open DevNull.Client.Core.Http
 open DevNull.Client.Core.Types
 
@@ -861,8 +862,8 @@ module Suggestions =
     Quote: string voption
   }
 
-  /// One issue completion: the digits as typed after the `#`.
-  type IssueRequest = { KeyFile: string; Number: string }
+  /// One issue completion: the parsed digits after the `#`.
+  type IssueRequest = { KeyFile: string; Number: IssueNumber }
 
   /// Reads the people and organizations the site's own composer
   /// suggests for a mention: at most six people — the people followed

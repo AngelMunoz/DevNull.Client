@@ -31,10 +31,18 @@ type Actions = {
   Hovered: int -> unit
 }
 
+/// The flyout's live surface: the scroller the popup shows, the row
+/// controls the keys walk, and the release of the row stream.
+type Surface = {
+  Control: Control
+  Rows: IObservable<Control array>
+  Dispose: unit -> unit
+}
+
 /// The completion flyout's list: the caption, the person and
 /// organization rows, the issue card, or the quiet state that stands
 /// in for them — each row armed with the one the keys hold. Pure view
 /// over the state above.
 val view:
   state: IObservable<View> * actions: Actions * images: ImageCacheService ->
-    Control
+    Surface

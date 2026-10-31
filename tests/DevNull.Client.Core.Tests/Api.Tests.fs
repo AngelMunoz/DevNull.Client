@@ -5,6 +5,7 @@ open Expecto
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
+open DevNull.Client.Core.Completion
 open DevNull.Client.Core.Http
 open Tests.TestSupport
 
@@ -1576,7 +1577,7 @@ let actionApiTests =
 
       let request: Suggestions.IssueRequest = {
         KeyFile = "key-file"
-        Number = "12"
+        Number = IssueNumber.parse "12" |> ValueOption.get
       }
 
       let! (result: Result<Issue option, TestError>) =

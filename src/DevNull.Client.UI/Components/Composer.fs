@@ -98,7 +98,7 @@ module State =
     Active: int
     Searching: bool
     Throttled: bool
-    Dismissed: (int * string) voption
+    Dismissed: (int * IssueNumber) voption
   }
 
   let closedCompletion = {
@@ -116,7 +116,7 @@ module State =
   let inline queryOf(completion: CompletionState) =
     match completion.Trigger with
     | ValueSome(Mention(_, query)) -> query
-    | ValueSome(IssueRef _)
+    | ValueSome(IssueRef(_, digits)) -> IssueNumber.value digits
     | ValueNone -> ""
 
   /// How many rows the keys walk: the people and organizations
@@ -328,7 +328,9 @@ module State =
       | ValueNone -> model, Cmd.none
     | IssueArrived found ->
       match model.Completion.Trigger with
-      | ValueSome(IssueRef(_, digits)) when digits = found.Digits ->
+      | ValueSome(IssueRef(_, digits)) when
+        IssueNumber.value digits = found.Digits
+        ->
         {
           model with
               Completion = {
@@ -692,8 +694,11 @@ module State =
 
   /// The completion session's answers enter the program through the
   /// engine's subscription set, and the session itself retires with
-  /// it.
-  let subscribe (session: CompletionSession) (_: Model) : Sub<Msg> =
+  /// it. The view fills the lane holder with its own subscription.
+  let subscribe
+    (session: CompletionSession, lane: BehaviorSubject<Sub<Msg>>)
+    (_: Model)
+    : Sub<Msg> =
     Sub.batch [
       Sub.fromObservable
         "completion-mentions"
@@ -704,6 +709,15 @@ module State =
         (session.Issues |> Observable.map IssueArrived)
 
       Sub.ofId "completion-session" (fun _ -> session :> IDisposable)
+
+      Sub.ofId "completion-lane-holder" (fun _ -> {
+        new IDisposable with
+          member _.Dispose() =
+            lane.OnCompleted()
+            lane.Dispose()
+      })
+
+      lane.Value
     ]
 
 /// The composer's semantic regions; the view only composes these.
@@ -836,6 +850,21 @@ module Parts =
     Body: TextBox
   }
 
+  /// The props, the session, and the lane subscription one composer
+  /// view reads and fills.
+  type ViewCtx<'env
+    when 'env :> IProvideClock
+    and 'env :> IProvideNonceSource
+    and 'env :> IProvideSigner
+    and 'env :> IProvideHttp
+    and 'env :> IProvideImageCache
+    and 'env :> IProvideAttachmentSources
+    and 'env :> IProvideLogging> = {
+    Props: Props<'env>
+    Session: CompletionSession
+    Lane: BehaviorSubject<Sub<State.Msg>>
+  }
+
   /// The composer's own completion session: the site's suggestions,
   /// gated by the composer's own reply or quote context. A reply's
   /// participants change, so its composer answers every query fresh;
@@ -865,13 +894,16 @@ module Parts =
             )
         Issue =
           fun digits ->
-            Suggestions.issue(
-              props.Env,
-              {
-                KeyFile = props.Session.KeyFile
-                Number = digits
-              }
-            )
+            match IssueNumber.parse digits with
+            | ValueSome number ->
+              Suggestions.issue(
+                props.Env,
+                {
+                  KeyFile = props.Session.KeyFile
+                  Number = number
+                }
+              )
+            | ValueNone -> async { return Ok None }
         Remember = reply |> ValueOption.isNone
       },
       log
@@ -885,8 +917,11 @@ module Parts =
   /// by the body's own detach; the session's answers ride the
   /// program's subscription instead.
   let completionLane
-    (ctx: CompletionCtx<'env>, session: CompletionSession)
-    : Popup =
+    (
+      ctx: CompletionCtx<'env>,
+      session: CompletionSession,
+      lane: BehaviorSubject<Sub<State.Msg>>
+    ) : Popup =
     let props = ctx.Props
 
     let log =
@@ -1042,12 +1077,7 @@ module Parts =
             .CornerRadius(8.0)
             .Padding(4.0)
             .MaxWidth(288.0)
-            .Child(
-              ScrollViewer()
-                .Name("CompletionScroller")
-                .MaxHeight(320.0)
-                .Content(flyout)
-            )
+            .Child(flyout.Control)
         )
 
     // The lane's view-side feeds ride one keyed subscription set
@@ -1057,7 +1087,7 @@ module Parts =
     // the keys read, the flyout's open state (the house sets a popup's
     // open by hand, an observable binding never opens it), and the
     // armed row riding into view.
-    let lane =
+    let laneSub =
       Sub.ofId "completion-lane" (fun _ ->
         let queries =
           ctx.Model
@@ -1073,7 +1103,8 @@ module Parts =
           ctx.Model
           |> Observable.map(fun current ->
             match current.Completion.Trigger with
-            | ValueSome(IssueRef(_, digits)) -> ValueSome digits
+            | ValueSome(IssueRef(_, digits)) ->
+              ValueSome(IssueNumber.value digits)
             | ValueSome(Mention _)
             | ValueNone -> ValueNone)
           |> Observable.distinctUntilChanged
@@ -1092,13 +1123,9 @@ module Parts =
           |> Observable.subscribe(fun isOpen -> popup.IsOpen <- isOpen)
 
         let follow =
-          SearchParts.followArmed(
+          SearchParts.followRows(
             viewState |> Observable.map(fun current -> current.Active),
-            "CompletionRow",
-            (fun () ->
-              match TopLevel.GetTopLevel(ctx.Body) with
-              | null -> ValueNone
-              | root -> ValueSome(root :> Visual))
+            flyout.Rows
           )
 
         {
@@ -1107,13 +1134,12 @@ module Parts =
               for feed in [ queries; digits; armed; opened; follow ] do
                 feed.Dispose()
 
+              flyout.Dispose()
               latest.OnCompleted()
         })
       |> Sub.untilDetached ctx.Body
-      |> List.exactlyOne
-      |> snd
 
-    lane ignore |> ignore
+    lane.OnNext laneSub
 
     popup
 
@@ -1711,12 +1737,14 @@ module Parts =
       )
 
 let view
-  (props: Props<'env>)
-  (session: CompletionSession)
+  (ctx: Parts.ViewCtx<'env>)
   (model: IObservable<State.Model>)
   (dispatch: Dispatch<State.Msg>)
   : Control =
 
+  let props = ctx.Props
+  let session = ctx.Session
+  let lane = ctx.Lane
   let body = Parts.body(props, model, dispatch)
 
   Parts.keyLane(props, dispatch, body)
@@ -1729,7 +1757,8 @@ let view
         Dispatch = dispatch
         Body = body
       },
-      session
+      session,
+      lane
     )
 
   // No box: the composer rides the rail plain, the way the site's does
@@ -1761,13 +1790,18 @@ type Page<'env
 
   do
     let session = Parts.completionSession props
+    let lane = new BehaviorSubject<Sub<State.Msg>>(Sub.none)
 
     let program =
       Program.mkProgram
         (State.init props)
         (State.update props)
-        (view props session)
-      |> Program.withSubscription(State.subscribe session)
+        (view {
+          Props = props
+          Session = session
+          Lane = lane
+        })
+      |> Program.withSubscription(State.subscribe(session, lane))
 
     match props.Register with
     | ValueNone ->

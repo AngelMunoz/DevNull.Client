@@ -3,10 +3,29 @@ module DevNull.Client.Core.Completion
 open System
 open System.Text.RegularExpressions
 
+/// The digits of an issue reference: one to ten digits, none opening
+/// with a zero.
+type IssueNumber = { Value: string }
+
+module IssueNumber =
+  /// The digits as typed.
+  let value(number: IssueNumber) = number.Value
+
+  /// Parses the digits the server accepts: one to ten ASCII digits,
+  /// none opening with a zero.
+  let parse(raw: string) : IssueNumber voption =
+    let asciiDigits =
+      raw.Length >= 1
+      && raw.Length <= 10
+      && raw[0] <> '0'
+      && Seq.forall (fun character -> character >= '0' && character <= '9') raw
+
+    if asciiDigits then ValueSome { Value = raw } else ValueNone
+
 [<Struct>]
 type Trigger =
   | Mention of start: int * query: string
-  | IssueRef of start: int * digits: string
+  | IssueRef of start: int * digits: IssueNumber
 
 // The "@handle" being typed right before the caret, kept in step with
 // the server's own mention rules: an `@` that starts the text or
@@ -98,29 +117,51 @@ let issueAt(text: string, caret: int) =
     if followed || colored start then
       ValueNone
     else
-      ValueSome(IssueRef(start, digits))
+      match IssueNumber.parse digits with
+      | ValueSome number -> ValueSome(IssueRef(start, number))
+      | ValueNone -> ValueNone
 
 let triggerAt(text: string, caret: int) =
-  match mentionAt(text, caret) with
-  | ValueSome found -> ValueSome found
-  | ValueNone -> issueAt(text, caret)
+  if caret < 0 || caret > text.Length then
+    ValueNone
+  else
+    match mentionAt(text, caret) with
+    | ValueSome found -> ValueSome found
+    | ValueNone -> issueAt(text, caret)
 
-/// One completion's placement: where the trigger starts, the query it
-/// holds, the token that replaces it, and how far past the token the
-/// caret lands.
+/// The trigger as the text must still hold it: where it starts, the
+/// mark that opens it, and its query.
 [<Struct>]
-type Placement = {
+type Held = {
   Start: int
+  Mark: char
   Query: string
-  Token: string
-  CaretPast: int
 }
 
-/// One completion's surgery: the token takes the trigger's place, one
-/// spacing character follows unless whitespace already follows, and
-/// the caret lands `CaretPast` characters past the token.
-let completed(place: Placement, text: string) : string * int =
-  let triggerEnd = place.Start + 1 + place.Query.Length
+/// True when the text still holds the trigger: its mark at the start
+/// and its query right after it.
+let held(text: string, value: Held) =
+  value.Start >= 0
+  && value.Start + 1 + value.Query.Length <= text.Length
+  && text[value.Start] = value.Mark
+  && text.Substring(value.Start + 1, value.Query.Length) = value.Query
+
+/// One completion's surgery: what replaces the trigger, and how its
+/// caret follows the spacing.
+[<Struct>]
+type Replacement = {
+  Start: int
+  QueryLength: int
+  Token: string
+  CaretAfterSpacing: bool
+}
+
+/// The token takes the trigger's place, one spacing character follows
+/// unless whitespace already follows, and the caret lands after that
+/// spacing for an issue, or one character past the token for a
+/// mention.
+let replace(text: string, place: Replacement) =
+  let triggerEnd = place.Start + 1 + place.QueryLength
   let after = text.Substring triggerEnd
 
   let spacing =
@@ -130,78 +171,72 @@ let completed(place: Placement, text: string) : string * int =
 
   let next = text.Substring(0, place.Start) + place.Token + spacing + after
 
-  next, place.Start + place.Token.Length + place.CaretPast
+  let caret =
+    if place.CaretAfterSpacing then
+      place.Start + place.Token.Length + spacing.Length
+    else
+      place.Start + place.Token.Length + 1
 
-/// One trigger's own opening: the mark that opens it, where it starts,
-/// and the query it holds.
-let opening(trigger: Trigger) : char * int * string =
-  match trigger with
-  | Mention(start, query) -> '@', start, query
-  | IssueRef(start, digits) -> '#', start, digits
+  next, caret
 
-/// True when the index sits inside the text.
-let (|Inside|_|) (text: string) (index: int) =
-  if index >= 0 && index < text.Length then
-    Some index
-  else
-    None
+/// The caret the trigger held: the character right after its query,
+/// clamped into the text.
+let triggerCaret(text: string, trigger: Trigger) =
+  let caret =
+    match trigger with
+    | Mention(start, query) -> start + 1 + query.Length
+    | IssueRef(start, digits) -> start + 1 + (IssueNumber.value digits).Length
 
-/// True when the mark sits at the index.
-let (|Marked|_|) (text: string) (mark: char) (index: int) =
-  if index >= 0 && index < text.Length && text[index] = mark then
-    Some mark
-  else
-    None
-
-/// True when the query sits right after the index.
-let (|QueryAt|_|) (text: string) (query: string) (index: int) =
-  if
-    index >= 0
-    && index + 1 + query.Length <= text.Length
-    && text.Substring(index + 1, query.Length) = query
-  then
-    Some index
-  else
-    None
-
-/// A trigger the text still holds: its mark at the start and its query
-/// right after it.
-let (|Held|_|) (text: string) (trigger: Trigger) =
-  let mark, start, query = opening trigger
-
-  match start with
-  | Inside text at & Marked text mark _ & QueryAt text query _ ->
-    Some(at, query)
-  | _ -> None
+  min text.Length (max 0 caret)
 
 let mentionCompleted(text: string, trigger: Trigger, handle: string) =
   match trigger with
-  | Mention _ & Held text (start, query) ->
-    completed(
+  | Mention(start, query) when
+    held(
+      text,
       {
         Start = start
+        Mark = '@'
         Query = query
+      }
+    )
+    ->
+    replace(
+      text,
+      {
+        Start = start
+        QueryLength = query.Length
         Token = "@" + handle
-        CaretPast = 1
-      },
-      text
+        CaretAfterSpacing = false
+      }
     )
   | IssueRef _ // an issue reference never completes as a mention
   | Mention _ -> // the text no longer holds the trigger
-    text, text.Length
+    text, triggerCaret(text, trigger)
 
 let issueCompleted(text: string, trigger: Trigger, url: string) =
   match trigger with
-  | IssueRef _ & Held text (start, digits) ->
-    completed(
+  | IssueRef(start, digits) when
+    held(
+      text,
       {
         Start = start
-        Query = digits
+        Mark = '#'
+        Query = IssueNumber.value digits
+      }
+    )
+    ->
+    let number = IssueNumber.value digits
+
+    replace(
+      text,
+      {
+        Start = start
+        QueryLength = number.Length
         Token = url
-        CaretPast = 0
-      },
-      text
+        CaretAfterSpacing = true
+      }
     )
   | Mention _ // a mention never completes as an issue reference
   | IssueRef _ -> // the text no longer holds the trigger
-    text, text.Length
+    text, triggerCaret(text, trigger)

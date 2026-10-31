@@ -1,7 +1,7 @@
 module DevNull.Client.Search
 
 open System
-open System.Collections.Generic
+open System.Collections.Concurrent
 open System.Reactive.Subjects
 open FSharp.Control.Reactive
 open IcedTasks
@@ -61,39 +61,54 @@ let run(channel: Channel<'items, 'found>, gated: string voption) =
   | ValueNone -> ()
   | ValueSome term ->
     asyncEx {
-      let! answer = channel.Call term
+      try
+        let! answer = channel.Call term
 
-      if channel.Gate.Value = gated then
-        match answer with
-        | Ok items ->
-          channel.Found.OnNext(channel.Build term items)
+        if channel.Gate.Value = gated then
+          match answer with
+          | Ok items ->
+            channel.Found.OnNext(channel.Build term items)
 
-          channel.Log.LogDebug(
-            "The {What} search for {Term} arrived.",
-            channel.What,
-            term
-          )
-        | Error(AppError.Refused(429, _, _)) ->
-          channel.Found.OnNext(channel.Throttled term)
+            channel.Log.LogDebug(
+              "The {What} search for {Term} arrived.",
+              channel.What,
+              term
+            )
+          | Error(AppError.Refused(429, _, _)) ->
+            channel.Found.OnNext(channel.Throttled term)
 
-          channel.Log.LogWarning(
-            "The {What} search for {Term} was asked to slow down.",
-            channel.What,
-            term
-          )
-        | Error error ->
-          // A failed search counts as an empty one, the way the site's
-          // own never waits on one forever.
+            channel.Log.LogWarning(
+              "The {What} search for {Term} was asked to slow down.",
+              channel.What,
+              term
+            )
+          | Error error ->
+            // A failed search counts as an empty one, the way the site's
+            // own never waits on one forever.
+            channel.Found.OnNext(channel.Empty term)
+
+            channel.Log.LogWarning(
+              "The {What} search for {Term} failed: {Error}",
+              channel.What,
+              term,
+              bounded 300 (describe error)
+            )
+      with ex ->
+        if channel.Gate.Value = gated then
           channel.Found.OnNext(channel.Empty term)
 
-          channel.Log.LogWarning(
-            "The {What} search for {Term} failed: {Error}",
-            channel.What,
-            term,
-            bounded 300 (describe error)
-          )
+        channel.Log.LogWarning(
+          ex,
+          "The {What} search for {Term} failed.",
+          channel.What,
+          term
+        )
     }
     |> Async.Start
+
+/// The newest term after its window. The same term again is quiet.
+let timed (window: TimeSpan) (source: IObservable<string voption>) =
+  source |> Observable.distinctUntilChanged |> Observable.throttle window
 
 /// One surface's searches.
 type Session
@@ -185,8 +200,7 @@ type Session
 
   let pipeOf(channel: Channel<'items, 'found>, window: TimeSpan) =
     channel.Gate
-    |> Observable.distinctUntilChanged
-    |> Observable.throttle window
+    |> timed window
     |> Observable.subscribe(fun gated -> run(channel, gated))
 
   let peoplePipe = pipeOf(peopleChannel, peopleWindow)
@@ -272,19 +286,19 @@ type CompletionSession(calls: CompletionCalls, log: ILogger) =
       Throttled = false
     }
 
-  let memory = Dictionary<string, MentionResults>()
+  let memory = ConcurrentDictionary<string, MentionResults>()
 
   // The call remembers its own answer before it publishes, so the
   // pipe below can serve the repeat from memory.
   let callMentions(query: string) = async {
-    let! answer = calls.Mentions query
+    match! calls.Mentions query with
+    | Ok results as answer ->
+      // A reply's composer answers every query fresh.
+      if calls.Remember then
+        memory[query] <- results
 
-    match answer, calls.Remember with
-    | Ok results, true -> memory[query] <- results
-    | Ok _, false -> () // a reply's composer answers every query fresh
-    | Error _, _ -> () // a failed read is not remembered
-
-    return answer
+      return answer
+    | Error _ as answer -> return answer // a failed read is not remembered
   }
 
   let mentionChannel: Channel<MentionResults, MentionsFound> = {
@@ -338,27 +352,36 @@ type CompletionSession(calls: CompletionCalls, log: ILogger) =
   // plain gated pipe the search session runs.
   let mentionPipe =
     mentionGate
-    |> Observable.distinctUntilChanged
-    |> Observable.throttle peopleWindow
+    |> Observable.filter(fun gated -> gated <> ValueSome "")
+    |> timed peopleWindow
     |> Observable.subscribe(fun gated ->
       match gated with
-      | ValueSome query when calls.Remember && memory.ContainsKey query ->
-        mentionFound.OnNext(mentionChannel.Build query memory[query])
+      | ValueSome query when mentionGate.Value = gated && calls.Remember ->
+        match memory.TryGetValue query with
+        | true, results ->
+          mentionFound.OnNext(mentionChannel.Build query results)
 
-        log.LogDebug(
-          "The mention completion for {Query} answered from memory.",
-          query
-        )
+          log.LogDebug(
+            "The mention completion for {Query} answered from memory.",
+            query
+          )
+        | false, _ -> run(mentionChannel, gated)
       | _ -> run(mentionChannel, gated))
 
   let issuePipe =
     issueGate
-    |> Observable.distinctUntilChanged
-    |> Observable.throttle peopleWindow
+    |> timed peopleWindow
     |> Observable.subscribe(fun gated -> run(issueChannel, gated))
 
-  /// The mention query as typed; the same query again asks nothing.
-  member _.Set(query: string voption) = mentionGate.OnNext query
+  /// The mention query as typed; the same query again asks nothing,
+  /// and a bare `@` asks without the pause.
+  member _.Set(query: string voption) =
+    if mentionGate.Value <> query then
+      mentionGate.OnNext query
+
+      match query with
+      | ValueSome "" -> run(mentionChannel, query)
+      | _ -> ()
 
   /// The issue digits as typed; the same digits again ask nothing.
   member _.SetIssue(digits: string voption) = issueGate.OnNext digits

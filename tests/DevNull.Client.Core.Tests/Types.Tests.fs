@@ -140,6 +140,22 @@ let tests =
       | _ -> failtest "expected InvalidCommitId"
     }
 
+    test "a language code keeps its own casing" {
+      let parsed: Result<string<LanguageCode>, TestError> =
+        LanguageCodes.parse "zh-Hans"
+
+      match parsed with
+      | Ok code -> Expect.equal "zh-Hans" (LanguageCodes.value code) "kept"
+      | Error _ -> failtest "expected Ok"
+    }
+
+    test "a language with spaces or symbols fails" {
+      match LanguageCodes.parse "not a language" with
+      | Error(InvalidLanguageCode raw) ->
+        Expect.equal "not a language" raw "the raw input travels"
+      | _ -> failtest "expected InvalidLanguageCode"
+    }
+
     test "a nonce without exactly 32 hex characters fails" {
       match Nonces.parse "00112233445566778899aabbccddeef" with
       | Error(MalformedNonce _) -> ()

@@ -19,6 +19,7 @@
     <Compile Include="Scheduled.Tests.fs" />
     <Compile Include="Shortcuts.Tests.fs" />
     <Compile Include="WhoToFollow.Tests.fs" />
+    <Compile Include="Translation.Tests.fs" />
     <Compile Include="Leaks.Tests.fs" />
     <Compile Include="RemotesView.Tests.fs" />
     <Compile Include="Program.fs" />

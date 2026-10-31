@@ -21,6 +21,7 @@ let main args =
       Tests.Api.pollTests
       Tests.Api.accountApiTests
       Tests.Api.devicesTests
+      Tests.Api.settingsTests
       Tests.Api.listApiTests
       Tests.Api.actionApiTests
       Tests.RemotesApi.tests

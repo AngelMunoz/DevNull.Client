@@ -3,6 +3,7 @@ module DevNull.Client.Views.LogView
 open System
 open Avalonia.Controls
 open DevNull.Client.AttachmentSources
+open DevNull.Client.Components
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
@@ -15,6 +16,8 @@ open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.Timeline
 open DevNull.Client.UiClock
+open DevNull.Client.UserSettingsStore
+open DevNull.Client.TranslationCache
 open MVUish.Avalonia
 open Navs
 
@@ -33,6 +36,8 @@ type Props<'env
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
   and 'env :> IProvideSshKeys
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
   and 'env :> IProvideLogging> = {
   Env: 'env
   Log: LogKind
@@ -100,6 +105,12 @@ module State =
     /// The thread previews the page grew past the payload slice, by
     /// parent id.
     Previews: Map<string, PreviewState>
+    /// Whether translations show by themselves.
+    Automatic: bool
+    /// Every commit's translation on this page.
+    Translations: Translation.Book
+    /// Whether the page already asked for its automatic translations.
+    AutoRan: bool
   }
 
   /// The messages of the log page, including the since-poll pair.
@@ -126,6 +137,12 @@ module State =
     | PollVotedDone of Result<Commit, AppError>
     | PreviewMoreRequested of Commit
     | PreviewLoaded of commitId: string * Result<Page<CommitNode>, AppError>
+    | TranslateRequested of Commit
+    | OriginalRequested of Commit
+    | TranslationDone of Commit * Result<TranslationPayload, AppError>
+    | TranslationsAuto of (Commit * Result<TranslationPayload, AppError>) list
+    | TranslationRecalled of Commit * Translation.Book option
+    | PrefsArrived of settings: UserSettings option
 
   /// The fresh page state.
   val initial: Model
@@ -172,6 +189,8 @@ type Page<'env
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
   and 'env :> IProvideSshKeys
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
   and 'env :> IProvideLogging> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

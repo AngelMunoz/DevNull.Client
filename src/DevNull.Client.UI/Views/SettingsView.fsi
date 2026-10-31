@@ -6,6 +6,7 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Env
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
+open DevNull.Client.UserSettingsStore
 open Navs
 
 /// The account settings: lane, pastéis mode, the GitHub sync, the
@@ -18,6 +19,7 @@ type Props<'env
   and 'env :> IProvideHttp
   and 'env :> IProvideSession
   and 'env :> IProvideSettings
+  and 'env :> IProvideUserSettings
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
@@ -35,6 +37,7 @@ type Page<'env
   and 'env :> IProvideHttp
   and 'env :> IProvideSession
   and 'env :> IProvideSettings
+  and 'env :> IProvideUserSettings
   and 'env :> IProvideLogging> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

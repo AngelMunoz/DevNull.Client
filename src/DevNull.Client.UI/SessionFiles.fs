@@ -122,6 +122,10 @@ let saveSession
 
     json.["unread"] <- JsonValue.Create session.UnreadNotificationsCount
     json.["pasteis_mode"] <- JsonValue.Create session.PasteisMode
+
+    json.["automatic_translation"] <-
+      JsonValue.Create session.AutomaticTranslation
+
     json.["device_fingerprint"] <- JsonValue.Create session.DeviceFingerprint
     json.["terms_version"] <- JsonValue.Create session.TermsVersion
 
@@ -211,6 +215,10 @@ let loadSession(log: ILogger) : Async<DeviceSession option> = asyncEx {
           }
           UnreadNotificationsCount = unread
           PasteisMode = tryBool "pasteis_mode" root |> Option.defaultValue false
+          // A session stored before the setting exists follows the server's
+          // own default: translations show by themselves.
+          AutomaticTranslation =
+            tryBool "automatic_translation" root |> Option.defaultValue true
           // A session stored before the fingerprint exists reads as
           // unknown; the next sign-in stamps it.
           DeviceFingerprint =

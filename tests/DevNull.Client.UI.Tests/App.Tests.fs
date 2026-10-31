@@ -4982,6 +4982,7 @@ let tests =
             Poll = None
             LinkPreview = None
             ReplyPreview = None
+            Translation = None
           }
 
           // The row sits in a 360-wide host: the identity line must trim

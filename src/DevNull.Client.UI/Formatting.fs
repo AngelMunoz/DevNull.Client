@@ -3,6 +3,51 @@ module DevNull.Client.Formatting
 open System
 open System.Globalization
 open System.Text.RegularExpressions
+open DevNull.Client.Core.ApiTypes
+
+/// One zone the person's times show in: the zone itself, and the name the
+/// settings carry for it (an IANA id).
+[<Struct>]
+type Zone = { Info: TimeZoneInfo; Label: string }
+
+/// The zone the person's own times show in: their chosen one, or the
+/// device's, named by its IANA id when the machine knows one.
+let zoneOf(settings: UserSettings option) : Zone =
+  let local =
+    if TimeZoneInfo.Local.Id.Contains '/' then
+      TimeZoneInfo.Local.Id
+    else
+      match TimeZoneInfo.TryConvertWindowsIdToIanaId TimeZoneInfo.Local.Id with
+      | true, iana ->
+        Option.ofObj iana |> Option.defaultValue TimeZoneInfo.Local.Id
+      | false, _ -> TimeZoneInfo.Local.Id
+
+  let id =
+    settings
+    |> Option.bind(fun settings ->
+      match settings.Timezone with
+      | ZoneOf(id, _) -> Some id
+      | FollowDevice -> None)
+    |> Option.defaultValue local
+
+  let info =
+    try
+      TimeZoneInfo.FindSystemTimeZoneById id
+    with _ ->
+      TimeZoneInfo.Local
+
+  { Info = info; Label = id }
+
+/// One past moment as the zone shows it: "Sat, Oct 31, 2026 11:00
+/// (America/Denver)".
+let absolute(zone: Zone, moment: DateTimeOffset) : string =
+  let zoned = TimeZoneInfo.ConvertTime(moment, zone.Info)
+
+  let stamp =
+    zoned.ToString("ddd, MMM d, yyyy HH:mm", CultureInfo.InvariantCulture)
+
+  $"{stamp} ({zone.Label})"
+
 
 let timeAgo(now: DateTimeOffset, at: DateTimeOffset) : string =
   let span = now - at

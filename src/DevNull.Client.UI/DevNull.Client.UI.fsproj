@@ -45,6 +45,10 @@
     <Compile Include="SshKeys.fs" />
     <Compile Include="Unread.fsi" />
     <Compile Include="Unread.fs" />
+    <Compile Include="UserSettingsStore.fsi" />
+    <Compile Include="UserSettingsStore.fs" />
+    <Compile Include="TranslationCache.fsi" />
+    <Compile Include="TranslationCache.fs" />
     <Compile Include="Timeline.fsi" />
     <Compile Include="Timeline.fs" />
     <Compile Include="Search.fsi" />
@@ -85,6 +89,8 @@
     <Compile Include="Components\UserFlyout.fs" />
     <Compile Include="Components\WhoToFollow.fsi" />
     <Compile Include="Components\WhoToFollow.fs" />
+    <Compile Include="Components\Translation.fsi" />
+    <Compile Include="Components\Translation.fs" />
     <Compile Include="Components\CommitCard.fsi" />
     <Compile Include="Components\CommitCard.fs" />
     <Compile Include="Components\SearchParts.fsi" />

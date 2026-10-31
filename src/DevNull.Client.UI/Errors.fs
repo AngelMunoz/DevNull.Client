@@ -12,6 +12,7 @@ type AppError =
   | InvalidShortHash of raw: string
   | InvalidCommitReference of raw: string
   | InvalidCommitId of raw: string
+  | InvalidLanguageCode of raw: string
   | TooManyImages of count: int
   | ImageTooLarge of fileName: string * size: int
   | UnsupportedImage of fileName: string
@@ -70,6 +71,9 @@ type AppError =
 
   interface CommitIdError<AppError> with
     static member InvalidCommitId raw = InvalidCommitId raw
+
+  interface LanguageCodeError<AppError> with
+    static member InvalidLanguageCode raw = InvalidLanguageCode raw
 
   interface NonceError<AppError> with
     static member MalformedNonce raw = MalformedNonce raw
@@ -152,6 +156,7 @@ let describe error =
   | InvalidShortHash raw -> $"{raw} is not a commit hash."
   | InvalidCommitReference raw -> $"{raw} is not a commit hash, id, or link."
   | InvalidCommitId raw -> $"{raw} is not a commit id."
+  | InvalidLanguageCode raw -> $"{raw} is not a language code."
   | TooManyImages count -> $"A commit allows at most 3 images, got {count}."
   | ImageTooLarge(fileName, size) ->
     $"{fileName} is larger than 10 MB, got {size} bytes."

@@ -1,6 +1,20 @@
 module DevNull.Client.Formatting
 
 open System
+open DevNull.Client.Core.ApiTypes
+
+/// One zone the person's times show in: the zone itself, and the name the
+/// settings carry for it (an IANA id).
+[<Struct>]
+type Zone = { Info: TimeZoneInfo; Label: string }
+
+/// The zone the person's own times show in: their chosen one, or the
+/// device's, named by its IANA id when the machine knows one.
+val zoneOf: settings: UserSettings option -> Zone
+
+/// One past moment as the zone shows it: "Sat, Oct 31, 2026 11:00
+/// (America/Denver)".
+val absolute: zone: Zone * moment: DateTimeOffset -> string
 
 /// One past moment as "now", "5m", "3h", "2d", or the date, the way the
 /// web client shows commit times.

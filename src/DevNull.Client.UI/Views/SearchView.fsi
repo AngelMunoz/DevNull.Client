@@ -14,6 +14,8 @@ open DevNull.Client.Search
 open DevNull.Client.Stores
 open DevNull.Client.Timeline
 open DevNull.Client.UiClock
+open DevNull.Client.UserSettingsStore
+open DevNull.Client.TranslationCache
 
 /// Everything the search page reads: the env it searches through, the
 /// signed account, the term the route opened with (`?q=`), the recents
@@ -30,6 +32,8 @@ type Props<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
   and 'env :> IProvideLogging> = {
   Env: 'env
   SignedIn: SignedInSession
@@ -52,6 +56,8 @@ type Page<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
   and 'env :> IProvideLogging> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

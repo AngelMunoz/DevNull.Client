@@ -26,6 +26,7 @@ open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.Icons
 open DevNull.Client.ImageCache
+open DevNull.Client.Formatting
 open DevNull.Client.Navigation
 open DevNull.Client.Profiles
 open DevNull.Client.RecentSearchStore
@@ -34,6 +35,8 @@ open DevNull.Client.Stores
 open DevNull.Client.Theme
 open DevNull.Client.Timeline
 open DevNull.Client.UiClock
+open DevNull.Client.UserSettingsStore
+open DevNull.Client.TranslationCache
 
 /// Everything the search page reads: the env it searches through, the
 /// signed account, the term the route opened with, the recents it
@@ -48,6 +51,8 @@ type Props<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
   and 'env :> IProvideLogging> = {
   Env: 'env
   SignedIn: SignedInSession
@@ -68,6 +73,10 @@ module State =
     Answer: CommitsFound voption
     Now: DateTimeOffset
     Recents: string list
+    /// Whether translations show by themselves.
+    Automatic: bool
+    /// Every commit's translation on this page.
+    Translations: Translation.Book
   }
 
   type Msg =
@@ -80,6 +89,8 @@ module State =
     | StarDone of Result<Commit, AppError>
     | PollVotedDone of Result<Commit, AppError>
     | ClockTicked of moment: DateTimeOffset
+    | TranslationDone of Commit * Result<TranslationPayload, AppError>
+    | TranslationRecalled of Commit * Translation.Book option
 
   let initial (props: Props<'env>) () : Model * Cmd<Msg> =
     let term = props.Term.Trim()
@@ -89,6 +100,11 @@ module State =
       Answer = ValueNone
       Now = DateTimeOffset.UtcNow
       Recents = props.Recents.Recent(props.SignedIn.Session.User.Id)
+      Automatic = props.SignedIn.Session.AutomaticTranslation
+      Translations =
+        Translation.seed(
+          (props.Env :> IProvideTranslations).Translations.Snapshot()
+        )
     }
 
     if term = "" then
@@ -116,6 +132,28 @@ module State =
   let searching(model: Model) : bool =
     SearchTerms.commitTerm model.Term |> ValueOption.isSome
     && (answerOf model).Term = ""
+
+  /// Runs one commit's translate call: the language its own translation or
+  /// the settings pick, and the 503 retries.
+  let translate(props: Props<'env>, commit: Commit) =
+    let language =
+      Translation.languageFor(
+        (props.Env :> IProvideUserSettings).UserSettings.Current,
+        commit
+      )
+
+    Translation.execute(
+      Translation.retryDelays,
+      fun () ->
+        Commits.translate(
+          props.Env,
+          {
+            KeyFile = props.SignedIn.KeyFile
+            CommitId = commit.Id
+            Language = language
+          }
+        )
+    )
 
   let update (props: Props<'env>) msg (model: Model) =
     let log = props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Search"
@@ -178,6 +216,42 @@ module State =
           )
 
         model, Cmd.OfAsync.perform vote () PollVotedDone
+    | CardEvent(CommitCard.TranslateRequested commit) when
+      Translation.canReuse(model.Translations, commit)
+      ->
+      {
+        model with
+            Translations =
+              Translation.showTranslated(model.Translations, commit.Id)
+      },
+      Cmd.none
+    | CardEvent(CommitCard.TranslateRequested commit) ->
+      model,
+      Cmd.OfAsync.perform
+        Translation.recall
+        ((props.Env :> IProvideTranslations).Translations,
+         model.Translations,
+         commit.Id)
+        (fun book -> TranslationRecalled(commit, book))
+    | TranslationRecalled(commit, book) ->
+      match book with
+      | Some book -> { model with Translations = book }, Cmd.none
+      | None when Set.contains commit.Id model.Translations.Busy ->
+        model, Cmd.none
+      | None ->
+        {
+          model with
+              Translations = Translation.request(model.Translations, commit.Id)
+        },
+        Cmd.OfAsync.perform translate (props, commit) (fun result ->
+          TranslationDone(commit, result))
+    | CardEvent(CommitCard.OriginalRequested commit) ->
+      {
+        model with
+            Translations =
+              Translation.showOriginal(model.Translations, commit.Id)
+      },
+      Cmd.none
     | CardEvent _ -> model, Cmd.none
     | StarDone result ->
       match result with
@@ -194,6 +268,25 @@ module State =
           log.LogDebug("The vote on {Commit} landed.", updated.Id))
       | Error error -> model, failed "the poll vote" error
     | ClockTicked moment -> { model with Now = moment }, Cmd.none
+    | TranslationDone(commit, result) ->
+      let args: Translation.Finish = {
+        Book = model.Translations
+        Now = model.Now
+        CommitId = commit.Id
+        Result = result
+      }
+
+      {
+        model with
+            Translations = Translation.finish args
+      },
+      Cmd.ofAction(fun () ->
+        Async.Start(
+          Translation.store(
+            (props.Env :> IProvideTranslations).Translations,
+            args
+          )
+        ))
 
   /// The page's inlets: its session's commit channel and the clock.
   let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
@@ -378,6 +471,17 @@ let view
         Cache = props.Env.ImageCache
       }
     Pin = ValueNone
+    Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
+    Translation =
+      model
+      |> Observable.map(fun model ->
+        fun commit ->
+          Translation.view {
+            Automatic = model.Automatic
+            Book = model.Translations
+            Now = model.Now
+            Commit = commit
+          })
   }
 
   let body =
@@ -451,6 +555,8 @@ type Page<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 

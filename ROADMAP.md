@@ -44,17 +44,18 @@ own.
   on its release.
 - Phase 10 — who to follow — has landed in the working tree and waits on its
   release.
+- Phase 11 — user settings, timezone, and translations — has landed in the
+  working tree and waits on its release.
 - Production was pulled and audited again on 2026-10-29, after the server's
   10-28/10-29 burst. Every contract below still stands as written, and the
   server's CLI contract has not changed since 2026-10-19.
-- The rest of the server's 2026-10-26 to 2026-10-29 burst (translations,
-  organization pages, user settings) is absent from Core and lands phase by
-  phase below; Phase 11 — user settings, timezone, and translations — is next.
+- The organization pages of the server's 2026-10-26 to 2026-10-29 burst are
+  absent from Core and land phase by phase below; Phase 12 — org message
+  pins and public organizations — is next.
 - The burst also shipped past this roadmap, and the audit folded its
   client-side remainder in: live users and the first-commit notification
-  (Phase 13), follower and following list pages (Phase 14), the commit
-  mention's organization kind (Phase 12), and the settings' show-local-time
-  choice (Phase 11).
+  (Phase 13), follower and following list pages (Phase 14), and the commit
+  mention's organization kind (Phase 12).
 - Two spikes cover installation: scoop and winget on Windows (Phase 15),
   flatpak on Linux (Phase 16). The AOT single-file publish makes both
   manifests a thin wrapper over the release artifacts.
@@ -307,6 +308,8 @@ beside profiles and commits with the same context calls.
 a spare; refresh advances the round.
 
 ## Phase 11 — User settings, timezone, and translations
+
+*Landed.*
 
 **Server reference:** the user-settings controller (timezone, the follow-the-
 device language, automatic translation, the pickable languages with their

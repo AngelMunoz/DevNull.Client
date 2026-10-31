@@ -1,6 +1,7 @@
 module DevNull.Client.Core.Api
 
 open System
+open System.Globalization
 open System.Text
 open FSharp.UMX
 open JDeck
@@ -30,6 +31,15 @@ let NamespaceName = "devnull-api"
 
 [<Literal>]
 let ImagesNamespaceName = "devnull-api-images"
+
+/// The device's language as RFC 4647 carries it: the app's UI culture.
+/// The server translates commits into this language when the person
+/// follows the device. Read per request: the culture can change while
+/// the app runs.
+let acceptLanguage() =
+  let name = CultureInfo.CurrentUICulture.Name
+
+  if String.IsNullOrWhiteSpace name then "en" else name
 
 module Signing =
 
@@ -97,6 +107,7 @@ module Signing =
       Target = request.Target
       Headers = [
         "User-Agent", userAgent
+        "Accept-Language", acceptLanguage()
         "X-Devnull-Timestamp", string timestamp
         "X-Devnull-Nonce", Nonces.value nonce
         "X-SSH-Signature", signature
@@ -562,6 +573,96 @@ module Me =
       }
     )
 
+  type SettingsRequest = { KeyFile: string }
+
+  type TimezoneRequest = {
+    KeyFile: string
+    Timezone: TimezoneSetting
+  }
+
+  type AutomaticTranslationRequest = { KeyFile: string; Enabled: bool }
+
+  type TranslationLanguageRequest = {
+    KeyFile: string
+    Language: TranslationLanguage option
+  }
+
+  let settings(env, request: SettingsRequest) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target = "/api/v1/me/settings"
+        Body = ""
+        Decode = UserSettings.decode
+      }
+    )
+
+  let setTimezone(env, request: TimezoneRequest) =
+    let body =
+      match request.Timezone with
+      | FollowDevice ->
+        Json.object [
+          "timezone", Encode.Null()
+          "show_local_time", Encode.boolean false
+        ]
+        |> _.ToJsonString()
+      | ZoneOf(id, showLocalTime) ->
+        Json.object [
+          "timezone", Encode.string id
+          "show_local_time", Encode.boolean showLocalTime
+        ]
+        |> _.ToJsonString()
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "PUT"
+        Target = "/api/v1/me/timezone"
+        Body = body
+        Decode = Me.decode
+      }
+    )
+
+  let setAutomaticTranslation(env, request: AutomaticTranslationRequest) =
+    let body =
+      Json.object(List.singleton("enabled", Encode.boolean request.Enabled))
+      |> _.ToJsonString()
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "PUT"
+        Target = "/api/v1/me/automatic-translation"
+        Body = body
+        Decode = Me.decode
+      }
+    )
+
+  let setTranslationLanguage(env, request: TranslationLanguageRequest) =
+    let body =
+      let language =
+        request.Language
+        |> Option.map(fun language -> Encode.string language.Code)
+        |> Option.defaultValue(Encode.Null())
+
+      Json.object(List.singleton("translation_language", language))
+      |> _.ToJsonString()
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "PUT"
+        Target = "/api/v1/me/translation-language"
+        Body = body
+        Decode = Me.decode
+      }
+    )
+
 module Devices =
 
   type Request = { KeyFile: string }
@@ -880,6 +981,12 @@ module Commits =
 
   type PreviewRequest = { KeyFile: string; Body: string }
 
+  type TranslateRequest = {
+    KeyFile: string
+    CommitId: string
+    Language: string<LanguageCode>
+  }
+
   let validateDetails<'e when ReportDetailsError<'e>>
     (details: string option)
     : Result<string option, 'e> =
@@ -1182,6 +1289,40 @@ module Commits =
           Target = "/api/v1/commits/preview"
           Body = json
           Decode = CommitPreview.decode
+        }
+      )
+  }
+
+  let translate(env, request: TranslateRequest) = asyncResult {
+    let! commitId = CommitIds.parse request.CommitId
+
+    let body =
+      Json.object(
+        List.singleton(
+          "language",
+          Encode.string(LanguageCodes.value request.Language)
+        )
+      )
+      |> _.ToJsonString()
+
+    return!
+      Internal.sendSigned(
+        env,
+        {
+          KeyFile = request.KeyFile
+          Method = "POST"
+          Target =
+            "/api/v1/commits/"
+            + Uri.EscapeDataString(CommitIds.value commitId)
+            + "/translation"
+          Body = body
+          Decode =
+            fun answer ->
+              CommitTranslation.decode answer
+              |> Result.map(fun translation -> {
+                Translation = translation
+                Json = answer
+              })
         }
       )
   }

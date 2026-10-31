@@ -34,6 +34,8 @@ open DevNull.Client.UiClock
 open DevNull.Client.Timeline
 open DevNull.Client.RouteStore
 open DevNull.Client.Unread
+open DevNull.Client.UserSettingsStore
+open DevNull.Client.TranslationCache
 open DevNull.Client.Remotes
 
 type SystemClock() =
@@ -378,6 +380,27 @@ type AppEnv
       logging.CreateLogger "DevNull.Client.Unread"
     )
 
+  let userSettings =
+    UserSettingsStore(
+      session,
+      (fun () ->
+        match session.SignedIn with
+        | ValueSome current -> Me.settings(this, { KeyFile = current.KeyFile })
+        | ValueNone -> async { return Error(SignInFailed "signed out") }),
+      logging.CreateLogger "DevNull.Client.UserSettings"
+    )
+
+  let translations =
+    TranslationCache(
+      Path.Combine(
+        Environment.GetFolderPath Environment.SpecialFolder.LocalApplicationData,
+        "DevNull",
+        "cache",
+        "translations"
+      ),
+      logging.CreateLogger "DevNull.Client.TranslationCache"
+    )
+
   let remotes =
     RemotesStore(
       {
@@ -423,6 +446,12 @@ type AppEnv
 
   interface IProvideUnread with
     member _.Unread = unread
+
+  interface IProvideUserSettings with
+    member _.UserSettings = userSettings
+
+  interface IProvideTranslations with
+    member _.Translations = translations
 
   interface IProvideRemotes with
     member _.Remotes = remotes

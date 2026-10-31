@@ -57,6 +57,20 @@ type MentionResults = {
   Organizations: Organization list
 }
 
+/// One language commits may be translated into, as the settings list it:
+/// the code the server takes, its English name, and its own name.
+type TranslationLanguage = {
+  Code: string
+  Name: string
+  NativeName: string
+}
+
+/// Where the person's times show, as the server keeps it: the device's
+/// own zone, or a chosen zone that may also show on the profile.
+type TimezoneSetting =
+  | FollowDevice
+  | ZoneOf of id: string * showLocalTime: bool
+
 /// One image on a commit, as the signed API returns it.
 type Image = {
   Id: string
@@ -91,6 +105,35 @@ type Mention = {
   Handle: string
   Offset: int
   Length: int
+}
+
+/// One body as a translation carries it: the segments a page shows.
+type TranslatedBody = {
+  BodySegments: Segment list
+  PreviewSegments: Segment list option
+}
+
+/// One commit in the language the person asked for, as the site shows it.
+type CommitTranslation = {
+  /// The language this translation is in.
+  Language: string
+  /// The language the commit was written in, when the site knows it.
+  SourceLanguage: string option
+  /// The source language's English name, for the notice.
+  SourceName: string option
+  /// True when the commit is in another language than the one asked for,
+  /// so there is something to translate.
+  Available: bool
+  /// The translated body, or none while the site still works on it.
+  Translated: TranslatedBody option
+}
+
+/// One translation as the server answered it: the value a page shows, and
+/// the server's own JSON for the disk tier.
+[<Struct>]
+type TranslationPayload = {
+  Translation: CommitTranslation option
+  Json: string
 }
 
 /// One embed inside a link preview.
@@ -166,6 +209,8 @@ type Commit = {
   Poll: Poll option
   LinkPreview: LinkPreview option
   ReplyPreview: ReplyPreview option
+  /// The commit in the person's own language, when translations are on.
+  Translation: CommitTranslation option
 }
 
 /// A commit or a tombstone, as lists and ancestors return them.
@@ -756,6 +801,8 @@ type DeviceSession = {
   DeviceFingerprint: string
   UnreadNotificationsCount: int
   PasteisMode: bool
+  /// Whether translated bodies show by themselves, from the settings read.
+  AutomaticTranslation: bool
   TermsVersion: string
   TermsAccepted: bool option
   Remotes: MeRemotes option
@@ -769,6 +816,20 @@ type CommitPreview = {
   PreviewSegments: Segment list option
   Mentions: Mention list
 }
+
+/// What the settings read carries: where times show, the language commits
+/// are translated into, whether translations show by themselves, and the
+/// languages the person may pick from.
+type UserSettings = {
+  Timezone: TimezoneSetting
+  TranslationLanguage: TranslationLanguage option
+  AutomaticTranslation: bool
+  Languages: TranslationLanguage list
+}
+
+module UserSettings =
+  /// Reads the `{data: ...}` envelope of GET /api/v1/me/settings.
+  val decode: body: string -> Result<UserSettings, DecodeFailure>
 
 /// The signed-in account, as GET /api/v1/me returns it.
 type Me = {
@@ -813,6 +874,12 @@ module Failure =
 module Commit =
   /// Reads the `{data: commit}` envelope of POST /api/v1/commits.
   val decodeCreated: body: string -> Result<Commit, DecodeFailure>
+
+module CommitTranslation =
+  /// Reads the `{translation: ...}` envelope of POST
+  /// /api/v1/commits/{commit}/translation. The body carries no
+  /// translation when the site has none to show.
+  val decode: body: string -> Result<CommitTranslation option, DecodeFailure>
 
 module CommitPage =
   /// Reads the `{data: commit, ancestors: [...]}` envelope of GET /api/v1/commits/{commit}.

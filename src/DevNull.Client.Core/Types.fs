@@ -125,6 +125,26 @@ module CommitIds =
     | true, id -> Ok(UMX.tag<CommitId>(id.ToString "D"))
     | false, _ -> Error('e.InvalidCommitId raw)
 
+type LanguageCodeError<'e> =
+  static abstract InvalidLanguageCode: raw: string -> 'e
+
+module LanguageCodes =
+
+  let inline value(code: string<LanguageCode>) = UMX.untag code
+
+  /// The language the server falls back to when none is named.
+  let english = UMX.tag<LanguageCode> "en"
+
+  let parse<'e when LanguageCodeError<'e>>
+    (raw: string)
+    : Result<string<LanguageCode>, 'e> =
+    let code = raw.Trim()
+
+    if Regex.IsMatch(code, "^[a-zA-Z0-9-]{2,35}$") then
+      Ok(UMX.tag<LanguageCode> code)
+    else
+      Error('e.InvalidLanguageCode raw)
+
 type NonceError<'e> =
   static abstract MalformedNonce: raw: string -> 'e
 

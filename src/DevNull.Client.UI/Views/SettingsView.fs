@@ -1,15 +1,18 @@
 module DevNull.Client.Views.SettingsView
 
 open System
+open System.Globalization
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Media
 open Avalonia.Layout
 open NXUI.Extensions
 open IcedTasks
+open FSharp.Control.Reactive
 open MVUish.Avalonia
 open Navs
 open DevNull.Client
+open DevNull.Client.Components
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
@@ -18,6 +21,7 @@ open DevNull.Client.Errors
 open DevNull.Client.Env
 open Microsoft.Extensions.Logging
 open DevNull.Client.Navigation
+open DevNull.Client.UserSettingsStore
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
 open DevNull.Client.Theme
@@ -29,6 +33,7 @@ type Props<'env
   and 'env :> IProvideHttp
   and 'env :> IProvideSession
   and 'env :> IProvideSettings
+  and 'env :> IProvideUserSettings
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
@@ -50,6 +55,21 @@ module State =
     Busy: bool
     /// The local machine preferences, live from the settings store.
     Settings: AppSettings
+    /// The server settings: the timezone, the language commits are
+    /// translated into, automatic translation, and the languages.
+    Prefs: UserSettings option
+    /// The zone the picker holds, or none to follow the device.
+    ZonePick: string option
+    /// Whether the profile shows the local time.
+    ZoneShowLocal: bool
+    /// The time zone picker's search text.
+    ZoneQuery: string
+    /// The language the picker holds, or none to follow the device.
+    LanguagePick: TranslationLanguage option
+    /// The language picker's search text.
+    LanguageQuery: string
+    /// One settings write in flight.
+    Saving: bool
   }
 
   type Msg =
@@ -65,6 +85,18 @@ module State =
     | CloseToTraySet of enabled: bool
     | ThemeChosen of choice: ThemeChoice
     | SettingsChanged of settings: AppSettings
+    | PrefsArrived of settings: UserSettings option
+    | ZonePicked of id: string option
+    | ZoneQueryChanged of text: string
+    | ShowLocalToggled of show: bool
+    | LanguagePicked of code: string option
+    | LanguageQueryChanged of text: string
+    | SaveTimezone
+    | TimezoneSaved of Result<Me, AppError> * TimezoneSetting
+    | SaveLanguage
+    | LanguageSaved of Result<Me, AppError> * TranslationLanguage option
+    | AutomaticToggled of enabled: bool
+    | AutomaticSaved of Result<Me, AppError> * enabled: bool
 
   let initial = {
     Me = None
@@ -79,6 +111,13 @@ module State =
       ChatDrafts = Map.empty
       VoiceVolume = 1.0
     }
+    Prefs = None
+    ZonePick = None
+    ZoneShowLocal = false
+    ZoneQuery = ""
+    LanguagePick = None
+    LanguageQuery = ""
+    Saving = false
   }
 
   let fetchMe(env, session: SignedInSession) =
@@ -87,14 +126,42 @@ module State =
   let fetchDevices(env, session: SignedInSession) =
     Devices.list(env, { KeyFile = session.KeyFile })
 
+  /// The zone a saved setting holds, or none to follow the device.
+  let zoneOf(prefs: UserSettings) : string option =
+    match prefs.Timezone with
+    | ZoneOf(id, _) -> Some id
+    | FollowDevice -> None
+
+  /// Whether a saved setting shows the local time.
+  let showLocalOf(prefs: UserSettings) : bool =
+    match prefs.Timezone with
+    | ZoneOf(_, show) -> show
+    | FollowDevice -> false
+
+  /// Keeps the settings the server just saved, so every page follows.
+  let applyPrefs(props: Props<'env>, prefs: UserSettings option) =
+    prefs
+    |> Option.iter(fun prefs ->
+      (props.Env :> IProvideUserSettings).UserSettings.Apply prefs)
+
   let init (props: Props<'env>) () =
+    let store = (props.Env :> IProvideUserSettings).UserSettings
+    let prefs = store.Current
+
     {
       initial with
           Settings = (props.Env :> IProvideSettings).Settings.Current
+          Prefs = prefs
+          ZonePick = prefs |> Option.bind zoneOf
+          ZoneShowLocal =
+            prefs |> Option.map showLocalOf |> Option.defaultValue false
+          LanguagePick =
+            prefs |> Option.bind(fun prefs -> prefs.TranslationLanguage)
     },
     Cmd.batch [
       Cmd.OfAsync.perform fetchMe (props.Env, props.Session) MeDone
       Cmd.OfAsync.perform fetchDevices (props.Env, props.Session) DevicesDone
+      Cmd.ofAction(fun () -> store.Refresh())
     ]
 
   let laneIndex(lane: Lane option) : int option =
@@ -219,6 +286,169 @@ module State =
         )
 
       { model with Error = None }, Cmd.OfAsync.perform toggle () MeDone
+    | PrefsArrived prefs ->
+      match prefs with
+      | None -> { model with Prefs = None }, Cmd.none
+      | Some prefs ->
+        {
+          model with
+              Prefs = Some prefs
+              ZonePick = zoneOf prefs
+              ZoneShowLocal = showLocalOf prefs
+              LanguagePick = prefs.TranslationLanguage
+        },
+        Cmd.none
+    | ZonePicked id ->
+      {
+        model with
+            ZonePick = id
+            ZoneShowLocal = if id.IsNone then false else model.ZoneShowLocal
+      },
+      Cmd.none
+    | ZoneQueryChanged text -> { model with ZoneQuery = text }, Cmd.none
+    | ShowLocalToggled show -> { model with ZoneShowLocal = show }, Cmd.none
+    | LanguagePicked code ->
+      let language =
+        code
+        |> Option.bind(fun code ->
+          model.Prefs
+          |> Option.bind(fun prefs ->
+            prefs.Languages
+            |> List.tryFind(fun language -> language.Code = code)))
+
+      { model with LanguagePick = language }, Cmd.none
+    | LanguageQueryChanged text -> { model with LanguageQuery = text }, Cmd.none
+    | SaveTimezone ->
+      let timezone =
+        match model.ZonePick with
+        | Some id -> ZoneOf(id, model.ZoneShowLocal)
+        | None -> FollowDevice
+
+      let save() =
+        Me.setTimezone(
+          props.Env,
+          {
+            KeyFile = props.Session.KeyFile
+            Timezone = timezone
+          }
+        )
+
+      {
+        model with
+            Saving = true
+            Error = None
+      },
+      Cmd.OfAsync.perform save () (fun result ->
+        TimezoneSaved(result, timezone))
+    | TimezoneSaved(result, timezone) ->
+      match result with
+      | Ok _ ->
+        let prefs =
+          model.Prefs
+          |> Option.map(fun prefs -> { prefs with Timezone = timezone })
+
+        applyPrefs(props, prefs)
+
+        {
+          model with
+              Prefs = prefs
+              Saving = false
+        },
+        Cmd.ofMsg(MeDone result)
+      | Error error ->
+        {
+          model with
+              Saving = false
+              Error = Some error
+        },
+        Cmd.none
+    | SaveLanguage ->
+      let save() =
+        Me.setTranslationLanguage(
+          props.Env,
+          {
+            KeyFile = props.Session.KeyFile
+            Language = model.LanguagePick
+          }
+        )
+
+      {
+        model with
+            Saving = true
+            Error = None
+      },
+      Cmd.OfAsync.perform save () (fun result ->
+        LanguageSaved(result, model.LanguagePick))
+    | LanguageSaved(result, language) ->
+      match result with
+      | Ok _ ->
+        let prefs =
+          model.Prefs
+          |> Option.map(fun prefs -> {
+            prefs with
+                TranslationLanguage = language
+          })
+
+        applyPrefs(props, prefs)
+
+        {
+          model with
+              Prefs = prefs
+              Saving = false
+        },
+        Cmd.ofMsg(MeDone result)
+      | Error error ->
+        {
+          model with
+              Saving = false
+              Error = Some error
+        },
+        Cmd.none
+    | AutomaticToggled enabled ->
+      match model.Prefs with
+      | Some prefs when prefs.AutomaticTranslation <> enabled ->
+        let save() =
+          Me.setAutomaticTranslation(
+            props.Env,
+            {
+              KeyFile = props.Session.KeyFile
+              Enabled = enabled
+            }
+          )
+
+        {
+          model with
+              Saving = true
+              Error = None
+        },
+        Cmd.OfAsync.perform save () (fun result ->
+          AutomaticSaved(result, enabled))
+      | _ -> model, Cmd.none
+    | AutomaticSaved(result, enabled) ->
+      match result with
+      | Ok _ ->
+        let prefs =
+          model.Prefs
+          |> Option.map(fun prefs -> {
+            prefs with
+                AutomaticTranslation = enabled
+          })
+
+        applyPrefs(props, prefs)
+
+        {
+          model with
+              Prefs = prefs
+              Saving = false
+        },
+        Cmd.ofMsg(MeDone result)
+      | Error error ->
+        {
+          model with
+              Saving = false
+              Error = Some error
+        },
+        Cmd.none
     | GithubSyncRequested ->
       let sync() =
         Me.syncGithub(props.Env, { KeyFile = props.Session.KeyFile })
@@ -256,10 +486,18 @@ module State =
 
   /// The page's inlet from outside: the local settings store.
   let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
-    Sub.fromObservable
-      "settings"
-      ((props.Env :> IProvideSettings).Settings.Observe
-       |> Observable.map SettingsChanged)
+    [
+      Sub.fromObservable
+        "settings"
+        ((props.Env :> IProvideSettings).Settings.Observe
+         |> Observable.map SettingsChanged)
+
+      Sub.fromObservable
+        "user-settings"
+        ((props.Env :> IProvideUserSettings).UserSettings.Observe
+         |> Observable.map PrefsArrived)
+    ]
+    |> Sub.batch
 
 /// The page's semantic regions; the view only composes these.
 module Parts =
@@ -408,6 +646,363 @@ module Parts =
           .Classes(Theme.name Theme.Muted)
           .Text("The light and dark palettes of the site, or the system's."),
         themeHost
+      )
+
+  /// One zone the picker offers: its IANA id and its current offset.
+  type Zone = { Id: string; Offset: string }
+
+  /// One zone's current offset, as GMT+2 or GMT-5:30.
+  let offsetOf(zone: TimeZoneInfo) : string =
+    let offset = zone.GetUtcOffset DateTimeOffset.UtcNow
+    let sign = if offset < TimeSpan.Zero then "-" else "+"
+    $"GMT{sign}{abs offset.Hours}:{abs offset.Minutes:D2}"
+
+  /// The IANA id of one zone: Unix machines name it already; Windows ids
+  /// convert through ICU.
+  let ianaOf(zone: TimeZoneInfo) : string option =
+    if zone.Id.Contains '/' then
+      Some zone.Id
+    else
+      match TimeZoneInfo.TryConvertWindowsIdToIanaId zone.Id with
+      | true, iana -> Option.ofObj iana
+      | false, _ -> None
+
+  /// Every zone this machine knows, by IANA id. The list is built once:
+  /// the offsets are the current ones.
+  let zones: Zone list =
+    TimeZoneInfo.GetSystemTimeZones()
+    |> Seq.choose(fun zone ->
+      ianaOf zone
+      |> Option.map(fun id ->
+        let resolved =
+          try
+            TimeZoneInfo.FindSystemTimeZoneById id
+          with _ ->
+            zone
+
+        { Id = id; Offset = offsetOf resolved }))
+    |> Seq.distinctBy(fun zone -> zone.Id)
+    |> Seq.sortBy(fun zone -> zone.Id)
+    |> Seq.toList
+
+  /// The device's own zone, when the machine names one.
+  let deviceZone: string option = ianaOf TimeZoneInfo.Local
+
+  /// What one searchable list reads and reports.
+  [<Struct>]
+  type Picker = {
+    Model: IObservable<State.Model>
+    Query: State.Model -> string
+    Rows: State.Model -> (string * string) list
+    Typed: string -> unit
+    Picked: string -> unit
+  }
+
+  /// One searchable list: the box, the rows it leaves, and the pick each
+  /// row reports.
+  let picker(args: Picker) : Control =
+    let box =
+      TextBox()
+        .PlaceholderText("Search")
+        .Text(args.Model |> Observable.map args.Query |> _.ToBinding())
+        .OnTextChangedHandler(fun box _ ->
+          args.Typed(box.Text |> Option.ofObj |> Option.defaultValue ""))
+
+    let list =
+      ContentControl()
+        .Content(
+          args.Model
+          |> Observable.map(fun current ->
+            let text = (args.Query current).Trim().ToLowerInvariant()
+
+            let matching =
+              args.Rows current
+              |> List.filter(fun (key, label) ->
+                text = ""
+                || key.ToLowerInvariant().Contains text
+                || label.ToLowerInvariant().Contains text)
+              |> List.truncate 80
+
+            if matching.IsEmpty then
+              Status.empty "No match."
+            else
+              StackPanel()
+                .Spacing(2.0)
+                .Children(
+                  [|
+                    for (key, label) in matching ->
+                      Button()
+                        .Classes(Theme.name Theme.NavButton)
+                        .HorizontalAlignment(HorizontalAlignment.Stretch)
+                        .HorizontalContentAlignment(HorizontalAlignment.Left)
+                        .Content(label)
+                        .OnClickHandler(fun _ _ -> args.Picked key)
+                      :> Control
+                  |]
+                ))
+          |> _.ToBinding()
+        )
+
+    StackPanel()
+      .Spacing(4.0)
+      .Children(box, ScrollViewer().MaxHeight(150.0).Content(list))
+
+  /// The timezone row: the picker, the device's own zone, the local-time
+  /// choice, and the save.
+  let timezoneRow
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : Control =
+    let picked =
+      model
+      |> Observable.map(fun current ->
+        match current.ZonePick with
+        | Some id ->
+          // A zone the web saved but this machine does not list shows its
+          // own id, the way the site's picker names it.
+          match zones |> List.tryFind(fun zone -> zone.Id = id) with
+          | Some zone -> $"{zone.Offset}  {zone.Id}"
+          | None -> id
+        | None ->
+          deviceZone
+          |> Option.map(fun id -> $"Not set, using {id}")
+          |> Option.defaultValue "Not set, using this device's timezone")
+
+    let dirty =
+      model
+      |> Observable.map(fun current ->
+        match current.Prefs with
+        | None -> false
+        | Some prefs ->
+          let timezone =
+            match current.ZonePick with
+            | Some id -> ZoneOf(id, current.ZoneShowLocal)
+            | None -> FollowDevice
+
+          timezone <> prefs.Timezone)
+
+    let device =
+      deviceZone
+      |> Option.map(fun id ->
+        Button()
+          .Classes(Theme.name Theme.GhostButton)
+          .HorizontalAlignment(HorizontalAlignment.Left)
+          .Content($"Use {id} from this device")
+          .IsVisible(
+            model |> Observable.map(fun current -> current.ZonePick <> Some id)
+          )
+          .OnClickHandler(fun _ _ -> dispatch(State.ZonePicked(Some id)))
+        :> Control)
+      |> Option.defaultValue(Panel())
+
+    let unset =
+      Button()
+        .Classes(Theme.name Theme.GhostButton)
+        .HorizontalAlignment(HorizontalAlignment.Left)
+        .Content("Unset")
+        .IsVisible(
+          model |> Observable.map(fun current -> current.ZonePick.IsSome)
+        )
+        .OnClickHandler(fun _ _ -> dispatch(State.ZonePicked None))
+
+    let showLocal =
+      CheckBox()
+        .IsChecked(
+          model
+          |> Observable.map(fun current -> current.ZoneShowLocal)
+          |> _.ToBinding()
+        )
+        .IsEnabled(
+          model |> Observable.map(fun current -> current.ZonePick.IsSome)
+        )
+        .OnIsCheckedChangedHandler(fun box _ ->
+          dispatch(
+            State.ShowLocalToggled(
+              box.IsChecked |> Option.ofNullable |> Option.contains true
+            )
+          ))
+
+    let save =
+      Button()
+        .Classes(Theme.name Theme.NavButton)
+        .Content("Save timezone")
+        .IsEnabled(
+          Observable.combineLatest
+            dirty
+            (model
+             |> Observable.map(fun current ->
+               current.Saving || current.Prefs.IsNone))
+          |> Observable.map(fun (dirty, blocked) -> dirty && not blocked)
+        )
+        .OnClickHandler(fun _ _ -> dispatch State.SaveTimezone)
+
+    StackPanel()
+      .Spacing(6.0)
+      .Children(
+        TextBlock().Classes(Theme.name Theme.Subtitle).Text("Timezone"),
+        TextBlock()
+          .Classes(Theme.name Theme.Muted)
+          .TextWrapping(TextWrapping.Wrap)
+          .Text(
+            "Times on your profile use this zone. Leave it unset to use this device's zone without sharing it. Your local time only shows on your profile if you turn that on below."
+          ),
+        TextBlock().Classes(Theme.name Theme.Muted).Text(picked.ToBinding()),
+        picker {
+          Model = model
+          Query = fun current -> current.ZoneQuery
+          Rows =
+            fun _ -> [
+              for zone in zones -> zone.Id, $"{zone.Offset}  {zone.Id}"
+            ]
+          Typed = fun text -> dispatch(State.ZoneQueryChanged text)
+          Picked = fun id -> dispatch(State.ZonePicked(Some id))
+        },
+        device,
+        unset,
+        StackPanel()
+          .Orientation(Orientation.Horizontal)
+          .Spacing(8.0)
+          .Children(
+            showLocal,
+            TextBlock()
+              .VerticalAlignment(VerticalAlignment.Center)
+              .Text("Show my local time on my profile")
+          ),
+        save
+      )
+
+  /// The device language's English name, as the settings list it; the
+  /// UI culture's own name when the list is not here yet.
+  let deviceLanguageName(prefs: UserSettings option) : string =
+    prefs
+    |> Option.bind(fun prefs ->
+      prefs.Languages
+      |> List.tryFind(fun language ->
+        language.Code = Translation.deviceLanguage))
+    |> Option.map(fun language -> language.Name)
+    |> Option.defaultWith(fun () -> CultureInfo.CurrentUICulture.DisplayName)
+
+  /// The translation language row: the picker, the device choice, and the
+  /// automatic translation switch.
+  let languageRow
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : Control =
+    let picked =
+      model
+      |> Observable.map(fun current ->
+        match current.LanguagePick with
+        | Some language -> language.Name
+        | None ->
+          $"Device language (automatic) — {deviceLanguageName current.Prefs}")
+
+    let dirty =
+      model
+      |> Observable.map(fun current ->
+        match current.Prefs with
+        | None -> false
+        | Some prefs -> current.LanguagePick <> prefs.TranslationLanguage)
+
+    let device =
+      Button()
+        .Classes(Theme.name Theme.NavButton)
+        .HorizontalAlignment(HorizontalAlignment.Left)
+        .Content(
+          TextBlock()
+            .Text(
+              model
+              |> Observable.map(fun current ->
+                $"Use {deviceLanguageName current.Prefs} from this device")
+            )
+        )
+        .OnClickHandler(fun _ _ -> dispatch(State.LanguagePicked None))
+
+    let save =
+      Button()
+        .Classes(Theme.name Theme.NavButton)
+        .Content("Save translation language")
+        .IsEnabled(
+          Observable.combineLatest
+            dirty
+            (model
+             |> Observable.map(fun current ->
+               current.Saving || current.Prefs.IsNone))
+          |> Observable.map(fun (dirty, blocked) -> dirty && not blocked)
+        )
+        .OnClickHandler(fun _ _ -> dispatch State.SaveLanguage)
+
+    let automatic =
+      ToggleSwitch()
+        .IsChecked(
+          model
+          |> Observable.map(fun current ->
+            current.Prefs
+            |> Option.map(fun prefs -> Nullable prefs.AutomaticTranslation)
+            |> Option.defaultValue(Nullable true))
+        )
+        .IsEnabled(
+          model
+          |> Observable.map(fun current ->
+            current.Prefs.IsSome && not current.Saving)
+        )
+        .OnIsCheckedChangedHandler(fun toggle _ ->
+          toggle.IsChecked
+          |> Option.ofNullable
+          |> Option.iter(State.AutomaticToggled >> dispatch))
+
+    automatic.Name <- "AutomaticTranslationToggle"
+
+    StackPanel()
+      .Spacing(6.0)
+      .Children(
+        TextBlock()
+          .Classes(Theme.name Theme.Subtitle)
+          .Text("Translation language"),
+        TextBlock()
+          .Classes(Theme.name Theme.Muted)
+          .TextWrapping(TextWrapping.Wrap)
+          .Text(
+            "Choose the language for translated commits and replies, or follow this device's language. Search by English or native name."
+          ),
+        TextBlock().Classes(Theme.name Theme.Muted).Text(picked.ToBinding()),
+        device,
+        picker {
+          Model = model
+          Query = fun current -> current.LanguageQuery
+          Rows =
+            fun current ->
+              current.Prefs
+              |> Option.map(fun prefs -> [
+                for language in prefs.Languages ->
+                  let label =
+                    if language.NativeName = language.Name then
+                      language.Name
+                    else
+                      $"{language.Name} · {language.NativeName}"
+
+                  language.Code, label
+              ])
+              |> Option.defaultValue []
+          Typed = fun text -> dispatch(State.LanguageQueryChanged text)
+          Picked = fun code -> dispatch(State.LanguagePicked(Some code))
+        },
+        save,
+        Border()
+          .Classes(Theme.name Theme.Hairline)
+          .BorderThickness(Thickness(0.0, 1.0, 0.0, 0.0))
+          .Margin(0.0, 6.0, 0.0, 6.0),
+        StackPanel()
+          .Spacing(4.0)
+          .Children(
+            TextBlock()
+              .Classes(Theme.name Theme.Subtitle)
+              .Text("Automatically show translations"),
+            TextBlock()
+              .Classes(Theme.name Theme.Muted)
+              .TextWrapping(TextWrapping.Wrap)
+              .Text(
+                "Show available translations in your chosen language. Turn off to read originals first and choose Translate when you need it."
+              ),
+            automatic
+          )
       )
 
   /// The pastéis mode row: one button for each state.
@@ -600,6 +1195,8 @@ let view
           TextBlock().Text(user.Name),
           Parts.laneRow(model, dispatch),
           Parts.themeRow(model, dispatch),
+          Parts.timezoneRow(model, dispatch),
+          Parts.languageRow(model, dispatch),
           Parts.pasteisRow(model, dispatch),
           Parts.syncButton dispatch,
           Parts.applicationRow(model, dispatch),
@@ -618,6 +1215,7 @@ type Page<'env
   and 'env :> IProvideHttp
   and 'env :> IProvideSession
   and 'env :> IProvideSettings
+  and 'env :> IProvideUserSettings
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 

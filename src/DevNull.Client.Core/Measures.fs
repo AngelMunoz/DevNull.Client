@@ -24,3 +24,7 @@ type KeyId
 
 [<Measure>]
 type ClientId
+
+/// A language as its BCP47 code names it: what the server translates into.
+[<Measure>]
+type LanguageCode

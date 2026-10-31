@@ -226,6 +226,82 @@ module Me =
       and Rejected<'e>
       and DecodeError<'e>
 
+  /// One settings read.
+  type SettingsRequest = { KeyFile: string }
+
+  /// The timezone the person chose, with whether their profile shows
+  /// their local time.
+  type TimezoneRequest = {
+    KeyFile: string
+    Timezone: TimezoneSetting
+  }
+
+  /// Automatic translation on or off.
+  type AutomaticTranslationRequest = { KeyFile: string; Enabled: bool }
+
+  /// The language commits are translated into, or none to follow the
+  /// device.
+  type TranslationLanguageRequest = {
+    KeyFile: string
+    Language: TranslationLanguage option
+  }
+
+  /// Reads what the web's settings show only the user: the timezone and
+  /// the language commits are translated into, automatic translation,
+  /// and the languages the person may pick from.
+  val settings:
+    env: 'env * request: SettingsRequest -> Async<Result<UserSettings, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Saves the timezone the web's settings save, and answers as `Me.get`
+  /// does. The server keeps local time off without a chosen zone.
+  val setTimezone:
+    env: 'env * request: TimezoneRequest -> Async<Result<Me, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Turns automatic translation on or off, and answers as `Me.get` does.
+  val setAutomaticTranslation:
+    env: 'env * request: AutomaticTranslationRequest -> Async<Result<Me, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Saves the language commits are translated into, and answers as
+  /// `Me.get` does.
+  val setTranslationLanguage:
+    env: 'env * request: TranslationLanguageRequest -> Async<Result<Me, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
 module Devices =
 
   /// One device list read.
@@ -533,6 +609,13 @@ module Commits =
   /// One draft to see as the commit it would become. Nothing is kept.
   type PreviewRequest = { KeyFile: string; Body: string }
 
+  /// One commit to translate, into the language named.
+  type TranslateRequest = {
+    KeyFile: string
+    CommitId: string
+    Language: string<LanguageCode>
+  }
+
   /// One poll vote: the commit whose poll it is, and the option taken.
   type VoteRequest = {
     KeyFile: string
@@ -669,6 +752,23 @@ module Commits =
       and 'env :> IProvideSigner
       and 'env :> IProvideHttp
       and CommitBodyError<'e>
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Reads one commit in the language asked for, as the web's Translate
+  /// shows it, with the server's own JSON for the disk tier. A failed
+  /// translation answers a 503 the caller may retry.
+  val translate:
+    env: 'env * request: TranslateRequest ->
+      Async<Result<TranslationPayload, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and CommitIdError<'e>
       and NonceError<'e>
       and SigningError<'e>
       and TransportError<'e>

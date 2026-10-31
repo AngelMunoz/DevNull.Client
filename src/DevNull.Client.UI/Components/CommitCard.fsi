@@ -4,12 +4,13 @@ open System
 open Avalonia.Controls
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.ImageCache
+open DevNull.Client.Formatting
 open DevNull.Client.Components.UserFlyout
 
 /// What one card reports up: open the thread, toggle the star, give a
 /// pastel, start a quote, reveal the reply composer, choose a poll
-/// option, ask for the vote, walk more replies of a thread preview, or
-/// pin the commit to the author's profile.
+/// option, ask for the vote, walk more replies of a thread preview, pin
+/// the commit to the author's profile, or show the commit translated.
 [<Struct>]
 type Event =
   | Opened of Commit
@@ -22,6 +23,8 @@ type Event =
   | PollChoiceChanged of Commit * PollOption * chosen: bool
   | PollVoteRequested of Commit
   | PinToggled of Commit
+  | TranslateRequested of Commit
+  | OriginalRequested of Commit
 
 /// The pin affordance one host may offer: the command the toggle runs,
 /// and the commit id whose pin call is in flight, so its button
@@ -44,7 +47,8 @@ type PinToggle = {
 /// `Voting` names the commit whose vote is in flight; `PollChoice` is
 /// the option the page model holds for this commit; `Pin` offers the
 /// profile pin on the author's own top-level commits, where the host
-/// decides to show it at all.
+/// decides to show it at all; `Translation` is what the card shows about
+/// the commit's translation.
 [<Struct>]
 type Props = {
   Commit: Commit
@@ -58,6 +62,9 @@ type Props = {
   Images: ImageCacheService
   Flyout: Source voption
   Pin: PinToggle voption
+  Translation: IObservable<Translation.View voption>
+  /// The zone the header's time tooltip shows.
+  Zone: Zone
 }
 
 /// Renders one commit as a row of the log.
@@ -102,8 +109,8 @@ val body:
 /// Everything one card row needs from its host page: where its events
 /// go, the signed-in viewer, the live pastéis flag and clock, the poll
 /// choices, the row's density, the image cache, the hover card
-/// source, and the profile pin affordance, when the host shows one at
-/// all.
+/// source, the profile pin affordance when the host shows one at all,
+/// and the translation each commit shows.
 [<Struct>]
 type RowProps = {
   OnEvent: Event -> unit
@@ -116,6 +123,8 @@ type RowProps = {
   Images: ImageCacheService
   Flyout: Source voption
   Pin: PinToggle voption
+  Translation: IObservable<Commit -> Translation.View voption>
+  Zone: Zone
 }
 
 /// One commit row over a feed node: the card with the host's event

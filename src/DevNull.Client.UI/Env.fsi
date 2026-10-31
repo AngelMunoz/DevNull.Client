@@ -15,6 +15,8 @@ open DevNull.Client.UiClock
 open DevNull.Client.Timeline
 open DevNull.Client.RouteStore
 open DevNull.Client.Unread
+open DevNull.Client.UserSettingsStore
+open DevNull.Client.TranslationCache
 open DevNull.Client.Remotes
 open DevNull.Client.Natives
 
@@ -45,6 +47,8 @@ type AppEnv =
   interface IProvideSettings
   interface IProvideLogging
   interface IProvideUnread
+  interface IProvideUserSettings
+  interface IProvideTranslations
   interface IProvideRemotes
   interface IProvideTimeline
   interface IProvideUiClock

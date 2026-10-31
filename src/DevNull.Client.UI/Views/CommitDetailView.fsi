@@ -13,6 +13,8 @@ open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.Timeline
 open DevNull.Client.UiClock
+open DevNull.Client.UserSettingsStore
+open DevNull.Client.TranslationCache
 open Navs
 
 /// The commit thread: the commit, its ancestors, its replies, and the
@@ -29,6 +31,8 @@ type Props<'env
   and 'env :> IProvideProfiles
   and 'env :> IProvideSshKeys
   and 'env :> IProvideTimeline
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
   and 'env :> IProvideLogging> = {
   Env: 'env
   CommitId: string
@@ -54,6 +58,8 @@ type Page<'env
   and 'env :> IProvideProfiles
   and 'env :> IProvideSshKeys
   and 'env :> IProvideTimeline
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
   and 'env :> IProvideLogging> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

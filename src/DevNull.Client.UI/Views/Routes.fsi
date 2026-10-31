@@ -14,6 +14,8 @@ open DevNull.Client.RecentSearchStore
 open DevNull.Client.Remotes
 open DevNull.Client.SettingsStore
 open DevNull.Client.SshKeys
+open DevNull.Client.UserSettingsStore
+open DevNull.Client.TranslationCache
 open DevNull.Client.Stores
 open DevNull.Client.Timeline
 open DevNull.Client.UiClock
@@ -51,6 +53,8 @@ val build:
     and 'env :> IProvideTimeline
     and 'env :> IProvideSshKeys
     and 'env :> IProvideSettings
+    and 'env :> IProvideUserSettings
+    and 'env :> IProvideTranslations
     and 'env :> IProvideLogging
     and 'env :> IProvideRemotes
     and 'env :> IProvideNatives

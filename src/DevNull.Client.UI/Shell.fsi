@@ -20,6 +20,8 @@ open DevNull.Client.Stores
 open DevNull.Client.Timeline
 open DevNull.Client.Unread
 open DevNull.Client.UiClock
+open DevNull.Client.UserSettingsStore
+open DevNull.Client.TranslationCache
 open Navs
 
 /// The one window of the app: the sidebar, the router outlet, and the
@@ -35,6 +37,8 @@ type Shell<'env
   and 'env :> IProvideSettings
   and 'env :> IProvideLogging
   and 'env :> IProvideUnread
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources

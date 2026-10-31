@@ -224,6 +224,7 @@ let complete
           DeviceFingerprint = args.Key.Fingerprint
           UnreadNotificationsCount = me.UnreadNotificationsCount
           PasteisMode = me.PasteisMode
+          AutomaticTranslation = false
           TermsVersion = me.TermsVersion
           TermsAccepted = Some me.TermsAccepted
           Remotes = me.Remotes

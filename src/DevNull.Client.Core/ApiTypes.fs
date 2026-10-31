@@ -57,6 +57,20 @@ type MentionResults = {
   Organizations: Organization list
 }
 
+/// One language commits may be translated into, as the settings list it:
+/// the code the server takes, its English name, and its own name.
+type TranslationLanguage = {
+  Code: string
+  Name: string
+  NativeName: string
+}
+
+/// Where the person's times show, as the server keeps it: the device's
+/// own zone, or a chosen zone that may also show on the profile.
+type TimezoneSetting =
+  | FollowDevice
+  | ZoneOf of id: string * showLocalTime: bool
+
 type Image = {
   Id: string
   Width: int
@@ -96,6 +110,34 @@ type Mention = {
   Handle: string
   Offset: int
   Length: int
+}
+
+/// One body as a translation carries it: the segments a page shows.
+type TranslatedBody = {
+  BodySegments: Segment list
+  PreviewSegments: Segment list option
+}
+
+/// One commit in the language the person asked for, as the site shows it.
+type CommitTranslation = {
+  /// The language this translation is in.
+  Language: string
+  /// The language the commit was written in, when the site knows it.
+  SourceLanguage: string option
+  /// The source language's English name, for the notice.
+  SourceName: string option
+  /// True when the commit is in another language than the one asked for.
+  Available: bool
+  /// The translated body, or none while the site still works on it.
+  Translated: TranslatedBody option
+}
+
+/// One translation as the server answered it: the value a page shows, and
+/// the server's own JSON for the disk tier.
+[<Struct>]
+type TranslationPayload = {
+  Translation: CommitTranslation option
+  Json: string
 }
 
 type Embed = {
@@ -165,6 +207,8 @@ type Commit = {
   Poll: Poll option
   LinkPreview: LinkPreview option
   ReplyPreview: ReplyPreview option
+  /// The commit in the person's own language, when translations are on.
+  Translation: CommitTranslation option
 }
 
 and CommitNode =
@@ -812,9 +856,21 @@ type DeviceSession = {
   DeviceFingerprint: string
   UnreadNotificationsCount: int
   PasteisMode: bool
+  /// Whether translated bodies show by themselves, from the settings read.
+  AutomaticTranslation: bool
   TermsVersion: string
   TermsAccepted: bool option
   Remotes: MeRemotes option
+}
+
+/// What the settings read carries: where times show, the language commits
+/// are translated into, whether translations show by themselves, and the
+/// languages the person may pick from.
+type UserSettings = {
+  Timezone: TimezoneSetting
+  TranslationLanguage: TranslationLanguage option
+  AutomaticTranslation: bool
+  Languages: TranslationLanguage list
 }
 
 /// The signed-in account, as GET /api/v1/me returns it.
@@ -1015,6 +1071,102 @@ let mentionDecoder(element: JsonElement) = decode {
     Handle = handle
     Offset = offset
     Length = length
+  }
+}
+
+let translatedBodyDecoder(element: JsonElement) = decode {
+  let! bodySegments =
+    Required.Property.list ("body_segments", segmentDecoder) element
+
+  let! previewSegments =
+    Optional.Property.get
+      ("preview_segments", optionalListDecoder segmentDecoder)
+      element
+    |> Result.map Option.flatten
+
+  return {
+    BodySegments = bodySegments
+    PreviewSegments = previewSegments
+  }
+}
+
+let commitTranslationDecoder(element: JsonElement) = decode {
+  let! language = Required.Property.get ("language", Required.string) element
+
+  let! sourceLanguage =
+    Optional.Property.get ("source_language", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! sourceName =
+    Optional.Property.get ("source_name", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! available = Required.Property.get ("available", Required.boolean) element
+
+  let! translated =
+    Optional.Property.get
+      ("translated", optionalDecoder translatedBodyDecoder)
+      element
+    |> Result.map Option.flatten
+
+  return {
+    Language = language
+    SourceLanguage = sourceLanguage
+    SourceName = sourceName
+    Available = available
+    Translated = translated
+  }
+}
+
+let translationLanguageDecoder(element: JsonElement) = decode {
+  let! code = Required.Property.get ("code", Required.string) element
+  let! name = Required.Property.get ("name", Required.string) element
+
+  let! nativeName =
+    Required.Property.get ("native_name", Required.string) element
+
+  return {
+    Code = code
+    Name = name
+    NativeName = nativeName
+  }
+}
+
+let userSettingsDecoder(element: JsonElement) = decode {
+  let! timezone = Required.Property.get ("timezone", Optional.string) element
+
+  let! showLocalTime =
+    Required.Property.get ("show_local_time", Required.boolean) element
+
+  let! translationLanguage =
+    Optional.Property.get ("translation_language", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! automaticTranslation =
+    Required.Property.get ("automatic_translation", Required.boolean) element
+
+  let! languages =
+    Required.Property.list
+      ("translation_languages", translationLanguageDecoder)
+      element
+
+  return {
+    Timezone =
+      match timezone with
+      | Some id -> ZoneOf(id, showLocalTime)
+      | None -> FollowDevice
+    TranslationLanguage =
+      translationLanguage
+      |> Option.map(fun code ->
+        languages
+        |> List.tryFind(fun language -> language.Code = code)
+        |> Option.defaultValue {
+          Code = code
+          Name = code
+          NativeName = code
+        })
+    AutomaticTranslation = automaticTranslation
+    Languages = languages
   }
 }
 
@@ -1417,6 +1569,12 @@ let rec commitDecoder
       element
     |> Result.map Option.flatten
 
+  let! translation =
+    Optional.Property.get
+      ("translation", optionalDecoder commitTranslationDecoder)
+      element
+    |> Result.map Option.flatten
+
   return {
     Id = id
     ShortHash = shortHash
@@ -1441,6 +1599,7 @@ let rec commitDecoder
     Poll = poll
     LinkPreview = linkPreview
     ReplyPreview = replyPreview
+    Translation = translation
   }
 }
 
@@ -2567,6 +2726,20 @@ let inline decodeScheduledCommit
 
 module Me =
   let decode(body: string) = decodeMe body
+
+module UserSettings =
+  let decode(body: string) =
+    parseBody body (Required.Property.get("data", userSettingsDecoder))
+
+module CommitTranslation =
+  let decode(body: string) =
+    parseBody
+      body
+      (Optional.Property.get(
+        "translation",
+        optionalDecoder commitTranslationDecoder
+       )
+       >> Result.map Option.flatten)
 
 /// One device the account approved, as GET /api/v1/me/devices lists
 /// them: never the key itself, only its fingerprint.

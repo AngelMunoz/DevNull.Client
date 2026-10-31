@@ -31,3 +31,7 @@ type KeyId
 /// The uuid one pushed message identifies itself by, so a retry does not push it twice.
 [<Measure>]
 type ClientId
+
+/// A language as its BCP47 code names it: what the server translates into.
+[<Measure>]
+type LanguageCode

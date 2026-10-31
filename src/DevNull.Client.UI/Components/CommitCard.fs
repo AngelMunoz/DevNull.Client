@@ -34,8 +34,8 @@ type MentionTone =
 
 /// What one card reports up: open the thread, toggle the star, give a
 /// pastel, start a quote, reveal the reply composer, choose a poll
-/// option, ask for the vote, walk more replies of a thread preview, or
-/// pin the commit to the author's profile.
+/// option, ask for the vote, walk more replies of a thread preview, pin
+/// the commit to the author's profile, or show the commit translated.
 [<Struct>]
 type Event =
   | Opened of Commit
@@ -48,6 +48,8 @@ type Event =
   | PollChoiceChanged of Commit * PollOption * chosen: bool
   | PollVoteRequested of Commit
   | PinToggled of Commit
+  | TranslateRequested of Commit
+  | OriginalRequested of Commit
 
 /// The pin affordance one host may offer: the command the toggle runs,
 /// and the commit id whose pin call is in flight, so its button
@@ -64,7 +66,8 @@ type PinToggle = {
 /// status follows; `Voting` names the commit whose vote is in flight,
 /// so the button disables; `PollChoice` is the option the page model
 /// holds for this commit; `Pin` offers the profile pin on the author's
-/// own top-level commits, where the host decides to show it at all.
+/// own top-level commits, where the host decides to show it at all;
+/// `Translation` is what the card shows about the commit's translation.
 [<Struct>]
 type Props = {
   Commit: Commit
@@ -78,6 +81,9 @@ type Props = {
   Images: ImageCacheService
   Flyout: Source voption
   Pin: PinToggle voption
+  Translation: IObservable<Translation.View voption>
+  /// The zone the header's time tooltip shows.
+  Zone: Zone
 }
 
 /// One poll choice change, in the shape the page model stores it.
@@ -255,8 +261,75 @@ module Parts =
   let bodyOf(flyout: Source voption, commit: Commit) : Control =
     bodyGen(flyout, Accent, commit.Body, commit.BodySegments, commit.Mentions)
 
+  /// The body a card shows: the translated segments while a translation
+  /// shows, the commit's own otherwise. Translated segments carry no
+  /// mention positions, so their handles stay plain text.
   let bodyView(props: Props, commit: Commit) : Control =
-    bodyOf(props.Flyout, commit)
+    let original = bodyOf(props.Flyout, commit)
+
+    ContentControl()
+      .Content(
+        props.Translation
+        |> Observable.map(function
+          | ValueSome { Body = Some translated } ->
+            bodyGen(
+              props.Flyout,
+              Accent,
+              commit.Body,
+              translated.BodySegments,
+              []
+            )
+          | _ -> original)
+        |> _.ToBinding()
+      )
+
+  /// The line under a body: the notice with Show original while a
+  /// translation shows, the Translate button otherwise, and the last
+  /// failure in the server's words.
+  let translationLine(props: Props, commit: Commit) : Control =
+    let line(view: Translation.View voption) : Control =
+      match view with
+      | ValueNone -> Panel()
+      | ValueSome view ->
+        let notice: Control array =
+          match view.Body with
+          | None -> [||]
+          | Some _ -> [|
+              TextBlock()
+                .Classes(Theme.name Theme.Muted)
+                .Text(
+                  view.SourceName
+                  |> Option.map(fun name -> $"Translated from {name}")
+                  |> Option.defaultValue "Translated"
+                )
+              TextBlock().Classes(Theme.name Theme.Muted).Text("·")
+              Button()
+                .Name("ShowOriginalButton")
+                .Classes(Theme.name Theme.GhostButton)
+                .Padding(4.0, 0.0, 4.0, 0.0)
+                .Content("Show original")
+                .OnClickHandler(fun _ args ->
+                  args.Handled <- true
+                  props.OnEvent(OriginalRequested commit))
+            |]
+
+        let failure: Control array =
+          match view.Error with
+          | None -> [||]
+          | Some message -> [|
+              TextBlock()
+                .Classes(Theme.name Theme.FgDanger)
+                .TextWrapping(TextWrapping.Wrap)
+                .Text(message)
+            |]
+
+        StackPanel()
+          .Spacing(3.0)
+          .Margin(0.0, 3.0, 0.0, 0.0)
+          .Children(Array.concat [ notice; failure ])
+
+    ContentControl()
+      .Content(props.Translation |> Observable.map line |> _.ToBinding())
 
   /// The image block under the body: one image full width, two or
   /// three in a two-column grid. Each cell is a fixed box with the
@@ -779,7 +852,9 @@ module Parts =
 
   /// The identity line: name, handle, and time in the site's rhythm,
   /// the short hash docked to the right edge.
-  let header(commit: Commit, now: IObservable<DateTimeOffset>) : Control =
+  let header
+    (commit: Commit, now: IObservable<DateTimeOffset>, zone: Zone)
+    : Control =
     let hash = TextBlock().Classes(Theme.name Theme.Mono).Text(commit.ShortHash)
 
     let identity =
@@ -803,6 +878,8 @@ module Parts =
               |> Observable.map(fun moment -> timeAgo(moment, commit.CreatedAt))
             )
         )
+
+    ToolTip.SetTip(identity, absolute(zone, commit.CreatedAt))
 
     DockPanel().Children(hash.DockRight(), identity)
 
@@ -1055,7 +1132,41 @@ module Parts =
         fun button -> copyLink(button, commit.HtmlUrl)
       )
 
-    let leftChildren: Control array = [| reply; star; pastel; quote; pin |]
+    // The translate action: the site's Translate, below the body. It
+    // shows while the site may translate the commit, and disables while
+    // the call runs or the rate limit waits.
+    let translate: Control =
+      ContentControl()
+        .Content(
+          props.Translation
+          |> Observable.map(fun view ->
+            match view with
+            | ValueSome {
+                          CanTranslate = true
+                          Busy = busy
+                          Waiting = waiting
+                        } ->
+              let button =
+                iconAction(
+                  "TranslateButton",
+                  Glyph.Translate,
+                  ValueSome(if busy then "Translating…" else "Translate"),
+                  fun _ -> onEvent(TranslateRequested commit)
+                )
+
+              button.IsEnabled(not busy && not waiting) :> Control
+            | _ -> Panel())
+          |> _.ToBinding()
+        )
+
+    let leftChildren: Control array = [|
+      reply
+      star
+      pastel
+      quote
+      translate
+      pin
+    |]
 
     DockPanel()
       .LastChildFill(true)
@@ -1080,6 +1191,7 @@ let view(props: Props) : Control =
     | None -> ()
 
     Parts.bodyView(props, commit)
+    Parts.translationLine(props, commit)
 
     match commit.Images with
     | [] -> ()
@@ -1133,7 +1245,11 @@ let view(props: Props) : Control =
   let content =
     StackPanel()
       .Margin(0.0, pad, 16.0, pad)
-      .Children(Parts.header(commit, props.Now), body, Parts.actions props)
+      .Children(
+        Parts.header(commit, props.Now, props.Zone),
+        body,
+        Parts.actions props
+      )
 
   // The hairline stops at the rail column: the rail runs unbroken.
   let contentColumn =
@@ -1230,8 +1346,8 @@ let tombstone() : Control =
 
 /// Everything one card row needs from its host page: where its events
 /// go, the live pastéis flag and clock, the poll choices, the row's
-/// density, the image cache, and the profile pin affordance, when the
-/// host shows one at all.
+/// density, the image cache, the profile pin affordance when the host
+/// shows one at all, and the translation each commit shows.
 [<Struct>]
 type RowProps = {
   OnEvent: Event -> unit
@@ -1244,6 +1360,8 @@ type RowProps = {
   Images: ImageCacheService
   Flyout: Source voption
   Pin: PinToggle voption
+  Translation: IObservable<Commit -> Translation.View voption>
+  Zone: Zone
 }
 
 /// One commit row over a feed node: the card with the host's event
@@ -1268,6 +1386,9 @@ let feedRow (props: RowProps) (node: CommitNode) : Control =
       Images = props.Images
       Flyout = props.Flyout
       Pin = props.Pin
+      Translation =
+        props.Translation |> Observable.map(fun lookup -> lookup commit)
+      Zone = props.Zone
     }
   | Tombstone _ -> tombstone()
 

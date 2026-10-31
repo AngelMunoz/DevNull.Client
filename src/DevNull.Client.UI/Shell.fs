@@ -49,6 +49,8 @@ open DevNull.Client.Timeline
 open DevNull.Client.RouteStore
 open DevNull.Client.Tray
 open DevNull.Client.Unread
+open DevNull.Client.UserSettingsStore
+open DevNull.Client.TranslationCache
 open DevNull.Client.UiClock
 open DevNull.Client.Views
 
@@ -604,6 +606,8 @@ type Shell<'env
   and 'env :> IProvideSettings
   and 'env :> IProvideLogging
   and 'env :> IProvideUnread
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
@@ -1482,6 +1486,21 @@ type Shell<'env
         |> Observable.map(fun section -> section = ValueSome "notifications"),
         TimeSpan.FromSeconds 45.0
       )
+
+    // The settings read rides the first requests and never blocks the
+    // window: every card follows its automatic translation flag.
+    env.UserSettings.Refresh()
+
+    // The first read runs while the app may still wait on the sign-in
+    // page: a fresh session reads the settings again.
+    env.Session.Observe
+    |> Observable.map(function
+      | SignedIn session -> Some session.Session.User.Id
+      | SignedOut -> None)
+    |> Observable.distinctUntilChanged
+    |> Observable.add(fun userId ->
+      if userId.IsSome then
+        env.UserSettings.Refresh())
 
     log.LogDebug(
       "The unread poll and the remotes watcher start with the window."

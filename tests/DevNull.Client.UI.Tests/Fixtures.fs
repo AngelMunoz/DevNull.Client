@@ -1,6 +1,7 @@
 module DevNull.Client.UI.Tests.Fixtures
 
 open System
+open System.Collections.Concurrent
 open System.IO
 open System.Threading.Tasks
 open Microsoft.Extensions.Logging.Abstractions
@@ -28,6 +29,34 @@ open DevNull.Client.Stores
 open DevNull.Client.Timeline
 open DevNull.Client.UiClock
 open DevNull.Client.Unread
+open DevNull.Client.UserSettingsStore
+open DevNull.Client.TranslationCache
+
+/// The cache's file tier in memory: one dictionary the tests share across
+/// cache instances, with a hook that ages one file as the disk's clock
+/// would.
+type MemoryFiles() =
+  let store = ConcurrentDictionary<string, string * DateTime>()
+
+  member _.Files: TranslationCache.Files = {
+    Read =
+      fun path -> async {
+        match store.TryGetValue path with
+        | true, held -> return Some held
+        | false, _ -> return None
+      }
+
+    Keep =
+      fun (path, json) -> async {
+        return store[path] <- (json, DateTime.UtcNow)
+      }
+
+    Drop = fun path -> store.TryRemove path |> ignore
+    List = fun () -> store.Keys |> Seq.toList
+  }
+
+  member _.Age(path: string, writtenAt: DateTime) =
+    store[path] <- (fst store[path], writtenAt)
 
 /// The canned clock: one fixed unix second for every request.
 type FixedClock(epoch: int64) =
@@ -340,6 +369,7 @@ type TestEnv
     ?lastVisit: LastVisitStore,
     ?recentSearches: RecentSearchStore,
     ?profiles: FakeProfiles,
+    ?translations: TranslationCache,
     ?sshKeys: FakeSshKeys,
     ?audio: FakeAudio,
     ?sounds: FakeSounds
@@ -411,6 +441,26 @@ type TestEnv
 
   let routes = RouteStore()
 
+  // The in-memory file tier: no test touches a disk.
+  let translationCache =
+    translations
+    |> Option.defaultWith(fun () ->
+      TranslationCache(
+        "translations",
+        MemoryFiles().Files,
+        NullLogger.Instance
+      ))
+
+  let userSettings =
+    UserSettingsStore(
+      store,
+      (fun () ->
+        match store.SignedIn with
+        | ValueSome current -> Me.settings(this, { KeyFile = current.KeyFile })
+        | ValueNone -> async { return Error(SignInFailed "signed out") }),
+      NullLogger.Instance
+    )
+
   let remotes =
     RemotesStore(
       {
@@ -468,6 +518,12 @@ type TestEnv
   interface IProvideUnread with
     member _.Unread = unread
 
+  interface IProvideUserSettings with
+    member _.UserSettings = userSettings
+
+  interface IProvideTranslations with
+    member _.Translations = translationCache
+
   interface IProvideRemotes with
     member _.Remotes = remotes
 
@@ -515,6 +571,7 @@ let sessionOf(username: string) : DeviceSession = {
   DeviceFingerprint = ownFingerprint
   UnreadNotificationsCount = 3
   PasteisMode = true
+  AutomaticTranslation = true
   TermsVersion = "20261001"
   TermsAccepted = Some true
   Remotes = None

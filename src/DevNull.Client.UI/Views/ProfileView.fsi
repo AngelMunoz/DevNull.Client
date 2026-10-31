@@ -9,6 +9,8 @@ open DevNull.Client.ImageCache
 open DevNull.Client.Stores
 open DevNull.Client.Profiles
 open DevNull.Client.UiClock
+open DevNull.Client.UserSettingsStore
+open DevNull.Client.TranslationCache
 open Navs
 
 /// One profile by username, with the viewer's relation to it.
@@ -21,6 +23,8 @@ type Props<'env
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
   and 'env :> IProvideLogging> = {
   Env: 'env
   Username: string
@@ -40,6 +44,8 @@ type Page<'env
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
   and 'env :> IProvideLogging> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

@@ -22,11 +22,14 @@ open DevNull.Client.Errors
 open DevNull.Client.Env
 open Microsoft.Extensions.Logging
 open DevNull.Client.ImageCache
+open DevNull.Client.Formatting
 open DevNull.Client.Navigation
 open DevNull.Client.Profiles
 open DevNull.Client.Stores
 open DevNull.Client.Theme
 open DevNull.Client.UiClock
+open DevNull.Client.UserSettingsStore
+open DevNull.Client.TranslationCache
 
 type Props<'env
   when 'env :> IProvideClock
@@ -37,6 +40,8 @@ type Props<'env
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
@@ -57,6 +62,10 @@ module State =
     Pasteis: bool
     Voting: string option
     PollChoices: Map<string, string>
+    /// Whether translations show by themselves.
+    Automatic: bool
+    /// Every commit's translation on this page.
+    Translations: Translation.Book
   }
 
   type Msg =
@@ -72,6 +81,10 @@ module State =
     | PastelDone of Result<PastelResult, AppError>
     | ClockTicked of moment: DateTimeOffset
     | SessionChanged of state: SessionState
+    | TranslateRequested of Commit
+    | OriginalRequested of Commit
+    | TranslationDone of Commit * Result<TranslationPayload, AppError>
+    | TranslationRecalled of Commit * Translation.Book option
 
   let initial = {
     Loading = true
@@ -82,6 +95,8 @@ module State =
     Pasteis = false
     Voting = None
     PollChoices = Map.empty
+    Automatic = false
+    Translations = Translation.initial
   }
 
   let fetch(env, session: SignedInSession, cursor: string option) =
@@ -97,8 +112,35 @@ module State =
     {
       initial with
           Pasteis = props.Session.Session.PasteisMode
+          Automatic = props.Session.Session.AutomaticTranslation
+          Translations =
+            Translation.seed(
+              (props.Env :> IProvideTranslations).Translations.Snapshot()
+            )
     },
     Cmd.OfAsync.perform fetch (props.Env, props.Session, None) Fetched
+
+  /// Runs one commit's translate call: the language its own translation or
+  /// the settings pick, and the 503 retries.
+  let translate(props: Props<'env>, commit: Commit) =
+    let language =
+      Translation.languageFor(
+        (props.Env :> IProvideUserSettings).UserSettings.Current,
+        commit
+      )
+
+    Translation.execute(
+      Translation.retryDelays,
+      fun () ->
+        Commits.translate(
+          props.Env,
+          {
+            KeyFile = props.Session.KeyFile
+            CommitId = commit.Id
+            Language = language
+          }
+        )
+    )
 
   let replaceNode(items: CommitNode list, updated: Commit) : CommitNode list =
     items
@@ -255,12 +297,73 @@ module State =
         { model with Error = Some error }, failed "the pastel" error
     | ClockTicked moment -> { model with Now = moment }, Cmd.none
     | SessionChanged state ->
-      let pasteis =
+      let pasteis, automatic =
         match state with
-        | SignedIn entry -> entry.Session.PasteisMode
-        | SignedOut -> model.Pasteis
+        | SignedIn entry ->
+          entry.Session.PasteisMode, entry.Session.AutomaticTranslation
+        | SignedOut -> model.Pasteis, model.Automatic
 
-      { model with Pasteis = pasteis }, Cmd.none
+      {
+        model with
+            Pasteis = pasteis
+            Automatic = automatic
+      },
+      Cmd.none
+    | TranslateRequested commit when
+      Translation.canReuse(model.Translations, commit)
+      ->
+      {
+        model with
+            Translations =
+              Translation.showTranslated(model.Translations, commit.Id)
+      },
+      Cmd.none
+    | TranslateRequested commit ->
+      model,
+      Cmd.OfAsync.perform
+        Translation.recall
+        ((props.Env :> IProvideTranslations).Translations,
+         model.Translations,
+         commit.Id)
+        (fun book -> TranslationRecalled(commit, book))
+    | TranslationRecalled(commit, book) ->
+      match book with
+      | Some book -> { model with Translations = book }, Cmd.none
+      | None when Set.contains commit.Id model.Translations.Busy ->
+        model, Cmd.none
+      | None ->
+        {
+          model with
+              Translations = Translation.request(model.Translations, commit.Id)
+        },
+        Cmd.OfAsync.perform translate (props, commit) (fun result ->
+          TranslationDone(commit, result))
+    | OriginalRequested commit ->
+      {
+        model with
+            Translations =
+              Translation.showOriginal(model.Translations, commit.Id)
+      },
+      Cmd.none
+    | TranslationDone(commit, result) ->
+      let args: Translation.Finish = {
+        Book = model.Translations
+        Now = model.Now
+        CommitId = commit.Id
+        Result = result
+      }
+
+      {
+        model with
+            Translations = Translation.finish args
+      },
+      Cmd.ofAction(fun () ->
+        Async.Start(
+          Translation.store(
+            (props.Env :> IProvideTranslations).Translations,
+            args
+          )
+        ))
 
   /// The page's inlets from outside: the shared clock and the session
   /// store.
@@ -305,6 +408,10 @@ module Parts =
       | CommitCard.QuoteRequested c ->
         Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
       | CommitCard.PinToggled _ -> ()
+      | CommitCard.TranslateRequested commit ->
+        dispatch(State.TranslateRequested commit)
+      | CommitCard.OriginalRequested commit ->
+        dispatch(State.OriginalRequested commit)
     Pasteis = model |> Observable.map _.Pasteis
     ViewerId = props.Session.Session.User.Id
     Now = model |> Observable.map _.Now
@@ -321,6 +428,17 @@ module Parts =
         Cache = props.Env.ImageCache
       }
     Pin = ValueNone
+    Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
+    Translation =
+      model
+      |> Observable.map(fun model ->
+        fun commit ->
+          Translation.view {
+            Automatic = model.Automatic
+            Book = model.Translations
+            Now = model.Now
+            Commit = commit
+          })
   }
 
   /// The saved list itself: the virtualized feed over the rows.
@@ -387,6 +505,8 @@ type Page<'env
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 

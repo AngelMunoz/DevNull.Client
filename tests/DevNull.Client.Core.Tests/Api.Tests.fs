@@ -7,6 +7,7 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Completion
 open DevNull.Client.Core.Http
+open DevNull.Client.Core.Types
 open Tests.TestSupport
 
 let request: Signing.Request = {
@@ -2296,5 +2297,260 @@ let pollTests =
         "unknown stays raw"
 
       Expect.equal "timed_out" (ErrorCodes.wire TimedOut) "wire"
+    }
+  ]
+
+let settingsJson =
+  """{"data":{"timezone":"Europe/Budapest","show_local_time":true,"translation_language":"ja","automatic_translation":false,"translation_languages":[{"code":"ja","name":"Japanese","native_name":"日本語"},{"code":"fr","name":"French","native_name":"français"}],"is_admin":false}}"""
+
+let defaultSettingsJson =
+  """{"data":{"timezone":null,"show_local_time":false,"translation_language":null,"automatic_translation":true,"translation_languages":[{"code":"en","name":"English","native_name":"English"}],"is_admin":false}}"""
+
+let translationJson =
+  """{"translation":{"language":"en","source_language":"de","source_name":"German","available":true,"translated":{"body_segments":[{"type":"text","text":"Good morning"}],"preview_segments":null}}}"""
+
+let settingsRequest: Me.SettingsRequest = { KeyFile = "key" }
+
+let translateRequest: Commits.TranslateRequest = {
+  KeyFile = "key"
+  CommitId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+  Language = languageOf "ja"
+}
+
+let settingsTests =
+  testList "Api.settings" [
+    testAsync "reads the settings only the person sees" {
+      let http = CapturingHttp(ok settingsJson)
+
+      let! (result: Result<UserSettings, TestError>) =
+        Me.settings(envFor http, settingsRequest)
+
+      match result with
+      | Ok settings ->
+        Expect.equal
+          (ZoneOf("Europe/Budapest", true))
+          settings.Timezone
+          "timezone"
+
+        Expect.equal
+          (Some "ja")
+          (settings.TranslationLanguage |> Option.map _.Code)
+          "language"
+
+        Expect.equal false settings.AutomaticTranslation "automatic"
+        Expect.equal 2 settings.Languages.Length "languages"
+        Expect.equal "Japanese" settings.Languages.Head.Name "english name"
+        Expect.equal "日本語" settings.Languages.Head.NativeName "native name"
+      | Error error -> failtestf "expected settings: %A" error
+    }
+
+    testAsync "follows the device and translates automatically until chosen" {
+      let http = CapturingHttp(ok defaultSettingsJson)
+
+      let! (result: Result<UserSettings, TestError>) =
+        Me.settings(envFor http, settingsRequest)
+
+      match result with
+      | Ok settings ->
+        Expect.equal FollowDevice settings.Timezone "timezone"
+        Expect.equal None settings.TranslationLanguage "language"
+        Expect.equal true settings.AutomaticTranslation "automatic"
+      | Error error -> failtestf "expected settings: %A" error
+    }
+
+    testAsync "saves the timezone with its local-time choice" {
+      let http = CapturingHttp(ok meJson)
+
+      let! (result: Result<Me, TestError>) =
+        Me.setTimezone(
+          envFor http,
+          {
+            KeyFile = "key"
+            Timezone = ZoneOf("Europe/Budapest", true)
+          }
+        )
+
+      Expect.isOk result "answer"
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "PUT" sent.Method "method"
+      Expect.equal "/api/v1/me/timezone" sent.Target "target"
+
+      Expect.equal
+        "{\"timezone\":\"Europe/Budapest\",\"show_local_time\":true}"
+        (match sent.Body with
+         | Text body -> body
+         | _ -> "")
+        "body"
+    }
+
+    testAsync "clears the timezone to follow the device" {
+      let http = CapturingHttp(ok meJson)
+
+      let! (_: Result<Me, TestError>) =
+        Me.setTimezone(
+          envFor http,
+          {
+            KeyFile = "key"
+            Timezone = FollowDevice
+          }
+        )
+
+      let sent = http.Requests |> List.exactlyOne
+
+      Expect.equal
+        "{\"timezone\":null,\"show_local_time\":false}"
+        (match sent.Body with
+         | Text body -> body
+         | _ -> "")
+        "body"
+    }
+
+    testAsync "turns automatic translation on and off" {
+      let http = CapturingHttp(ok meJson)
+
+      let! (_: Result<Me, TestError>) =
+        Me.setAutomaticTranslation(
+          envFor http,
+          { KeyFile = "key"; Enabled = true }
+        )
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "PUT" sent.Method "method"
+      Expect.equal "/api/v1/me/automatic-translation" sent.Target "target"
+
+      Expect.equal
+        "{\"enabled\":true}"
+        (match sent.Body with
+         | Text body -> body
+         | _ -> "")
+        "body"
+    }
+
+    testAsync "saves the translation language, and clears it to the device" {
+      let http = CapturingHttp(ok meJson)
+
+      let! (_: Result<Me, TestError>) =
+        Me.setTranslationLanguage(
+          envFor http,
+          {
+            KeyFile = "key"
+            Language =
+              Some {
+                Code = "ja"
+                Name = "Japanese"
+                NativeName = "日本語"
+              }
+          }
+        )
+
+      let! (_: Result<Me, TestError>) =
+        Me.setTranslationLanguage(
+          envFor http,
+          { KeyFile = "key"; Language = None }
+        )
+
+      match http.Requests with
+      | [ chosen; cleared ] ->
+        Expect.equal "PUT" chosen.Method "method"
+        Expect.equal "/api/v1/me/translation-language" chosen.Target "target"
+
+        Expect.equal
+          "{\"translation_language\":\"ja\"}"
+          (match chosen.Body with
+           | Text body -> body
+           | _ -> "")
+          "chosen"
+
+        Expect.equal
+          "{\"translation_language\":null}"
+          (match cleared.Body with
+           | Text body -> body
+           | _ -> "")
+          "cleared"
+      | _ -> failtest "expected two requests"
+    }
+
+    testAsync "translates one commit into the language asked for" {
+      let http = CapturingHttp(ok translationJson)
+
+      let! (result: Result<TranslationPayload, TestError>) =
+        Commits.translate(envFor http, translateRequest)
+
+      match result with
+      | Ok payload ->
+        Expect.equal translationJson payload.Json "raw JSON"
+
+        match payload.Translation with
+        | Some translation ->
+          Expect.equal "en" translation.Language "language"
+          Expect.equal (Some "German") translation.SourceName "source"
+          Expect.equal true translation.Available "available"
+
+          match translation.Translated with
+          | Some body ->
+            match body.BodySegments with
+            | [ TextSegment text ] -> Expect.equal "Good morning" text "body"
+            | _ -> failtest "expected one text segment"
+          | None -> failtest "expected a translated body"
+        | None -> failtest "expected a translation"
+      | Error error -> failtestf "expected a translation: %A" error
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "POST" sent.Method "method"
+
+      Expect.equal
+        "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d/translation"
+        sent.Target
+        "target"
+
+      Expect.equal
+        "{\"language\":\"ja\"}"
+        (match sent.Body with
+         | Text body -> body
+         | _ -> "")
+        "body"
+    }
+
+    testAsync "answers the retryable translation failure verbatim" {
+      let http =
+        CapturingHttp(
+          refused
+            503
+            """{"message":"Could not translate this commit. Try again."}"""
+        )
+
+      let! (result: Result<TranslationPayload, TestError>) =
+        Commits.translate(envFor http, translateRequest)
+
+      match result with
+      | Error(Refused(503, None, message)) ->
+        Expect.equal
+          "Could not translate this commit. Try again."
+          message
+          "message"
+      | other -> failtestf "expected a 503 refusal: %A" other
+    }
+
+    testAsync "decodes the translation every signed commit carries" {
+      let body =
+        richCommitJson.Replace(
+          "\"reply_preview\"",
+          "\"translation\":{\"language\":\"en\",\"source_language\":\"de\",\"source_name\":\"German\",\"available\":true,\"translated\":{\"body_segments\":[{\"type\":\"text\",\"text\":\"Good morning\"}],\"preview_segments\":null}},\"reply_preview\""
+        )
+
+      let http = CapturingHttp(ok(sprintf "{\"data\":%s}" body))
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(envFor http, commitRequest)
+
+      match result with
+      | Ok commit ->
+        match commit.Translation with
+        | Some translation ->
+          Expect.equal "en" translation.Language "language"
+          Expect.equal true translation.Available "available"
+        | None -> failtest "expected the commit's translation"
+      | Error error -> failtestf "expected a commit: %A" error
     }
   ]

@@ -16,6 +16,7 @@ type TestError =
   | InvalidShortHash of raw: string
   | InvalidCommitReference of raw: string
   | InvalidCommitId of raw: string
+  | InvalidLanguageCode of raw: string
   | TooManyImages of count: int
   | ImageTooLarge of fileName: string * size: int
   | UnsupportedImage of fileName: string
@@ -71,6 +72,9 @@ type TestError =
 
   interface CommitIdError<TestError> with
     static member InvalidCommitId raw = InvalidCommitId raw
+
+  interface LanguageCodeError<TestError> with
+    static member InvalidLanguageCode raw = InvalidLanguageCode raw
 
   interface NonceError<TestError> with
     static member MalformedNonce raw = MalformedNonce raw
@@ -285,6 +289,12 @@ let createAuthorizationEnv
 }
 
 /// Domain values for tests, from input that parses.
+/// The language one translate test asks for, parsed once.
+let languageOf(code: string) : string<LanguageCode> =
+  match LanguageCodes.parse<TestError> code with
+  | Ok parsed -> parsed
+  | Error(InvalidLanguageCode raw) -> failtestf "%s is not a language code" raw
+
 module Values =
 
   let body(raw: string) : string<CommitBody> =

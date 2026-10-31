@@ -38,6 +38,8 @@ open DevNull.Client.Stores
 open DevNull.Client.Theme
 open DevNull.Client.Timeline
 open DevNull.Client.UiClock
+open DevNull.Client.UserSettingsStore
+open DevNull.Client.TranslationCache
 
 type Props<'env
   when 'env :> IProvideClock
@@ -52,6 +54,8 @@ type Props<'env
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
   and 'env :> IProvideSshKeys
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
   and 'env :> IProvideLogging> = {
   Env: 'env
   Log: LogKind
@@ -109,6 +113,12 @@ module State =
     /// The thread previews the page grew past the payload slice, by
     /// parent id.
     Previews: Map<string, PreviewState>
+    /// Whether translations show by themselves.
+    Automatic: bool
+    /// Every commit's translation on this page.
+    Translations: Translation.Book
+    /// Whether the page already asked for its automatic translations.
+    AutoRan: bool
   }
 
   type Msg =
@@ -134,6 +144,12 @@ module State =
     | PollVotedDone of Result<Commit, AppError>
     | PreviewMoreRequested of Commit
     | PreviewLoaded of commitId: string * Result<Page<CommitNode>, AppError>
+    | TranslateRequested of Commit
+    | OriginalRequested of Commit
+    | TranslationDone of Commit * Result<TranslationPayload, AppError>
+    | TranslationsAuto of (Commit * Result<TranslationPayload, AppError>) list
+    | TranslationRecalled of Commit * Translation.Book option
+    | PrefsArrived of settings: UserSettings option
 
   let initial = {
     Loading = true
@@ -151,6 +167,9 @@ module State =
     PollChoices = Map.empty
     Marker = None
     Previews = Map.empty
+    Automatic = false
+    Translations = Translation.initial
+    AutoRan = false
   }
 
   /// The id of the newest commit in a page: the head the since-poll
@@ -195,9 +214,45 @@ module State =
     {
       initial with
           Pasteis = props.Session.Session.PasteisMode
+          Automatic = props.Session.Session.AutomaticTranslation
+          Translations =
+            Translation.seed(
+              (props.Env :> IProvideTranslations).Translations.Snapshot()
+            )
           Marker = marker
     },
     Cmd.OfAsync.perform fetch (props, None) Fetched
+
+  /// The bare translate call for one commit, in the language the settings
+  /// choose.
+  let translateCall(props: Props<'env>, commit: Commit) =
+    let language =
+      Translation.languageFor(
+        (props.Env :> IProvideUserSettings).UserSettings.Current,
+        commit
+      )
+
+    Commits.translate(
+      props.Env,
+      {
+        KeyFile = props.Session.KeyFile
+        CommitId = commit.Id
+        Language = language
+      }
+    )
+
+  /// Runs one commit's translate call: the language its own translation or
+  /// the settings pick, and the 503 retries.
+  let translate(props: Props<'env>, commit: Commit) =
+    Translation.execute(
+      Translation.retryDelays,
+      fun () -> translateCall(props, commit)
+    )
+
+  /// Asks for the page's unknown translations, one at a time, up to the
+  /// budget a first screen needs.
+  let autoTranslations(props: Props<'env>, commits: Commit list) =
+    Translation.auto((fun commit -> translateCall(props, commit)), 4, commits)
 
   /// Records this visit's newest commit as the next marker, once the
   /// feed has items to take it from.
@@ -223,6 +278,42 @@ module State =
       | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
       | node -> node)
 
+  /// The batch that asks for the page's unknown translations, once the
+  /// settings say translations show by themselves. The batch's commits go
+  /// busy at once, so a click cannot double a running ask.
+  let autoBatch(props: Props<'env>, model: Model) : Model * Cmd<Msg> =
+    let automatic =
+      (props.Env :> IProvideUserSettings).UserSettings.Current
+      |> Option.exists(fun settings -> settings.AutomaticTranslation)
+
+    let pending =
+      if automatic && not model.AutoRan then
+        Translation.pending(
+          model.Translations,
+          model.Items
+          |> List.choose(function
+            | LiveCommit commit -> Some commit
+            | Tombstone _ -> None)
+        )
+      else
+        []
+
+    if pending.IsEmpty then
+      model, Cmd.none
+    else
+      let marked =
+        pending
+        |> List.fold
+          (fun book commit -> Translation.request(book, commit.Id))
+          model.Translations
+
+      {
+        model with
+            Translations = marked
+            AutoRan = true
+      },
+      Cmd.OfAsync.perform autoTranslations (props, pending) TranslationsAuto
+
   let update (props: Props<'env>) msg model =
     let log = props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Log"
     let kind = LogKinds.wire props.Log
@@ -241,16 +332,22 @@ module State =
     | Fetched result ->
       match result with
       | Ok page ->
-        {
-          model with
-              Loading = false
-              Error = None
-              Items = page.Page.Items
-              NextCursor = page.Page.NextCursor
-              Head = headOf page.Page.Items
-              NewCount = None
-              Ranked = page.IsRanked
-        },
+        let next, batch =
+          autoBatch(
+            props,
+            {
+              model with
+                  Loading = false
+                  Error = None
+                  Items = page.Page.Items
+                  NextCursor = page.Page.NextCursor
+                  Head = headOf page.Page.Items
+                  NewCount = None
+                  Ranked = page.IsRanked
+            }
+          )
+
+        next,
         Cmd.batch [
           markVisit(props, page.Page.Items)
 
@@ -260,6 +357,8 @@ module State =
               kind,
               page.Page.Items.Length
             ))
+
+          batch
         ]
       | Error error ->
         {
@@ -512,12 +611,105 @@ module State =
     | AttachedChanged attached -> { model with Attached = attached }, Cmd.none
     | ClockTicked moment -> { model with Now = moment }, Cmd.none
     | SessionChanged state ->
-      let pasteis =
+      let pasteis, automatic =
         match state with
-        | SignedIn entry -> entry.Session.PasteisMode
-        | SignedOut -> model.Pasteis
+        | SignedIn entry ->
+          entry.Session.PasteisMode, entry.Session.AutomaticTranslation
+        | SignedOut -> model.Pasteis, model.Automatic
 
-      { model with Pasteis = pasteis }, Cmd.none
+      {
+        model with
+            Pasteis = pasteis
+            Automatic = automatic
+      },
+      Cmd.none
+    | TranslateRequested commit when
+      Translation.canReuse(model.Translations, commit)
+      ->
+      {
+        model with
+            Translations =
+              Translation.showTranslated(model.Translations, commit.Id)
+      },
+      Cmd.none
+    | TranslateRequested commit ->
+      model,
+      Cmd.OfAsync.perform
+        Translation.recall
+        ((props.Env :> IProvideTranslations).Translations,
+         model.Translations,
+         commit.Id)
+        (fun book -> TranslationRecalled(commit, book))
+    | TranslationRecalled(commit, book) ->
+      match book with
+      | Some book -> { model with Translations = book }, Cmd.none
+      | None when Set.contains commit.Id model.Translations.Busy ->
+        model, Cmd.none
+      | None ->
+        {
+          model with
+              Translations = Translation.request(model.Translations, commit.Id)
+        },
+        Cmd.OfAsync.perform translate (props, commit) (fun result ->
+          TranslationDone(commit, result))
+    | OriginalRequested commit ->
+      {
+        model with
+            Translations =
+              Translation.showOriginal(model.Translations, commit.Id)
+      },
+      Cmd.none
+    | PrefsArrived settings ->
+      if
+        settings |> Option.exists(fun prefs -> prefs.AutomaticTranslation)
+        && not model.Loading
+      then
+        autoBatch(props, model)
+      else
+        model, Cmd.none
+    | TranslationsAuto results ->
+      let cache = (props.Env :> IProvideTranslations).Translations
+
+      let book, stores =
+        results
+        |> List.fold
+          (fun (book, stores) (commit, result) ->
+            match result with
+            | Error(Refused(429, _, _)) -> book, stores
+            | _ ->
+              let args: Translation.Finish = {
+                Book = book
+                Now = model.Now
+                CommitId = commit.Id
+                Result = result
+              }
+
+              Translation.finish args,
+              Cmd.ofAction(fun () ->
+                Async.Start(Translation.store(cache, args)))
+              :: stores)
+          (model.Translations, [])
+
+      { model with Translations = book }, Cmd.batch stores
+    | TranslationDone(commit, result) ->
+      let args: Translation.Finish = {
+        Book = model.Translations
+        Now = model.Now
+        CommitId = commit.Id
+        Result = result
+      }
+
+      {
+        model with
+            Translations = Translation.finish args
+      },
+      Cmd.ofAction(fun () ->
+        Async.Start(
+          Translation.store(
+            (props.Env :> IProvideTranslations).Translations,
+            args
+          )
+        ))
 
   /// The page's inlets from outside: the shared clock, the session
   /// store, and — while the page sits in the tree — the since-poll and
@@ -535,6 +727,11 @@ module State =
       Sub.fromObservable
         "clock"
         (props.Env.UiClock.Minute |> Observable.map ClockTicked)
+
+      Sub.fromObservable
+        "user-settings"
+        ((props.Env :> IProvideUserSettings).UserSettings.Observe
+         |> Observable.map PrefsArrived)
 
       Sub.fromObservable
         "session"
@@ -674,6 +871,10 @@ module Parts =
         dispatch(State.PollChoiceChanged(commit, option, chosen))
       | CommitCard.PollVoteRequested commit ->
         dispatch(State.PollVoteRequested commit)
+      | CommitCard.TranslateRequested commit ->
+        dispatch(State.TranslateRequested commit)
+      | CommitCard.OriginalRequested commit ->
+        dispatch(State.OriginalRequested commit)
       | CommitCard.PinToggled _ -> ()
     Pasteis = model |> Observable.map _.Pasteis
     ViewerId = props.Session.Session.User.Id
@@ -684,6 +885,17 @@ module Parts =
     Images = props.Env.ImageCache
     Flyout = flyoutOf props
     Pin = ValueNone
+    Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
+    Translation =
+      model
+      |> Observable.map(fun model ->
+        fun commit ->
+          Translation.view {
+            Automatic = model.Automatic
+            Book = model.Translations
+            Now = model.Now
+            Commit = commit
+          })
   }
 
   /// One feed row: a separator, a commit card with its revealed reply
@@ -893,6 +1105,8 @@ type Page<'env
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
   and 'env :> IProvideSshKeys
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 

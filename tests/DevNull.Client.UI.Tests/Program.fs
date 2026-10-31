@@ -9,6 +9,7 @@ open DevNull.Client.UI.Tests.Remotes
 open DevNull.Client.UI.Tests.RemotesView
 open DevNull.Client.UI.Tests.Scheduled
 open DevNull.Client.UI.Tests.Search
+open DevNull.Client.UI.Tests.WhoToFollow
 
 [<EntryPoint>]
 let main argv =
@@ -28,6 +29,7 @@ let main argv =
       Composer.tests
       Scheduled.tests
       Shortcuts.tests
+      WhoToFollow.tests
       Unread.tests
       Remotes.tests
       RemotesView.tests

@@ -1664,6 +1664,87 @@ let actionApiTests =
       Expect.equal "/api/v1/users/octocat/follow" sent.Target "target"
     }
 
+    testAsync "suggests who to follow with the round and profile context" {
+      let people =
+        [
+          for index in 1..6 ->
+            $"{{\"id\":\"018f5a1e-000{index}-7c3a-9b2d-5e6f7a8b9c0d\",\"handle\":\"person{index}\",\"name\":\"Person {index}\",\"followers_count\":{index},\"follows_you\":true,\"followed_by_following_count\":{6 - index},\"is_followed\":false}}"
+        ]
+        |> String.concat ","
+
+      let http = CapturingHttp(ok(sprintf """{"data":[%s]}""" people))
+
+      let request: Users.SuggestedRequest = {
+        KeyFile = "key-file"
+        Round = 2
+        Context = Users.Profile "octocat"
+      }
+
+      let! (result: Result<User list, TestError>) =
+        Users.suggested(envFor http, request)
+
+      match result with
+      | Ok users ->
+        Expect.equal 6 users.Length "six suggestions"
+
+        let first = List.head users
+
+        Expect.equal (Some 5) first.FollowedByFollowingCount "known followers"
+        Expect.equal (Some true) first.FollowsYou "follows you"
+        Expect.equal (Some false) first.IsFollowed "not followed"
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "GET" sent.Method "method"
+
+      Expect.equal
+        "/api/v1/me/suggested-users?round=2&handle=octocat"
+        sent.Target
+        "target"
+    }
+
+    testAsync "suggests who to follow for a commit thread" {
+      let uuid = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+      let http = CapturingHttp(ok """{"data":[]}""")
+
+      let request: Users.SuggestedRequest = {
+        KeyFile = "key-file"
+        Round = 0
+        Context = Users.CommitThread uuid
+      }
+
+      let! (result: Result<User list, TestError>) =
+        Users.suggested(envFor http, request)
+
+      Expect.equal (Ok []) result "no suggestions"
+
+      let sent = http.Requests |> List.exactlyOne
+
+      Expect.equal
+        ("/api/v1/me/suggested-users?round=0&commit_id=" + uuid)
+        sent.Target
+        "target"
+    }
+
+    testAsync "dismisses a suggested user" {
+      let http = CapturingHttp(ok "")
+
+      let request: Users.Request = {
+        KeyFile = "key-file"
+        Username = "octocat"
+      }
+
+      let! (result: Result<unit, TestError>) =
+        Users.dismiss(envFor http, request)
+
+      Expect.equal (Ok()) result "dismissed"
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "POST" sent.Method "method"
+
+      Expect.equal "/api/v1/users/octocat/dismiss" sent.Target "target"
+    }
+
     testAsync "restores a deleted commit within its window" {
       let uuid = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
 

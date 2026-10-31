@@ -614,6 +614,19 @@ module Users =
     Cursor: string option
   }
 
+  /// Where the suggestions come from: the general rail, a profile, or
+  /// a commit thread.
+  type SuggestedContext =
+    | General
+    | Profile of handle: string
+    | CommitThread of commitId: string
+
+  type SuggestedRequest = {
+    KeyFile: string
+    Round: int
+    Context: SuggestedContext
+  }
+
   let get(env, request: Request) =
     Internal.sendSigned(
       env,
@@ -700,6 +713,42 @@ module Users =
         KeyFile = request.KeyFile
         Method = "DELETE"
         Target = Internal.userPath(request.Username, "/follow")
+        Body = ""
+        Decode = Internal.decodeUnit
+      }
+    )
+
+  let suggested(env, request: SuggestedRequest) =
+    let context =
+      match request.Context with
+      | General -> []
+      | Profile handle -> [ "handle", handle ]
+      | CommitThread commitId -> [ "commit_id", commitId ]
+
+    let target =
+      Internal.withQuery(
+        "/api/v1/me/suggested-users",
+        ("round", string request.Round) :: context
+      )
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target = target
+        Body = ""
+        Decode = SuggestedUsers.decode
+      }
+    )
+
+  let dismiss(env, request: Request) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "POST"
+        Target = Internal.userPath(request.Username, "/dismiss")
         Body = ""
         Decode = Internal.decodeUnit
       }

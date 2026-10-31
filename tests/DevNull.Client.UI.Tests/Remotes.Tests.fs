@@ -34,6 +34,7 @@ let userOf(id: string, username: string, name: string) : User = {
   CommitsCount = None
   FollowersCount = None
   FollowingCount = None
+  FollowedByFollowingCount = None
   IsFollowed = None
   FollowsYou = None
 }

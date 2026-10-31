@@ -42,12 +42,14 @@ own.
   scheduled commits, the profile pin with related commits, and search.
 - Phase 9 — composer suggestions — has landed in the working tree and waits
   on its release.
+- Phase 10 — who to follow — has landed in the working tree and waits on its
+  release.
 - Production was pulled and audited again on 2026-10-29, after the server's
   10-28/10-29 burst. Every contract below still stands as written, and the
   server's CLI contract has not changed since 2026-10-19.
-- The rest of the server's 2026-10-26 to 2026-10-29 burst (suggestions,
-  translations, organization pages, user settings) is absent from Core and
-  lands phase by phase below; Phase 10 — who to follow — is next.
+- The rest of the server's 2026-10-26 to 2026-10-29 burst (translations,
+  organization pages, user settings) is absent from Core and lands phase by
+  phase below; Phase 11 — user settings, timezone, and translations — is next.
 - The burst also shipped past this roadmap, and the audit folded its
   client-side remainder in: live users and the first-commit notification
   (Phase 13), follower and following list pages (Phase 14), the commit
@@ -288,6 +290,8 @@ latency behavior.
 drive of both completions from the composer.
 
 ## Phase 10 — Who to follow
+
+*Landed.*
 
 **Server reference:** the suggested-users controller (rounds with spares that
 fill dismissed slots; a profile or commit context; nobody suggested is followed

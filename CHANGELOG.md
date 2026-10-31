@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Composer:** the composer suggests who and what to mention. Typing `@` opens the site's own completions — the people you follow first on a bare `@`, the thread's people first in a reply, the quoted author first in a quote, organizations once the query has letters — with the site's pauses while you type and its quiet states: `Searching…`, the fatal line when nobody matches, and the slow-down sentence when the server asks for a rest. The arrow keys walk the rows, Enter or Tab completes the handle with its spacing, and Escape closes; a reply's composer asks fresh every time, while every other one remembers its answers. Typing `#number` opens the issue or pull-request card the site shows — never for a color like `#000`, never inside a code fence — and completing it replaces the number with the issue's address.
+- **Who to follow:** the wide window's right column now suggests three people beside a profile or a commit thread — the people you follow know first, with their bio and a reason line. Refresh moves to the next round, a spare takes the place of anyone marked not interested, and a failed dismissal leaves the row in place.
 
 ## [0.7.0] - 2026-10-30
 

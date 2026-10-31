@@ -28,6 +28,7 @@ type User = {
   CommitsCount: int option
   FollowersCount: int option
   FollowingCount: int option
+  FollowedByFollowingCount: int option
   IsFollowed: bool option
   FollowsYou: bool option
 }
@@ -831,6 +832,11 @@ module SearchUsers =
   /// Reads the plain `{data: [...]}` collection of GET
   /// /api/v1/search/users: the people matching a name or handle,
   /// the server's eight at most.
+  val decode: body: string -> Result<User list, DecodeFailure>
+
+module SuggestedUsers =
+  /// Reads the plain `{data: [...]}` collection of GET
+  /// /api/v1/me/suggested-users: the day's page with its spares.
   val decode: body: string -> Result<User list, DecodeFailure>
 
 module SearchCommits =

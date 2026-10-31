@@ -288,6 +288,21 @@ module Users =
     Cursor: string option
   }
 
+  /// Where the suggestions come from: the general rail, a profile, or
+  /// a commit thread.
+  type SuggestedContext =
+    | General
+    | Profile of handle: string
+    | CommitThread of commitId: string
+
+  /// One who-to-follow page: the day's round and the page it is shown
+  /// beside, if any.
+  type SuggestedRequest = {
+    KeyFile: string
+    Round: int
+    Context: SuggestedContext
+  }
+
   /// Reads one profile and the viewer's relation to it.
   val get:
     env: 'env * request: Request -> Async<Result<ProfileDetails, 'e>>
@@ -355,6 +370,34 @@ module Users =
 
   /// Stops following one user.
   val unfollow:
+    env: 'env * request: Request -> Async<Result<unit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Reads who to follow: the round's three people and three spares,
+  /// the people the viewer follows first. Nobody in the answer is
+  /// followed yet.
+  val suggested:
+    env: 'env * request: SuggestedRequest -> Async<Result<User list, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Dismisses one user from who to follow for good.
+  val dismiss:
     env: 'env * request: Request -> Async<Result<unit, 'e>>
       when 'env :> IProvideClock
       and 'env :> IProvideNonceSource

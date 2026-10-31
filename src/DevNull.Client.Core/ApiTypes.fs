@@ -28,6 +28,7 @@ type User = {
   CommitsCount: int option
   FollowersCount: int option
   FollowingCount: int option
+  FollowedByFollowingCount: int option
   IsFollowed: bool option
   FollowsYou: bool option
 }
@@ -931,6 +932,10 @@ let userDecoder(element: JsonElement) = decode {
     Optional.Property.get ("following_count", Optional.int) element
     |> Result.map Option.flatten
 
+  let! followedByFollowingCount =
+    Optional.Property.get ("followed_by_following_count", Optional.int) element
+    |> Result.map Option.flatten
+
   let! isFollowed =
     Optional.Property.get ("is_followed", Optional.boolean) element
     |> Result.map Option.flatten
@@ -949,6 +954,7 @@ let userDecoder(element: JsonElement) = decode {
     CommitsCount = commitsCount
     FollowersCount = followersCount
     FollowingCount = followingCount
+    FollowedByFollowingCount = followedByFollowingCount
     IsFollowed = isFollowed
     FollowsYou = followsYou
   }
@@ -2668,6 +2674,9 @@ module IssueSuggestions =
   let decode(body: string) = decodeIssueAnswer body
 
 module SearchUsers =
+  let decode(body: string) = decodeFoundUsers body
+
+module SuggestedUsers =
   let decode(body: string) = decodeFoundUsers body
 
 module SearchCommits =

@@ -83,6 +83,8 @@
     <Compile Include="Components\ProfileCard.fs" />
     <Compile Include="Components\UserFlyout.fsi" />
     <Compile Include="Components\UserFlyout.fs" />
+    <Compile Include="Components\WhoToFollow.fsi" />
+    <Compile Include="Components\WhoToFollow.fs" />
     <Compile Include="Components\CommitCard.fsi" />
     <Compile Include="Components\CommitCard.fs" />
     <Compile Include="Components\SearchParts.fsi" />

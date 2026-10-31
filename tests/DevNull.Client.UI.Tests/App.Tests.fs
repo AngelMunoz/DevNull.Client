@@ -4969,6 +4969,7 @@ let tests =
               CommitsCount = None
               FollowersCount = None
               FollowingCount = None
+              FollowedByFollowingCount = None
               IsFollowed = None
               FollowsYou = None
             }

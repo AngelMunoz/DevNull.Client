@@ -7,6 +7,7 @@ open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Chrome
 open Avalonia.Controls.Documents
+open Avalonia.Controls.Primitives
 open Avalonia.Input
 open Avalonia.Layout
 open Avalonia.Media
@@ -1242,12 +1243,15 @@ type Shell<'env
 
     sidebarPane.Name <- "SidebarPane"
 
-    // The aside: the signed-in user's card, the way the site's right
-    // column does past its wide breakpoint. It rebuilds only when the
-    // signed-in user changes, the way the chrome does.
+    // The aside: the signed-in user's card and who to follow, the way
+    // the site's right column does past its wide breakpoint. It
+    // rebuilds only when the signed-in user changes, the way the chrome
+    // does; the rail follows the route on its own.
     let asideHost = ContentControl()
 
     asideHost.Name <- "AsideHost"
+
+    asideHost.Margin <- Thickness(24.0, Theme.bandHeight + 24.0, 24.0, 24.0)
 
     let asideUser = new BehaviorSubject<string>("")
 
@@ -1256,7 +1260,18 @@ type Shell<'env
       match state with
       | SignedIn entry when asideUser.Value <> entry.Session.User.Id ->
         asideUser.OnNext entry.Session.User.Id
-        asideHost.Content <- ProfileCard.Page { Env = env; Session = entry }
+
+        asideHost.Content <-
+          StackPanel()
+            .Spacing(24.0)
+            .Children(
+              ProfileCard.Page { Env = env; Session = entry },
+              WhoToFollow.Page {
+                Env = env
+                Session = entry
+                OnOpen = navigate
+              }
+            )
       | SignedIn _ -> ()
       | SignedOut ->
         asideUser.OnNext ""
@@ -1265,8 +1280,8 @@ type Shell<'env
     let aside =
       ScrollViewer()
         .Width(320.0)
+        .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
         .IsVisible(wide)
-        .Padding(Thickness(24.0, Theme.bandHeight + 24.0, 24.0, 24.0))
         .Content(asideHost)
 
     let outlet = RouterOutlet(Router = Some router)

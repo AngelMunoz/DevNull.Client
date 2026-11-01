@@ -17,7 +17,8 @@ With [Scoop](https://scoop.sh):
 That URL always serves the newest stable release's manifest. Scoop checks
 the SHA-256 it carries before installing, and `scoop update` picks up each
 new release from the same URL. Pre-release builds never ride the channel;
-install one by its exact release URL instead.
+install one by its exact release URL instead. Once installed, `devnull`
+starts the app from any terminal (from the next release on).
 
 ## Installing on Linux
 

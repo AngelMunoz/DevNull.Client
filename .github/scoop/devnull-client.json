@@ -9,7 +9,10 @@
             "hash": "@HASH@"
         }
     },
-    "bin": "DevNull.Client.exe",
+    "bin": [
+        "DevNull.Client.exe",
+        ["DevNull.Client.exe", "devnull"]
+    ],
     "shortcuts": [["DevNull.Client.exe", "DevNull Client"]],
     "checkver": "github",
     "autoupdate": {

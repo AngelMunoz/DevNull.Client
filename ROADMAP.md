@@ -1,9 +1,9 @@
 # Roadmap
 
-This roadmap syncs the client with the server's public JSON and CLI API as the
-server completed it through 2026-10-29, and adds the burst's client remainder
-plus install spikes for both desktop heads. Each phase is one deliverable:
-Core, UI, tests, and changelog, shippable alone and in order.
+This file is the index: the working rules, the gates, the current state, and
+the two install spikes. Every other deliverable lives in a GitHub issue, in
+the order of the issue index below. Each phase and each issue is one
+deliverable: Core, UI, tests, and changelog, shippable alone and in order.
 
 The server contract is read from the server repository that sits beside this
 client in the workspace. Its license is MIT (declared in its `composer.json`),
@@ -14,14 +14,14 @@ own.
 
 1. **The server contract is the design source.** Every phase is written against
    the named server files and the named web pages first — same wording, same
-   limits, same interaction flow — and never approximated from memory. Where a
-   server constant exists (a window length, a queue cap, a character bound,
+   limits, same interaction flow — and never approximated from memory. Where
+   a server constant exists (a window length, a queue cap, a character bound,
    a throttle), the client carries the same rule as a parse leaf, so the user
    hears it before the server does.
 2. **Current code does not constrain the new design.** The Windows head was not
    forced through the Linux head's streaming design; its native media stack
-   shaped its own path. The same holds for every phase here: design against the
-   server contract and the right user flow first, then let the existing modules
+   shaped its own path. The same holds for every phase here: design against
+   the server contract and the right user flow first, then let the existing modules
    and contracts bend to fit — reshape a `Natives` interface, move a module,
    change a decoder's shape — rather than squeezing the new design into the
    current hole. What stays fixed is the wire contract and the user-facing
@@ -31,47 +31,42 @@ own.
    address and true wire constants (an HTTP path, a signature namespace) carry
    real names.
 4. **Client-repo rules win inside the client.** The imperatives in `AGENTS.md`
-   apply to every phase; the skill gate below is part of every phase's
-   definition of done.
+   apply to every phase and every issue; the skill gate below is part of every
+   deliverable's definition of done.
 
 ## State as of 2026-10-31
 
-- Phases 1 through 11 have landed and shipped, releases through 0.8.0: the
-  terms gate, Linux playback of the web's voice notes through the desktop's
-  media framework, the devices list with self-revoke, the 30-second delete
-  undo, per-image descriptions on commits, scheduled commits, the profile
-  pin with related commits, search, the composer suggestions, who to follow,
-  and the user settings with timezone and translations.
-- Phase 12 — org message pins and public organizations — has landed in the
-  working tree and waits on its release.
-- Phase 13 — live users and the first-commit notification — is next.
+- The burst's client work through org message pins and public organizations
+  has landed in main: the terms gate, Linux playback of the web's voice notes,
+  devices with self-revoke, the delete undo, image descriptions, scheduled
+  commits, the profile pin with related commits, search, composer suggestions,
+  who to follow, user settings with timezone and translations, and the org
+  work — releases through 0.8.0 are out, and the org work waits on its
+  release.
+- What remains of the burst is in the issue index: live users and the
+  first-commit notification (#3), and the follower and following lists (#4).
+- The two install spikes stay here as phases: scoop on Windows
+  (Phase 1), flatpak on Linux (Phase 2). The AOT single-file publish makes
+  each manifest a thin wrapper over the release artifacts.
 - The server contract was last pulled and audited on 2026-10-29, and the
   server's CLI contract had not changed since 2026-10-19. The live site has
   since shown main-search results the checkout cannot produce —
   organizations in search — so the server repository must be pulled and
-  re-audited before Phase 13 work; tracked in
+  re-audited before feature work; tracked in
   [#2](https://github.com/AngelMunoz/DevNull.Client/issues/2).
 - The commit-card actions are re-implemented per feed page (the poll vote
   exists in six views); consolidating them beside `CommitActions.toggleStar`
   is tracked in
   [#1](https://github.com/AngelMunoz/DevNull.Client/issues/1).
-- The burst also shipped past this roadmap, and the audit folded its
-  client-side remainder in: live users and the first-commit notification
-  (Phase 13), follower and following list pages (Phase 14), and the commit
-  mention's organization kind (Phase 12).
-- Two spikes cover installation: scoop and winget on Windows (Phase 15),
-  flatpak on Linux (Phase 16). The AOT single-file publish makes both
-  manifests a thin wrapper over the release artifacts.
 - Five of the burst's features are web-only with no JSON API field: the
   profile README and the bio's mention links wait on a server field; the
   guest join link, the organization claim flow, and the developer count stay
   out of scope.
 - Media needs no endpoint work: every image and voice note arrives with a URL
-  signed for the user, day-stable and good until midnight UTC the day after
-  tomorrow, so the players download bytes directly. Core never calls the media
-  routes.
+  signed for the user, so the players download bytes directly and Core never
+  calls the media routes.
 
-## Standing rules for every phase
+## Standing rules for every phase and issue
 
 **Repo rules** (from `AGENTS.md`): `dotnet fantomas .` before staging; every new
 F# file pairs with its `.fsi`; no `private` under a signature; at most three
@@ -80,8 +75,8 @@ over match ladders; JDeck for JSON; `asyncEx` lifetimes; changelog entry under
 `Unreleased` → `Added` with a bold area prefix, one bullet per user-facing
 concern; no push without permission granted for that set of work.
 
-**Skill gate** — each phase's code is checked against all of these before it is
-done:
+**Skill gate** — the code of every phase and issue is checked against all of
+these before it is done:
 
 | Skill | What it gates |
 |---|---|
@@ -105,299 +100,25 @@ controls only on the session thread, never dispatching inside a dispatch.
 
 ---
 
-## Phase 1 — Terms acceptance
-
-*Landed.*
-
-**Goal:** the app knows when the person has not accepted the current terms, asks
-them, and records the answer — at first sign-in or any time after.
-
-**Server reference:** the current-user resource (the `terms_version`,
-`terms_accepted_at`, `terms_accepted` fields), the terms update controller and
-request, the device-redeem controller's optional `terms_version` field, and the
-web's terms page.
-
-**Client work:** Core extends the current-user decode with the three terms
-fields and adds `Terms.accept` (an empty-body update that answers as the
-current-user endpoint does). The redeem call sends `terms_version` when the
-person accepts in the sign-in flow, so first sign-in accepts in one step. The
-UI shows the prompt whenever a refreshed session says the terms are unaccepted:
-the web page's wording, a tick box, links to the site's terms and privacy pages.
-
-**Verify:** fixture tests for the new fields and the accept round-trip; a
-headless test drives the prompt; changelog bullet.
-
-## Phase 2 — Linux voice decode: Opus in WebM to PCM
-
-*Landed — through the desktop's media framework, per the design below.*
-
-**Goal:** a voice note recorded on the web plays on Linux with the same speed,
-volume, seek, and position behavior as a WAV note.
-
-**Server and web reference:** the web's voice-note library (Opus in WebM at
-24 kbps, WAV only as the browser fallback), Core's voice staging (the byte cap,
-the WebM/WAV sniffing), the shared natives contract (the head owns decoding),
-and the Linux head's playback pipeline (16 kHz mono S16LE over the desktop's
-audio client, with speed by resample and position from samples served).
-
-**Design first, per Principle 2:** the playback path is the platform's own
-media stack, exactly as the Windows head hands its notes to the OS player. The
-Linux counterpart is the desktop's media framework: probe its library at head
-start; when present, a note's bytes play through its ready-made player element
-— decode, demux, resample, and output all native — steered by a thin
-platform-invocation layer. When the probe finds nothing, the head keeps the
-current PCM path: WAV notes play as today, a WebM note names why it cannot
-play, and one log line says the desktop's media framework is missing so the
-word is traceable. No managed decoder is written; the fallback is the
-documented cut, not a second implementation. Recording on Linux stays WAV —
-the site accepts it, and the cap holds for the minute-long notes the web
-allows — so this phase only plays.
-
-**Approach:** one probe for the framework's library, one `gst_init` on first
-use, and a player element per note: the bytes ride a memory file (a
-file-descriptor URI), the element's state machine runs the note, the bus is
-polled from an async loop for the end and for failures, the position is
-queried, seeking with a rate covers the three speeds, and the volume property
-covers loudness. Every playback-contract member maps to one native feature;
-no managed binding package is added, and the system library links dynamically
-under its own license. The probe decides at startup which path each note
-takes, and the content-type sniff the Core already does picks WAV versus the
-player.
-
-**Verify:** a headless test drives a WebM note through the voice player where
-it failed before, with the player faked behind the head's own seam, and a
-missing-framework probe keeps the WAV path and the named WebM failure (both
-directions). A manual pass on a clean Fedora KDE machine plays a WebM note
-from the web and a WAV note end to end — start, speed cycle, volume, seek, and
-the position bar — with the framework present and, after hiding the library,
-the named failure in its place. The skill gate runs over the new module pair,
-with an `fsharp-native-aot` publish proof of the Linux head in this phase, not
-only at the end.
-
-## Phase 3 — Devices
-
-*Landed.*
-
-**Server reference:** the device index and destroy controllers, the device
-resource (id, name, fingerprint, approved at, last used at), the web's devices
-page.
-
-**Client work:** Core adds the list (a plain collection, newest approval first)
-and the revoke (a no-content answer). The settings page lists each device with
-its facts and a revoke action. Revoking the device that signed the request
-signs the app out — the server's own rule — so the client signs out locally
-right after the answer.
-
-**Verify:** fixture tests for the list decode and the revoke; a headless test
-lists and revokes; a test proves the self-revoke path signs out.
-
-## Phase 4 — Commit delete undo
-
-*Landed.*
-
-**Server reference:** the restoration controller and request (author-only,
-others see not-found; a 30-second window; the no-longer-deleted and
-window-expired answers), the web's undo toast.
-
-**Client work:** Core adds the restore call, answered by the commit as its page
-shows it. Deleting a commit shows the undo affordance for the window's length;
-undo restores the commit into the feed. Expired and already-restored failures
-show the server's messages verbatim.
-
-**Verify:** fixture test for the restore answer; a headless delete → undo →
-return test; timer expiry dismisses the affordance.
-
-## Phase 5 — Image descriptions on commits
-
-*Landed.*
-
-**Server reference:** the commit-create request's description rules (a nullable
-list beside the images, each entry bounded at the server's own length), the
-web's image picker.
-
-**Client work:** the commit-create request carries optional per-image
-descriptions in its payload, exactly as the remotes push already carries them;
-a parse leaf enforces the per-entry bound and the count. The composer's image
-flow gains the optional description field with the counter the web shows.
-
-**Verify:** bound tests at the parse leaf; a headless composer test posts a
-description; an over-long entry surfaces the bound before sending.
-
-## Phase 6 — Scheduled commits
-
-**Server reference:** the scheduled-commit controller (an offset-paginated
-queue, twenty a page — unlike every cursor list the client has), the create
-request (body; a scheduled moment after now and within thirty days; no replies
-or quotes; a link-card choice among the body's links; images, descriptions, and
-a poll as a commit carries them; at most ten outstanding), the submit-now
-controller and its conflict answers, the scheduled-commit resource (the status
-story: scheduled, the commit's moderation status, or deleted; the body hidden
-once submitted), the web's scheduled page.
-
-**Client work:** Core gains a scheduled module — list by page number, create
-(multipart when images ride), cancel, submit now — with the queue's own page
-decoder and a parsed status. The composer gains the schedule action (a
-date-time picker inside the server's bounds, with reply and quote controls
-off), and a queue surface lists the entries with status, cancel, and commit
-now, mirroring the web page's rows and conflict messages.
-
-**Verify:** fixture tests for the offset page and the status transitions;
-create-with-poll-and-images through the fakes; both conflict answers surface
-verbatim; a headless schedule → cancel → submit-now pass.
-
-## Phase 7 — Profile pin and related commits
-
-**Server reference:** the commit pin controllers (both answer the commit as its
-page shows it, so the pinned flag updates; author-only), the related-commits
-controller (a plain collection, optionally signed), the web's secondary actions
-and related-commits list.
-
-**Client work:** Core adds pin, unpin, and related. The author's own commit
-actions gain the pin toggle; the profile shows the pinned commit at the top;
-the thread shows related commits under it, laid out as the web's list.
-
-**Verify:** fixture tests for both answers; a headless pin from a thread
-reflects on the profile; the related list renders.
-
-## Phase 8 — Search
-
-**Server reference:** the people search controller (a term bounded at the
-server's length, no pagination, follow relations loaded) and the commit search
-controller (a required term with a minimum length, a bounded limit with the
-web's default, nearest-meaning-first, possibly fewer than asked for, reply
-previews included), the web's search page.
-
-**Client work:** Core adds both searches with a parse leaf for the term's
-minimum length, keeping the server's reasoning in the UI hint. The UI gains a
-search route (keyboard-opened) with the web's two tabs, debounce, empty state,
-and fewer-results note; people rows reuse the profile card and flyout.
-
-**Verify:** fixture tests for both decoders; the minimum-length guard; a
-headless type-see-open pass across both tabs.
-
-## Phase 9 — Composer suggestions
-
-*Landed.*
-
-**Server reference:** the mention-suggestion controller (a term plus the
-composer's context parameters; the answer is people beside an organizations
-array, since mentions link to organizations in commits) and the
-issue-suggestion controller (a digits-only term, answered with the issue or
-nothing), the web composer's suggestion components.
-
-**Client work:** Core adds the mention search (context-aware) and the issue
-lookup. The composer shows @-mention completions (people and organizations) and
-fetches the issue card for a number reference, with the web's triggers and
-latency behavior.
-
-**Verify:** fixture tests for both answers; the digits-only parse; a headless
-drive of both completions from the composer.
-
-## Phase 10 — Who to follow
-
-*Landed.*
-
-**Server reference:** the suggested-users controller (rounds with spares that
-fill dismissed slots; a profile or commit context; nobody suggested is followed
-yet), the dismissal controller, the user resource's known-followers count, the
-web's who-to-follow rail and its people-you-know line.
-
-**Client work:** Core decodes the known-followers count and adds the suggestion
-list and the dismissal. The UI gains the rail: the web's slots, reason lines,
-refresh-to-next-round, and not-interested with a spare filling the slot, placed
-beside profiles and commits with the same context calls.
-
-**Verify:** a fixture test for the spare contract; a headless dismiss swaps in
-a spare; refresh advances the round.
-
-## Phase 11 — User settings, timezone, and translations
-
-*Landed.*
-
-**Server reference:** the user-settings controller (timezone, the follow-the-
-device language, automatic translation, the pickable languages with their
-names, the show-local-time choice, the admin flag), the three preference
-update requests, the commit
-translation controller (a language field; the answer's display shape; a
-retryable failure with the web's exact messages), the web's language setting
-and translate components.
-
-**Client work:** Core adds the settings read and the three preference writes,
-plus the commit translate call with the retryable failure leaf. The settings
-page gains the language, automatic-translation, timezone, and show-local-time
-rows as the web
-shows them; commits gain the translate action that swaps the body and back,
-with the web's pending and failed states.
-
-**Verify:** fixture tests for the settings and translation answers including
-the retryable failure; a headless language change and a translate-retry pass.
-
-## Phase 12 — Org message pins and public organizations
-
-*Landed in the working tree; waits on its release.*
-
-**Server reference:** the message resource's pinned-at field (with the reply
-reference hidden on pinned messages), the message pin controllers (org
-maintainers, under the posting-timeout guard), the organization resource and
-its mentions controller, the commit mention's kind (`user` or
-`organization`), the web's organization pages.
-
-**Client work:** Core decodes the message pin state and adds the message pin
-and unpin calls and the organization read with its mentions. Commit mentions
-decode their kind, so a card links an @handle that names an organization to
-the organization page instead of a profile. Org threads show
-pinned messages with the maintainer's pin action; an organization route shows
-the public profile and its mentions.
-
-**Verify:** fixture tests including the hidden-reply case; a headless pin
-visible to members with the action limited to maintainers; the organization
-page renders from fixtures.
-
-## Phase 13 — Live users and the first-commit notification
-
-**Server reference:** the user resource's `live` field (`platform`, `url`,
-`thumbnail_url`, `ends_at` while the user streams, else null), the
-`first_commit` notification type (one notification to each follower when
-someone makes their first commit).
-
-**Client work:** Core decodes `live` on the user. Cards and lists badge a
-live user and open the stream URL. The notification inbox maps `first_commit`
-to its own glyph and sentence instead of the generic fallback.
-
-**Verify:** fixture tests for the live decode and its null case; a headless
-badge on a card; the first-commit row renders its own words.
-
-## Phase 14 — Follower and following lists
-
-**Server reference:** the follower and following index endpoints (public,
-cursor pages of users, each with the viewer's relation loaded), the web's
-follower and following pages.
-
-**Client work:** Core already carries `Users.followers` and
-`Users.following`; the profile's counts open the matching list page, rows
-reusing the profile card with the follow control. The web's mutuals page has
-no JSON API and stays web-only.
-
-**Verify:** a headless pass opens both lists from the profile and follows one
-row.
-
-## Phase 15 — Windows install: scoop and winget spikes
-
-**Goal:** the Windows head installs from a package manager manifest generated
-from the release artifacts.
-
-**Approach:** the AOT publish is one self-contained executable, so both
-manifests describe one file. A winget manifest set (version, installer,
-locale) over the released zip, with its SHA-256; a scoop manifest (JSON) over
-the same zip. Both generate at release time. The spike proves the path
-locally: `winget install --manifest` and a local scoop bucket, then an
-upgrade over the previous version. Submitting to the community manifest
-repository or a public bucket is a separate decision after the spike.
-
-**Verify:** a clean machine installs and upgrades through both managers; the
-hash pins what each one installs.
-
-## Phase 16 — Linux install: flatpak spike
+## Phase 1 — Windows install: scoop spike
+
+**Goal:** the Windows head installs from a scoop manifest generated from the
+release artifacts.
+
+**Approach:** the AOT publish is one self-contained executable, so the
+manifest describes one file. A scoop manifest (JSON) over the released zip,
+with its SHA-256, installs and upgrades straight from our own release URL —
+no manifest-repository pull request to make or keep current. The manifest
+generates at release time. The spike proves the path locally: a bucket
+pointing at the URL, an install, then an upgrade over the previous version.
+A public bucket of our own stays a separate decision after the spike.
+Winget is out: it wants a pull request to the community manifest repository
+for every release (see *Not in scope*).
+
+**Verify:** a clean machine installs and upgrades through scoop from our
+URL; the hash pins what it installs.
+
+## Phase 2 — Linux install: flatpak spike
 
 **Goal:** the Linux head installs as a flatpak.
 
@@ -408,23 +129,39 @@ metadata; the sandbox's desktop file carries the scheme so links open the
 app. The spike proves the sandbox's seams: the tray, notifications, and the
 audio stack through the desktop's portals.
 
+**Investigation source:** hosting the ostree repository on GitHub Pages, the
+shape of
+[sirredbeard/github-pages-flatpak-repo](https://github.com/sirredbeard/github-pages-flatpak-repo).
+A `.flatpakref` at a plain HTTPS address installs the app and registers the
+remote, so `flatpak update` pulls each release as it lands on the pages:
+automatic updates for Linux with no Flathub and no server of our own. The
+spike answers whether that remote fits the release flow, and whether it
+makes Flathub unnecessary.
+
 **Verify:** `flatpak-builder` builds and a local install runs end to end:
 sign-in, a commit, a voice note, and a scheme link from the browser. Flathub
 submission is a separate decision after the spike.
 
-## Phase 17 — Release hardening
-
-`dotnet fantomas .`; full build; both test suites; Native AOT publish of both
-heads over everything the roadmap added; one full skill-gate sweep of the whole
-diff; changelog review (one bullet per user-facing concern, all under
-`Added`); the version bump per the changelog-driven scheme. Publish output
-stays out of the tree.
-
 ---
+
+## Issue index
+
+The two spikes above come first; then the issues, in this order:
+
+| Issue | Notes |
+|---|---|
+| [#2 — Re-pull the server contract](https://github.com/AngelMunoz/DevNull.Client/issues/2) | gates every feature issue: their audit lines are written against the checkout |
+| [#3 — Live users and the first-commit notification](https://github.com/AngelMunoz/DevNull.Client/issues/3) | the burst's remainder; after the re-pull |
+| [#4 — Follower and following lists](https://github.com/AngelMunoz/DevNull.Client/issues/4) | Core already carries both calls; the work is the pages |
+| [#1 — Consolidate the commit-card actions](https://github.com/AngelMunoz/DevNull.Client/issues/1) | anytime before the next feed page; each new one pays for it until it lands |
+| [#5 — Release hardening](https://github.com/AngelMunoz/DevNull.Client/issues/5) | last: one full sweep over everything that landed, then the version bump |
 
 ## Not in scope
 
 - **The Mac update check** — an endpoint for another platform's app updater.
+- **winget** — every release wants a pull request to the community manifest
+  repository. Scoop installs and upgrades straight from our own release URL,
+  so Windows package management rides scoop alone (Phase 1).
 - **The media routes** — the players consume their signed URLs directly; Core
   never calls them, and the signing window and day-stability already fit the
   caches.
@@ -438,3 +175,5 @@ stays out of the tree.
 - **The guest join link, the organization claim flow, and the developer
   count** — web session flows and guest page props with no API surface. The
   organization page may link the site's claim flow.
+- **The web's mutuals page** — no JSON API; the follower and following lists
+  in #4 are the API-backed part.

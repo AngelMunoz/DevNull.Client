@@ -707,7 +707,14 @@ let tombstoneJson =
   """{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2}"""
 
 let richCommitJson =
-  """{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"b8b9c0d","body":"It was DNS.\n```fsharp\nlet x = 1\n```","parent_id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","html_url":"https://dev-null.sh/@octocat/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:17:19Z","stars_count":2,"replies_count":1,"status":"pending","author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"images":[],"body_segments":[{"type":"text","text":"It was DNS."},{"type":"code","code":"let x = 1"},{"type":"block","language":"fsharp","html":"<span>let x = 1</span>"}],"preview_segments":[{"type":"text","text":"It was DNS."}],"mentions":[{"handle":"octocat","offset":0,"length":2}],"is_pinned":true,"starred":true,"pasteis_count":5,"quoted_commit_id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent":{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2},"quoted_commit":{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2},"poll":{"id":"018f4c1e-cccc-7c3a-9b2d-5e6f7a8b9c0d","closes_at":null,"is_closed":false,"has_voted":true,"total_votes":3,"options":[{"id":"018f4c1e-dddd-7c3a-9b2d-5e6f7a8b9c0d","label":"Yes","votes_count":2,"voted":true,"percentage":67}]},"link_preview":{"url":"https://example.test","title":"Example","description":null,"image_url":null,"site_name":"Example","is_pending":false,"embed":{"provider":"youtube","kind":"video","src":"https://youtube.com/embed/x","aspect_ratio":"16 / 9","height":null,"poster":null}},"reply_preview":{"data":[{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2}],"next_cursor":"abc"}}"""
+  """{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"b8b9c0d","body":"It was DNS.\n```fsharp\nlet x = 1\n```","parent_id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","html_url":"https://dev-null.sh/@octocat/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:17:19Z","stars_count":2,"replies_count":1,"status":"pending","author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"images":[],"body_segments":[{"type":"text","text":"It was DNS."},{"type":"code","code":"let x = 1"},{"type":"block","language":"fsharp","html":"<span>let x = 1</span>"}],"preview_segments":[{"type":"text","text":"It was DNS."}],"mentions":[{"handle":"octocat","offset":0,"length":2,"kind":"user"}],"is_pinned":true,"starred":true,"pasteis_count":5,"quoted_commit_id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent":{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2},"quoted_commit":{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2},"poll":{"id":"018f4c1e-cccc-7c3a-9b2d-5e6f7a8b9c0d","closes_at":null,"is_closed":false,"has_voted":true,"total_votes":3,"options":[{"id":"018f4c1e-dddd-7c3a-9b2d-5e6f7a8b9c0d","label":"Yes","votes_count":2,"voted":true,"percentage":67}]},"link_preview":{"url":"https://example.test","title":"Example","description":null,"image_url":null,"site_name":"Example","is_pending":false,"embed":{"provider":"youtube","kind":"video","src":"https://youtube.com/embed/x","aspect_ratio":"16 / 9","height":null,"poster":null}},"reply_preview":{"data":[{"id":"018f4c1e-bbbb-7c3a-9b2d-5e6f7a8b9c0d","parent_id":null,"deleted_at":"2026-10-20T04:20:00Z","replies_count":2}],"next_cursor":"abc"}}"""
+
+/// One rich commit whose single mention carries the kind named.
+let commitWithMention(kind: string) =
+  richCommitJson.Replace(
+    "\"mentions\":[{\"handle\":\"octocat\",\"offset\":0,\"length\":2,\"kind\":\"user\"}]",
+    $"\"mentions\":[{{\"handle\":\"devnull\",\"offset\":4,\"length\":7,\"kind\":\"{kind}\"}}]"
+  )
 
 let richCommitTests =
   testList "Api.richCommits" [
@@ -798,6 +805,37 @@ let richCommitTests =
             (Some tombstone.DeletedAt)
             "deleted"
         | LiveCommit _ -> failtest "expected a tombstone"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "a mention's kind rides into the decoded commit" {
+      let http =
+        CapturingHttp(
+          ok(sprintf "{\"data\":%s}" (commitWithMention "organization"))
+        )
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(envFor http, commitRequest)
+
+      match result with
+      | Ok commit ->
+        let mention = commit.Mentions |> List.exactlyOne
+        Expect.equal "devnull" mention.Handle "handle"
+        Expect.equal OrganizationMention mention.Kind "kind"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "an unknown mention kind stays raw" {
+      let http =
+        CapturingHttp(ok(sprintf "{\"data\":%s}" (commitWithMention "webring")))
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(envFor http, commitRequest)
+
+      match result with
+      | Ok commit ->
+        let mention = commit.Mentions |> List.exactlyOne
+        Expect.equal (UnknownMention "webring") mention.Kind "kind"
       | Error error -> failtestf "%A" error
     }
   ]
@@ -1058,6 +1096,65 @@ let accountApiTests =
           "next level xp"
       | Error error -> failtestf "%A" error
     }
+
+    testAsync "reads one public organization profile" {
+      let response =
+        """{"data":{"handle":"devnull","name":"DevNull","avatar_url":"https://avatars.example/devnull.png","bio":null,"location":"The Internet","website":null,"github_url":"https://github.com/devnull","html_url":"https://dev-null.sh/@devnull"}}"""
+
+      let http = CapturingHttp(ok response)
+
+      let request: Organizations.Request = {
+        KeyFile = "key-file"
+        Handle = "devnull"
+      }
+
+      let! (result: Result<OrganizationProfile, TestError>) =
+        Organizations.get(envFor http, request)
+
+      match result with
+      | Ok profile ->
+        Expect.equal "devnull" profile.Handle "handle"
+        Expect.equal "DevNull" profile.Name "name"
+
+        Expect.equal
+          (Some "https://avatars.example/devnull.png")
+          profile.AvatarUrl
+          "avatar"
+
+        Expect.equal None profile.Bio "bio"
+        Expect.equal (Some "The Internet") profile.Location "location"
+        Expect.equal None profile.Website "website"
+
+        Expect.equal
+          (Some "https://github.com/devnull")
+          profile.GithubUrl
+          "github"
+
+        Expect.equal "https://dev-null.sh/@devnull" profile.HtmlUrl "page"
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "/api/v1/organizations/devnull" sent.Target "target"
+    }
+
+    testAsync "an unknown organization stays the refusal path" {
+      let http =
+        CapturingHttp(
+          refused 404 """{"message":"No organization named that."}"""
+        )
+
+      let request: Organizations.Request = {
+        KeyFile = "key-file"
+        Handle = "ghosts"
+      }
+
+      let! (result: Result<OrganizationProfile, TestError>) =
+        Organizations.get(envFor http, request)
+
+      match result with
+      | Error(Refused(404, None, "No organization named that.")) -> ()
+      | _ -> failtest "expected Refused with the server's words"
+    }
   ]
 
 let listApiTests =
@@ -1086,6 +1183,33 @@ let listApiTests =
 
       Expect.equal
         "/api/v1/users/octocat/commits?replies=1&cursor=abc"
+        sent.Target
+        "target"
+    }
+
+    testAsync "reads an organization's mention page" {
+      let http = CapturingHttp(ok(pageOf commitJson))
+
+      let request: Organizations.MentionsRequest = {
+        KeyFile = "key-file"
+        Handle = "devnull"
+        Cursor = Some "abc"
+      }
+
+      let! (result: Result<Page<CommitNode>, TestError>) =
+        Organizations.mentions(envFor http, request)
+
+      match result with
+      | Ok page ->
+        Expect.equal 1 page.Items.Length "items"
+        Expect.equal (Some "next") page.NextCursor "next"
+        Expect.equal 20 page.PerPage "per page"
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+
+      Expect.equal
+        "/api/v1/organizations/devnull/mentions?cursor=abc"
         sent.Target
         "target"
     }

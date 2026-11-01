@@ -128,6 +128,11 @@ module State =
     OrgRename: string
     /// One line the menus say when the server refuses.
     Notice: string option
+    /// The message the first-pin dialog stands open for, when one
+    /// does.
+    PinAsk: Message option
+    /// Whether the pinned-messages panel stands open over the reading.
+    PinnedPanel: bool
     /// The newest message id the reader saw while riding the bottom
     /// edge; messages past it count as unseen once the reader leaves.
     SeenThrough: int
@@ -176,6 +181,13 @@ module State =
     | PinWanted of pinned: bool
     | ArchiveWanted of archived: bool
     | ActionSettled of Result<unit, AppError>
+    | PinAskWanted of message: Message
+    | PinConfirmed of keep: bool
+    | PinAskCancelled
+    | MessageUnpinWanted of message: Message
+    | PinnedPanelWanted of shown: bool
+    | MessagePinSettled of Result<unit, AppError>
+    | MessageUnpinSettled of Result<unit, AppError>
     | BlockWanted of partner: User
     | Blocked of Result<unit, AppError>
     | OrgCreateWanted
@@ -903,6 +915,8 @@ module State =
       OrgShare = true
       OrgRename = ""
       Notice = None
+      PinAsk = None
+      PinnedPanel = false
       SeenThrough = 0
       Unseen = 0
       Behind = false
@@ -1027,6 +1041,54 @@ module State =
       | _ -> next, Cmd.none
     | None -> { next with PingHeard = 0 }, Cmd.none
 
+  /// Whether the org's held pinned list already stands at the cap the
+  /// server counts against.
+  let inline atPinCap(thread: ThreadState) : bool =
+    thread.Pinned |> Option.defaultValue [] |> List.length >= CoreRemotes.pinCap
+
+  /// The words one settled pin says: the server's 403 refusal
+  /// verbatim, the quiet line for every other failure.
+  let pinWords(pinning: bool, outcome: Result<unit, AppError>) : string option =
+    match outcome with
+    | Ok() -> None
+    | Error(Refused(403, _, message)) -> Some message
+    | Error _ ->
+      Some(
+        if pinning then
+          "Could not pin. Try again."
+        else
+          "Could not unpin. Try again."
+      )
+
+  /// One pin through the store, once the dialog or the cap let it
+  /// pass.
+  let startPin
+    (props: Props<'env>, model: Model, message: Message)
+    : Model * Cmd<Msg> =
+    match model.State.OpenTarget with
+    | Some target ->
+      { model with Notice = None },
+      Cmd.OfAsync.perform
+        (fun (store: RemotesStore, who: ChatTarget, which: Message) ->
+          store.PinMessage(who, which))
+        (props.Env.Remotes, target, message)
+        MessagePinSettled
+    | None -> model, Cmd.none
+
+  /// One unpin through the store; it never asks first.
+  let startUnpin
+    (props: Props<'env>, model: Model, message: Message)
+    : Model * Cmd<Msg> =
+    match model.State.OpenTarget with
+    | Some target ->
+      { model with Notice = None },
+      Cmd.OfAsync.perform
+        (fun (store: RemotesStore, who: ChatTarget, which: Message) ->
+          store.UnpinMessage(who, which))
+        (props.Env.Remotes, target, message)
+        MessageUnpinSettled
+    | None -> model, Cmd.none
+
   let update (props: Props<'env>) (msg: Msg) (model: Model) : Model * Cmd<Msg> =
     let log =
       props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Remotes"
@@ -1075,6 +1137,8 @@ module State =
                     LinkChoice = LinkCard.FirstLink
                     Voice = None
                     Recording = false
+                    PinAsk = None
+                    PinnedPanel = false
               }
             )
           )
@@ -1484,6 +1548,45 @@ module State =
               Notice = Some(describe error)
         },
         failed "the conversation action" error
+    | PinAskWanted message ->
+      match openThread model with
+      | Some held when atPinCap held ->
+        // At the cap the action answers with the server's own
+        // sentence and never calls.
+        {
+          model with
+              Notice = Some CoreRemotes.pinCapMessage
+        },
+        Cmd.none
+      | Some _ when props.Env.Settings.Current.PinPromptHidden ->
+        startPin(props, model, message)
+      | _ -> { model with PinAsk = Some message }, Cmd.none
+    | PinConfirmed keep ->
+      if keep then
+        props.Env.Settings.SetPinPromptHidden true
+
+      match model.PinAsk with
+      | Some message -> startPin(props, { model with PinAsk = None }, message)
+      | None -> { model with PinAsk = None }, Cmd.none
+    | PinAskCancelled -> { model with PinAsk = None }, Cmd.none
+    | MessageUnpinWanted message -> startUnpin(props, model, message)
+    | PinnedPanelWanted shown -> { model with PinnedPanel = shown }, Cmd.none
+    | MessagePinSettled outcome ->
+      {
+        model with
+            Notice = pinWords(true, outcome)
+      },
+      (match outcome with
+       | Ok() -> Cmd.none
+       | Error error -> failed "the message pin" error)
+    | MessageUnpinSettled outcome ->
+      {
+        model with
+            Notice = pinWords(false, outcome)
+      },
+      (match outcome with
+       | Ok() -> Cmd.none
+       | Error error -> failed "the message unpin" error)
     | BlockWanted partner ->
       { model with Notice = None },
       Cmd.OfAsync.perform

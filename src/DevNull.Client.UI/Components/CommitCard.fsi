@@ -97,7 +97,9 @@ type MentionTone =
 
 /// One body from its segments — the text with its mentions wrapped,
 /// the code blocks boxed — whatever carries it: a commit card or a
-/// chat bubble.
+/// chat bubble. A mention that names an organization opens the
+/// organization page through the source's navigation; an unknown kind
+/// stays plain accent text.
 val body:
   flyout: Source voption *
   text: string *

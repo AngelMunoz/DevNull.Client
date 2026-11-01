@@ -1814,7 +1814,7 @@ let mentionCommitJson =
     )
     .Replace(
       "\"mentions\":[]",
-      "\"mentions\":[{\"handle\":\"octocat\",\"offset\":7,\"length\":8}]"
+      "\"mentions\":[{\"handle\":\"octocat\",\"offset\":7,\"length\":8,\"kind\":\"user\"}]"
     )
     .Replace(
       "\"quoted_commit_id\":null,",
@@ -1836,6 +1836,88 @@ let mentionLogApi() =
       (match accountAnswer request with
        | ValueSome answer -> answer
        | ValueNone -> ok "{}"))
+
+/// The first commit whose body mentions an organization, so the
+/// org-kind mention carries its own page.
+let orgMentionCommitJson =
+  commitJson
+    .Replace(
+      "\"body\":\"It was DNS.\"",
+      "\"body\":\"Shipped with @devnull, it was DNS.\""
+    )
+    .Replace(
+      "\"mentions\":[]",
+      "\"mentions\":[{\"handle\":\"devnull\",\"offset\":13,\"length\":8,\"kind\":\"organization\"}]"
+    )
+
+/// The log page whose one commit mentions an organization.
+let orgMentionLogPageJson =
+  sprintf
+    "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
+    orgMentionCommitJson
+
+/// One public organization profile, as GET /api/v1/organizations/{handle}
+/// answers it, inside the data envelope the decoder reads.
+let organizationProfileJson =
+  """{"data":{"handle":"devnull","name":"DevNull","avatar_url":null,"bio":"A quiet place for loud commits.","location":"The void","website":"https://devnull.example","github_url":"https://github.com/devnull","html_url":"https://dev-null.sh/org/devnull"}}"""
+
+/// One organization mentions page with a cursor to its second page.
+let organizationMentionsPageJson =
+  sprintf
+    "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":\"next\",\"prev_cursor\":null}}"
+    orgMentionCommitJson
+
+/// The second organization mentions page, answered to the cursor.
+let organizationMentionsNextPageJson =
+  sprintf
+    "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+    secondCommitJson
+
+/// One organization mentions page with no cursor: the feed's end.
+let organizationMentionsEndPageJson =
+  sprintf
+    "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+    orgMentionCommitJson
+
+/// One organization mentions page with no commits.
+let organizationMentionsEmptyPageJson =
+  """{"data":[],"links":{},"meta":{"per_page":20,"next_cursor":null,"prev_cursor":null}}"""
+
+/// The organization answers: its profile, its mentions and their cursor
+/// page, when the request names the canned handle.
+let organizationAnswer
+  (mentions: string, request: HttpRequest)
+  : HttpResponse voption =
+  if request.Target = "/api/v1/organizations/devnull" then
+    ValueSome(ok organizationProfileJson)
+  elif request.Target.StartsWith "/api/v1/organizations/devnull/mentions" then
+    if request.Target.Contains "cursor=next" then
+      ValueSome(ok organizationMentionsNextPageJson)
+    else
+      ValueSome(ok mentions)
+  else
+    ValueNone
+
+/// The api of the organization page tests: the given log page boots the
+/// shell, and the organization reads answer from the canned fixtures.
+let organizationApiWith(logPage: string, mentions: string) =
+  FakeApi(fun request ->
+    match organizationAnswer(mentions, request) with
+    | ValueSome answer -> answer
+    | ValueNone when request.Target.StartsWith "/api/v1/log/" -> ok logPage
+    | ValueNone ->
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+/// The organization api over the ordinary log page.
+let organizationApi(mentions: string) =
+  organizationApiWith(logPageJson, mentions)
+
+/// The organization api over the log page whose commit mentions the
+/// organization.
+let organizationMentionLogApi(mentions: string) =
+  organizationApiWith(orgMentionLogPageJson, mentions)
 
 /// The first commit quoting the second one inline, so the quoted card
 /// rides under the body.
@@ -1878,3 +1960,45 @@ let quotedLogApi() =
       (match accountAnswer request with
        | ValueSome answer -> answer
        | ValueNone -> ok "{}"))
+
+///── The org thread and its pins ──
+/// The org member who pins, with the same id the remotes fixtures use.
+let orgPartnerJson =
+  """{"id":"01a151db-7fee-727b-a7ce-c911a7556243","handle":"hubot","name":"The Hubot","avatar_url":null}"""
+
+/// The viewer, as the org thread's member list carries them.
+let orgViewerJson =
+  """{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","handle":"octocat","name":"The Octocat","avatar_url":null}"""
+
+/// One org-thread message; `pinnedAt` marks the copies the pinned
+/// list carries, which hide their reply reference on the wire.
+let orgMessageJson
+  (id: int, userId: string, body: string, pinnedAt: string option)
+  : string =
+  let pinned =
+    match pinnedAt with
+    | Some at -> $",\"pinned_at\":\"{at}\""
+    | None -> ""
+
+  $"""{{"id":{id},"user_id":"{userId}","client_id":"c-{id}","body":"{body}","body_segments":[{{"type":"text","text":"{body}"}}],"mentions":[],"images":[],"reactions":[],"event":null,"subject_id":null,"user":null,"subject":null{pinned},"created_at":"2026-10-20T04:00:00Z"}}"""
+
+/// One org conversation row, as the inbox lists it.
+let orgRowJson(id: string, name: string, ahead: int, at: string) : string =
+  $"""{{"id":"{id}","kind":"org","name":"{name}","partner":null,"members":null,"last_message":null,"last_message_at":"{at}","ahead":{ahead},"last_incoming_message_id":null,"last_incoming_sender":null,"partner_read_through_id":0,"partner_read_at":null,"is_archived":false,"pinned_at":null,"muted_until_at":null}}"""
+
+/// One org-thread answer: the messages, the viewer's role, and the
+/// pinned list — `None` for the wire's null, the keep-what-you-hold
+/// answer.
+let orgThreadAnswerJson
+  (messages: string list, role: string, pinned: string list option, version: int) : string =
+  let pinnedJson =
+    match pinned with
+    | None -> "null"
+    | Some pins -> "[" + String.concat "," pins + "]"
+
+  $"""{{"data":{{"org":{{"id":"org-1","name":"the org"}},"messages":[{String.concat "," messages}],"has_older":false,"reactions_version":{version},"reaction_changes":[],"pinned":{pinnedJson},"read_through_id":0,"members":[{{"user":{orgPartnerJson},"role":"maintainer","read_through_id":0}},{{"user":{orgViewerJson},"role":"{role}","read_through_id":0}}],"typing":[],"is_archived":false,"pinned_at":null,"muted_until_at":null,"role":"{role}","access":"open"}}}}"""
+
+/// The answer of a pin or an unpin: the org's whole pinned list,
+/// latest first, with the version the thread polls against.
+let pinAnswerJson(pins: string list, version: int) : string =
+  $"""{{"pinned":[{String.concat "," pins}],"reactions_version":{version}}}"""

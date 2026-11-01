@@ -35,6 +35,9 @@ type AppSettings = {
   ChatDrafts: Map<string, string>
   /// The voice-note player's volume, 0.0 to 1.0.
   VoiceVolume: float
+  /// Whether the org-pin dialog keeps its "Don't show this again"
+  /// choice and never asks again on this device.
+  PinPromptHidden: bool
 }
 
 /// The live local settings: one state stream for readers, one writer
@@ -85,6 +88,7 @@ type AppSettingsStore(settings: AppSettings, persist: AppSettings -> unit) =
         SidebarExpanded = true
         ChatDrafts = Map.empty
         VoiceVolume = 1.0
+        PinPromptHidden = false
       },
       persist
     )
@@ -132,6 +136,12 @@ type AppSettingsStore(settings: AppSettings, persist: AppSettings -> unit) =
       }
     )
 
+  member _.SetPinPromptHidden(hidden: bool) : unit =
+    change {
+      state.Value with
+          PinPromptHidden = hidden
+    }
+
 type IProvideSettings =
   abstract Settings: AppSettingsStore
 
@@ -158,6 +168,7 @@ let save(settings: AppSettings) : Result<unit, string> =
 
     json.["chat_drafts"] <- drafts
     json.["voice_volume"] <- JsonValue.Create settings.VoiceVolume
+    json.["pin_prompt_hidden"] <- JsonValue.Create settings.PinPromptHidden
     File.WriteAllText(settingsPath, json.ToJsonString())
     Ok()
   with ex ->
@@ -212,6 +223,11 @@ let load() : Result<AppSettings option, string> =
           Math.Clamp(read, 0.0, 1.0)
       | _ -> 1.0
 
+    let pinPromptHidden =
+      match root.TryGetProperty "pin_prompt_hidden" with
+      | true, value when value.ValueKind = JsonValueKind.True -> true
+      | _ -> false
+
     Ok(
       Some {
         CloseToTray = closeToTray
@@ -219,6 +235,7 @@ let load() : Result<AppSettings option, string> =
         SidebarExpanded = sidebarExpanded
         ChatDrafts = chatDrafts
         VoiceVolume = voiceVolume
+        PinPromptHidden = pinPromptHidden
       }
     )
   with

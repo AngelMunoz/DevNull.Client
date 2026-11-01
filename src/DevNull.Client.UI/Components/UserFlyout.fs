@@ -21,6 +21,7 @@ open DevNull.Client.Theme
 type Source = {
   Fetch: string -> Async<ProfileDetails option>
   OnOpen: string -> unit
+  OnOpenOrg: string -> unit
   Cache: ImageCacheService
 }
 

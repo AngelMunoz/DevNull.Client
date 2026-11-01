@@ -106,10 +106,17 @@ type Segment =
   | CodeSegment of code: string
   | BlockSegment of language: string option * html: string
 
+/// What one mention names. An unknown kind stays raw.
+type MentionKind =
+  | UserMention
+  | OrganizationMention
+  | UnknownMention of raw: string
+
 type Mention = {
   Handle: string
   Offset: int
   Length: int
+  Kind: MentionKind
 }
 
 /// One body as a translation carries it: the segments a page shows.
@@ -751,6 +758,7 @@ type Message = {
   SubjectId: string option
   User: User option
   Subject: User option
+  PinnedAt: DateTimeOffset option
   CreatedAt: DateTimeOffset
 }
 
@@ -812,6 +820,7 @@ type OrgThread = {
   HasOlder: bool
   ReactionsVersion: int
   ReactionChanges: ReactionChange list
+  Pinned: Message list option
   ReadThroughId: int
   Members: ThreadMember list
   Typing: string list
@@ -1062,15 +1071,27 @@ let segmentDecoder(element: JsonElement) : Result<Segment, JDeck.DecodeError> =
     )
     |> Error
 
+let mentionKindDecoder
+  (element: JsonElement)
+  : Result<MentionKind, JDeck.DecodeError> =
+  Required.string element
+  |> Result.map(fun raw ->
+    match raw with
+    | "user" -> UserMention
+    | "organization" -> OrganizationMention
+    | raw -> UnknownMention raw)
+
 let mentionDecoder(element: JsonElement) = decode {
   let! handle = Required.Property.get ("handle", Required.string) element
   let! offset = Required.Property.get ("offset", Required.int) element
   let! length = Required.Property.get ("length", Required.int) element
+  let! kind = Required.Property.get ("kind", mentionKindDecoder) element
 
   return {
     Handle = handle
     Offset = offset
     Length = length
+    Kind = kind
   }
 }
 
@@ -2209,6 +2230,12 @@ let messageDecoder(element: JsonElement) = decode {
     Optional.Property.get ("subject", optionalDecoder userDecoder) element
     |> Result.map Option.flatten
 
+  // The wire keeps `pinned_at` off, or null, while the message is not
+  // pinned.
+  let! pinnedAt =
+    Optional.Property.get ("pinned_at", Optional.dateTimeOffset) element
+    |> Result.map Option.flatten
+
   let! createdAt =
     Required.Property.get ("created_at", Required.dateTimeOffset) element
 
@@ -2229,6 +2256,7 @@ let messageDecoder(element: JsonElement) = decode {
     SubjectId = subjectId
     User = user
     Subject = subject
+    PinnedAt = pinnedAt
     CreatedAt = createdAt
   }
 }
@@ -2419,6 +2447,13 @@ let orgThreadDataDecoder(element: JsonElement) = decode {
   let! reactionChanges =
     Required.Property.list ("reaction_changes", reactionChangeDecoder) element
 
+  // The pinned list rides as a list, or as null when nothing changed
+  // since the version the request sent: null keeps what the caller
+  // holds.
+  let! pinned =
+    Optional.Property.get ("pinned", optionalListDecoder messageDecoder) element
+    |> Result.map Option.flatten
+
   let! readThroughId =
     Required.Property.get ("read_through_id", Required.int) element
 
@@ -2446,6 +2481,7 @@ let orgThreadDataDecoder(element: JsonElement) = decode {
     HasOlder = hasOlder
     ReactionsVersion = reactionsVersion
     ReactionChanges = reactionChanges
+    Pinned = pinned
     ReadThroughId = readThroughId
     Members = members
     Typing = typing
@@ -2478,6 +2514,27 @@ let pinResultDecoder(element: JsonElement) = decode {
     Required.Property.get ("pinned_at", Optional.dateTimeOffset) element
 
   return { PinnedAt = pinnedAt }
+}
+
+/// The answer of a message pin or unpin: the org's whole pinned list,
+/// latest first, with the version the thread polls against.
+type MessagePinResult = {
+  Pinned: Message list
+  ReactionsVersion: int
+}
+
+let messagePinResultDecoder(element: JsonElement) = decode {
+  let! pinned = Required.Property.list ("pinned", messageDecoder) element
+
+  let! reactionsVersion =
+    Required.Property.get ("reactions_version", Required.int) element
+
+  // `Pinned` and `ReactionsVersion` name OrgThread's fields too, so the
+  // record says its type.
+  return {
+    Pinned = pinned
+    ReactionsVersion = reactionsVersion
+  }
 }
 
 let threadMuteResultDecoder(element: JsonElement) = decode {
@@ -2809,6 +2866,57 @@ let organizationDecoder(element: JsonElement) = decode {
   }
 }
 
+/// One public organization profile, as the organization read answers
+/// it: its identity lines and its page address.
+type OrganizationProfile = {
+  Handle: string
+  Name: string
+  AvatarUrl: string option
+  Bio: string option
+  Location: string option
+  Website: string option
+  GithubUrl: string option
+  HtmlUrl: string
+}
+
+let organizationProfileDecoder(element: JsonElement) = decode {
+  let! handle = Required.Property.get ("handle", Required.string) element
+  let! name = Required.Property.get ("name", Required.string) element
+
+  let! avatarUrl =
+    Optional.Property.get ("avatar_url", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! bio =
+    Optional.Property.get ("bio", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! location =
+    Optional.Property.get ("location", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! website =
+    Optional.Property.get ("website", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! githubUrl =
+    Optional.Property.get ("github_url", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! htmlUrl = Required.Property.get ("html_url", Required.string) element
+
+  return {
+    Handle = handle
+    Name = name
+    AvatarUrl = avatarUrl
+    Bio = bio
+    Location = location
+    Website = website
+    GithubUrl = githubUrl
+    HtmlUrl = htmlUrl
+  }
+}
+
 let issueDecoder(element: JsonElement) = decode {
   let! number = Required.Property.get ("number", Required.int) element
   let! title = Required.Property.get ("title", Required.string) element
@@ -2923,6 +3031,9 @@ module Message =
 module PinResult =
   let decode(body: string) = decodePinResult body
 
+module MessagePinResult =
+  let decode(body: string) = parseBody body messagePinResultDecoder
+
 module ThreadMuteResult =
   let decode(body: string) = decodeThreadMuteResult body
 
@@ -2948,6 +3059,10 @@ module ScheduledCommits =
   let decodePage(body: string) = decodeScheduledPage body
 
   let decode(body: string) = decodeScheduledCommit body
+
+module OrganizationProfile =
+  let decode(body: string) =
+    parseBody body (Required.Property.get("data", organizationProfileDecoder))
 
 type TransportError<'e> =
   static abstract TransportFailed: message: string -> 'e

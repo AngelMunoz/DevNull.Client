@@ -35,6 +35,11 @@ open DevNull.Client.UI.Tests.Fixtures
 open DevNull.Client.UI.Tests.Harness
 open DevNull.Client.Views
 
+// The two components the mention tests mount: the aliases keep the
+// qualified names short without opening the whole Components set.
+module CommitCard = DevNull.Client.Components.CommitCard
+module UserFlyout = DevNull.Client.Components.UserFlyout
+
 let buttons(root: Control) : Button list =
   root.GetVisualDescendants()
   |> Seq.choose(fun visual ->
@@ -2800,6 +2805,100 @@ let tests =
         let! card = showsText(window, "Reading the profile…")
 
         Expect.isTrue card "the hover card never opened"
+      })
+
+    testCaseAsync
+      "an organization mention opens the organization page, not the hover card"
+      (async {
+        let page =
+          match LogPage.decode orgMentionLogPageJson with
+          | Ok page -> page
+          | Error failure ->
+            failwith $"the org mention page never decoded: {failure.Message}"
+
+        let commit =
+          match page.Page.Items with
+          | [ LiveCommit commit ] -> commit
+          | _ -> failwith "the org mention page never carried its commit"
+
+        let opened = ResizeArray<string>()
+
+        let env = TestEnv(signedInStore(), logApi() :> IHttp)
+
+        let source: UserFlyout.Source = {
+          Fetch = fun _ -> async { return None }
+          OnOpen = ignore
+          OnOpenOrg = opened.Add
+          Cache = (env :> IProvideImageCache).ImageCache
+        }
+
+        let! window =
+          probeUiAsync(fun () ->
+            let body =
+              CommitCard.body(
+                ValueSome source,
+                commit.Body,
+                commit.BodySegments,
+                commit.Mentions,
+                CommitCard.Accent
+              )
+
+            let window = Window(Content = body)
+            window.Show()
+            window)
+
+        // The org handle renders in the accent, like a user's.
+        let! handle =
+          waitForAsync(
+            5000,
+            (fun () ->
+              controlByName(window, "MentionHandle")
+              |> Option.bind(fun control ->
+                match control with
+                | :? TextBlock as block -> Some block.Text
+                | _ -> None)),
+            (fun text -> text = Some "@devnull")
+          )
+
+        Expect.isTrue handle "the organization handle never rendered"
+
+        let! accented =
+          probeUiAsync(fun () ->
+            controlByName(window, "MentionHandle")
+            |> Option.map(fun handle -> handle.Classes.Contains(name FgAccent))
+            |> Option.defaultValue false)
+
+        Expect.isTrue accented "the organization handle never wore the accent"
+
+        // No hover card rides the org kind.
+        let! noFlyout =
+          probeUiAsync(fun () ->
+            controlByName(window, "UserFlyout") |> Option.isNone)
+
+        Expect.isTrue noFlyout "the organization mention grew a hover card"
+
+        // The wrap is the file's own inline button: the nearest
+        // ancestor of the handle takes the click.
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "MentionHandle")
+            |> Option.bind(fun handle ->
+              handle.GetVisualAncestors()
+              |> Seq.tryPick(function
+                | :? Button as button -> Some button
+                | _ -> None))
+            |> Option.iter click)
+
+        let! navigated =
+          waitForAsync(
+            5000,
+            (fun () -> opened),
+            (fun opened -> opened.Count = 1)
+          )
+
+        Expect.isTrue navigated "the click never raised the navigation"
+
+        Expect.equal opened[0] "devnull" "the navigation never named the org"
       })
 
     testCaseAsync

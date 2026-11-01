@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Threads:** an org's pinned messages ride with its thread. A row over the reading names the count and the latest pin, and opens the list of them; a maintainer pins or unpins any message beside it — the first pin asks, with a choice never to ask again — and the site's own words answer a refusal or a full pin list. A member sees the pin mark without the control.
+- **Organizations:** an organization has a page of its own. An @mention that names one opens it: its avatar, name, and bio, the location, website, and GitHub lines it carries, and every commit that mentions it, newest first, with the site's address beside them.
+
 ## [0.8.0] - 2026-10-31
 
 ### Added

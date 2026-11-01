@@ -1047,6 +1047,70 @@ module Thread =
 
     host
 
+  /// One message's pin state as the thread holds it: the org's pinned
+  /// list once it loaded, the message's own mark before that.
+  let pinnedNow(current: ThreadState, message: Message) : bool =
+    match current.Pinned with
+    | Some pins -> pins |> List.exists(fun pin -> pin.Id = message.Id)
+    | None -> message.PinnedAt.IsSome
+
+  /// The pin control beside one bubble of an org thread: the
+  /// maintainer's pin and unpin, the contributor's static glyph on a
+  /// pinned message, nothing otherwise. Live from the thread, because
+  /// a pin or a poll moves it under a built row.
+  let pinAction(ctx: RowCtx, key: string, message: Message) : Control =
+    let state =
+      ctx.Model
+      |> Observable.map(fun current ->
+        let thread = current.State.Threads |> Map.tryFind key
+
+        let pinned =
+          thread
+          |> Option.map(fun held -> pinnedNow(held, message))
+          |> Option.defaultValue false
+
+        let maintainer =
+          match thread with
+          | Some held -> held.Role = Some Maintainer
+          | None -> false
+
+        pinned, maintainer)
+      |> Observable.distinctUntilChanged
+
+    let host = ContentControl()
+
+    host.Content(
+      state
+      |> Observable.map(fun (pinned, maintainer) ->
+        if maintainer then
+          Button()
+            .Name($"PinMessage{message.Id}")
+            .Classes(Theme.name Theme.GhostButton)
+            .Padding(4.0, 0.0, 4.0, 2.0)
+            .FontSize(11.0)
+            .Content(if pinned then "Unpin message" else "Pin message")
+            .OnClickHandler(fun _ args ->
+              args.Handled <- true
+
+              ctx.Dispatch(
+                if pinned then
+                  State.MessageUnpinWanted message
+                else
+                  State.PinAskWanted message
+              ))
+          :> Control
+        elif pinned then
+          let glyph = Icons.iconAt(Glyph.Pin, 12.0)
+          ToolTip.SetTip(glyph, "Pinned message")
+          glyph :> Control
+        else
+          null)
+      |> _.ToBinding()
+    )
+    |> ignore
+
+    host
+
   /// The reaction tray the hover react button opens: the quick picks
   /// on top, the ranked rest under a divider — the site's toolbar
   /// shape, one flyout, no nested picker. A pick closes it, the
@@ -1302,7 +1366,13 @@ module Thread =
             .Orientation(Orientation.Horizontal)
             .Spacing(4.0)
             .Margin(2.0, 2.0, 0.0, 0.0)
-            .Children(reactionChips(ctx, key, who.Id))
+            .Children
+            [|
+              reactionChips(ctx, key, who.Id)
+
+              if ctx.IsOrg then
+                pinAction(ctx, key, who)
+            |]
       |]
 
     column.DoubleTapped.Add heart
@@ -2795,6 +2865,264 @@ module Thread =
       .TextWrapping(TextWrapping.Wrap)
       .IsVisible(model |> Observable.map(fun current -> current.Notice.IsSome))
 
+  /// One pinned message as a snippet: its words without links, or the
+  /// word for what a bodyless message carries.
+  let snippetOf(message: Message) : string =
+    let body = message.Body.Replace("\r", " ").Replace("\n", " ")
+
+    let words =
+      body.Split(' ')
+      |> Array.filter(fun word ->
+        not(word.StartsWith "http://" || word.StartsWith "https://"))
+
+    let trimmed = String.concat " " words |> _.Trim()
+
+    if trimmed <> "" then trimmed
+    elif message.Voice.IsSome then "voice note"
+    elif not message.Images.IsEmpty then "image"
+    else ""
+
+  /// One pinned message's author as the banner and panel name them:
+  /// the member's own name, the user id only when the member is gone.
+  let authorOf(current: ThreadState, message: Message) : string =
+    current.Members
+    |> List.tryFind(fun member' -> member'.User.Id = message.UserId)
+    |> Option.map(fun member' -> member'.User.Name)
+    |> Option.defaultValue message.UserId
+
+  /// The pinned banner row over an org thread: `pinned · {count}` with
+  /// the latest pin's author and a snippet. A click opens the pinned
+  /// panel — the banner and the panel are the only pin surface.
+  let pinnedBanner
+    (dispatch: Dispatch<State.Msg>, thread: IObservable<ThreadState>)
+    : Control =
+    let info =
+      thread
+      |> Observable.map(fun current ->
+        let pins = current.Pinned |> Option.defaultValue []
+
+        match pins with
+        | [] -> None
+        | latest :: _ ->
+          Some(List.length pins, authorOf(current, latest), snippetOf latest))
+      |> Observable.distinctUntilChanged
+
+    let host = ContentControl()
+
+    host.Content(
+      info
+      |> Observable.map(function
+        | Some(count, author, snippet) ->
+          Button()
+            .Name("RemotesPinnedBanner")
+            .Classes(Theme.name Theme.GhostButton)
+            .Padding(6.0, 2.0, 6.0, 2.0)
+            .FontSize(11.0)
+            .HorizontalAlignment(HorizontalAlignment.Left)
+            .Content(
+              StackPanel()
+                .Orientation(Orientation.Horizontal)
+                .Spacing(6.0)
+                .Children(
+                  Icons.iconAt(Glyph.Pin, 12.0),
+                  TextBlock()
+                    .Classes(Theme.name Theme.Mono)
+                    .Text($"pinned · {count}"),
+                  TextBlock().Classes(Theme.name Theme.Mono).Text(author),
+                  TextBlock()
+                    .Classes(Theme.name Theme.Muted)
+                    .Text(snippet)
+                    .TextTrimming(TextTrimming.CharacterEllipsis)
+                    .MaxWidth(320.0)
+                )
+            )
+            .OnClickHandler(fun _ args ->
+              args.Handled <- true
+              dispatch(State.PinnedPanelWanted true))
+          :> Control
+        | None -> null)
+      |> _.ToBinding()
+    )
+    |> ignore
+
+    host
+
+  /// The pinned panel over the reading: the org's pinned messages
+  /// under their count, with the close control.
+  let pinnedPanel
+    (
+      dispatch: Dispatch<State.Msg>,
+      thread: IObservable<ThreadState>,
+      shown: IObservable<bool>
+    ) : Control =
+    let rows =
+      thread
+      |> Observable.map(fun current ->
+        let pins = current.Pinned |> Option.defaultValue []
+
+        let rowOf(message: Message) : string * string =
+          (authorOf(current, message), snippetOf message)
+
+        (List.length pins, [ for message in pins -> rowOf message ]))
+      |> Observable.distinctUntilChanged
+
+    ContentControl()
+      .IsVisible(shown)
+      .Content(
+        rows
+        |> Observable.map(fun (count, rows) ->
+          let pinRow(author: string, snippet: string) : Control =
+            StackPanel()
+              .Spacing(1.0)
+              .Children(
+                TextBlock()
+                  .Classes(Theme.name Theme.Mono)
+                  .FontSize(11.0)
+                  .Text(author),
+                TextBlock()
+                  .Classes(Theme.name Theme.Muted)
+                  .FontSize(12.0)
+                  .Text(snippet)
+                  .TextWrapping(TextWrapping.Wrap)
+              )
+
+          Border()
+            .Name("RemotesPinnedPanel")
+            .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
+            .BorderThickness(1.0)
+            .CornerRadius(10.0)
+            .Padding(12.0)
+            .Margin(12.0)
+            .MaxHeight(360.0)
+            .VerticalAlignment(VerticalAlignment.Top)
+            .Child(
+              StackPanel()
+                .Spacing(6.0)
+                .Children(
+                  TextBlock()
+                    .Classes(Theme.name Theme.Subtitle)
+                    .FontSize(13.0)
+                    .Text("Pinned messages"),
+                  TextBlock()
+                    .Classes(Theme.name Theme.Mono)
+                    .FontSize(11.0)
+                    .Text($"pinned · {count}"),
+                  ScrollViewer()
+                    .MaxHeight(240.0)
+                    .VerticalScrollBarVisibility(ScrollBarVisibility.Auto)
+                    .Content(
+                      StackPanel()
+                        .Spacing(8.0)
+                        .Children(
+                          [|
+                            for author, snippet in rows ->
+                              pinRow(author, snippet)
+                          |]
+                        )
+                    ),
+                  Button()
+                    .Name("ClosePinnedMessages")
+                    .Classes(Theme.name Theme.GhostButton)
+                    .Padding(6.0, 2.0, 6.0, 2.0)
+                    .FontSize(12.0)
+                    .HorizontalAlignment(HorizontalAlignment.Left)
+                    .Content("Close pinned messages")
+                    .OnClickHandler(fun _ args ->
+                      args.Handled <- true
+                      dispatch(State.PinnedPanelWanted false))
+                )
+            )
+          :> Control)
+        |> _.ToBinding()
+      )
+
+  /// The first-pin dialog: the site's own question, the choice that
+  /// never asks again, and the two buttons. It stands over the pane
+  /// while one pin waits for its answer.
+  let pinDialog
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : Control =
+    let open' =
+      model
+      |> Observable.map(fun current -> current.PinAsk.IsSome)
+      |> Observable.distinctUntilChanged
+
+    let host = ContentControl()
+
+    host.Content(
+      open'
+      |> Observable.map(function
+        | false -> TextBlock() :> Control
+        | true ->
+          let keep = CheckBox().Content("Don't show this again").FontSize(12.0)
+
+          let chosen() =
+            match keep.IsChecked with
+            | value when value.HasValue && value.Value -> true
+            | _ -> false
+
+          let card =
+            Border()
+              .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
+              .BorderThickness(1.0)
+              .CornerRadius(10.0)
+              .Padding(14.0)
+              .MaxWidth(380.0)
+              .HorizontalAlignment(HorizontalAlignment.Center)
+              .VerticalAlignment(VerticalAlignment.Center)
+              .Child(
+                StackPanel()
+                  .Spacing(8.0)
+                  .Children(
+                    TextBlock()
+                      .Classes(Theme.name Theme.Subtitle)
+                      .FontSize(13.0)
+                      .Text("Pin for the whole org?"),
+                    TextBlock()
+                      .Classes(Theme.name Theme.Muted)
+                      .FontSize(12.0)
+                      .Text(
+                        "Everyone in the org sees pinned messages, including people added without Share history, who can't read anything pushed before they joined."
+                      )
+                      .TextWrapping(TextWrapping.Wrap),
+                    keep,
+                    StackPanel()
+                      .Orientation(Orientation.Horizontal)
+                      .Spacing(8.0)
+                      .HorizontalAlignment(HorizontalAlignment.Right)
+                      .Children(
+                        Button()
+                          .Classes(Theme.name Theme.GhostButton)
+                          .Padding(8.0, 2.0, 8.0, 2.0)
+                          .FontSize(12.0)
+                          .Content("Cancel")
+                          .OnClickHandler(fun _ args ->
+                            args.Handled <- true
+                            dispatch State.PinAskCancelled),
+                        Button()
+                          .Name("ConfirmPin")
+                          .Classes(Theme.name Theme.AccentButton)
+                          .Padding(8.0, 2.0, 8.0, 2.0)
+                          .FontSize(12.0)
+                          .Content("Pin message")
+                          .OnClickHandler(fun _ args ->
+                            args.Handled <- true
+                            dispatch(State.PinConfirmed(chosen())))
+                      )
+                  )
+              )
+
+          Grid()
+            .Children(Border().Background(Brushes.Black).Opacity(0.35), card)
+          :> Control)
+      |> _.ToBinding()
+    )
+    |> ignore
+
+    host.IsVisible(open') |> ignore
+
+    host
+
   /// One menu pick as a button row.
   let menuPick
     (dispatch: Dispatch<State.Msg>, label: string, msg: State.Msg)
@@ -3433,22 +3761,30 @@ module Thread =
 
     let presentButton = present(dispatch, awayFromPresent, presentLabel)
 
+    // The pinned panel stands over the reading while it is open; the
+    // banner row over the pane's top opens it.
+    let pinned =
+      model |> Observable.map _.PinnedPanel |> Observable.distinctUntilChanged
+
     let listHost =
       Panel()
-        .Children(list(ctx, key, restore, thread), loadingLine, presentButton)
+        .Children(
+          list(ctx, key, restore, thread),
+          loadingLine,
+          presentButton,
+          pinnedPanel(dispatch, thread, pinned)
+        )
 
     let rows =
-      rowsGrid.RowDefinitions <- RowDefinitions("Auto,Auto,*,Auto")
+      rowsGrid.RowDefinitions <- RowDefinitions("Auto,Auto,Auto,*,Auto")
 
       rowsGrid.Children(
         header.Row(0).Margin(0.0, 0.0, 0.0, 8.0),
-        notice(model).Row(1),
-        listHost.Row(2),
-        footer(props, model, dispatch, solo, target, thread).Row(3)
+        pinnedBanner(dispatch, thread).Row(1),
+        notice(model).Row(2),
+        listHost.Row(3),
+        footer(props, model, dispatch, solo, target, thread).Row(4)
       )
-      |> ignore
-
-      rowsGrid
 
     let quietWord =
       match target with
@@ -3469,7 +3805,7 @@ module Thread =
             && current.Pending.IsEmpty)
         )
 
-    Panel().Children(rows, quiet)
+    Panel().Children(rows, quiet, pinDialog(model, dispatch))
 
   /// The detail column: the pane of the checked-out target — rebuilt
   /// only when the target moves — or the quiet invitation.

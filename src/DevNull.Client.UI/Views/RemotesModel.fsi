@@ -84,6 +84,11 @@ module State =
     OrgShare: bool
     OrgRename: string
     Notice: string option
+    /// The message the first-pin dialog stands open for, when one
+    /// does.
+    PinAsk: Message option
+    /// Whether the pinned-messages panel stands open over the reading.
+    PinnedPanel: bool
     SeenThrough: int
     Unseen: int
     Behind: bool
@@ -125,6 +130,13 @@ module State =
     | PinWanted of pinned: bool
     | ArchiveWanted of archived: bool
     | ActionSettled of Result<unit, AppError>
+    | PinAskWanted of message: Message
+    | PinConfirmed of keep: bool
+    | PinAskCancelled
+    | MessageUnpinWanted of message: Message
+    | PinnedPanelWanted of shown: bool
+    | MessagePinSettled of Result<unit, AppError>
+    | MessageUnpinSettled of Result<unit, AppError>
     | BlockWanted of partner: User
     | Blocked of Result<unit, AppError>
     | OrgCreateWanted

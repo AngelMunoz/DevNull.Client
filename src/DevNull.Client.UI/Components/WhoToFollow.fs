@@ -454,6 +454,7 @@ let view
     Fetch = props.Env.Profiles.Fetch
     OnOpen =
       fun handle -> props.OnOpen("/profile/" + Uri.EscapeDataString handle)
+    OnOpenOrg = fun org -> props.OnOpen("/org/" + Uri.EscapeDataString org)
     Cache = props.Env.ImageCache
   }
 

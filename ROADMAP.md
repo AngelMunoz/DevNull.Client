@@ -34,24 +34,27 @@ own.
    apply to every phase; the skill gate below is part of every phase's
    definition of done.
 
-## State as of 2026-10-30
+## State as of 2026-10-31
 
-- Phases 1 through 8 have landed: the terms gate, Linux playback of the web's
-  voice notes through the desktop's media framework, the devices list with
-  self-revoke, the 30-second delete undo, per-image descriptions on commits,
-  scheduled commits, the profile pin with related commits, and search.
-- Phase 9 — composer suggestions — has landed in the working tree and waits
-  on its release.
-- Phase 10 — who to follow — has landed in the working tree and waits on its
-  release.
-- Phase 11 — user settings, timezone, and translations — has landed in the
+- Phases 1 through 11 have landed and shipped, releases through 0.8.0: the
+  terms gate, Linux playback of the web's voice notes through the desktop's
+  media framework, the devices list with self-revoke, the 30-second delete
+  undo, per-image descriptions on commits, scheduled commits, the profile
+  pin with related commits, search, the composer suggestions, who to follow,
+  and the user settings with timezone and translations.
+- Phase 12 — org message pins and public organizations — has landed in the
   working tree and waits on its release.
-- Production was pulled and audited again on 2026-10-29, after the server's
-  10-28/10-29 burst. Every contract below still stands as written, and the
-  server's CLI contract has not changed since 2026-10-19.
-- The organization pages of the server's 2026-10-26 to 2026-10-29 burst are
-  absent from Core and land phase by phase below; Phase 12 — org message
-  pins and public organizations — is next.
+- Phase 13 — live users and the first-commit notification — is next.
+- The server contract was last pulled and audited on 2026-10-29, and the
+  server's CLI contract had not changed since 2026-10-19. The live site has
+  since shown main-search results the checkout cannot produce —
+  organizations in search — so the server repository must be pulled and
+  re-audited before Phase 13 work; tracked in
+  [#2](https://github.com/AngelMunoz/DevNull.Client/issues/2).
+- The commit-card actions are re-implemented per feed page (the poll vote
+  exists in six views); consolidating them beside `CommitActions.toggleStar`
+  is tracked in
+  [#1](https://github.com/AngelMunoz/DevNull.Client/issues/1).
 - The burst also shipped past this roadmap, and the audit folded its
   client-side remainder in: live users and the first-commit notification
   (Phase 13), follower and following list pages (Phase 14), and the commit
@@ -330,6 +333,8 @@ with the web's pending and failed states.
 the retryable failure; a headless language change and a translate-retry pass.
 
 ## Phase 12 — Org message pins and public organizations
+
+*Landed in the working tree; waits on its release.*
 
 **Server reference:** the message resource's pinned-at field (with the reply
 reference hidden on pinned messages), the message pin controllers (org

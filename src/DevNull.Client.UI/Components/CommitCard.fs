@@ -120,31 +120,49 @@ let selectedOption
 module Parts =
 
   /// One piece of a text run after the mentions split: plain prose,
-  /// or one interactive handle.
+  /// or one interactive handle carrying the mention that names it.
   type Piece =
     | Plain of string
-    | Handle of string
+    | Handle of Mention
+
+  /// The split's walk: every round re-finds the earliest handle in
+  /// what is left, so a handle named twice wraps both times. The walk
+  /// is a tail call, so a run dense with handles never grows the
+  /// stack.
+  [<TailCall>]
+  let rec split
+    (rest: string, mentions: Mention list, pieces: Piece list)
+    : Piece list =
+    let places =
+      mentions
+      |> List.choose(fun mention ->
+        let token = "@" + mention.Handle
+        let at = rest.IndexOf(token, StringComparison.Ordinal)
+
+        if at < 0 then None else Some(at, token, mention))
+      |> List.sortBy(fun (at, _, _) -> at)
+
+    match places with
+    | [] -> Plain rest :: pieces
+    | (at, token, mention) :: _ ->
+      let before = rest.Substring(0, at)
+      let after = rest.Substring(at + token.Length)
+
+      let withHandle = Handle mention :: pieces
+
+      split(
+        after,
+        mentions,
+        if before = "" then
+          withHandle
+        else
+          Plain before :: withHandle
+      )
 
   /// Splits one text run at its mentioned handles: plain prose between
   /// the @handles the mentions list confirms.
-  let rec splitMentions(text: string, usernames: string list) : Piece list =
-    let places =
-      usernames
-      |> List.choose(fun username ->
-        let token = "@" + username
-        let at = text.IndexOf(token, StringComparison.Ordinal)
-
-        if at < 0 then None else Some(at, token))
-      |> List.sortBy fst
-
-    match places with
-    | [] -> [ Plain text ]
-    | (at, token) :: _ ->
-      let before = text.Substring(0, at)
-      let after = text.Substring(at + token.Length)
-      let head = if before = "" then [] else [ Plain before ]
-
-      head @ [ Handle(token.Substring 1) ] @ splitMentions(after, usernames)
+  let splitMentions(text: string, mentions: Mention list) : Piece list =
+    split(text, mentions, []) |> List.rev
 
   /// The user a mention names; the payload carries the handle only,
   /// the card fills the rest.
@@ -164,22 +182,40 @@ module Parts =
   }
 
   /// One @handle of the body: the accent color, the hover card, and
-  /// the click that opens the profile. Over an accent fill the handle
-  /// keeps the fill's own foreground, so the accent never sits on
-  /// itself.
+  /// the click that opens the profile. A mention that names an
+  /// organization skips the hover card — its click opens the
+  /// organization page through the host's navigation — and an
+  /// unknown kind stays the accent text alone. Over an accent fill
+  /// the handle keeps the fill's own foreground, so the accent never
+  /// sits on itself.
   let handleInline
-    (flyout: Source voption, tone: MentionTone, username: string)
+    (flyout: Source voption, tone: MentionTone, mention: Mention)
     : Inline =
-    let handle = TextBlock().Name("MentionHandle").Text("@" + username)
+    let handle = TextBlock().Name("MentionHandle").Text("@" + mention.Handle)
 
     match tone with
     | Accent -> handle.Classes(Theme.name Theme.FgAccent) |> ignore
     | OnFill -> ()
 
-    match flyout with
-    | ValueSome source ->
-      InlineUIContainer(UserFlyout.attach(source, mentioned username, handle))
-    | ValueNone -> InlineUIContainer(handle)
+    match mention.Kind, flyout with
+    | UserMention, ValueSome source ->
+      InlineUIContainer(
+        UserFlyout.attach(source, mentioned mention.Handle, handle)
+      )
+    | OrganizationMention, ValueSome source ->
+      InlineUIContainer(
+        Button()
+          .Classes(Theme.name Theme.GhostButton)
+          .Padding(0.0)
+          .Content(handle)
+          .OnClickHandler(fun _ args ->
+            // A handled click never opens the thread behind the handle.
+            args.Handled <- true
+
+            source.OnOpenOrg mention.Handle)
+      )
+    | _, ValueNone -> InlineUIContainer(handle)
+    | UnknownMention _, ValueSome _ -> InlineUIContainer(handle)
 
   /// The body text with its mentions wrapped, flowing the way the
   /// site's inline links do.
@@ -197,12 +233,12 @@ module Parts =
       let inlines = InlineCollection()
       block.Inlines <- inlines
 
-      splitMentions(text, mentions |> List.map _.Handle)
+      splitMentions(text, mentions)
       |> List.iter(fun piece ->
         match piece with
         | Plain plain -> inlines.Add(Run plain) |> ignore
-        | Handle username ->
-          inlines.Add(handleInline(flyout, tone, username)) |> ignore)
+        | Handle mention ->
+          inlines.Add(handleInline(flyout, tone, mention)) |> ignore)
 
       block
 
@@ -521,12 +557,12 @@ module Parts =
       match spec.Mentions with
       | [] -> inlines.Add(Run spec.Text) |> ignore
       | _ ->
-        splitMentions(spec.Text, spec.Mentions |> List.map _.Handle)
+        splitMentions(spec.Text, spec.Mentions)
         |> List.iter(fun piece ->
           match piece with
           | Plain plain -> inlines.Add(Run plain) |> ignore
-          | Handle username ->
-            inlines.Add(handleInline(spec.Flyout, Accent, username)) |> ignore)
+          | Handle mention ->
+            inlines.Add(handleInline(spec.Flyout, Accent, mention)) |> ignore)
 
       if spec.Marked then
         block.FontWeight <- FontWeight.Medium

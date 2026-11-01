@@ -3371,3 +3371,383 @@ let pingTests =
         Expect.isTrue word "the ping word never landed"
       })
   ]
+
+///── The org thread's pinned messages ──
+/// The api of the pin tests: the org row lists, the org thread answers
+/// from a can, and the pin verbs answer their cans by method and
+/// route tail.
+let pinApi
+  (threadAnswer: string, pins: (string * string * HttpResponse) list)
+  : FakeApi =
+  FakeApi(fun request ->
+    let pinned =
+      pins
+      |> List.tryFind(fun (method, suffix, _) ->
+        request.Method = method && request.Target.EndsWith suffix)
+
+    match pinned with
+    | Some(_, _, answer) -> answer
+    | None ->
+      if request.Target.StartsWith "/api/v1/remotes/orgs/org-1/messages" then
+        ok threadAnswer
+      elif request.Target.StartsWith "/api/v1/remotes" then
+        ok(
+          Remotes.inboxPageJson(
+            [ orgRowJson("org-1", "the org", 0, "2026-10-21T04:00:00Z") ],
+            false,
+            0,
+            0
+          )
+        )
+      else
+        (match accountAnswer request with
+         | ValueSome answer -> answer
+         | ValueNone -> ok "{}"))
+
+/// The pin api's can list: one canned pin answer per message id.
+let pinOf(id: int, userId: string) : string =
+  orgMessageJson(id, userId, $"pin {id}", Some "2026-10-20T04:05:00Z")
+
+/// Opens the one org conversation the pin api serves.
+let openOrgAsync(window: Window) : Async<unit> = async {
+  do! openRemotesAsync window
+
+  let! listed =
+    waitForAsync(
+      5000,
+      (fun () -> window),
+      (fun root -> buttonWithText(root, "the org") |> Option.isSome)
+    )
+
+  Expect.isTrue listed "the org row never listed"
+
+  do!
+    onUiAsync(fun () -> buttonWithText(window, "the org") |> Option.iter click)
+
+  let! opened =
+    waitForAsync(
+      5000,
+      (fun () -> window),
+      (fun root ->
+        root.GetVisualDescendants()
+        |> Seq.exists(fun visual -> visual.Name = "RemotesThread"))
+    )
+
+  Expect.isTrue opened "the org thread never opened"
+}
+
+/// True when any control under the root carries the tip: the pinned
+/// glyph speaks through its tooltip alone.
+let controlTipped(root: Control, tip: string) : bool =
+  root.GetVisualDescendants()
+  |> Seq.exists(fun visual ->
+    match visual with
+    | :? Control as control when string(ToolTip.GetTip control) = tip -> true
+    | _ -> false)
+
+/// One thread whose org carries the two canned messages and the given
+/// role and pinned list.
+let orgThread(role: string, pinned: string list option, version: int) : string =
+  orgThreadAnswerJson(
+    [
+      orgMessageJson(41, partnerId, "hold this one", None)
+      orgMessageJson(42, viewerId, "mine then", None)
+    ],
+    role,
+    pinned,
+    version
+  )
+
+let pinTests =
+  testList "org pinned messages" [
+    testCaseAsync
+      "a member sees the banner and no pin control"
+      (async {
+        let thread = orgThread("contributor", Some [ pinOf(41, partnerId) ], 0)
+
+        let api = pinApi(thread, [])
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openOrgAsync window
+
+        let! banner =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              hasText(root, "pinned · 1")
+              && hasText(root, "The Hubot")
+              && hasText(root, "hold this one"))
+          )
+
+        Expect.isTrue banner "the pinned banner never showed its pieces"
+
+        let! control =
+          probeUiAsync(fun () ->
+            buttonWithText(window, "Pin message") |> Option.isNone
+            && buttonWithText(window, "Unpin message") |> Option.isNone)
+
+        Expect.isTrue control "the contributor saw a pin control"
+
+        let! glyph =
+          probeUiAsync(fun () -> controlTipped(window, "Pinned message"))
+
+        Expect.isTrue glyph "the pinned message never showed its glyph"
+      })
+
+    testCaseAsync
+      "a maintainer pins through the dialog once, then directly"
+      (async {
+        let api =
+          pinApi(
+            orgThread("maintainer", None, 0),
+            [
+              ("PUT",
+               "/messages/41/pin",
+               ok(pinAnswerJson([ pinOf(41, partnerId) ], 1)))
+              ("PUT",
+               "/messages/42/pin",
+               ok(
+                 pinAnswerJson([ pinOf(42, viewerId); pinOf(41, partnerId) ], 2)
+               ))
+              ("DELETE",
+               "/messages/41/pin",
+               ok(pinAnswerJson([ pinOf(42, viewerId) ], 3)))
+            ]
+          )
+
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openOrgAsync window
+
+        let! control =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> buttonWithText(root, "Pin message") |> Option.isSome)
+          )
+
+        Expect.isTrue control "the maintainer never saw the pin control"
+
+        // The first pin asks first.
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "PinMessage41")
+            |> Option.map(fun control -> control :?> Button)
+            |> Option.iter click)
+
+        let! asked =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "Pin for the whole org?"))
+          )
+
+        Expect.isTrue asked "the first pin never asked"
+
+        // The choice rides the confirm, and the pin lands.
+        do!
+          onUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryPick(fun visual ->
+              match visual with
+              | :? CheckBox as box when
+                string box.Content = "Don't show this again"
+                ->
+                Some box
+              | _ -> None)
+            |> Option.iter(fun box -> box.IsChecked <- Nullable true))
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "ConfirmPin")
+            |> Option.map(fun control -> control :?> Button)
+            |> Option.iter click)
+
+        let! pinned =
+          waitForAsync(
+            5000,
+            (fun () -> api.Requests),
+            (fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Method = "PUT"
+                && request.Target.EndsWith "/messages/41/pin"))
+          )
+
+        Expect.isTrue pinned "the pin never reached its route"
+
+        let! counted =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              hasText(root, "pinned · 1")
+              && (controlByName(root, "PinMessage41")
+                  |> Option.map(fun control ->
+                    (control :?> Button).Content = "Unpin message")
+                  |> Option.defaultValue false))
+          )
+
+        Expect.isTrue counted "the banner and the bubble never followed"
+
+        // The second pin skips the dialog the choice retired.
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "PinMessage42")
+            |> Option.map(fun control -> control :?> Button)
+            |> Option.iter click)
+
+        do! settleAsync()
+
+        let! quiet =
+          probeUiAsync(fun () -> not(hasText(window, "Pin for the whole org?")))
+
+        Expect.isTrue quiet "the second pin asked again"
+
+        let! second =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              hasText(root, "pinned · 2")
+              && (controlByName(root, "PinMessage42")
+                  |> Option.map(fun control ->
+                    (control :?> Button).Content = "Unpin message")
+                  |> Option.defaultValue false))
+          )
+
+        Expect.isTrue second "the second pin never landed"
+
+        // The unpin never asks, and the banner lets go.
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "PinMessage41")
+            |> Option.map(fun control -> control :?> Button)
+            |> Option.iter click)
+
+        let! unpinned =
+          waitForAsync(
+            5000,
+            (fun () -> api.Requests),
+            (fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Method = "DELETE"
+                && request.Target.EndsWith "/messages/41/pin"))
+          )
+
+        Expect.isTrue unpinned "the unpin never reached its route"
+
+        let! released =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              hasText(root, "pin 42")
+              && (controlByName(root, "PinMessage41")
+                  |> Option.map(fun control ->
+                    (control :?> Button).Content = "Pin message")
+                  |> Option.defaultValue false))
+          )
+
+        Expect.isTrue released "the unpin never settled"
+      })
+
+    testCaseAsync
+      "at the cap the sentence shows and no call goes out"
+      (async {
+        let cap = [ for index in 100..124 -> pinOf(index, partnerId) ]
+
+        let api = pinApi(orgThread("maintainer", Some cap, 0), [])
+
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openOrgAsync window
+
+        let! banner =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "pinned · 25"))
+          )
+
+        Expect.isTrue banner "the full pinned list never showed"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "PinMessage41")
+            |> Option.map(fun control -> control :?> Button)
+            |> Option.iter click)
+
+        let! capped =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              hasText(
+                root,
+                "An org can pin up to 25 messages. Unpin one first."
+              ))
+          )
+
+        Expect.isTrue capped "the cap sentence never showed"
+
+        let! asked =
+          probeUiAsync(fun () ->
+            api.Requests
+            |> List.exists(fun request -> request.Target.EndsWith "/pin"))
+
+        Expect.isFalse asked "the cap still called the api"
+      })
+
+    testCaseAsync
+      "a refused pin shows the server's words"
+      (async {
+        let api =
+          pinApi(
+            orgThread("maintainer", None, 0),
+            [
+              ("PUT",
+               "/messages/41/pin",
+               refused(403, "Only maintainers can pin messages."))
+            ]
+          )
+
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openOrgAsync window
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "PinMessage41")
+            |> Option.map(fun control -> control :?> Button)
+            |> Option.iter click)
+
+        let! asked =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "Pin for the whole org?"))
+          )
+
+        Expect.isTrue asked "the refusal path never asked"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "ConfirmPin")
+            |> Option.map(fun control -> control :?> Button)
+            |> Option.iter click)
+
+        let! said =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              textBlockWith(root, "Only maintainers can pin messages.")
+              |> Option.isSome)
+          )
+
+        Expect.isTrue said "the refusal never showed the server's words"
+      })
+  ]

@@ -939,6 +939,49 @@ module Users =
       }
     )
 
+module Organizations =
+
+  type Request = { KeyFile: string; Handle: string }
+
+  type MentionsRequest = {
+    KeyFile: string
+    Handle: string
+    Cursor: string option
+  }
+
+  let path(handle: string, suffix: string) =
+    "/api/v1/organizations/" + Uri.EscapeDataString handle + suffix
+
+  let get(env, request: Request) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target = path(request.Handle, "")
+        Body = ""
+        Decode = OrganizationProfile.decode
+      }
+    )
+
+  let mentions(env, request: MentionsRequest) =
+    let target =
+      Internal.withQuery(
+        path(request.Handle, "/mentions"),
+        Internal.optionalParameter("cursor", request.Cursor)
+      )
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target = target
+        Body = ""
+        Decode = CommitNode.decodePage
+      }
+    )
+
 module Commits =
 
   type Target =
@@ -1861,6 +1904,8 @@ module Remotes =
 
   type LinkPreviewRequest = { KeyFile: string; MessageId: int }
 
+  type MessagePinRequest = { KeyFile: string; MessageId: int }
+
   type UsageRequest = { KeyFile: string }
 
   type SettingsRequest = { KeyFile: string; Enabled: bool }
@@ -2290,6 +2335,37 @@ module Remotes =
           + "/link-preview"
         Body = ""
         Decode = MessageLinkPreview.decode
+      }
+    )
+
+  /// The most messages one org can hold pinned, as the server counts
+  /// them.
+  let pinCap = 25
+
+  /// The server's own words at that cap.
+  let pinCapMessage = "An org can pin up to 25 messages. Unpin one first."
+
+  let pinMessage(env, request: MessagePinRequest) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "PUT"
+        Target = "/api/v1/remotes/messages/" + string request.MessageId + "/pin"
+        Body = ""
+        Decode = MessagePinResult.decode
+      }
+    )
+
+  let unpinMessage(env, request: MessagePinRequest) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "DELETE"
+        Target = "/api/v1/remotes/messages/" + string request.MessageId + "/pin"
+        Body = ""
+        Decode = MessagePinResult.decode
       }
     )
 

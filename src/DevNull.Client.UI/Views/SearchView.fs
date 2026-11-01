@@ -468,6 +468,13 @@ let view
               "/profile/" + Uri.EscapeDataString username,
               ignore
             )
+        OnOpenOrg =
+          fun handle ->
+            Navigation.go(
+              props.Nav,
+              "/org/" + Uri.EscapeDataString handle,
+              ignore
+            )
         Cache = props.Env.ImageCache
       }
     Pin = ValueNone

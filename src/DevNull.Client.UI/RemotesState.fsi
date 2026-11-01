@@ -68,6 +68,9 @@ type ThreadState = {
   Access: PushAccess
   Pending: PendingSend list
   ReactionsVersion: int option
+  /// The org's pinned messages, latest first, once a page or a pin
+  /// answer carried the list; direct threads hold none.
+  Pinned: Message list option
   ReplyingTo: MessageParent option
   Head: int
   HeadUntil: int

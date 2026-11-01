@@ -5,11 +5,13 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.ImageCache
 
 /// What one hover card needs from its host: the profile fetch, the
-/// profile navigation, and the image cache.
+/// profile navigation, the organization navigation a body's
+/// org-kind mention rides, and the image cache.
 [<Struct>]
 type Source = {
   Fetch: string -> Async<ProfileDetails option>
   OnOpen: string -> unit
+  OnOpenOrg: string -> unit
   Cache: ImageCacheService
 }
 

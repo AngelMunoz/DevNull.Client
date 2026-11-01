@@ -133,6 +133,17 @@ type RemotesStore =
   member SetPinned:
     target: ChatTarget * pinned: bool -> Async<Result<unit, AppError>>
 
+  /// Pins one message of an org thread. The answer's whole pinned
+  /// list and its version land in one step, so a poll sent before the
+  /// pin cannot roll it back.
+  member PinMessage:
+    target: ChatTarget * message: Message -> Async<Result<unit, AppError>>
+
+  /// Takes one pin off a message of an org thread, the same one-step
+  /// landing the pin takes.
+  member UnpinMessage:
+    target: ChatTarget * message: Message -> Async<Result<unit, AppError>>
+
   /// Mutes one thread for a duration, or unmutes it.
   member SetMuted:
     target: ChatTarget * duration: MuteDuration -> Async<Result<unit, AppError>>

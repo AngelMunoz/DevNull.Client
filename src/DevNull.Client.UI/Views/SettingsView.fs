@@ -110,6 +110,7 @@ module State =
       SidebarExpanded = true
       ChatDrafts = Map.empty
       VoiceVolume = 1.0
+      PinPromptHidden = false
     }
     Prefs = None
     ZonePick = None

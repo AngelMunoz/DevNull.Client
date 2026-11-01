@@ -765,6 +765,29 @@ let leaveOrg(state: RemotesState, org: OrgRef) : RemotesState = {
       Threads = Map.remove ("org:" + org.Id) state.Threads
 }
 
+/// The one-step landing of a pin or an unpin answer: the whole pinned
+/// list and its version take the thread in one posted change, so a
+/// poll that left before the answer carries a version the merge
+/// already treats as stale.
+let landPins
+  (
+    post: (RemotesState -> RemotesState) -> unit,
+    target: ChatTarget,
+    result: MessagePinResult
+  ) : unit =
+  post(
+    updateThread (ChatTargets.key target) (fun thread -> {
+      thread with
+          Pinned = Some result.Pinned
+          ReactionsVersion =
+            Some(
+              max
+                (thread.ReactionsVersion |> Option.defaultValue 0)
+                result.ReactionsVersion
+            )
+    })
+  )
+
 /// One mailbox message: a pure change, or a read of the state.
 type Msg =
   | Apply of change: (RemotesState -> RemotesState)
@@ -1443,6 +1466,59 @@ type RemotesStore(workers: RemotesWorkers, session: SessionStore, log: ILogger) 
             for tab in current.InvalidatedTabs do
               do! Inboxes.refreshPages(driver, tab, false)
 
+            return Ok()
+      }
+    )
+
+  /// Pins one message of an org thread. The answer's whole pinned
+  /// list and its version land in one step, so a poll sent before the
+  /// pin cannot roll it back.
+  member _.PinMessage
+    (target: ChatTarget, message: Message)
+    : Async<Result<unit, AppError>> =
+    settled(
+      asyncEx {
+        match keyFile() with
+        | ValueNone -> return Error(SignInFailed "signed out")
+        | ValueSome keyFile ->
+          match!
+            CoreRemotes.pinMessage(
+              signEnv,
+              {
+                KeyFile = keyFile
+                MessageId = message.Id
+              }
+            )
+          with
+          | Error error -> return Error error
+          | Ok result ->
+            landPins(apply, target, result)
+            return Ok()
+      }
+    )
+
+  /// Takes one pin off a message of an org thread, the same one-step
+  /// landing the pin takes.
+  member _.UnpinMessage
+    (target: ChatTarget, message: Message)
+    : Async<Result<unit, AppError>> =
+    settled(
+      asyncEx {
+        match keyFile() with
+        | ValueNone -> return Error(SignInFailed "signed out")
+        | ValueSome keyFile ->
+          match!
+            CoreRemotes.unpinMessage(
+              signEnv,
+              {
+                KeyFile = keyFile
+                MessageId = message.Id
+              }
+            )
+          with
+          | Error error -> return Error error
+          | Ok result ->
+            landPins(apply, target, result)
             return Ok()
       }
     )

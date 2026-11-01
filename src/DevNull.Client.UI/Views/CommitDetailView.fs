@@ -735,6 +735,8 @@ module Parts =
       Fetch = props.Env.Profiles.Fetch
       OnOpen =
         fun username -> Navigation.go(props.Nav, "/profile/" + username, ignore)
+      OnOpenOrg =
+        fun handle -> Navigation.go(props.Nav, "/org/" + handle, ignore)
       Cache = props.Env.ImageCache
     }
 

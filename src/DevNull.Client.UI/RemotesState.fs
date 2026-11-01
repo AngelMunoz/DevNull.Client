@@ -68,6 +68,9 @@ type ThreadState = {
   Access: PushAccess
   Pending: PendingSend list
   ReactionsVersion: int option
+  /// The org's pinned messages, latest first, once a page or a pin
+  /// answer carried the list; direct threads hold none.
+  Pinned: Message list option
   ReplyingTo: MessageParent option
   Head: int
   HeadUntil: int
@@ -273,6 +276,7 @@ let emptyThread(target: ChatTarget) : ThreadState = {
   Access = PushOpen
   Pending = []
   ReactionsVersion = None
+  Pinned = None
   ReplyingTo = None
   Head = 0
   HeadUntil = 0
@@ -493,6 +497,22 @@ let withReactionUse
   | None when change > 0 -> usage @ [ { Emoji = emoji; Count = change } ]
   | None -> usage
 
+/// One org page's pinned list against the one held: the wire's null
+/// keeps the list the state already holds, and a page older than the
+/// version a pin answer wrote cannot roll that answer back.
+let keptPins(held: ThreadState, page: OrgThread) : Message list option =
+  match page.Pinned with
+  | None -> held.Pinned
+  | Some list ->
+    if
+      held.Pinned.IsSome
+      && page.ReactionsVersion <
+        (held.ReactionsVersion |> Option.defaultValue 0)
+    then
+      held.Pinned
+    else
+      Some list
+
 /// One poll's reaction sweep: the loaded messages, the reactions that
 /// changed since the last version, and when the poll left.
 [<Struct>]
@@ -630,6 +650,7 @@ let mergeThread(state: RemotesState, merge: ThreadMerge) : RemotesState =
             PinnedAt = thread.PinnedAt
             MutedUntilAt = thread.MutedUntilAt
             Access = thread.Access
+            Pinned = keptPins(current, thread)
       }
 
   let write key value version = {

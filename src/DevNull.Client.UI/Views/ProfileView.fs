@@ -1087,6 +1087,8 @@ module Parts =
         OnOpen =
           fun username ->
             Navigation.go(props.Nav, "/profile/" + username, ignore)
+        OnOpenOrg =
+          fun handle -> Navigation.go(props.Nav, "/org/" + handle, ignore)
         Cache = props.Env.ImageCache
       }
 
@@ -1111,124 +1113,26 @@ module Parts =
     Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
   }
 
-  /// One commit row: the card with its reply preview under it, or the
-  /// deletion marker.
-  let commitRow(ctx: CommitCard.RowProps, node: CommitNode) : Control =
-    let card = CommitCard.feedRow ctx node
-
-    match node with
-    | LiveCommit commit ->
-      StackPanel().Children(card, CommitCard.replyBlock(ctx, commit, ValueNone))
-      : Control
-    | Tombstone _ -> card
-
-  /// The commits feed under the tabs.
-  let commits
-    (
-      props: Props<'env>,
-      dispatch: Dispatch<State.Msg>,
-      model: IObservable<State.Model>
-    ) : Control =
-    let ctx = commitCtx(props, dispatch, model)
-
-    Feed.view {
-      Items = model |> Observable.map State.rowsOf
-      KeyOf = State.rowKey
-      Row =
-        fun row ->
-          match row with
-          | State.PinnedCaption -> FeedParts.pinnedRow()
-          | State.PinnedNode node -> commitRow(ctx, node)
-          | State.FeedNode node -> commitRow(ctx, node)
-      Footer =
-        ValueSome(
-          PageChrome.loadMore(
-            model |> Observable.map _.NextCursor.IsSome,
-            fun () -> dispatch State.MoreCommits
-          )
-        )
-      ScrollTop = ValueNone
-      Restore = ValueNone
-      OnScroll = ValueNone
-      OnNeedMore = ValueNone
-    }
-
-  /// The Commits/Replies tab bar; the active tab carries the site's
-  /// underline.
-  let tabStrip
-    (dispatch: Dispatch<State.Msg>, model: IObservable<State.Model>)
-    : Control =
-    let kinds: (State.Tab * string * int) list = [
-      State.Commits, "Commits", 0
-      State.Replies, "Replies", 1
-    ]
-
-    let strip = Grid()
-
-    strip.ColumnDefinitions <- ColumnDefinitions("*,*")
-
-    let buttons: Control array = [|
-      for kind, label, index in kinds ->
-        let button =
-          Button()
-            .Classes(Theme.name Theme.TabButton)
-            .Content(label)
-            .Column(index)
-            .OnClickHandler(fun _ _ -> dispatch(State.TabChosen kind))
-
-        Theme.bindClass(
-          button,
-          Theme.TabButtonActive,
-          model |> Observable.map(fun current -> current.Tab = kind)
-        )
-
-        button
-    |]
-
-    Border()
-      .Classes(Theme.name Theme.Hairline)
-      .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
-      .Child(strip.Children(buttons))
-
-  /// The transient note line — the pin's own words after it settles.
-  let noteLine(model: IObservable<State.Model>) : Control =
-    TextBlock()
-      .Classes(Theme.name Theme.Muted)
-      .Text(
-        model
-        |> Observable.map(fun current -> current.Note |> Option.defaultValue "")
-      )
-      .IsVisible(model |> Observable.map _.Note.IsSome)
-
-  /// The tabbed body: the strip over the note over the feed.
-  let body
-    (
-      props: Props<'env>,
-      dispatch: Dispatch<State.Msg>,
-      model: IObservable<State.Model>
-    ) : Control =
-    let root = Grid()
-
-    root.RowDefinitions <- RowDefinitions("Auto,Auto,*")
-
-    root.Children(
-      tabStrip(dispatch, model).Row(0),
-      noteLine(model).Row(1).Margin(0.0, 8.0, 0.0, 0.0),
-      commits(props, dispatch, model).Row(2)
-    )
-
 let view
   (props: Props<'env>)
   (model: IObservable<State.Model>)
   (dispatch: Dispatch<State.Msg>)
   : Control =
 
-  PageChrome.page {
+  let ctx = Parts.commitCtx(props, dispatch, model)
+
+  ProfileShell.view {
     Model = model
-    TitleOf = fun _ -> ""
+    Title = fun _ -> ""
+    Kind = None
     Padding = Theme.pinnedPadding
     ErrorOf = _.Error
-    Busy = fun current -> current.Loading, "Loading the profile…"
+    Busy =
+      fun current ->
+        if current.Loading then
+          Some "Loading the profile…"
+        else
+          None
     Empty =
       fun current ->
         // A profile with nothing but a pinned commit shows the pinned
@@ -1240,15 +1144,49 @@ let view
             current.Details |> Option.bind _.PinnedCommit |> Option.isSome
           | State.Replies -> false
 
-        not current.Loading
-        && current.Error.IsNone
-        && current.Commits.IsEmpty
-        && not pinned,
-        (match current.Tab with
-         | State.Commits -> "No commits yet."
-         | State.Replies -> "No replies yet.")
-    Header = [ Parts.headerHost(props, dispatch, model) ]
-    Body = Parts.body(props, dispatch, model)
+        if
+          not current.Loading
+          && current.Error.IsNone
+          && current.Commits.IsEmpty
+          && not pinned
+        then
+          Some(
+            match current.Tab with
+            | State.Commits -> "No commits yet."
+            | State.Replies -> "No replies yet."
+          )
+        else
+          None
+    Note = _.Note
+    Header = fun () -> Parts.headerHost(props, dispatch, model)
+    Meta = fun () -> Panel()
+    FeedLabel = None
+    Tabs = [
+      {
+        Label = "Commits"
+        Active =
+          model |> Observable.map(fun current -> current.Tab = State.Commits)
+        Choose = fun () -> dispatch(State.TabChosen State.Commits)
+      }
+      {
+        Label = "Replies"
+        Active =
+          model |> Observable.map(fun current -> current.Tab = State.Replies)
+        Choose = fun () -> dispatch(State.TabChosen State.Replies)
+      }
+    ]
+    Feed = {
+      Items = model |> Observable.map State.rowsOf
+      KeyOf = State.rowKey
+      Row =
+        function
+        | State.PinnedCaption -> FeedParts.pinnedRow()
+        | State.PinnedNode node -> ProfileShell.commitRow(ctx, node)
+        | State.FeedNode node -> ProfileShell.commitRow(ctx, node)
+      HasMore = model |> Observable.map _.NextCursor.IsSome
+      OnMore = fun () -> dispatch State.MoreCommits
+      End = System.Reactive.Linq.Observable.Return(None: string option)
+    }
   }
 
 type Page<'env

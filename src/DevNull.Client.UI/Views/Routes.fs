@@ -268,6 +268,29 @@ let profilePage
       }
   )
 
+let organizationPage
+  (
+    env:
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideImageCache & #IProvideProfiles & #IProvideUserSettings & #IProvideTranslations & #IProvideLogging,
+    nav: INavigable,
+    context: RouteContext
+  ) : Control =
+  signedIn(
+    env,
+    "Sign in to read the organization.",
+    fun session ->
+      match context.GetParam<string> "handle" with
+      | ValueSome handle ->
+        OrganizationView.Page {
+          Env = env
+          Handle = handle
+          Session = session
+          Nav = nav
+          Context = context
+        }
+      | ValueNone -> Status.soon "The organization page needs a handle."
+  )
+
 let settingsPage
   (
     env:
@@ -434,6 +457,13 @@ let build
       "user-profile",
       "/profile/:username",
       fun context nav -> profilePage(env, nav, context)
+    )
+    |> gated
+
+    Route.define<Control>(
+      "organization",
+      "/org/:handle",
+      fun context nav -> organizationPage(env, nav, context)
     )
     |> gated
 

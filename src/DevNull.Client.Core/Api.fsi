@@ -563,6 +563,45 @@ module Users =
       and Rejected<'e>
       and DecodeError<'e>
 
+module Organizations =
+
+  /// One organization by handle.
+  type Request = { KeyFile: string; Handle: string }
+
+  /// One organization's mentions: a cursor page.
+  type MentionsRequest = {
+    KeyFile: string
+    Handle: string
+    Cursor: string option
+  }
+
+  /// Reads one public organization profile.
+  val get:
+    env: 'env * request: Request -> Async<Result<OrganizationProfile, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Reads the commits that mention one organization, newest first,
+  /// twenty to a cursor page.
+  val mentions:
+    env: 'env * request: MentionsRequest -> Async<Result<Page<CommitNode>, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
 module Commits =
 
   /// What a new commit points at: nothing, a parent, or a quoted commit.
@@ -1221,6 +1260,9 @@ module Remotes =
   /// One message's link card, asked for again while pending.
   type LinkPreviewRequest = { KeyFile: string; MessageId: int }
 
+  /// One message of an org thread pinned or unpinned.
+  type MessagePinRequest = { KeyFile: string; MessageId: int }
+
   /// The emoji the user reacts with.
   type UsageRequest = { KeyFile: string }
 
@@ -1505,6 +1547,44 @@ module Remotes =
   val linkPreview:
     env: 'env * request: LinkPreviewRequest ->
       Async<Result<LinkPreview option, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// The most messages one org can hold pinned, as the server counts
+  /// them.
+  val pinCap: int
+
+  /// The server's own words at that cap, which the UI answers with
+  /// before it calls.
+  val pinCapMessage: string
+
+  /// Pins one message of an org thread. Maintainers only; the server
+  /// counts it against the org's cap of twenty-five.
+  val pinMessage:
+    env: 'env * request: MessagePinRequest ->
+      Async<Result<MessagePinResult, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Takes one pin off. Maintainers only; not under the posting
+  /// timeout, so a timed-out maintainer may still unpin.
+  val unpinMessage:
+    env: 'env * request: MessagePinRequest ->
+      Async<Result<MessagePinResult, 'e>>
       when 'env :> IProvideClock
       and 'env :> IProvideNonceSource
       and 'env :> IProvideSigner

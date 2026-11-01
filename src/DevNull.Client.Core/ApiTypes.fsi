@@ -41,6 +41,19 @@ type Organization = {
   AvatarUrl: string option
 }
 
+/// One public organization profile, as the organization read answers
+/// it: its identity lines and its page address.
+type OrganizationProfile = {
+  Handle: string
+  Name: string
+  AvatarUrl: string option
+  Bio: string option
+  Location: string option
+  Website: string option
+  GithubUrl: string option
+  HtmlUrl: string
+}
+
 /// One issue or pull request a `#number` reference can name: the card
 /// the site's own suggestion carries.
 type Issue = {
@@ -100,11 +113,18 @@ type Segment =
   | CodeSegment of code: string
   | BlockSegment of language: string option * html: string
 
+/// What one mention names. An unknown kind stays raw.
+type MentionKind =
+  | UserMention
+  | OrganizationMention
+  | UnknownMention of raw: string
+
 /// One mention position in a commit body.
 type Mention = {
   Handle: string
   Offset: int
   Length: int
+  Kind: MentionKind
 }
 
 /// One body as a translation carries it: the segments a page shows.
@@ -685,6 +705,7 @@ type Message = {
   SubjectId: string option
   User: User option
   Subject: User option
+  PinnedAt: DateTimeOffset option
   CreatedAt: DateTimeOffset
 }
 
@@ -755,6 +776,7 @@ type OrgThread = {
   HasOlder: bool
   ReactionsVersion: int
   ReactionChanges: ReactionChange list
+  Pinned: Message list option
   ReadThroughId: int
   Members: ThreadMember list
   Typing: string list
@@ -771,6 +793,13 @@ type RemoteCandidate = { User: User; Reason: string option }
 
 /// The result of pinning or unpinning a thread.
 type PinResult = { PinnedAt: DateTimeOffset option }
+
+/// The answer of a message pin or unpin: the org's whole pinned list,
+/// latest first, with the version the thread polls against.
+type MessagePinResult = {
+  Pinned: Message list
+  ReactionsVersion: int
+}
 
 /// The result of muting or unmuting a thread.
 type ThreadMuteResult = { MutedUntilAt: DateTimeOffset option }
@@ -987,6 +1016,10 @@ module PinResult =
   /// Reads the result of pinning or unpinning.
   val decode: body: string -> Result<PinResult, DecodeFailure>
 
+module MessagePinResult =
+  /// Reads the answer of a message pin or unpin.
+  val decode: body: string -> Result<MessagePinResult, DecodeFailure>
+
 module ThreadMuteResult =
   /// Reads the result of muting or unmuting.
   val decode: body: string -> Result<ThreadMuteResult, DecodeFailure>
@@ -1021,6 +1054,11 @@ module ScheduledCommits =
 
   /// Reads one queued commit from its `{data: ...}` envelope.
   val decode: body: string -> Result<ScheduledCommit, DecodeFailure>
+
+module OrganizationProfile =
+  /// Reads one public organization profile, from its `{data: ...}`
+  /// envelope.
+  val decode: body: string -> Result<OrganizationProfile, DecodeFailure>
 
 /// The transport could not reach the server.
 type TransportError<'e> =

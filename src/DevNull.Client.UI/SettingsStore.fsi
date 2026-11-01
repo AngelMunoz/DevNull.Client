@@ -26,6 +26,9 @@ type AppSettings = {
   ChatDrafts: Map<string, string>
   /// The voice-note player's volume, 0.0 to 1.0.
   VoiceVolume: float
+  /// Whether the org-pin dialog keeps its "Don't show this again"
+  /// choice and never asks again on this device.
+  PinPromptHidden: bool
 }
 
 /// The live local settings: one state stream for readers, one writer
@@ -65,6 +68,10 @@ type AppSettingsStore =
 
   /// Writes the voice-note volume, then publishes it.
   member SetVoiceVolume: volume: float -> unit
+
+  /// Writes whether the org-pin dialog ever asks again, then
+  /// publishes it.
+  member SetPinPromptHidden: hidden: bool -> unit
 
 /// Accessor for the settings store capability.
 type IProvideSettings =

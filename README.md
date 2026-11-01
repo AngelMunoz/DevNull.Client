@@ -8,6 +8,17 @@ This is an independent project exploring their public API, with the
 goal of providing a simple client for desktop platforms. The service
 and its API can change at any time; expect breakage.
 
+## Installing on Windows
+
+With [Scoop](https://scoop.sh):
+
+    scoop install https://github.com/AngelMunoz/DevNull.Client/releases/latest/download/devnull-client.json
+
+That URL always serves the newest stable release's manifest. Scoop checks
+the SHA-256 it carries before installing, and `scoop update` picks up each
+new release from the same URL. Pre-release builds never ride the channel;
+install one by its exact release URL instead.
+
 ## What it is
 
 - One window: a sidebar with the unread count, a reading column with

@@ -1,0 +1,25 @@
+{
+    "version": "@VERSION@",
+    "description": "Unofficial desktop client for dev-null.sh",
+    "homepage": "https://github.com/AngelMunoz/DevNull.Client",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/AngelMunoz/DevNull.Client/releases/download/v@VERSION@/DevNull.Client-@VERSION@-win-x64.zip",
+            "hash": "@HASH@"
+        }
+    },
+    "bin": "DevNull.Client.exe",
+    "shortcuts": [["DevNull.Client.exe", "DevNull Client"]],
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/AngelMunoz/DevNull.Client/releases/download/v$version/DevNull.Client-$version-win-x64.zip",
+                "hash": {
+                    "url": "$url.sha256"
+                }
+            }
+        }
+    }
+}

@@ -45,6 +45,10 @@ own.
   release.
 - What remains of the burst is in the issue index: live users and the
   first-commit notification (#3), and the follower and following lists (#4).
+- The scoop channel is built and proven locally: URL install from the
+  release, no bucket (Phase 1). It goes live with the next release — the
+  cut waits until the Linux install path is ready too (Phase 2). The
+  self-signed certificate and the version metadata are the step after.
 - The two install spikes stay here as phases: scoop on Windows
   (Phase 1), flatpak on Linux (Phase 2). The AOT single-file publish makes
   each manifest a thin wrapper over the release artifacts.
@@ -100,23 +104,29 @@ controls only on the session thread, never dispatching inside a dispatch.
 
 ---
 
-## Phase 1 — Windows install: scoop spike
+## Phase 1 — Windows install: scoop from the release URL
 
-**Goal:** the Windows head installs from a scoop manifest generated from the
-release artifacts.
+*Built and proven locally; ships with the next release. Existing releases
+stay untouched — the cut waits until the Linux install path is ready too
+(Phase 2).*
 
-**Approach:** the AOT publish is one self-contained executable, so the
-manifest describes one file. A scoop manifest (JSON) over the released zip,
-with its SHA-256, installs and upgrades straight from our own release URL —
-no manifest-repository pull request to make or keep current. The manifest
-generates at release time. The spike proves the path locally: a bucket
-pointing at the URL, an install, then an upgrade over the previous version.
-A public bucket of our own stays a separate decision after the spike.
-Winget is out: it wants a pull request to the community manifest repository
-for every release (see *Not in scope*).
+**Goal:** the Windows head installs with scoop straight from the release —
+no bucket of our own, no manifest-repository pull request.
 
-**Verify:** a clean machine installs and upgrades through scoop from our
-URL; the hash pins what it installs.
+**Approach:** the AOT publish is one self-contained executable, so the scoop
+manifest describes one file. Each release renders `devnull-client.json`
+(version, the zip's URL, its SHA-256, the PATH shim, the Start Menu shortcut)
+from the template at `.github/scoop/` and attaches it to the release beside
+a `.sha256` sidecar over the zip. GitHub serves the newest stable release's
+copy at `releases/latest/download/devnull-client.json`, so one URL installs
+and one command updates: scoop records the manifest URL at install time and
+re-reads it on `scoop update`. Prereleases never ride the channel — a
+pre-release installs only by its exact release URL. Winget is out: it wants
+a pull request to the community manifest repository for every release (see
+*Not in scope*).
+
+**Verify:** a clean machine installs from the URL and upgrades over the
+previous version; the hash pins what it installs.
 
 ## Phase 2 — Linux install: flatpak spike
 

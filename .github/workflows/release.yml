@@ -174,6 +174,23 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - uses: actions/checkout@v6
+
+      # Scoop installs straight from the release: the rendered manifest rides
+      # the release assets, and releases/latest/download/devnull-client.json
+      # always serves the newest stable copy (GitHub skips prereleases there).
+      # The .sha256 sidecar lets a manifest refresh read the hash without
+      # re-downloading the zip.
+      - name: Scoop manifest
+        shell: bash
+        run: |
+          zip="DevNull.Client-${{ needs.prepare.outputs.version }}-win-x64.zip"
+          hash="$(sha256sum "artifacts/$zip" | cut -d' ' -f1)"
+          printf '%s  %s\n' "$hash" "$zip" > "artifacts/$zip.sha256"
+          sed -e "s/@VERSION@/${{ needs.prepare.outputs.version }}/g" \
+              -e "s/@HASH@/$hash/g" \
+              .github/scoop/devnull-client.json > artifacts/devnull-client.json
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -183,4 +200,6 @@ jobs:
           body_path: artifacts/RELEASE_NOTES.md
           draft: false
           prerelease: ${{ contains(needs.prepare.outputs.version, '-rc') || contains(needs.prepare.outputs.version, '-beta') || contains(needs.prepare.outputs.version, '-alpha') }}
-          files: artifacts/DevNull.Client-*
+          files: |
+            artifacts/DevNull.Client-*
+            artifacts/devnull-client.json

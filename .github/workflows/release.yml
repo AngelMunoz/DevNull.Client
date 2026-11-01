@@ -246,6 +246,9 @@ jobs:
           if git fetch origin flatpak; then
             git archive origin/flatpak docs/repo | tar -x -C channel
             mv channel/docs/repo channel/repo
+            # git cannot carry an ostree repo's empty directories, and
+            # build-update-repo needs refs/remotes to exist.
+            mkdir -p channel/repo/refs/remotes channel/repo/refs/mirrors channel/repo/tmp
           else
             echo "No channel branch yet; this release starts it."
           fi

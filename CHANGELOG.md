@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Installer (Windows):** the terminal command `devnull` starts the app from any shell; the full `DevNull.Client.exe` shim stays beside it.
 
+### Changed
+
+- **UI:** commit-card stars, pastels, and poll votes now run through one shared action flow per page and settle into the page that owns the card; behavior is unchanged.
+
 ## [0.9.0] - 2026-10-31
 
 ### Added

@@ -35,6 +35,27 @@ type PinToggle = {
   Busy: IObservable<string option>
 }
 
+/// One host-run card action: the command its control runs, and the
+/// commit id whose call is in flight, so the control disables while
+/// the server answers.
+[<Struct>]
+type ActionSlot = {
+  Command: Commit -> unit
+  Busy: IObservable<string option>
+}
+
+/// The host-run card actions one row may offer. A slot left absent
+/// keeps the card's event routing for that action.
+[<Struct>]
+type ActionSlots = {
+  Star: ActionSlot voption
+  Vote: ActionSlot voption
+  Pastel: ActionSlot voption
+} with
+
+  /// No host-run action: every control reports through `OnEvent`.
+  static member none: ActionSlots
+
 /// One commit row. `OnEvent` receives every interaction. Every card
 /// rides the graph rail with its author's avatar; dense rows (the
 /// replies of a thread) shrink the node. `ViewerId` is the signed-in
@@ -47,8 +68,9 @@ type PinToggle = {
 /// `Voting` names the commit whose vote is in flight; `PollChoice` is
 /// the option the page model holds for this commit; `Pin` offers the
 /// profile pin on the author's own top-level commits, where the host
-/// decides to show it at all; `Translation` is what the card shows about
-/// the commit's translation.
+/// decides to show it at all; `Slots` are the host-run star, vote, and
+/// pastel actions; `Translation` is what the card shows about the
+/// commit's translation.
 [<Struct>]
 type Props = {
   Commit: Commit
@@ -62,6 +84,7 @@ type Props = {
   Images: ImageCacheService
   Flyout: Source voption
   Pin: PinToggle voption
+  Slots: ActionSlots
   Translation: IObservable<Translation.View voption>
   /// The zone the header's time tooltip shows.
   Zone: Zone
@@ -133,6 +156,11 @@ type RowProps = {
 /// routing, or the deletion marker. Every feed page shares this;
 /// only the routing differs.
 val feedRow: props: RowProps -> node: CommitNode -> Control
+
+/// One commit row over a feed node with the host-run card actions; a
+/// slot left absent keeps that action's event routing.
+val feedRowWith:
+  props: RowProps * slots: ActionSlots -> node: CommitNode -> Control
 
 /// The thread preview under a feed card: the replies to show (the
 /// payload slice, or the list a host grew), as the site's slim chain

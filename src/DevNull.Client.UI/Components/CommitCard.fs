@@ -60,6 +60,30 @@ type PinToggle = {
   Busy: IObservable<string option>
 }
 
+/// One host-run card action: the command its control runs, and the
+/// commit id whose call is in flight, so the control disables while
+/// the server answers.
+[<Struct>]
+type ActionSlot = {
+  Command: Commit -> unit
+  Busy: IObservable<string option>
+}
+
+/// The host-run card actions one row may offer. A slot left absent
+/// keeps the card's event routing for that action.
+[<Struct>]
+type ActionSlots = {
+  Star: ActionSlot voption
+  Vote: ActionSlot voption
+  Pastel: ActionSlot voption
+} with
+
+  static member none = {
+    Star = ValueNone
+    Vote = ValueNone
+    Pastel = ValueNone
+  }
+
 /// One commit row. `OnEvent` receives every interaction. Every card
 /// rides the graph rail with its author's avatar; dense rows (the
 /// replies of a thread) shrink the node. `Now` is the clock the poll's
@@ -67,6 +91,7 @@ type PinToggle = {
 /// so the button disables; `PollChoice` is the option the page model
 /// holds for this commit; `Pin` offers the profile pin on the author's
 /// own top-level commits, where the host decides to show it at all;
+/// `Slots` are the host-run star, vote, and pastel actions;
 /// `Translation` is what the card shows about the commit's translation.
 [<Struct>]
 type Props = {
@@ -81,6 +106,7 @@ type Props = {
   Images: ImageCacheService
   Flyout: Source voption
   Pin: PinToggle voption
+  Slots: ActionSlots
   Translation: IObservable<Translation.View voption>
   /// The zone the header's time tooltip shows.
   Zone: Zone
@@ -479,6 +505,7 @@ module Parts =
     Now: IObservable<DateTimeOffset>
     Voting: IObservable<string option>
     PollChoice: IObservable<string option>
+    Vote: ActionSlot voption
     Flyout: Source voption
   }
 
@@ -742,10 +769,15 @@ module Parts =
           for option in ctx.Poll.Options -> choiceRow(ctx, option)
         |]
 
+        let busy =
+          match ctx.Vote with
+          | ValueSome slot -> slot.Busy
+          | ValueNone -> ctx.Voting
+
         let canSubmit =
           Observable.combineLatest
             (ctx.PollChoice |> Observable.map Option.isSome)
-            (ctx.Voting
+            (busy
              |> Observable.map(fun commitId -> commitId <> Some ctx.Commit.Id))
           |> Observable.map(fun (chosen, idle) -> chosen && idle)
 
@@ -760,9 +792,14 @@ module Parts =
             })
 
         let voteLabel =
-          ctx.Voting
+          busy
           |> Observable.map(fun commitId ->
             if commitId = Some ctx.Commit.Id then "Voting…" else "Vote")
+
+        let voteCommand() =
+          match ctx.Vote with
+          | ValueSome slot -> slot.Command ctx.Commit
+          | ValueNone -> ctx.OnEvent(PollVoteRequested ctx.Commit)
 
         let vote =
           Button()
@@ -775,7 +812,7 @@ module Parts =
             .IsEnabled(canSubmit)
             .OnClickHandler(fun _ args ->
               args.Handled <- true
-              ctx.OnEvent(PollVoteRequested ctx.Commit))
+              voteCommand())
 
         let status =
           TextBlock()
@@ -1087,15 +1124,29 @@ module Parts =
           .IsEnabled(false)
           .Classes(Theme.name Theme.FgMuted)
       else
-        iconAction(
-          "StarButton",
-          Glyph.Star,
-          starLabel,
-          fun _ -> onEvent(StarToggled commit)
+        let button =
+          match props.Slots.Star with
+          | ValueSome slot ->
+            iconAction(
+              "StarButton",
+              Glyph.Star,
+              starLabel,
+              fun _ -> slot.Command commit
+            )
+              .IsEnabled(
+                slot.Busy |> Observable.map(fun busy -> busy <> Some commit.Id)
+              )
+          | ValueNone ->
+            iconAction(
+              "StarButton",
+              Glyph.Star,
+              starLabel,
+              fun _ -> onEvent(StarToggled commit)
+            )
+
+        button.Classes(
+          Theme.name(if starred then Theme.FgAccent else Theme.FgMuted)
         )
-          .Classes(
-            Theme.name(if starred then Theme.FgAccent else Theme.FgMuted)
-          )
 
     let pastel =
       let count =
@@ -1105,12 +1156,24 @@ module Parts =
           ValueNone
 
       let button =
-        iconAction(
-          "PastelButton",
-          Glyph.Pastel,
-          count,
-          fun _ -> onEvent(PastelGiven commit)
-        )
+        match props.Slots.Pastel with
+        | ValueSome slot ->
+          iconAction(
+            "PastelButton",
+            Glyph.Pastel,
+            count,
+            fun _ -> slot.Command commit
+          )
+            .IsEnabled(
+              slot.Busy |> Observable.map(fun busy -> busy <> Some commit.Id)
+            )
+        | ValueNone ->
+          iconAction(
+            "PastelButton",
+            Glyph.Pastel,
+            count,
+            fun _ -> onEvent(PastelGiven commit)
+          )
 
       // The control exists only while the mode is on: the host rebuilds
       // with the flag, so nothing named PastelButton leaks into the tree.
@@ -1243,6 +1306,7 @@ let view(props: Props) : Control =
         Now = props.Now
         Voting = props.Voting
         PollChoice = props.PollChoice
+        Vote = props.Slots.Vote
         Flyout = props.Flyout
       }
     | None -> ()
@@ -1400,10 +1464,12 @@ type RowProps = {
   Zone: Zone
 }
 
-/// One commit row over a feed node: the card with the host's event
-/// routing, or the deletion marker. Every feed page shares this;
-/// only the routing differs.
-let feedRow (props: RowProps) (node: CommitNode) : Control =
+/// One commit row over a feed node with the host-run card actions; a
+/// slot left absent keeps that action's event routing.
+let feedRowWith
+  (props: RowProps, slots: ActionSlots)
+  (node: CommitNode)
+  : Control =
   match node with
   | LiveCommit commit ->
     view {
@@ -1422,11 +1488,18 @@ let feedRow (props: RowProps) (node: CommitNode) : Control =
       Images = props.Images
       Flyout = props.Flyout
       Pin = props.Pin
+      Slots = slots
       Translation =
         props.Translation |> Observable.map(fun lookup -> lookup commit)
       Zone = props.Zone
     }
   | Tombstone _ -> tombstone()
+
+/// One commit row over a feed node: the card with the host's event
+/// routing, or the deletion marker. Every feed page shares this;
+/// only the routing differs.
+let feedRow (props: RowProps) (node: CommitNode) : Control =
+  feedRowWith (props, ActionSlots.none) node
 
 /// One body from its segments — the text with its mentions wrapped,
 /// the code blocks boxed — whatever carries it: a commit card or a

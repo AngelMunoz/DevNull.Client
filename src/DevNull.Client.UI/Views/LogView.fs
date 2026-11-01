@@ -129,7 +129,7 @@ module State =
     | StarToggled of Commit
     | StarDone of Result<Commit, AppError>
     | PastelGiven of Commit
-    | PastelDone of Result<PastelResult, AppError>
+    | PastelDone of Result<Commit, AppError>
     | CheckNew
     | NewChecked of Result<LogPage, AppError>
     | NewRequested
@@ -320,13 +320,10 @@ module State =
 
     // Every log line is an effect: update returns it as a command,
     // and the loop writes it after the computation.
+    let failure = CommitActions.failure log
+
     let failed what error =
-      Cmd.ofAction(fun () ->
-        log.LogWarning(
-          "The {What} failed: {Error}",
-          what,
-          bounded 300 (describe error)
-        ))
+      Cmd.ofAction(fun () -> failure what error)
 
     match msg with
     | Fetched result ->
@@ -456,22 +453,20 @@ module State =
       match CommitCard.selectedOption(model.PollChoices, commit) with
       | None -> model, Cmd.none
       | Some option ->
-        let vote() =
-          Commits.vote(
-            props.Env,
-            {
-              KeyFile = props.Session.KeyFile
-              CommitId = commit.Id
-              OptionId = option.Id
-            }
-          )
-
         {
           model with
               Error = None
               Voting = Some commit.Id
         },
-        Cmd.OfAsync.perform vote () PollVotedDone
+        Cmd.OfAsync.perform
+          CommitActions.vote
+          (props.Env,
+           {
+             Session = props.Session
+             Commit = commit
+             Option = option
+           })
+          PollVotedDone
     | PollVotedDone result ->
       match result with
       | Ok updated ->
@@ -481,8 +476,7 @@ module State =
               Voting = None
               PollChoices = model.PollChoices |> Map.remove updated.Id
         },
-        Cmd.ofAction(fun () ->
-          log.LogDebug("The vote on {Commit} landed.", updated.Id))
+        Cmd.none
       | Error error ->
         {
           model with
@@ -566,15 +560,10 @@ module State =
         { model with Error = Some error }, failed "the next page" error
     | StarToggled commit ->
       { model with Error = None },
-      Cmd.batch [
-        Cmd.OfAsync.perform
-          CommitActions.toggleStar
-          (props.Env, props.Session, commit)
-          StarDone
-
-        Cmd.ofAction(fun () ->
-          log.LogTrace("The star on {Commit} is being toggled.", commit.Id))
-      ]
+      Cmd.OfAsync.perform
+        CommitActions.toggleStar
+        (props.Env, props.Session, commit)
+        StarDone
     | StarDone result ->
       match result with
       | Ok updated ->
@@ -582,30 +571,27 @@ module State =
           model with
               Items = replaceNode(model.Items, updated)
         },
-        Cmd.ofAction(fun () ->
-          log.LogDebug("The star on {Commit} settled.", updated.Id))
+        Cmd.none
       | Error error ->
         { model with Error = Some error }, failed "the star" error
     | PastelGiven commit ->
-      let give() =
-        Pasteis.give(
-          props.Env,
-          {
-            KeyFile = props.Session.KeyFile
-            CommitId = commit.Id
-          }
-        )
-
-      { model with Error = None }, Cmd.OfAsync.perform give () PastelDone
+      { model with Error = None },
+      Cmd.OfAsync.perform
+        CommitActions.pastel
+        (props.Env,
+         {
+           Session = props.Session
+           Commit = commit
+         })
+        PastelDone
     | PastelDone result ->
       match result with
-      | Ok pastel ->
+      | Ok updated ->
         {
           model with
-              Items = replaceNode(model.Items, pastel.Commit)
+              Items = replaceNode(model.Items, updated)
         },
-        Cmd.ofAction(fun () ->
-          log.LogDebug("The pastel on {Commit} landed.", pastel.Commit.Id))
+        Cmd.none
       | Error error ->
         { model with Error = Some error }, failed "the pastel" error
     | AttachedChanged attached -> { model with Attached = attached }, Cmd.none
@@ -849,7 +835,7 @@ module Parts =
     }
 
   /// The row context every log card shares: navigation for opens and
-  /// quotes, messages for the star and the pastel, the live flags.
+  /// quotes, the live flags, and the model slices the card follows.
   let commitCtx
     (
       props: Props<'env>,
@@ -867,16 +853,15 @@ module Parts =
       | CommitCard.QuoteRequested c ->
         Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
       | CommitCard.ReplyToggled c -> dispatch(State.ReplyToggled c)
-      | CommitCard.StarToggled c -> dispatch(State.StarToggled c)
-      | CommitCard.PastelGiven c -> dispatch(State.PastelGiven c)
       | CommitCard.PollChoiceChanged(commit, option, chosen) ->
         dispatch(State.PollChoiceChanged(commit, option, chosen))
-      | CommitCard.PollVoteRequested commit ->
-        dispatch(State.PollVoteRequested commit)
       | CommitCard.TranslateRequested commit ->
         dispatch(State.TranslateRequested commit)
       | CommitCard.OriginalRequested commit ->
         dispatch(State.OriginalRequested commit)
+      | CommitCard.StarToggled _
+      | CommitCard.PastelGiven _
+      | CommitCard.PollVoteRequested _
       | CommitCard.PinToggled _ -> ()
     Pasteis = model |> Observable.map _.Pasteis
     ViewerId = props.Session.Session.User.Id
@@ -900,6 +885,23 @@ module Parts =
           })
   }
 
+  /// The card's host-run actions: every command dispatches its page
+  /// message, and every busy stream is the page's own in-flight vote
+  /// slice.
+  let actionSlots
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : CommitCard.ActionSlots =
+    let busy = model |> Observable.map _.Voting
+
+    let slot(command: Commit -> unit) : CommitCard.ActionSlot voption =
+      ValueSome { Command = command; Busy = busy }
+
+    {
+      Star = slot(fun commit -> dispatch(State.StarToggled commit))
+      Vote = slot(fun commit -> dispatch(State.PollVoteRequested commit))
+      Pastel = slot(fun commit -> dispatch(State.PastelGiven commit))
+    }
+
   /// One feed row: a separator, a commit card with its revealed reply
   /// composer, or a deletion marker.
   let row
@@ -911,6 +913,7 @@ module Parts =
     (logRow: LogRow)
     : Control =
     let ctx = commitCtx(props, dispatch, model)
+    let slots = actionSlots(model, dispatch)
 
     match logRow with
     | LogRow.Day label -> FeedParts.dayRow label
@@ -977,10 +980,14 @@ module Parts =
             )
 
       StackPanel()
-        .Children(CommitCard.feedRow ctx (LiveCommit commit), preview, reply)
+        .Children(
+          CommitCard.feedRowWith (ctx, slots) (LiveCommit commit),
+          preview,
+          reply
+        )
 
     | LogRow.TombstoneRow tombstone ->
-      CommitCard.feedRow ctx (Tombstone tombstone)
+      CommitCard.feedRowWith (ctx, slots) (Tombstone tombstone)
 
   /// The new-commits pill: a count over the feed, one click to take it.
   let newPill

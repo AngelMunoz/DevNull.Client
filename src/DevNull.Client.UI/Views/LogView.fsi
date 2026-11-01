@@ -122,7 +122,7 @@ module State =
     | StarToggled of Commit
     | StarDone of Result<Commit, AppError>
     | PastelGiven of Commit
-    | PastelDone of Result<PastelResult, AppError>
+    | PastelDone of Result<Commit, AppError>
     | CheckNew
     | NewChecked of Result<LogPage, AppError>
     | NewRequested

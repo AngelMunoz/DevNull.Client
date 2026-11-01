@@ -16,6 +16,12 @@ has never seen this work resumes from here (see "Resume protocol").
   the bug ledger. Where a refactor happens to kill a §10 entry, the step
   marks that entry struck-through in the audit file (same commit) and says
   so in its changelog line. Nothing else tracks bugs.
+- **Composition over god objects.** Surfaces stay small and composable:
+  a record that only exists to carry several optional things past one
+  consumer is scaffolding, and scaffolding gets dissolved in the step that
+  removes its reason (P1's `ActionSlots`/`feedRowWith` dissolve into
+  per-view `RowProps` fields in P2). Extraction steps split files and
+  surfaces; none of them grows a bundle.
 - The eight batch reports that fed the audit are session artifacts; they are
   not part of the repo. The audit stands alone.
 
@@ -72,7 +78,7 @@ Steps may swap when their dependencies allow.
 - [x] **P0 — Land the docs.** Scope: the audit report (self-contained; no
   `.alta` references) and this workplan, under `audits/`. Verify: the user
   reads both. No changelog (docs only).
-- [ ] **P1 — Issue #1, part A.** The shared flows beside
+- [x] **P1 — Issue #1, part A.** The shared flows beside
   `CommitActions.toggleStar` (vote, pastel: call + in-flight key + shared
   log/error wording, `Result<Commit, AppError>`), the generalized
   `ActionSlot` on `CommitCard.Props` beside `Pin` (audit §3.2, §5), and
@@ -81,9 +87,16 @@ Steps may swap when their dependencies allow.
   gone.
 - [ ] **P2 — Issue #1, part B.** Migrate ProfileView, CommitDetailView,
   OrganizationView, SavedView, SearchView onto the action slots; the card
-  union drops the never-raised cases and the six effect arms. Depends on:
-  P1. Verify: suites green; §1 greps drop (`Commits.vote` 6 → 1 flow,
-  `Pasteis.give` 5 → 1, `commitCtx` copies shrink to the shared builder).
+  union drops the never-raised cases and the six effect arms; the
+  transitional `ActionSlots`/`feedRowWith` dissolve into individual
+  `RowProps` fields each view composes for itself. Depends on:
+  P1. Verify: suites green; §1 greps drop (`Commits.vote` inside Views 6 → 0 — the one flow lives in CommitActions; `Pasteis.give` inside Views 5 → 0); BUG-4 struck in the audit.
+- [ ] **P2b — The shared row builder.** One builder turns a page's props,
+  routing, and model into `RowProps` with shared, multicasted slices
+  (`replayBuffer 1 >> refCount` at the boundary); the five `commitCtx`
+  copies and LogView's per-row ctx collapse onto it (audit §8 pattern 2;
+  the ProfileView build-once shape is the model). Depends on: P2.
+  Verify: suites green; `commitCtx` definitions 5 → 1.
 - [ ] **P3 — Chrome unification A.** `BusyState` replaces the
   `bool * string` slots; PageChrome gains title/empty Control slots and a
   footer; PageChrome and ProfileShell share one pinned header; `Status`
@@ -160,3 +173,4 @@ Steps may swap when their dependencies allow.
 | Step | State | Notes |
 |---|---|---|
 | P0 | committed 2026-11-01 | report self-contained; workplan landed; branch `phase1/mvuish` |
+| P1 | committed 2026-11-01 | failure keeps two structured log fields (user feedback); merged to main |

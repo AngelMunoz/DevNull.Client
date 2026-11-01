@@ -19,6 +19,19 @@ the SHA-256 it carries before installing, and `scoop update` picks up each
 new release from the same URL. Pre-release builds never ride the channel;
 install one by its exact release URL instead.
 
+## Installing on Linux
+
+With Flatpak:
+
+    flatpak install --user --from https://angelmunoz.github.io/DevNull.Client/me.tunaxor.devnull.unoffclient.flatpakref
+
+That address installs the newest stable release and registers the
+project's own channel; `flatpak update --user` picks up every new
+release from it. The app runs sandboxed: the browser sign-in callback,
+the tray, voice notes, and your ssh keys all work inside, while alerts
+stay silent because the sandbox cannot reach the desktop's sound
+theme.
+
 ## What it is
 
 - One window: a sidebar with the unread count, a reading column with

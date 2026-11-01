@@ -1,0 +1,42 @@
+{
+    "id": "me.tunaxor.devnull.unoffclient",
+    "branch": "stable",
+    "runtime": "org.freedesktop.Platform",
+    "runtime-version": "26.08",
+    "sdk": "org.freedesktop.Sdk",
+    "command": "DevNull.Client",
+    "finish-args": [
+        "--share=ipc",
+        "--socket=wayland",
+        "--socket=x11",
+        "--device=dri",
+        "--share=network",
+        "--socket=pulseaudio",
+        "--talk-name=org.kde.StatusNotifierWatcher",
+        "--own-name=org.kde.*",
+        "--filesystem=home"
+    ],
+    "modules": [
+        {
+            "name": "devnull-client",
+            "buildsystem": "simple",
+            "build-commands": [
+                "install -Dm755 -t /app/bin DevNull.Client libHarfBuzzSharp.so libSkiaSharp.so",
+                "install -Dm644 share/applications/me.tunaxor.devnull.unoffclient.desktop /app/share/applications/me.tunaxor.devnull.unoffclient.desktop",
+                "install -Dm644 share/metainfo/me.tunaxor.devnull.unoffclient.metainfo.xml /app/share/metainfo/me.tunaxor.devnull.unoffclient.metainfo.xml",
+                "for size in 48 64 128 256 512; do install -Dm644 \"share/icons/hicolor/${size}x${size}/apps/me.tunaxor.devnull.unoffclient.png\" \"/app/share/icons/hicolor/${size}x${size}/apps/me.tunaxor.devnull.unoffclient.png\"; done"
+            ],
+            "sources": [
+                {
+                    "type": "archive",
+                    "url": "@URL@",
+                    "sha256": "@HASH@"
+                },
+                {
+                    "type": "dir",
+                    "path": "files"
+                }
+            ]
+        }
+    ]
+}

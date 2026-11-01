@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>me.tunaxor.devnull.unoffclient</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>/dev/null</name>
+  <summary>Unofficial desktop client for dev-null.sh</summary>
+  <description>
+    <p>A desktop client for the commit stream: the feed, threads, voice notes, notifications, and organizations, with sign-in through the browser and a tray that follows the unread count.</p>
+  </description>
+  <launchable type="desktop-id">me.tunaxor.devnull.unoffclient.desktop</launchable>
+  <developer id="me.tunaxor">
+    <name>Angel D. Munoz</name>
+  </developer>
+  <url type="homepage">https://github.com/AngelMunoz/DevNull.Client</url>
+  <url type="bugtracker">https://github.com/AngelMunoz/DevNull.Client/issues</url>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>

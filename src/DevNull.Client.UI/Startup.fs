@@ -2,7 +2,6 @@ module DevNull.Client.Startup
 
 open System
 open System.IO
-open System.Threading
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.ApplicationLifetimes
@@ -86,7 +85,10 @@ let configureLogging() =
       .WriteTo.Console()
       .WriteTo.File(
         Path.Combine(folder, "devnull-.log"),
-        rollingInterval = RollingInterval.Day
+        rollingInterval = RollingInterval.Day,
+        // The headless sign-in callback is a second process of this
+        // app writing the same daily file; the sink must share it.
+        shared = true
       )
       .CreateLogger()
 
@@ -110,15 +112,28 @@ let createLogging() : ILoggerFactory =
 
   logging
 
-let mutexName = "DevNull.Client.SingleInstance"
-
-let hasRunningInstance() =
+/// The single-instance hold: one exclusive file beside the session and
+/// the settings, in the app's own data directory. The hold lasts the
+/// process lifetime — a crash releases it like the mutex did — and
+/// every instance meets the same directory, host install and flatpak
+/// sandbox alike.
+let holdInstance() : FileStream option =
   try
-    use existing = Mutex.OpenExisting mutexName
-    true
+    Directory.CreateDirectory(SessionFiles.dataDirectory) |> ignore
+
+    Some(
+      new FileStream(
+        Path.Combine(SessionFiles.dataDirectory, "instance.lock"),
+        FileMode.OpenOrCreate,
+        FileAccess.ReadWrite,
+        FileShare.None,
+        8192,
+        FileOptions.DeleteOnClose
+      )
+    )
   with
-  | :? WaitHandleCannotBeOpenedException -> false
-  | :? UnauthorizedAccessException -> true
+  | :? IOException
+  | :? UnauthorizedAccessException -> None
 
 /// The second instance has no UI: it completes the sign-in callback
 /// headlessly, stores the outcome, and lets the first instance poll for
@@ -189,7 +204,8 @@ let start(logging: ILoggerFactory, natives: NativeServices, argv: string[]) =
 
   let callback = callbackUri argv
 
-  if hasRunningInstance() then
+  match holdInstance() with
+  | None ->
     log.LogDebug(
       "Another instance owns the window; this one serves the callback only."
     )
@@ -201,8 +217,8 @@ let start(logging: ILoggerFactory, natives: NativeServices, argv: string[]) =
     | None -> log.LogDebug("The second instance carries no callback and exits.")
 
     0
-  else
-    use mutex = new Mutex(true, mutexName)
+  | Some hold ->
+    use hold = hold
 
     log.LogDebug("This instance owns the window.")
 

@@ -203,3 +203,98 @@ jobs:
           files: |
             artifacts/DevNull.Client-*
             artifacts/devnull-client.json
+
+  # The flatpak builds from the release tarball, so the release must
+  # exist first: the manifest carries the release URL and its hash, the
+  # way flatpak-builder verifies every source. The bundle attached
+  # beside the tarballs installs directly with
+  # `flatpak install --user <file>` before the update channel exists.
+  flatpak:
+    needs: [prepare, release]
+    if: needs.prepare.outputs.exists == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      FLATPAK_REPO: ${{ github.workspace }}/channel/repo
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: bundle-linux-x64
+          path: artifacts
+
+      - name: Install flatpak-builder and the freedesktop runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak --user install -y --noninteractive flathub \
+            org.freedesktop.Sdk//26.08 org.freedesktop.Platform//26.08
+
+      # The channel's ostree repository lives on the flatpak branch and
+      # only there; main never carries it. Each release builds on top
+      # of the previous state, so updates stay delta-sized.
+      - name: Fetch the channel repository
+        run: |
+          mkdir -p channel
+          if git fetch origin flatpak; then
+            git archive origin/flatpak docs/repo | tar -x -C channel
+            mv channel/docs/repo channel/repo
+          else
+            echo "No channel branch yet; this release starts it."
+          fi
+
+      - name: Build the flatpak
+        run: |
+          hash="$(sha256sum "artifacts/DevNull.Client-${VERSION}-linux-x64.tar.gz" | cut -d' ' -f1)"
+          .github/flatpak/build.sh "$VERSION" \
+            "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/DevNull.Client-${VERSION}-linux-x64.tar.gz" \
+            "$hash"
+
+      - name: Bundle for direct install
+        run: |
+          flatpak build-bundle \
+            --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+            "$FLATPAK_REPO" \
+            "DevNull.Client-${VERSION}-linux-x64.flatpak" \
+            me.tunaxor.devnull.unoffclient stable
+
+      - name: Attach the bundle to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "v${VERSION}" \
+            "DevNull.Client-${VERSION}-linux-x64.flatpak" \
+            --repo "${{ github.repository }}" --clobber
+
+      # Static deltas are not optional on a plain-HTTPS host: without
+      # them every update walks the object list one file at a time.
+      # Prune keeps the site under the 1 GB Pages cap.
+      - name: Update the channel repository
+        run: |
+          flatpak build-update-repo \
+            --generate-static-deltas --prune --prune-depth=2 \
+            channel/repo
+
+      - name: Publish the channel branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch origin flatpak; then
+            git checkout -B flatpak FETCH_HEAD
+          else
+            git checkout --orphan flatpak
+            git rm -rf .
+          fi
+          rm -rf docs
+          mkdir -p docs
+          cp -a channel/repo docs/repo
+          cp .github/flatpak/me.tunaxor.devnull.unoffclient.flatpakref docs/
+          cp .github/flatpak/index.html docs/
+          touch docs/.nojekyll
+          git add -A
+          git commit -m "chore: flatpak channel v${VERSION}"
+          git push origin flatpak

@@ -15,62 +15,69 @@ let registrar(logging: ILoggerFactory) = {
     member _.Register() =
       let log = logging.CreateLogger "DevNull.Client.Linux.Registrar"
 
-      try
-        // xdg-mime resolves the entry id only against the XDG
-        // applications directory, so the file cannot live in the
-        // app's own data folder.
-        let directory =
-          Path.Combine(
-            Environment.GetFolderPath
-              Environment.SpecialFolder.LocalApplicationData,
-            "applications"
-          )
-
-        Directory.CreateDirectory(directory) |> ignore
-
-        let entry = Path.Combine(directory, "devnull.desktop")
-
-        let content =
-          "[Desktop Entry]\n"
-          + "Type=Application\n"
-          + "Name=/dev/null\n"
-          + "NoDisplay=true\n"
-          + $"Exec=\"{executablePath()}\" %%u\n"
-          + "MimeType=x-scheme-handler/devnull;\n"
-
-        File.WriteAllText(entry, content)
-
-        log.LogDebug("The devnull.desktop entry was written.")
-
-        let start =
-          ProcessStartInfo(
-            FileName = "xdg-mime",
-            Arguments = "default devnull.desktop x-scheme-handler/devnull",
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-          )
-
-        match Process.Start start with
-        | null ->
-          log.LogWarning("xdg-mime did not start.")
-          Error "xdg-mime did not start."
-        | xdg ->
-          use xdg = xdg
-          xdg.WaitForExit()
-
-          if xdg.ExitCode = 0 then
-            log.LogDebug("xdg-mime claimed the devnull scheme.")
-
-            Ok()
-          else
-            log.LogWarning(
-              "xdg-mime exited with {ExitCode}; the scheme is not claimed.",
-              xdg.ExitCode
+      // The sandbox's exported desktop entry owns the scheme; a claim
+      // written here would land inside the sandbox only.
+      match Environment.GetEnvironmentVariable "FLATPAK_ID" |> Option.ofObj with
+      | Some _ ->
+        log.LogDebug("The flatpak export owns the devnull scheme.")
+        Ok()
+      | None ->
+        try
+          // xdg-mime resolves the entry id only against the XDG
+          // applications directory, so the file cannot live in the
+          // app's own data folder.
+          let directory =
+            Path.Combine(
+              Environment.GetFolderPath
+                Environment.SpecialFolder.LocalApplicationData,
+              "applications"
             )
 
-            Error $"xdg-mime failed ({xdg.ExitCode})."
-      with ex ->
-        log.LogWarning(ex, "The scheme handler was not installed.")
-        Error ex.Message
+          Directory.CreateDirectory(directory) |> ignore
+
+          let entry = Path.Combine(directory, "devnull.desktop")
+
+          let content =
+            "[Desktop Entry]\n"
+            + "Type=Application\n"
+            + "Name=/dev/null\n"
+            + "NoDisplay=true\n"
+            + $"Exec=\"{executablePath()}\" %%u\n"
+            + "MimeType=x-scheme-handler/devnull;\n"
+
+          File.WriteAllText(entry, content)
+
+          log.LogDebug("The devnull.desktop entry was written.")
+
+          let start =
+            ProcessStartInfo(
+              FileName = "xdg-mime",
+              Arguments = "default devnull.desktop x-scheme-handler/devnull",
+              RedirectStandardError = true,
+              UseShellExecute = false,
+              CreateNoWindow = true
+            )
+
+          match Process.Start start with
+          | null ->
+            log.LogWarning("xdg-mime did not start.")
+            Error "xdg-mime did not start."
+          | xdg ->
+            use xdg = xdg
+            xdg.WaitForExit()
+
+            if xdg.ExitCode = 0 then
+              log.LogDebug("xdg-mime claimed the devnull scheme.")
+
+              Ok()
+            else
+              log.LogWarning(
+                "xdg-mime exited with {ExitCode}; the scheme is not claimed.",
+                xdg.ExitCode
+              )
+
+              Error $"xdg-mime failed ({xdg.ExitCode})."
+        with ex ->
+          log.LogWarning(ex, "The scheme handler was not installed.")
+          Error ex.Message
 }

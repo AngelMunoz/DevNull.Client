@@ -1,0 +1,10 @@
+[Flatpak Ref]
+Title=/dev/null
+Name=me.tunaxor.devnull.unoffclient
+Branch=stable
+Url=https://angelmunoz.github.io/DevNull.Client/repo/
+RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo
+SuggestRemoteName=devnull-client
+IsRuntime=false
+Homepage=https://github.com/AngelMunoz/DevNull.Client
+Comment=Unofficial desktop client for dev-null.sh

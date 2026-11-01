@@ -499,3 +499,4 @@ docs/notas-*.md
 .zcode/
 .sharplsp/
 .tmp-visual
+.alta/

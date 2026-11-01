@@ -61,6 +61,30 @@
       "skillPath": "skills/fsharp-signature-files/SKILL.md",
       "computedHash": "30befd61af6ee740b37c9b557ad58671c0e103ee19ee7764934228a654501a5a"
     },
+    "mvuish-controls": {
+      "source": "AngelMunoz/MVUish.Avalonia",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/mvuish-controls/SKILL.md",
+      "computedHash": "3d8afce0958560235cc97c2a9cbacba3ee332d36b756c1941effc014e80453a3"
+    },
+    "mvuish-element-shapes": {
+      "source": "AngelMunoz/MVUish.Avalonia",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/mvuish-element-shapes/SKILL.md",
+      "computedHash": "00392343ec5d0e8dc7b31cb0550dd19be093b30650af09f599972ba567b75134"
+    },
+    "mvuish-performance": {
+      "source": "AngelMunoz/MVUish.Avalonia",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/mvuish-performance/SKILL.md",
+      "computedHash": "1a658527698d615bc5496629a334e74225dfba3f807c90efa26df3a14566f6ed"
+    },
+    "mvuish-testing": {
+      "source": "AngelMunoz/MVUish.Avalonia",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/mvuish-testing/SKILL.md",
+      "computedHash": "75cc019e0194f6dcd5dcc28c52287faf884cf4a134a72fd46ca6c042686d61f4"
+    },
     "parse-dont-validate": {
       "source": "TheAngryByrd/fsharp-skills",
       "sourceType": "github",

@@ -90,7 +90,7 @@ these before it is done:
 | `fsharp-idiom-review` | no C# shapes: no `if/elif` ladders on discrete values, no `let mutable`, no out parameters |
 | `fsharp-nullness-interop`, `fsharp-verify-api` | decoder boundaries verified against the real APIs in use |
 | `fsharp-native-aot` | no `%A` or union `ToString` in new code; AOT publish proof where the phase says so |
-| `mvuish-audit` | every View and Component change |
+| `devnull-mvuish-audit` | every View and Component change |
 
 **Testing**: Core tests parse raw JSON fixtures into domain values and drive
 composites with the fakes — never network, disk, or processes. Regression tests
@@ -109,7 +109,7 @@ follow.
 **Approach:** the MVUish repository (`../MVUish.Avalonia`) carries four skills
 this client's `.agents/skills` does not: `mvuish-controls`,
 `mvuish-element-shapes`, `mvuish-performance`, and `mvuish-testing`. Fold them
-into the `mvuish-audit` skill — or set them beside it — and let the gate table
+into the `devnull-mvuish-audit` skill — or set them beside it — and let the gate table
 above grow to say so. Then re-audit every View and Component against the
 refreshed gate: the observable-binding leaks and rebuilding controls the audit
 was written for, plus what the new skills add. The refactors the audit calls

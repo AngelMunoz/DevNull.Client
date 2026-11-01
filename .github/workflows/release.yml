@@ -169,12 +169,15 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The checkout cleans the workspace, so it runs before the
+      # artifact download; the other way around it deletes the files
+      # the manifest and the release body read.
+      - uses: actions/checkout@v6
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
-
-      - uses: actions/checkout@v6
 
       # Scoop installs straight from the release: the rendered manifest rides
       # the release assets, and releases/latest/download/devnull-client.json

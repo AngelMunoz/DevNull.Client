@@ -1,16 +1,14 @@
 module DevNull.Client.Components.Completion
 
 open System
-open System.Reactive.Subjects
-open Avalonia
 open Avalonia.Controls
-open Avalonia.Threading
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open DevNull.Client
 open DevNull.Client.Components.Avatar
+open DevNull.Client.Components.Palette
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.ImageCache
 open DevNull.Client.Theme
@@ -35,24 +33,26 @@ type Actions = {
   Hovered: int -> unit
 }
 
-/// The flyout's live surface: the scroller the popup shows, the row
-/// controls the keys walk, and the release of the row stream.
-type Surface = {
-  Control: Control
-  Rows: IObservable<Control array>
-  Dispose: unit -> unit
-}
-
-/// Everything one row of the flyout carries: where it sits among the
-/// rows the keys walk, the name a test finds it by, what a pick
+/// Everything one button row of the flyout carries: where it sits among
+/// the rows the keys walk, the name a test finds it by, what a pick
 /// answers, and what it shows.
 [<Struct>]
-type Row = {
+type ButtonRow = {
   Index: int
   Name: string
   Pick: unit -> unit
   Content: Control
 }
+
+/// One row of the flyout: the caption, a person or organization to
+/// mention, the issue card, or the quiet state that stands in for
+/// them.
+type Row =
+  | Caption
+  | Person of index: int * user: User
+  | Organization of index: int * organization: Organization
+  | IssueRow of issue: Issue
+  | Quiet of text: string
 
 /// The site's issue card label: `owner/repo#number`, read from the
 /// address the answer carries.
@@ -60,52 +60,9 @@ let issueLabel(issue: Issue) =
   let parts = issue.Url.Split '/'
 
   if parts.Length >= 5 then
-    $"{parts[3]}/{parts[4]}#{issue.Number}"
+    $"{parts.[3]}/{parts.[4]}#{issue.Number}"
   else
     $"#{issue.Number}"
-
-/// The quiet mono status line a state asks for, the site's own words.
-let statusLine(text: string) : Control =
-  TextBlock()
-    .Name("CompletionStatus")
-    .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
-    .FontSize(13.0)
-    .Margin(10.0, 8.0, 10.0, 8.0)
-    .Text(text)
-    .TextTrimming(TextTrimming.CharacterEllipsis)
-
-/// One row: the site's list entry, armed with the row the keys hold.
-/// The row never takes the focus, so a pick keeps the caret where the
-/// completion lands it.
-let rowOf(state: IObservable<View>, actions: Actions, row: Row) : Control =
-  let armed =
-    state
-    |> Observable.map(fun current -> current.Active = row.Index)
-    |> Observable.distinctUntilChanged
-
-  let chip =
-    Border()
-      .Classes(Theme.name Theme.SurfaceBack)
-      .Opacity(armed |> Observable.map(fun on -> if on then 1.0 else 0.0))
-      .VerticalAlignment(VerticalAlignment.Center)
-      .Child(
-        TextBlock().Classes(Theme.name Theme.Mono).FontSize(11.0).Text("↵")
-      )
-
-  Button()
-    .Name(row.Name)
-    .Classes(Theme.name Theme.GhostButton)
-    .Focusable(false)
-    .HorizontalAlignment(HorizontalAlignment.Stretch)
-    .OnClickHandler(fun _ args ->
-      args.Handled <- true
-      row.Pick())
-    .OnPointerEnteredHandler(fun _ _ -> actions.Hovered row.Index)
-    .Content(
-      DockPanel()
-        .LastChildFill(true)
-        .Children(chip.DockRight(), row.Content.DockLeft())
-    )
 
 /// One person to mention: the avatar on their lane, the name, and the
 /// handle on the quiet mono line.
@@ -188,140 +145,147 @@ let issueContent(issue: Issue) : Control =
         .TextTrimming(TextTrimming.CharacterEllipsis)
     )
 
-/// What the list shows: the rows, the quiet state that stands in for
-/// them, and the query the fatal line quotes.
-[<Struct>]
-type Shape = {
-  Caption: bool
-  Users: User list
-  Organizations: Organization list
-  Issue: Issue option
-  Searching: bool
-  Throttled: bool
-  Query: string
-}
-
 /// The completion flyout's list.
 let view
   (state: IObservable<View>, actions: Actions, images: ImageCacheService)
-  : Surface =
+  : Control =
 
-  // What rows exist and which quiet state stands in for them; the
-  // armed row rides its own observable, so a key move repaints one
-  // chip instead of rebuilding the list. The gate sits before the
-  // shape allocation.
-  let keyOf(current: View) =
-    current.Query,
-    current.Caption,
-    current.Users,
-    current.Organizations,
-    current.Issue,
-    current.Searching,
-    current.Throttled
+  let captionRow() =
+    TextBlock()
+      .Name("CompletionCaption")
+      .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
+      .FontSize(11.0)
+      .Margin(10.0, 6.0, 10.0, 2.0)
+      .Text("People you follow")
 
-  let rows = new BehaviorSubject<Control array>(Array.empty)
+  let buttonRow(row: ButtonRow) : Control =
+    let armed =
+      state
+      |> Observable.map(fun current -> current.Active = row.Index)
+      |> Observable.distinctUntilChanged
 
-  let build(current: View) : Control =
-    let shape: Shape = {
-      Caption = current.Caption
-      Users = current.Users
-      Organizations = current.Organizations
-      Issue = current.Issue
-      Searching = current.Searching
-      Throttled = current.Throttled
-      Query = current.Query
-    }
+    let chip =
+      SearchParts
+        .kbdChip(SearchParts.KbdTone.Armed, "↵")
+        .Opacity(armed |> Observable.map(fun on -> if on then 1.0 else 0.0))
+        .VerticalAlignment(VerticalAlignment.Center)
 
-    let captionRow() =
-      TextBlock()
-        .Name("CompletionCaption")
-        .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
-        .FontSize(11.0)
-        .Margin(10.0, 6.0, 10.0, 2.0)
-        .Text("People you follow")
+    Button()
+      .Name(row.Name)
+      .Classes(Theme.name Theme.GhostButton)
+      .Focusable(false)
+      .HorizontalAlignment(HorizontalAlignment.Stretch)
+      .OnClickHandler(fun _ args ->
+        args.Handled <- true
+        row.Pick())
+      .Content(
+        DockPanel()
+          .LastChildFill(true)
+          .Children(chip.DockRight(), row.Content.DockLeft())
+      )
 
-    let mentionRows = [
-      for index, user in List.indexed shape.Users ->
-        {
+  let keyOf(row: Row) =
+    match row with
+    | Caption -> box "caption"
+    | Person(index, user) -> box(index, user)
+    | Organization(index, organization) -> box(index, organization)
+    | IssueRow issue -> box issue
+    | Quiet text -> box text
+
+  let rowsOf(current: View) : Row list =
+    let mentions = [
+      for index, user in List.indexed current.Users -> Person(index, user)
+
+      for index, organization in List.indexed current.Organizations ->
+        let at = List.length current.Users + index
+
+        Organization(at, organization)
+    ]
+
+    match current.Issue with
+    | Some issue -> [ IssueRow issue ]
+    | None -> [
+        if current.Caption then
+          Caption
+
+        yield! mentions
+
+        if mentions.IsEmpty && not current.Caption then
+          Quiet(
+            if current.Searching then
+              "Searching…"
+            elif current.Throttled then
+              "error: too many searches, give it a few seconds"
+            else
+              $"fatal: no developers match '{current.Query}'"
+          )
+      ]
+
+  let render(row: Row) : RenderedRow =
+    match row with
+    | Caption -> {
+        Leading = ValueNone
+        Control = captionRow()
+        Followed = ValueNone
+      }
+    | Quiet text -> {
+        Leading = ValueNone
+        Control = SearchParts.statusLine text
+        Followed = ValueNone
+      }
+    | Person(index, user) ->
+      let control =
+        buttonRow {
           Index = index
           Name = $"CompletionRow{index}"
           Pick = fun () -> actions.PickPerson user
           Content = personContent(images, user)
         }
 
-      for index, organization in List.indexed shape.Organizations ->
-        let at = List.length shape.Users + index
-
-        {
-          Index = at
-          Name = $"CompletionRow{at}"
+      {
+        Leading = ValueNone
+        Control = control
+        Followed = ValueSome control
+      }
+    | Organization(index, organization) ->
+      let control =
+        buttonRow {
+          Index = index
+          Name = $"CompletionRow{index}"
           Pick = fun () -> actions.PickOrganization organization
           Content = orgContent(images, organization)
         }
-    ]
 
-    let quiet() =
-      if shape.Searching then
-        statusLine "Searching…"
-      elif shape.Throttled then
-        statusLine "error: too many searches, give it a few seconds"
-      else
-        statusLine $"fatal: no developers match '{shape.Query}'"
+      {
+        Leading = ValueNone
+        Control = control
+        Followed = ValueSome control
+      }
+    | IssueRow issue ->
+      let control =
+        buttonRow {
+          Index = 0
+          Name = "CompletionIssueRow"
+          Pick = fun () -> actions.PickIssue issue
+          Content = issueContent issue
+        }
 
-    let rowControls: Control array =
-      match shape.Issue with
-      | Some found -> [|
-          rowOf(
-            state,
-            actions,
-            {
-              Index = 0
-              Name = "CompletionIssueRow"
-              Pick = fun () -> actions.PickIssue found
-              Content = issueContent found
-            }
-          )
-        |]
-      | None -> [|
-          for row in mentionRows do
-            rowOf(state, actions, row)
-        |]
+      {
+        Leading = ValueNone
+        Control = control
+        Followed = ValueSome control
+      }
 
-    let children: Control array =
-      match shape.Issue with
-      | Some _ -> rowControls
-      | None ->
-          // The site's own rows: the quiet caption, the people and
-          // organizations, or the state that stands in for them.
-          [|
-            if shape.Caption then
-              captionRow()
-
-            yield! rowControls
-
-            if mentionRows.IsEmpty && not shape.Caption then
-              quiet()
-          |]
-
-    let panel = StackPanel().Children(children)
-
-    // The rows attach when the content control takes the panel. The
-    // post runs after that, so the armed row can find its scroller.
-    Dispatcher.UIThread.Post(fun () -> rows.OnNext rowControls)
-
-    panel
-
-  let scroller =
-    ScrollViewer()
-      .Name("CompletionScroller")
-      .MaxHeight(320.0)
-      .Content(
-        ContentControl()
-          .Content(PageChrome.rebuildOn(state, keyOf, build) |> _.ToBinding())
-      )
-
-  {
-    Control = scroller
-    Rows = rows
-    Dispose = fun () -> rows.OnCompleted()
-  }
+  Palette.view(
+    {
+      Name = "CompletionScroller"
+      MaxHeight = 320.0
+    },
+    {
+      Rows = state |> Observable.map rowsOf
+      KeyOf = keyOf
+      Render = render
+      Active = state |> Observable.map _.Active
+      OnHover = ValueSome actions.Hovered
+    }
+  )

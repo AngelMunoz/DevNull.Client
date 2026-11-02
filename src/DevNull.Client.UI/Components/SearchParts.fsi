@@ -59,11 +59,19 @@ val termIdentity: term: string -> Control
 /// The see-all row's content: the accent words and their arrow.
 val seeAllIdentity: unit -> Control
 
-/// Rides the armed row into view: the active index names one of the
-/// row controls the caller built, and the row itself finds its
-/// scroller. Every index counts, including zero.
-val followRows:
-  active: IObservable<int> * rows: IObservable<Control array> -> IDisposable
+/// The two tones the site's keyboard chips wear: the outlined key in a
+/// footer or an input row, and the armed arrow that rides a row.
+[<Struct>]
+type KbdTone =
+  | Outline
+  | Armed
+
+/// One keyboard chip, the site's kbd look.
+val kbdChip: tone: KbdTone * key: string -> Control
 
 /// One status line, the site's quiet mono sentence.
 val statusLine: text: string -> Control
+
+/// The same status line, following the words it says; the line hides
+/// while the words are empty.
+val statusLineOf: text: IObservable<string> -> Control

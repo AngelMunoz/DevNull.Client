@@ -1076,16 +1076,15 @@ module Parts =
             .CornerRadius(8.0)
             .Padding(4.0)
             .MaxWidth(288.0)
-            .Child(flyout.Control)
+            .Child(flyout)
         )
 
     // The lane's view-side feeds ride one keyed subscription set
     // ended by the body's own detach, the pattern the feed's scroll
     // listener uses: the queries the session asks — from the model's
     // own trigger, so the two can never drift apart — the armed state
-    // the keys read, the flyout's open state (the house sets a popup's
-    // open by hand, an observable binding never opens it), and the
-    // armed row riding into view.
+    // the keys read, and the flyout's open state (the house sets a
+    // popup's open by hand, an observable binding never opens it).
     let laneSub =
       Sub.ofId "completion-lane" (fun _ ->
         let queries =
@@ -1121,19 +1120,12 @@ module Parts =
           |> Observable.distinctUntilChanged
           |> Observable.subscribe(fun isOpen -> popup.IsOpen <- isOpen)
 
-        let follow =
-          SearchParts.followRows(
-            viewState |> Observable.map(fun current -> current.Active),
-            flyout.Rows
-          )
-
         {
           new IDisposable with
             member _.Dispose() =
-              for feed in [ queries; digits; armed; opened; follow ] do
+              for feed in [ queries; digits; armed; opened ] do
                 feed.Dispose()
 
-              flyout.Dispose()
               latest.OnCompleted()
         })
       |> Sub.untilDetached ctx.Body

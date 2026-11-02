@@ -10,6 +10,7 @@ open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
+open MVUish.Avalonia
 open DevNull.Client
 open DevNull.Client.Components.Avatar
 open DevNull.Client.Components.UserFlyout
@@ -229,23 +230,41 @@ let seeAllIdentity() : Control =
       Icons.iconAt(Glyph.ArrowRight, 16.0)
     )
 
-/// Rides the armed row into view: the active index names one of the
-/// row controls the caller built, and the row itself finds its
-/// scroller. Every index counts, including zero.
-let followRows
-  (active: IObservable<int>, rows: IObservable<Control array>)
-  : IDisposable =
-  Observable.combineLatest active rows
-  |> Observable.subscribe(fun (index, controls) ->
-    controls
-    |> Array.tryItem index
-    |> Option.iter(fun row -> row.BringIntoView()))
+/// The two tones the site's keyboard chips wear.
+[<Struct>]
+type KbdTone =
+  | Outline
+  | Armed
 
-/// One status line, the site's quiet mono sentence.
-let statusLine(text: string) : Control =
+/// One keyboard chip, the site's kbd look.
+let kbdChip(tone: KbdTone, key: string) : Control =
+  let label = TextBlock().Classes(Theme.name Theme.Mono).Text(key)
+
+  match tone with
+  | Outline ->
+    Border()
+      .Classes(Theme.name Theme.Hairline)
+      .BorderThickness(Thickness(1.0))
+      .CornerRadius(4.0)
+      .Padding(6.0, 1.0, 6.0, 1.0)
+      .Child(label.FontSize(12.0))
+  | Armed ->
+    Border().Classes(Theme.name Theme.SurfaceBack).Child(label.FontSize(11.0))
+
+let statusBlock() : TextBlock =
   TextBlock()
-    .Classes(Theme.name Theme.Mono)
+    .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
     .FontSize(13.0)
     .Margin(20.0, 14.0, 20.0, 14.0)
-    .Text(text)
     .TextTrimming(TextTrimming.CharacterEllipsis)
+
+/// One status line, the site's quiet mono sentence.
+let statusLine(text: string) : Control = statusBlock().Text(text)
+
+/// The same status line, following the words it says.
+let statusLineOf(text: IObservable<string>) : Control =
+  let line = text |> Observable.distinctUntilChanged |> PageChrome.share
+
+  statusBlock()
+    .Text(line |> _.ToBinding())
+    .IsVisible(line |> Observable.map(String.IsNullOrWhiteSpace >> not))

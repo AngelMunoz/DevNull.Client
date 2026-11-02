@@ -1,7 +1,6 @@
 module DevNull.Client.Components.SearchDialog
 
 open System
-open System.Reactive.Subjects
 open System.Text.RegularExpressions
 open Avalonia
 open Avalonia.Controls
@@ -347,11 +346,7 @@ module State =
     | ClockTicked moment -> { model with Now = moment }, Cmd.none
 
   /// The dialog's inlets: its session's two channels and the clock.
-  /// The view fills the lane holder with its own subscription.
-  let subscribe
-    (props: Props<'env>, lane: BehaviorSubject<Sub<Msg>>)
-    (_: Model)
-    : Sub<Msg> =
+  let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
     [
       Sub.fromObservable
         "people"
@@ -364,72 +359,26 @@ module State =
       Sub.fromObservable
         "clock"
         (props.Env.UiClock.Minute |> Observable.map ClockTicked)
-
-      Sub.ofId "search-lane-holder" (fun _ -> {
-        new IDisposable with
-          member _.Dispose() =
-            lane.OnCompleted()
-            lane.Dispose()
-      })
-
-      lane.Value
     ]
     |> Sub.batch
-
-/// The props and the lane subscription one dialog view reads and fills.
-type ViewCtx<'env
-  when 'env :> IProvideClock
-  and 'env :> IProvideNonceSource
-  and 'env :> IProvideSigner
-  and 'env :> IProvideHttp
-  and 'env :> IProvideUiClock
-  and 'env :> IProvideImageCache
-  and 'env :> IProvideProfiles
-  and 'env :> IProvideLogging> = {
-  Props: Props<'env>
-  Lane: BehaviorSubject<Sub<State.Msg>>
-}
 
 /// The dialog's semantic regions.
 module Parts =
 
-  /// One keyboard chip, the site's kbd look.
-  let keyChip(key: string) : Control =
-    Border()
-      .Classes(Theme.name Theme.Hairline)
-      .BorderThickness(Thickness(1.0))
-      .CornerRadius(4.0)
-      .Padding(6.0, 1.0, 6.0, 1.0)
-      .Child(
-        TextBlock().Classes(Theme.name Theme.Mono).FontSize(12.0).Text(key)
-      )
-
   /// The status line the state asks for, or nothing: the slow-down
   /// sentence, the lone-`@` hint, or the fatal line.
   let status(model: IObservable<State.Model>) : Control =
-    let line =
-      model
-      |> Observable.map(fun current ->
-        if State.throttled current then
-          "error: too many searches, give it a few seconds"
-        elif SearchParts.Intent.awaitsDeveloperName(State.trimmed current) then
-          "Type a name or handle to find a developer"
-        elif State.foundNothing current then
-          $"fatal: nothing matches '{State.trimmed current}'"
-        else
-          "")
-      |> Observable.distinctUntilChanged
-
-    let block =
-      TextBlock()
-        .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
-        .FontSize(13.0)
-        .Margin(20.0, 12.0, 20.0, 12.0)
-        .Text(line |> _.ToBinding())
-
-    Border()
-      .Child(block)
-      .IsVisible(line |> Observable.map(String.IsNullOrWhiteSpace >> not))
+    model
+    |> Observable.map(fun current ->
+      if State.throttled current then
+        "error: too many searches, give it a few seconds"
+      elif SearchParts.Intent.awaitsDeveloperName(State.trimmed current) then
+        "Type a name or handle to find a developer"
+      elif State.foundNothing current then
+        $"fatal: nothing matches '{State.trimmed current}'"
+      else
+        "")
+    |> SearchParts.statusLineOf
 
   /// The input row: the loupe, the box, and the esc chip — nothing
   /// else rides in it, so the box's layout never moves. While a
@@ -471,7 +420,7 @@ module Parts =
       | value -> dispatch(State.Typed value))
 
     let esc: Control =
-      let chip = keyChip "esc"
+      let chip = SearchParts.kbdChip(KbdTone.Outline, "esc")
 
       chip
         .DockRight()
@@ -498,25 +447,36 @@ module Parts =
 
     StackPanel().Margin(8, 16).Children(row, loadingLine)
 
-  /// One option row: its content, the armed surface and the enter chip
-  /// bound to the armed stream, hover arming on a real pointer move,
-  /// and the click that opens it. The armed state is a binding, so the
-  /// row never rebuilds for it — a rebuilt list is a replaced scroll
-  /// content, and its place resets. The chip's slot stays reserved
-  /// through opacity, never visibility: a row that arms must not
-  /// re-flow its text.
-  let optionRow
-    (
-      ctx: SearchParts.RowCtx,
-      dispatch: Dispatch<State.Msg>,
-      armed: IObservable<bool>,
-      index: int,
-      entry: State.Entry,
-      content: Control
-    ) : Control =
-    let shown = armed |> Observable.map(fun on -> if on then 1.0 else 0.0)
+  /// One row of the list: the entry it shows, its walk index, and the
+  /// section heading it opens when the entry begins one.
+  type Row =
+    | Entry of entry: State.Entry * index: int * heading: string option
+    | Waiting
 
-    let enter: Control = keyChip "↵"
+  /// The props one option row reads: the model's armed slice, the
+  /// message it opens, and the content it shows.
+  [<Struct>]
+  type OptionRow = {
+    Model: IObservable<State.Model>
+    Dispatch: Dispatch<State.Msg>
+    Index: int
+    Entry: State.Entry
+    Content: Control
+  }
+
+  /// One option row: its content, the armed surface and the enter chip
+  /// bound to the armed stream, and the click that opens it. The armed
+  /// state is a binding, so the row never rebuilds for it — a rebuilt
+  /// list is a replaced scroll content, and its place resets. The
+  /// chip's slot stays reserved through opacity, never visibility: a
+  /// row that arms must not re-flow its text.
+  let optionRow(row: OptionRow) : Control =
+    let armed =
+      row.Model
+      |> Observable.map(fun current -> current.Active = row.Index)
+      |> Observable.distinctUntilChanged
+
+    let shown = armed |> Observable.map(fun on -> if on then 1.0 else 0.0)
 
     let surface =
       Border()
@@ -529,17 +489,18 @@ module Parts =
       .Classes(Theme.name Theme.GhostButton)
       .HorizontalAlignmentStretch()
       .VerticalAlignmentCenter()
-      .OnClickHandler(fun _ _ -> dispatch(State.Opened entry))
-      .OnPointerEnteredHandler(fun _ _ -> dispatch(State.Hovered index))
+      .OnClickHandler(fun _ _ -> row.Dispatch(State.Opened row.Entry))
       .Margin(16, 8)
       .Content(
         DockPanel()
-          .Name($"SearchRow{index}")
+          .Name($"SearchRow{row.Index}")
           .Classes(Theme.name Theme.GhostButton)
           .LastChildFill(true)
-          .Children(surface.Child(enter).DockRight(), content.DockLeft())
+          .Children(
+            surface.Child(SearchParts.kbdChip(KbdTone.Outline, "↵")).DockRight(),
+            row.Content.DockLeft()
+          )
       )
-
 
   /// The list: every entry under its heading, built once for the
   /// entries it shows — never for the armed row or the clock, so the
@@ -549,35 +510,50 @@ module Parts =
       ctx: SearchParts.RowCtx,
       model: IObservable<State.Model>,
       dispatch: Dispatch<State.Msg>
-    ) : Control * Sub<State.Msg> =
-    let rows = new BehaviorSubject<Control array>([||])
+    ) : Control =
+    let headingOf(entry: State.Entry, seen: string) : string =
+      match entry with
+      | State.Compose -> if seen <> "action" then "Actions" else ""
+      | State.Person _ -> if seen <> "developer" then "Developers" else ""
+      | State.Found _ ->
+        if seen <> "commit" then "Most relevant commits" else ""
+      | State.SeeAll -> ""
+      | State.Recent _ -> if seen <> "recent" then "Recent searches" else ""
+      | State.Suggestion _ ->
+        if seen <> "suggestion" then "Try searching for…" else ""
 
-    let build(entries: State.Entry list) : Control =
-      let headingOf(entry: State.Entry, seen: string) : string =
-        match entry with
-        | State.Compose -> if seen <> "action" then "Actions" else ""
-        | State.Person _ -> if seen <> "developer" then "Developers" else ""
-        | State.Found _ ->
-          if seen <> "commit" then "Most relevant commits" else ""
-        | State.SeeAll -> ""
-        | State.Recent _ -> if seen <> "recent" then "Recent searches" else ""
-        | State.Suggestion _ ->
-          if seen <> "suggestion" then "Try searching for…" else ""
+    let mark(entry: State.Entry) =
+      match entry with
+      | State.Compose -> "action"
+      | State.Person _ -> "developer"
+      | State.Found _ -> "commit"
+      | State.SeeAll -> ""
+      | State.Recent _ -> "recent"
+      | State.Suggestion _ -> "suggestion"
 
-      let mark(entry: State.Entry) =
-        match entry with
-        | State.Compose -> "action"
-        | State.Person _ -> "developer"
-        | State.Found _ -> "commit"
-        | State.SeeAll -> ""
-        | State.Recent _ -> "recent"
-        | State.Suggestion _ -> "suggestion"
+    let rowsOf(current: State.Model) : Row list =
+      match State.entriesOf current with
+      | [] -> [ Waiting ]
+      | entries ->
+        entries
+        |> List.indexed
+        |> List.mapFold
+          (fun seen (index, entry) ->
+            let heading = headingOf(entry, seen)
 
-      let rowOf
-        (seen: string, index: int, entry: State.Entry)
-        : Control option * Control list =
-        let headingText = headingOf(entry, seen)
+            Entry(entry, index, if heading = "" then None else Some heading),
+            mark entry)
+          ""
+        |> fst
 
+    let render(row: Row) : Palette.RenderedRow =
+      match row with
+      | Waiting -> {
+          Leading = ValueNone
+          Control = SearchParts.statusLine "Searching…"
+          Followed = ValueNone
+        }
+      | Entry(entry, index, heading) ->
         let content: Control =
           match entry with
           | State.Compose ->
@@ -594,86 +570,37 @@ module Parts =
           | State.Recent term
           | State.Suggestion term -> SearchParts.termIdentity term
 
-        let armed =
-          model |> Observable.map(fun current -> current.Active = index)
+        let option =
+          optionRow {
+            Model = model
+            Dispatch = dispatch
+            Index = index
+            Entry = entry
+            Content = content
+          }
 
-        let option = optionRow(ctx, dispatch, armed, index, entry, content)
-
-        let children = [
-          if headingText <> "" then
-            SearchParts.heading headingText
-
-          option
-        ]
-
-        Some option, children
-
-      let rowsAndChildren =
-        List.indexed entries
-        |> List.mapFold
-          (fun seen (index, entry) -> rowOf(seen, index, entry), mark entry)
-          ""
-        |> fst
-
-      let children = rowsAndChildren |> List.collect snd |> Array.ofList
-
-      let controls = rowsAndChildren |> List.choose fst |> Array.ofList
-
-      let built =
-        if children.Length = 0 then
-          SearchParts.statusLine "Searching…"
-        else
-          ItemsControl().ItemsSource(children)
-
-      // The rows attach when the content control takes the list. The
-      // post runs after that, so the armed row can find its scroller.
-      Dispatcher.UIThread.Post(fun () -> rows.OnNext controls)
-
-      built
-
-    let keyOf(current: State.Model) =
-      let people = State.peopleOf current
-      let commits = State.commitsOf current
-
-      current.Term,
-      current.Recents,
-      people.Term,
-      people.Users,
-      people.Throttled,
-      commits.Term,
-      commits.Commits,
-      commits.Throttled
-
-    let content =
-      PageChrome.rebuildOn(
-        model,
-        keyOf,
-        fun current -> build(State.entriesOf current)
-      )
-
-    let scroller =
-      ScrollViewer().MaxHeight(460.0).Content(content |> _.ToBinding())
-
-    // The keys' row rides into view the moment it becomes armed, and
-    // when a new answer replaces the rows while row zero is armed. The
-    // subscription retires with the scroller, the way the feed's does.
-    let followSub =
-      Sub.ofId "follow-armed" (fun _ ->
-        let feed =
-          SearchParts.followRows(
-            (model |> Observable.map(fun current -> current.Active)),
-            rows :> IObservable<Control array>
-          )
+        let leading =
+          heading |> Option.map SearchParts.heading |> ValueOption.ofOption
 
         {
-          new IDisposable with
-            member _.Dispose() =
-              feed.Dispose()
-              rows.OnCompleted()
-        })
-      |> Sub.untilDetached scroller
+          Leading = leading
+          Control = option
+          Followed = ValueSome option
+        }
 
-    scroller, followSub
+    Palette.view(
+      {
+        Name = "SearchDialogScroller"
+        MaxHeight = 460.0
+      },
+      {
+        Rows = model |> Observable.map rowsOf
+        KeyOf = id
+        Render = render
+        Active = model |> Observable.map _.Active
+        OnHover = ValueSome(State.Hovered >> dispatch)
+      }
+    )
 
   /// The footer: the keys the dialog answers, as the site lists them.
   let footer() : Control =
@@ -681,7 +608,10 @@ module Parts =
       StackPanel()
         .Orientation(Orientation.Horizontal)
         .Spacing(6.0)
-        .Children(keyChip key, TextBlock().FontSize(12.0).Text(words))
+        .Children(
+          SearchParts.kbdChip(KbdTone.Outline, key),
+          TextBlock().FontSize(12.0).Text(words)
+        )
 
     DockPanel()
       .LastChildFill(false)
@@ -699,12 +629,10 @@ module Parts =
       )
 
 let view
-  (viewCtx: ViewCtx<'env>)
+  (props: Props<'env>)
   (model: IObservable<State.Model>)
   (dispatch: Dispatch<State.Msg>)
   : Control =
-
-  let props = viewCtx.Props
 
   let rowCtx: SearchParts.RowCtx = {
     Images = props.Env.ImageCache
@@ -730,9 +658,7 @@ let view
     Now = DateTimeOffset.UtcNow
   }
 
-  let listControl, followSub = Parts.list(rowCtx, model, dispatch)
-
-  viewCtx.Lane.OnNext followSub
+  let listControl = Parts.list(rowCtx, model, dispatch)
 
   let card =
     Border()
@@ -776,14 +702,9 @@ type Page<'env
   inherit UserControl()
 
   do
-    let lane = new BehaviorSubject<Sub<State.Msg>>(Sub.none)
-
     let program =
-      Program.mkProgram
-        (State.initial props)
-        (State.update props)
-        (view { Props = props; Lane = lane })
-      |> Program.withSubscription(State.subscribe(props, lane))
+      Program.mkProgram (State.initial props) (State.update props) (view props)
+      |> Program.withSubscription(State.subscribe props)
 
     let root, _ = Program.runWithLifetime this () program
 

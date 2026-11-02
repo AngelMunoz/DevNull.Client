@@ -147,7 +147,7 @@ Steps may swap when their dependencies allow.
   LogChrome's two parked option-compare sites (:102/:218). Verify: suites
   green; the log chrome and the remotes two-pane render through the new
   hosts.
-- [ ] **P9 — Palette extraction.** One `Palette` host (scroller, row
+- [x] **P9 — Palette extraction.** One `Palette` host (scroller, row
   subject, `followRows`, keyboard walk) with SearchDialog and Completion
   supplying row models and actions; `KbdChip`, `StatusLine`, `UserRow`
   parts beside it. Verify: suites green; a UI test walks keys through the
@@ -176,8 +176,15 @@ Steps may swap when their dependencies allow.
   env.
 - [ ] **P15 — Composer split.** `CompletionLane`, `AttachmentStrip`
   (with `ImageChip`, now shared with the thread composer), `PollEditor`,
-  `SchedulePicker`, `ComposerToolbar`. Depends on: P4, P9. Verify: suites
-  green; the thread composer reuses the strip and the key lane.
+  `SchedulePicker`, `ComposerToolbar`. Depends on: P4, P9. The lane
+  handoff dies here: `CompletionLane` becomes an element that OWNS the
+  popup and the session feeds — props in (the trigger/armed/open model
+  slices plus the session), events out through commands — so the
+  `BehaviorSubject<Sub>` mailbox, the `lane.Value` snapshot read, and the
+  ordering fact it relies on all disappear, the same death P9 gave
+  SearchDialog's lane. Verify: suites green; the thread composer reuses
+  the strip and the key lane; grep shows no `BehaviorSubject<Sub>` and no
+  view-filled subscription holder in the composer.
 - [ ] **P16 — Mechanical sweep.** The `Slices` module (`share`, `gate`,
   `gateByRef`) and its first adopters (the nine shared slices of §4.3); the
   per-update logger hoist (26 sites); `inline` one-liners; dead opens and
@@ -204,3 +211,4 @@ Steps may swap when their dependencies allow.
 | P6 | committed 2026-11-01 | `rebuildOn` at 22 sites; LEAK-2 struck; badge/tooltip live-bound |
 | P7 | committed 2026-11-01 | five overlays → five layer calls; toast re-bound live (orchestrator fix) |
 | P8 | committed 2026-11-01 | TabStrip on `:checked`; LogChrome slotted; SplitChrome; pin test de-flaked |
+| P9 | committed 2026-11-01 | one Palette over data; control-array subjects gone; Completion's `Surface` gone; lane death committed to P15 |

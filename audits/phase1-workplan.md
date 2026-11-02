@@ -172,7 +172,7 @@ Steps may swap when their dependencies allow.
   extraction; the file count of `RemotesThread.fs` drops by the seam sizes.
 - [x] **P12 — RemotesThread split B.** Extract `ThreadMessage.fs`,
   `ThreadChrome.fs`, `ThreadMenus.fs` (§7.4). Verify: suites green.
-- [ ] **P13 — RemotesThread split C.** The thread list moves onto
+- [x] **P13 — RemotesThread split C.** The thread list moves onto
   `Feed.Props` (deletes `list`/`ScrollState`), `ThreadComposer.fs` and
   `Views/Remotes/ThreadPane.fs` land, `column` keeps only slots. Depends
   on: P5, P9. Verify: RemotesView.Tests green end to end; the thread pane
@@ -227,3 +227,4 @@ Steps may swap when their dependencies allow.
 | P10 | committed 2026-11-01 | four guards → `rebuildOn`; TermsDialog component + new third-party copy; named shell elements |
 | P11 | committed 2026-11-01 | ThreadVoice (567) + ThreadRecorder (335) out; Solo pane-internal; dead phase slice removed (review) |
 | P12 | committed 2026-11-01 | pane 2,981 → ~1,530; seams broken (action records); idiom pass per user review: decomposition, fluent chains, yield!/implicit comprehensions, Option combinators |
+| P13 | committed 2026-11-01 | `RemotesThread.fs` deleted; ThreadPane + ThreadComposer out; Feed gains `ScrollTo`/`Ride`; gates battery `audits/gates.ps1` adopted; scroll-restore limitation user-accepted |

@@ -139,10 +139,12 @@
     <Compile Include="Components\ThreadChrome.fs" />
     <Compile Include="Components\ThreadMenus.fsi" />
     <Compile Include="Components\ThreadMenus.fs" />
+    <Compile Include="Components\ThreadComposer.fsi" />
+    <Compile Include="Components\ThreadComposer.fs" />
     <Compile Include="Views\RemotesInbox.fsi" />
     <Compile Include="Views\RemotesInbox.fs" />
-    <Compile Include="Views\RemotesThread.fsi" />
-    <Compile Include="Views\RemotesThread.fs" />
+    <Compile Include="Views\Remotes\ThreadPane.fsi" />
+    <Compile Include="Views\Remotes\ThreadPane.fs" />
     <Compile Include="Views\RemotesView.fsi" />
     <Compile Include="Views\RemotesView.fs" />
     <Compile Include="Views\SavedView.fsi" />

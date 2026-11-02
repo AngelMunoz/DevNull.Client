@@ -28,7 +28,7 @@ let view
 
   SplitChrome.view {
     Side = Parts.inbox(props, model, dispatch)
-    Main = Thread.column(props, model, dispatch)
+    Main = ThreadPane.column(props, model, dispatch)
     MainOpen =
       model |> Observable.map(fun current -> current.State.OpenTarget.IsSome)
     OnBack = fun () -> dispatch State.Closed

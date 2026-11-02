@@ -26,18 +26,55 @@ type Restore
 
   member val More = false with get, set
 
+  /// Whether the feed itself may move the scroller past the target
+  /// while the chase runs. A riding feed does; its own bottom edge
+  /// must not count as the reader's choice.
+  member val LandWhenBeyond = false with get, set
+
   member this.Chase(scroller: ScrollViewer) =
     if not this.Landed then
       // The landing clamps until the panel has realized enough rows, so
       // the place counts as reached only when the offset itself holds
       // it; until then the extent keeps growing under the re-asserted
       // offset and the chase keeps asking for pages.
-      if scroller.Offset.Y >= this.Target - 0.5 then
+      let room = scroller.Extent.Height - scroller.Viewport.Height
+
+      if this.LandWhenBeyond && room >= this.Target then
+        scroller.Offset <- Vector(0.0, this.Target)
         this.Landed <- true
-      elif scroller.Extent.Height - scroller.Viewport.Height >= this.Target then
+      elif scroller.Offset.Y >= this.Target - 0.5 then
+        this.Landed <- true
+      elif room >= this.Target then
         scroller.Offset <- Vector(0.0, this.Target)
       elif this.More then
         needMore |> ValueOption.iter(fun ask -> ask())
+
+/// Where the reading stands at the feed's bottom edge: whether it
+/// rides that edge, and the extent the last scroll saw.
+type TailPlace = { Riding: bool; Extent: float }
+
+/// Keeps a riding reader at the bottom: each pass measures the scroll,
+/// sticks to the end while the extent grows under a riding reader, and
+/// stops once the reader scrolls away.
+type Tail() =
+  let mutable place = { Riding = true; Extent = 0.0 }
+
+  member _.Track(scroller: ScrollViewer) =
+    let extent = scroller.Extent.Height
+    let room = extent - scroller.Viewport.Height
+    let fromEnd = room - scroller.Offset.Y
+    let current = place
+
+    let riding =
+      if fromEnd < 48.0 then
+        true
+      elif extent > current.Extent + 0.5 && current.Riding then
+        scroller.ScrollToEnd()
+        current.Riding
+      else
+        false
+
+    place <- { Riding = riding; Extent = extent }
 
 type Props<'T when 'T: equality> = {
   Items: IObservable<'T list>
@@ -47,10 +84,14 @@ type Props<'T when 'T: equality> = {
   /// Whether the host holds another page of rows. The restore chase
   /// asks for more only while this holds.
   HasMore: IObservable<bool>
-  /// Emits when the feed must return to its top. The page hands over a
-  /// slice of its own model that emits only on a real change, with the
+  /// Emits the offset the scroller takes. The page hands over a slice
+  /// of its own model that emits only on a real change, with the
   /// initial replay skipped, so a restored offset survives the attach.
-  ScrollTop: IObservable<unit> voption
+  ScrollTo: IObservable<float> voption
+  /// Whether the feed sticks to its bottom edge while the reader sits
+  /// there. An items change that grows the extent scrolls back to the
+  /// end until the reader scrolls away.
+  Ride: bool
   /// The scroll place this feed picks up, or none for a fresh feed.
   Restore: float voption
   /// Reports every settled scroll place, so the host can park it.
@@ -60,7 +101,7 @@ type Props<'T when 'T: equality> = {
   OnNeedMore: (unit -> unit) voption
 }
 
-let view(props: Props<'T>) : Control =
+let view(props: Props<'T>) : ScrollViewer =
   // The recycle path clears the container's content and rebuilds its
   // child with `null` before the next row lands: the template stays
   // total against null.
@@ -110,21 +151,29 @@ let view(props: Props<'T>) : Control =
   let restore =
     match props.Restore with
     | ValueSome target when target > 0.0 ->
-      Some(Restore(target, props.OnNeedMore, props.HasMore))
+      let chase = Restore(target, props.OnNeedMore, props.HasMore)
+      chase.LandWhenBeyond <- props.Ride
+      Some chase
     | _ -> None
 
+  let tail = if props.Ride then Some(Tail()) else None
+
   scroller.ScrollChanged.Add(fun _ ->
-    props.OnScroll |> ValueOption.iter(fun park -> park scroller.Offset.Y)
+    tail |> Option.iter(fun track -> track.Track scroller)
 
-    restore |> Option.iter(fun chase -> chase.Chase scroller))
+    restore |> Option.iter(fun chase -> chase.Chase scroller)
 
-  // A return-to-top signal reaches the feed's own scroller through a
-  // property binding, so the subscription follows the scroller's life
-  // and survives a stash; the page only hands over real changes.
-  match props.ScrollTop with
-  | ValueNone -> ()
-  | ValueSome signals ->
-    scroller.Offset(signals |> Observable.map(fun () -> Vector(0.0, 0.0)))
-    |> ignore
+    props.OnScroll |> ValueOption.iter(fun park -> park scroller.Offset.Y))
+
+  // A scroll signal reaches the feed's own scroller through a property
+  // binding, so the subscription follows the scroller's life and
+  // survives a stash; the page only hands over real changes.
+  let scroller =
+    match props.ScrollTo with
+    | ValueSome offsets ->
+      scroller.Offset(
+        offsets |> Observable.map(fun offset -> Vector(0.0, offset))
+      )
+    | ValueNone -> scroller
 
   scroller

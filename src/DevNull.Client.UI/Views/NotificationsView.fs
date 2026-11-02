@@ -809,7 +809,8 @@ module Parts =
           PageChrome.loadMore(hasMore, fun () -> dispatch State.MoreRequested)
         )
       HasMore = hasMore
-      ScrollTop = ValueNone
+      ScrollTo = ValueNone
+      Ride = false
       Restore = ValueNone
       OnScroll = ValueNone
       OnNeedMore = ValueNone

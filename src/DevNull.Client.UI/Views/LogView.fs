@@ -99,7 +99,7 @@ module State =
     NextCursor: string option
     Head: string option
     NewCount: int option
-    ScrollTop: int
+    ScrollRequests: int
     Ranked: bool
     Attached: bool
     Now: DateTimeOffset
@@ -136,7 +136,7 @@ module State =
     | NewChecked of Result<LogPage, AppError>
     | NewRequested
     | NewFetched of Result<LogPage, AppError>
-    | ScrollTopRequested
+    | ScrollRequested
     | AttachedChanged of attached: bool
     | ClockTicked of moment: DateTimeOffset
     | SessionChanged of state: SessionState
@@ -161,7 +161,7 @@ module State =
     NextCursor = None
     Head = None
     NewCount = None
-    ScrollTop = 0
+    ScrollRequests = 0
     Ranked = false
     Attached = false
     Now = DateTimeOffset.UtcNow
@@ -606,10 +606,10 @@ module State =
           log.LogDebug("The pastel on {Commit} landed.", pastel.Commit.Id))
       | Error error ->
         { model with Error = Some error }, failed "the pastel" error
-    | ScrollTopRequested ->
+    | ScrollRequested ->
       {
         model with
-            ScrollTop = model.ScrollTop + 1
+            ScrollRequests = model.ScrollRequests + 1
       },
       Cmd.none
     | AttachedChanged attached -> { model with Attached = attached }, Cmd.none
@@ -727,10 +727,10 @@ module State =
         | Timeline.CommitLanded -> Some ReloadRequested
         | Timeline.ScrollToTop -> None)
 
-    let scrollTopRequests =
+    let scrollRequests =
       props.Env.Timeline.Requests
       |> Observable.choose(function
-        | Timeline.ScrollToTop -> Some ScrollTopRequested
+        | Timeline.ScrollToTop -> Some ScrollRequested
         | _ -> None)
 
     [
@@ -755,7 +755,7 @@ module State =
         Sub.fromObservable "chrome" chromeRequests
 
       if model.Attached then
-        Sub.fromObservable "scroll-top" scrollTopRequests
+        Sub.fromObservable "scroll-top" scrollRequests
     ]
     |> Sub.batch
 
@@ -1039,12 +1039,12 @@ module Parts =
           })
         ))
 
-    let scrollTop =
+    let scrollTo =
       model
-      |> Observable.map _.ScrollTop
+      |> Observable.map _.ScrollRequests
       |> Observable.distinctUntilChanged
       |> Observable.skip 1
-      |> Observable.map ignore
+      |> Observable.map(fun _ -> 0.0)
 
     Feed.view {
       Items = rows
@@ -1058,7 +1058,8 @@ module Parts =
           )
         )
       HasMore = hasMore
-      ScrollTop = ValueSome scrollTop
+      ScrollTo = ValueSome scrollTo
+      Ride = false
       Restore = (if place > 0.0 then ValueSome place else ValueNone)
       OnScroll =
         ValueSome(fun offset -> props.Env.Timeline.Remember(props.Log, offset))

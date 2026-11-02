@@ -1,6 +1,5 @@
 module DevNull.Client.Components.ThreadVoice
 
-open System
 open Avalonia.Controls
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Commit

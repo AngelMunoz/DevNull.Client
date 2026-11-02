@@ -7,7 +7,6 @@ open DevNull.Client.Core
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
-open DevNull.Client.Core.Types
 open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.ImageCache

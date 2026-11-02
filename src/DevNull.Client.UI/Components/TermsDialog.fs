@@ -18,7 +18,6 @@ open DevNull.Client.DeviceAuth
 open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.Stores
-open DevNull.Client.Theme
 
 type Props<'env
   when 'env :> IProvideClock

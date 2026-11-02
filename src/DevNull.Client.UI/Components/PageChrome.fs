@@ -6,12 +6,10 @@ open System.Runtime.CompilerServices
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Layout
-open Avalonia.Media
 open Microsoft.FSharp.Reflection
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open DevNull.Client
-open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Errors
 open DevNull.Client.Theme
 
@@ -20,9 +18,6 @@ open DevNull.Client.Theme
 type Line =
   | Off
   | Words of string
-
-let share(source: IObservable<'T>) : IObservable<'T> =
-  source |> Observable.replayBuffer 1 |> Observable.refCount
 
 let rec sameRebuildKey (left: objnull) (right: objnull) : bool =
   if obj.ReferenceEquals(left, right) then
@@ -87,17 +82,13 @@ let rebuildOn
 
 /// One line of text in the given foreground class, following an
 /// observable source.
-let messagePanel(text: IObservable<string>, fg: StyleClass) : Control =
+let inline messagePanel(text: IObservable<string>, fg: StyleClass) : Control =
   Status.panel(text, fg)
 
 /// The page's error card: one plain line per failure, in the danger
 /// tone, shown only while the page carries an error.
 let errorPanel(error: IObservable<AppError option>) : Control =
-  let words =
-    error
-    |> Observable.map(fun current -> current |> Option.map describe)
-    |> Observable.distinctUntilChanged
-    |> share
+  let words = error |> Slices.gate(Option.map describe) |> Slices.share
 
   Border()
     .Classes(Theme.name Theme.Card)
@@ -153,11 +144,7 @@ type PageProps<'m> = {
 let page(props: PageProps<'m>) : Control =
   let model = props.Model
 
-  let titleText =
-    model
-    |> Observable.map props.TitleOf
-    |> Observable.distinctUntilChanged
-    |> share
+  let titleText = model |> Slices.gate props.TitleOf |> Slices.share
 
   let title =
     TextBlock()
@@ -165,17 +152,9 @@ let page(props: PageProps<'m>) : Control =
       .Text(titleText)
       .IsVisible(titleText |> Observable.map(fun text -> text <> ""))
 
-  let busy =
-    model
-    |> Observable.map props.Busy
-    |> Observable.distinctUntilChanged
-    |> share
+  let busy = model |> Slices.gate props.Busy |> Slices.share
 
-  let empty =
-    model
-    |> Observable.map props.Empty
-    |> Observable.distinctUntilChanged
-    |> share
+  let empty = model |> Slices.gate props.Empty |> Slices.share
 
   let header: Control array = [| for piece in props.Header -> piece |]
 

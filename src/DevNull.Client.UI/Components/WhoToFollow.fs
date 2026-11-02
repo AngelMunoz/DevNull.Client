@@ -25,7 +25,6 @@ open DevNull.Client.ImageCache
 open DevNull.Client.Profiles
 open DevNull.Client.RouteStore
 open DevNull.Client.Stores
-open DevNull.Client.Theme
 
 type Props<'env
   when 'env :> IProvideClock
@@ -77,7 +76,7 @@ module State =
       following: bool *
       result: Result<unit, AppError>
 
-  let takeAtMost count items = List.truncate count items
+  let inline takeAtMost count items = List.truncate count items
 
   [<TailCall>]
   let rec dropAtMost count items =
@@ -160,11 +159,10 @@ module State =
       Cmd.OfAsync.perform fetch (props.Env, answer) (fun result ->
         Arrived(answer, result))
 
-  let update (props: Props<'env>) (msg: Msg) (model: Model) =
-    let log =
-      props.Env.LoggerFactory.CreateLogger
-        "DevNull.Client.Components.WhoToFollow"
+  let loggerOf(props: Props<'env>) =
+    props.Env.LoggerFactory.CreateLogger "DevNull.Client.Components.WhoToFollow"
 
+  let updateCore (log: ILogger, props: Props<'env>) (msg: Msg) (model: Model) =
     let warning what error =
       Cmd.ofAction(fun () ->
         log.LogWarning(
@@ -190,7 +188,7 @@ module State =
     | PathChanged path ->
       let context = contextOf(props.Session, path)
 
-      if model.Context = Some context then
+      if model.Context |> Option.contains context then
         model, Cmd.none
       else
         let answer = request(context, model.Round)
@@ -226,7 +224,8 @@ module State =
           Arrived(answer, result))
     | Arrived(answer, result) ->
       if
-        model.Context <> Some answer.Context || model.Round <> answer.Round
+        model.Context |> Option.contains answer.Context |> not
+        || model.Round <> answer.Round
       then
         model, Cmd.none
       else
@@ -260,7 +259,8 @@ module State =
           warning "who to follow" error
     | ToppedUp(answer, result) ->
       if
-        model.Context <> Some answer.Context || model.Round <> answer.Round
+        model.Context |> Option.contains answer.Context |> not
+        || model.Round <> answer.Round
       then
         model, Cmd.none
       else
@@ -416,6 +416,8 @@ module State =
               Error = Some error
         },
         warning $"the follow of @{user.Handle}" error
+
+  let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
   let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
     props.Env.Routes.Path
@@ -623,6 +625,9 @@ let view
   )
   |> ignore
 
+  let shown =
+    model |> Observable.map _.Shown |> Slices.gateByRef |> Slices.share
+
   let rows =
     ItemsControl()
       .ItemTemplate(
@@ -633,13 +638,10 @@ let view
         )
       )
       .BindItemsSource(
-        model
-        |> Observable.map(fun current -> current.Shown :> IReadOnlyList<User>),
+        shown |> Observable.map(fun users -> users :> IReadOnlyList<User>),
         fun user -> user.Id
       )
-      .IsVisible(
-        model |> Observable.map(fun current -> not current.Shown.IsEmpty)
-      )
+      .IsVisible(shown |> Observable.map(fun users -> not users.IsEmpty))
 
   let busy =
     TextBlock()

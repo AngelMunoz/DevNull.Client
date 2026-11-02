@@ -9,13 +9,11 @@ open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
-open MVUish.Avalonia
 open DevNull.Client
 open DevNull.Client.Components.ThreadChrome
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.ImageCache
 open DevNull.Client.RemotesState
-open DevNull.Client.Theme
 
 /// What the conversation menu reports up.
 [<Struct>]

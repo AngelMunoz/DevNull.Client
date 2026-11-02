@@ -7,7 +7,6 @@ open Avalonia.Controls
 open Avalonia.Media
 open Avalonia.Layout
 open NXUI.Extensions
-open IcedTasks
 open FSharp.Control.Reactive
 open MVUish.Avalonia
 open Navs
@@ -23,7 +22,6 @@ open Microsoft.Extensions.Logging
 open DevNull.Client.UserSettingsStore
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
-open DevNull.Client.Theme
 
 type Props<'env
   when 'env :> IProvideClock
@@ -166,10 +164,10 @@ module State =
       | LaneIndex index -> Some index
       | LaneColor _ -> None)
 
-  let update (props: Props<'env>) msg model =
-    let log =
-      props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Settings"
+  let loggerOf(props: Props<'env>) =
+    props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Settings"
 
+  let updateCore (log: ILogger, props: Props<'env>) msg model =
     match msg with
     | MeDone result ->
       match result with
@@ -479,6 +477,8 @@ module State =
       Cmd.ofAction(fun () -> store.SetTheme choice)
     | SettingsChanged settings -> { model with Settings = settings }, Cmd.none
 
+  let update(props: Props<'env>) = updateCore(loggerOf props, props)
+
   /// The page's inlet from outside: the local settings store.
   let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
     [
@@ -517,7 +517,7 @@ module Parts =
             .Classes(
               Theme.laneClass(Theme.LaneBack, Some(LaneIndex index)),
               Theme.name(
-                if current' = Some index then
+                if current' |> Option.contains index then
                   Theme.TextEdge
                 else
                   Theme.Hairline
@@ -530,7 +530,7 @@ module Parts =
             .Content("Automatic")
             .OnClickHandler(fun _ _ -> dispatch State.LaneAutomatic)
 
-        if me.PreferredLane = None then
+        if me.PreferredLane |> Option.isNone then
           automatic.Classes(Theme.name Theme.CardBack) |> ignore
 
         let row: Control array = [|
@@ -763,7 +763,9 @@ module Parts =
           .HorizontalAlignment(HorizontalAlignment.Left)
           .Content($"Use {id} from this device")
           .IsVisible(
-            model |> Observable.map(fun current -> current.ZonePick <> Some id)
+            model
+            |> Observable.map(fun current ->
+              current.ZonePick |> Option.contains id |> not)
           )
           .OnClickHandler(fun _ _ -> dispatch(State.ZonePicked(Some id)))
         :> Control)
@@ -853,7 +855,7 @@ module Parts =
     |> Option.bind(fun prefs ->
       prefs.Languages
       |> List.tryFind(fun language ->
-        language.Code = Translation.deviceLanguage))
+        language.Code = TranslationModel.deviceLanguage))
     |> Option.map(fun language -> language.Name)
     |> Option.defaultWith(fun () -> CultureInfo.CurrentUICulture.DisplayName)
 

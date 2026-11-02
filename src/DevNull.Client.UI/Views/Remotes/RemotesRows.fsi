@@ -1,6 +1,5 @@
 namespace DevNull.Client.Views
 
-open System
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.RemotesState
 

@@ -1,8 +1,9 @@
-module DevNull.Client.Components.Translation
+module DevNull.Client.Views.TranslationModel
 
 open System
 open System.Globalization
 open FSharp.UMX
+open DevNull.Client.Components.CommitCard
 open DevNull.Client.Core
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Types
@@ -24,17 +25,6 @@ type State = {
   Display: Display
   Error: string option
   CooldownUntil: DateTimeOffset option
-}
-
-/// What one card reads about a commit's translation.
-[<Struct>]
-type View = {
-  Body: TranslatedBody option
-  SourceName: string option
-  CanTranslate: bool
-  Busy: bool
-  Waiting: bool
-  Error: string option
 }
 
 /// Every commit's translation on one page, with the commits whose calls run.
@@ -83,10 +73,10 @@ let seed(translations: Map<string, CommitTranslation>) : Book = {
   Busy = Set.empty
 }
 
-let stateOf(book: Book, commitId: string) : State =
+let inline stateOf(book: Book, commitId: string) : State =
   book.States |> Map.tryFind commitId |> Option.defaultValue empty
 
-let view(surface: Surface) : View voption =
+let view(surface: Surface) : TranslationView voption =
   let state = stateOf(surface.Book, surface.Commit.Id)
 
   let translation = state.Fetched |> Option.orElse surface.Commit.Translation

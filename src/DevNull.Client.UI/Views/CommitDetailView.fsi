@@ -1,9 +1,7 @@
 module DevNull.Client.Views.CommitDetailView
 
-open System
 open Avalonia.Controls
 open DevNull.Client.AttachmentSources
-open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Env

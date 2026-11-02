@@ -12,7 +12,6 @@ open DevNull.Client.Remotes
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
-open Navs
 
 /// One remotes page, self-contained: mounts the MVUish program.
 type Page<'env

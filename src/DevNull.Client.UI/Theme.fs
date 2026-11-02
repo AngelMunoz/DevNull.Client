@@ -324,7 +324,7 @@ let themed(key: string) = box(DynamicResourceExtension key)
 /// staggers, so the three follow each other the way the site's chat
 /// does. The animation lives on the style, the way the site's CSS
 /// owns its motion.
-let private typingDot(klass: string, at: float) : Style =
+let typingDot(klass: string, at: float) : Style =
   let frames = [|
     for cue, opacity in [| Cue 0.0, 0.25; Cue 0.5, 1.0; Cue 1.0, 0.25 |] ->
       let frame = KeyFrame(Cue = cue)

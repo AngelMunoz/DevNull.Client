@@ -8,7 +8,6 @@ open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
-open MVUish.Avalonia
 open DevNull.Client
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Icons

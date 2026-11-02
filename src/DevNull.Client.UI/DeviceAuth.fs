@@ -13,7 +13,6 @@ open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
 open DevNull.Client.SessionFiles
-open DevNull.Client.SshKeygen
 
 /// The app's own Ed25519 key, the one the device approval binds to.
 type DeviceKey = {

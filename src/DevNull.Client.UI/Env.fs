@@ -7,9 +7,7 @@ open System.Net.Http
 open System.Net.Http.Headers
 open System.Security.Cryptography
 open System.Text
-open System.Threading.Tasks
 open IcedTasks
-open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.ApplicationLifetimes
 open Microsoft.Extensions.Logging
@@ -25,9 +23,7 @@ open DevNull.Client.LastVisitStore
 open DevNull.Client.RecentSearchStore
 open DevNull.Client.Natives
 open DevNull.Client.Profiles
-open DevNull.Client.SessionFiles
 open DevNull.Client.SettingsStore
-open DevNull.Client.SshKeygen
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.UiClock

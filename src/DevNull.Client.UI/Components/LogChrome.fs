@@ -14,9 +14,7 @@ open Microsoft.Extensions.Logging
 open DevNull.Client
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Env
-open DevNull.Client.Navigation
 open DevNull.Client.RouteStore
-open DevNull.Client.Theme
 
 /// The stateless log chrome: the tab strip over the composer rail.
 [<Struct>]
@@ -76,7 +74,7 @@ module Parts =
   ]
 
   /// The log tab a path names, when it names one.
-  let kindOf(path: string) : LogKind option =
+  let inline kindOf(path: string) : LogKind option =
     logTabs |> List.tryFind(fun tab -> path = tab.Url) |> Option.map _.Kind
 
   /// One log tab: the strip's active slice comes from the route model.
@@ -138,14 +136,14 @@ module State =
     },
     Cmd.none
 
-  let update
-    (props: PageProps<'env>)
+  let loggerOf(props: PageProps<'env>) =
+    props.Env.LoggerFactory.CreateLogger "DevNull.Client.Components.LogChrome"
+
+  let updateCore
+    (log: ILogger, props: PageProps<'env>)
     (msg: Msg)
     (model: Model)
     : Model * Cmd<Msg> =
-    let log =
-      props.Env.LoggerFactory.CreateLogger "DevNull.Client.Components.LogChrome"
-
     match msg with
     | PathChanged path ->
       {
@@ -169,6 +167,8 @@ module State =
               tab.Url,
               fun error -> log.LogWarning("{Error}", error)
             )))
+
+  let update(props: PageProps<'env>) = updateCore(loggerOf props, props)
 
   /// The chrome's one inlet from outside: the route store.
   let subscribe (props: PageProps<'env>) (_: Model) : Sub<Msg> =
@@ -198,7 +198,7 @@ type Page<'env when 'env :> IProvideRoutes and 'env :> IProvideLogging>
 
   do
     let view' (model: IObservable<Model>) (dispatch: Dispatch<Msg>) : Control =
-      let active = model |> Observable.map _.Active
+      let active = model |> Slices.gate _.Active |> Slices.share
 
       let chrome = {
         Tabs = Parts.tabs(active, dispatch)

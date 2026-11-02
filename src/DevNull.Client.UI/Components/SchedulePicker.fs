@@ -9,7 +9,6 @@ open NXUI.Extensions
 open FSharp.Control.Reactive
 open DevNull.Client
 open DevNull.Client.Core.ApiTypes
-open DevNull.Client.Theme
 
 [<Struct>]
 type Pick = { Day: int; Hour: int; Minute: int }

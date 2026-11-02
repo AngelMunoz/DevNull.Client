@@ -21,7 +21,7 @@ module Desktop =
   // The probes answer empty on the IO failures a desktop can produce —
   // a folder it cannot read, a file that vanished mid-listing — and
   // let anything louder surface.
-  let private firstLineOf(path: string) : string option =
+  let firstLineOf(path: string) : string option =
     try
       File.ReadLines path |> Seq.tryHead
     with

@@ -4,7 +4,6 @@ open System
 open Avalonia.Controls
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Components.ThreadVoice
-open DevNull.Client.Core.Commit
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
 open DevNull.Client.Natives

@@ -33,13 +33,11 @@ open DevNull.Client.Errors
 open DevNull.Client.Icons
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
-open DevNull.Client.Navigation
 open DevNull.Client.Natives
 open DevNull.Client.Profiles
 open DevNull.Client.RecentSearchStore
 open DevNull.Client.Remotes
 open DevNull.Client.RemotesState
-open DevNull.Client.SessionFiles
 open DevNull.Client.SettingsStore
 open DevNull.Client.Shortcuts
 open DevNull.Client.SshKeys
@@ -1002,7 +1000,8 @@ type Shell<'env
       |> Observable.map(fun state ->
         match state with
         // Unknown terms never gate: only the server's own no does.
-        | SignedIn entry -> entry.Session.TermsAccepted = Some false
+        | SignedIn entry ->
+          entry.Session.TermsAccepted |> Option.contains false
         | SignedOut -> false)
 
     // The layer's change-only gate keeps a poll's session refresh from

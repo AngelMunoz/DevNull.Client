@@ -1,15 +1,15 @@
 module DevNull.Client.Views.CommitRows
 
 open System
+open DevNull.Client
 open DevNull.Client.Core.ApiTypes
-open DevNull.Client.Components
 open DevNull.Client.Components.CommitCard
 open DevNull.Client.Components.UserFlyout
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 
 [<Struct>]
-type Slices = {
+type RowSlices = {
   Pasteis: bool
   Now: DateTimeOffset
   PollChoices: Map<string, string>
@@ -27,13 +27,15 @@ type Host = {
   OnStar: Commit -> unit
   OnVote: Commit -> unit
   OnPastel: Commit -> unit
-  Translation: IObservable<Commit -> Translation.View voption>
+  Translation: IObservable<Commit -> TranslationView voption>
 }
 
-let row(host: Host, model: IObservable<'m>, slicesOf: 'm -> Slices) : RowProps =
-  let slices = model |> Observable.map slicesOf |> PageChrome.share
+let row
+  (host: Host, model: IObservable<'m>, slicesOf: 'm -> RowSlices)
+  : RowProps =
+  let slices = model |> Slices.gate slicesOf |> Slices.share
 
-  let busy = slices |> Observable.map _.Voting |> PageChrome.share
+  let busy = slices |> Observable.map _.Voting |> Slices.share
 
   let slot(command: Commit -> unit) : ActionSlot voption =
     ValueSome { Command = command; Busy = busy }
@@ -43,16 +45,16 @@ let row(host: Host, model: IObservable<'m>, slicesOf: 'm -> Slices) : RowProps =
     | ValueSome command ->
       ValueSome {
         Command = command
-        Busy = slices |> Observable.map _.Pinning |> PageChrome.share
+        Busy = slices |> Observable.map _.Pinning |> Slices.share
       }
     | ValueNone -> ValueNone
 
   {
     OnEvent = host.OnEvent
     ViewerId = host.ViewerId
-    Pasteis = slices |> Observable.map _.Pasteis |> PageChrome.share
-    Now = slices |> Observable.map _.Now |> PageChrome.share
-    PollChoices = slices |> Observable.map _.PollChoices |> PageChrome.share
+    Pasteis = slices |> Observable.map _.Pasteis |> Slices.share
+    Now = slices |> Observable.map _.Now |> Slices.share
+    PollChoices = slices |> Observable.map _.PollChoices |> Slices.share
     Dense = false
     Images = host.Images
     Flyout = host.Flyout

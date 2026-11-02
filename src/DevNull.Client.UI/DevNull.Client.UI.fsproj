@@ -69,6 +69,8 @@
     <Compile Include="Shortcuts.fs" />
     <Compile Include="Tray.fsi" />
     <Compile Include="Tray.fs" />
+    <Compile Include="Slices.fsi" />
+    <Compile Include="Slices.fs" />
     <Compile Include="Components\Status.fsi" />
     <Compile Include="Components\Status.fs" />
     <Compile Include="Components\PageChrome.fsi" />
@@ -113,8 +115,6 @@
     <Compile Include="Components\ComposerToolbar.fs" />
     <Compile Include="Components\WhoToFollow.fsi" />
     <Compile Include="Components\WhoToFollow.fs" />
-    <Compile Include="Components\Translation.fsi" />
-    <Compile Include="Components\Translation.fs" />
     <Compile Include="Components\CommitCard.fsi" />
     <Compile Include="Components\CommitCard.fs" />
     <Compile Include="Components\SearchDialog.fsi" />
@@ -135,6 +135,8 @@
     <Compile Include="Views\CommitActions.fs" />
     <Compile Include="Views\CommitRows.fsi" />
     <Compile Include="Views\CommitRows.fs" />
+    <Compile Include="Views\TranslationModel.fsi" />
+    <Compile Include="Views\TranslationModel.fs" />
     <Compile Include="Views\SignInView.fsi" />
     <Compile Include="Views\SignInView.fs" />
     <Compile Include="Views\LogView.fsi" />

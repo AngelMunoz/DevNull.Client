@@ -3,11 +3,9 @@ module DevNull.Client.Components.Palette
 open System
 open Avalonia
 open Avalonia.Controls
-open Avalonia.Input
 open NXUI.Extensions
 open FSharp.Control.Reactive
-open MVUish.Avalonia
-open DevNull.Client.Components.PageChrome
+open DevNull.Client
 
 [<Struct>]
 type RenderedRow = {
@@ -80,7 +78,7 @@ let view(scroll: Scroll, props: Props<'row, 'key>) : Control =
     props.Rows
     |> Observable.distinctUntilChangedKey(List.map props.KeyOf)
     |> Observable.map build
-    |> share
+    |> Slices.share
 
   let follow = followRows(props.Active, built |> Observable.map _.Targets)
 

@@ -14,7 +14,6 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Completion
 open DevNull.Client.ImageCache
 open DevNull.Client.Search
-open DevNull.Client.Theme
 
 module Flyout = DevNull.Client.Components.Completion
 

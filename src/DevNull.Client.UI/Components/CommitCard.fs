@@ -16,11 +16,9 @@ open DevNull.Client
 open DevNull.Client.Components.AsyncImage
 open DevNull.Client.Components.UserFlyout
 open DevNull.Client.Core.ApiTypes
-open DevNull.Client.DeviceAuth
 open DevNull.Client.Formatting
 open DevNull.Client.Icons
 open DevNull.Client.ImageCache
-open DevNull.Client.Theme
 
 // The API's image record shares its name with the image control; the
 // alias keeps both in reach.
@@ -63,6 +61,17 @@ type ActionSlot = {
   Busy: IObservable<string option>
 }
 
+/// What one card reads about a commit's translation.
+[<Struct>]
+type TranslationView = {
+  Body: TranslatedBody option
+  SourceName: string option
+  CanTranslate: bool
+  Busy: bool
+  Waiting: bool
+  Error: string option
+}
+
 /// One commit row. `OnEvent` receives the intent events the host does
 /// not run itself. Every card rides the graph rail with its author's
 /// avatar; dense rows (the replies of a thread) shrink the node.
@@ -88,7 +97,7 @@ type Props = {
   Star: ActionSlot voption
   Vote: ActionSlot voption
   Pastel: ActionSlot voption
-  Translation: IObservable<Translation.View voption>
+  Translation: IObservable<TranslationView voption>
   /// The zone the header's time tooltip shows.
   Zone: Zone
 }
@@ -337,7 +346,7 @@ module Parts =
   /// translation shows, the Translate button otherwise, and the last
   /// failure in the server's words.
   let translationLine(props: Props, commit: Commit) : Control =
-    let line(view: Translation.View voption) : Control =
+    let line(view: TranslationView voption) : Control =
       match view with
       | ValueNone -> Panel()
       | ValueSome view ->
@@ -1481,7 +1490,7 @@ type RowProps = {
   Star: ActionSlot voption
   Vote: ActionSlot voption
   Pastel: ActionSlot voption
-  Translation: IObservable<Commit -> Translation.View voption>
+  Translation: IObservable<Commit -> TranslationView voption>
   Zone: Zone
 }
 

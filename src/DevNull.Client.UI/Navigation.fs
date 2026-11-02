@@ -1,7 +1,6 @@
 module DevNull.Client.Navigation
 
 open System
-open System.Threading
 open IcedTasks
 open Navs
 

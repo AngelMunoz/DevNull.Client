@@ -10,7 +10,6 @@ open DevNull.Client
 open DevNull.Client.Components.AsyncImage
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.ImageCache
-open DevNull.Client.Theme
 
 /// One user's avatar: the image over the initial disc when a URL
 /// exists, the initial on a lane-colored disc otherwise.

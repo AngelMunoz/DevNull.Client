@@ -23,7 +23,7 @@ type Image = {
 /// A staged voice note rides the same multipart shape an image does.
 type Voice = Image
 
-type Waveform = private { Bars: int array }
+type Waveform = { Bars: int array }
 
 type CommitInput = {
   Body: string

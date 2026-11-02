@@ -1,16 +1,14 @@
 module DevNull.Client.Components.Feed
 
 open System
-open System.Collections.Generic
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
 open Avalonia.Controls.Templates
-open Avalonia.Layout
 open FSharp.Control.Reactive
 open NXUI.Extensions
-open MVUish.Avalonia
 open MVUish.Avalonia.Collections
+open DevNull.Client
 
 /// One remembered place coming back: lands once when the loaded extent
 /// reaches it, asks for more pages while it does not and the host holds
@@ -119,13 +117,7 @@ let view(props: Props<'T>) : ScrollViewer =
     ItemsControl()
       .ItemTemplate(template)
       .ItemsPanel(FuncTemplate<Panel>(fun () -> VirtualizingStackPanel()))
-      .BindItemsSource(
-        props.Items
-        |> Observable.distinctUntilChangedKeyCompare
-          (fun items -> box items)
-          ReferenceEqualityComparer.Instance,
-        props.KeyOf
-      )
+      .BindItemsSource(props.Items |> Slices.gateByRef, props.KeyOf)
 
   let children: Control array = [|
     items

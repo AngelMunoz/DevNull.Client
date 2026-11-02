@@ -3,8 +3,6 @@ module DevNull.Client.Theme
 open System
 open Avalonia
 open Avalonia.Controls
-open Avalonia.Controls.Shapes
-open Avalonia.Controls.Primitives
 open Avalonia.Media
 open Avalonia.Styling
 open DevNull.Client.Core.ApiTypes

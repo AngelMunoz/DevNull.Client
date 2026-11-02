@@ -21,7 +21,7 @@ type Image = {
 type Voice = Image
 
 /// One voice note's loudness bars, as the server takes them: 48 values between 0 and 100.
-type Waveform = private { Bars: int array }
+type Waveform
 
 /// Raw input of one commit, parsed at the boundary of `commit`.
 type CommitInput = {

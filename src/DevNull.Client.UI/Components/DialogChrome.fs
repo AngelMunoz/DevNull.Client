@@ -7,7 +7,6 @@ open Avalonia.Layout
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open DevNull.Client
-open DevNull.Client.Theme
 
 type Place =
   | Center

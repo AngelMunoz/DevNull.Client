@@ -3,7 +3,6 @@ module DevNull.Client.Views.LogView
 open System
 open Avalonia.Controls
 open DevNull.Client.AttachmentSources
-open DevNull.Client.Components
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
@@ -111,7 +110,7 @@ module State =
     /// Whether translations show by themselves.
     Automatic: bool
     /// Every commit's translation on this page.
-    Translations: Translation.Book
+    Translations: TranslationModel.Book
     /// Whether the page already asked for its automatic translations.
     AutoRan: bool
   }
@@ -145,7 +144,7 @@ module State =
     | OriginalRequested of Commit
     | TranslationDone of Commit * Result<TranslationPayload, AppError>
     | TranslationsAuto of (Commit * Result<TranslationPayload, AppError>) list
-    | TranslationRecalled of Commit * Translation.Book option
+    | TranslationRecalled of Commit * TranslationModel.Book option
     | PrefsArrived of settings: UserSettings option
 
   /// The fresh page state.
@@ -164,7 +163,7 @@ module State =
 
   /// Applies one message.
   val update:
-    props: Props<'env> -> msg: Msg -> model: Model -> Model * Cmd<Msg>
+    props: Props<'env> -> (Msg -> Model -> Model * Cmd<Msg>)
       when 'env :> IProvideClock
       and 'env :> IProvideNonceSource
       and 'env :> IProvideSigner

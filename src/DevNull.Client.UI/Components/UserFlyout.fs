@@ -4,7 +4,6 @@ open System
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
-open Avalonia.Input
 open Avalonia.Layout
 open Avalonia.Media
 open Avalonia.Threading
@@ -14,7 +13,6 @@ open DevNull.Client
 open DevNull.Client.Components
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.ImageCache
-open DevNull.Client.Theme
 
 /// What one hover card needs from its host.
 [<Struct>]

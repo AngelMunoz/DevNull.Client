@@ -1,8 +1,6 @@
 module DevNull.Client.Components.LogChrome
 
-open System
 open Avalonia.Controls
-open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Env
 open DevNull.Client.RouteStore
 open Navs

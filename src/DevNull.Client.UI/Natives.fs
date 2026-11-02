@@ -66,7 +66,7 @@ type IAudioEngine =
 module VoiceMedia =
 
   /// Whether the bytes open as a RIFF/WAVE file.
-  let private isWav(media: byte array) =
+  let isWav(media: byte array) =
     media.Length >= 44
     && media[0] = 0x52uy
     && media[1] = 0x49uy

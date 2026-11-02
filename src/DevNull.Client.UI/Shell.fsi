@@ -6,7 +6,6 @@ open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Env
-open DevNull.Client.Icons
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
 open DevNull.Client.Natives
@@ -22,7 +21,6 @@ open DevNull.Client.Unread
 open DevNull.Client.UiClock
 open DevNull.Client.UserSettingsStore
 open DevNull.Client.TranslationCache
-open Navs
 
 /// The one window of the app: the sidebar, the router outlet, and the
 /// forwarded sign-in callback. The env names every capability the pages

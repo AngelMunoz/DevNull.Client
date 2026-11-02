@@ -10,14 +10,12 @@ open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
-open MVUish.Avalonia
 open DevNull.Client
 open DevNull.Client.Components.Avatar
 open DevNull.Client.Components.UserFlyout
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Icons
 open DevNull.Client.ImageCache
-open DevNull.Client.Theme
 
 /// What the term rules say about a search.
 module Intent =
@@ -73,11 +71,11 @@ module Intent =
       Either
 
   /// True when the reading reaches the commit channel.
-  let searchesCommits(reading: Reading) = reading <> Developer
+  let inline searchesCommits(reading: Reading) = reading <> Developer
 
   /// True when a lone `@` announces a developer search but has nothing
   /// to search for yet.
-  let awaitsDeveloperName(term: string) = term.Trim() = "@"
+  let inline awaitsDeveloperName(term: string) = term.Trim() = "@"
 
 /// The site's canned suggestions.
 let suggestions: string list = [
@@ -263,7 +261,7 @@ let statusLine(text: string) : Control = statusBlock().Text(text)
 
 /// The same status line, following the words it says.
 let statusLineOf(text: IObservable<string>) : Control =
-  let line = text |> Observable.distinctUntilChanged |> PageChrome.share
+  let line = text |> Slices.gate id |> Slices.share
 
   statusBlock()
     .Text(line |> _.ToBinding())

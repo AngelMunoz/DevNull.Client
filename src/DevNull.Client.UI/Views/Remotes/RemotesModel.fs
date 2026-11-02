@@ -1,46 +1,22 @@
 namespace DevNull.Client.Views
 
 open System
-open Avalonia
-open Avalonia.Controls
-open Avalonia.Controls.Primitives
-open Avalonia.Controls.Shapes
-open Avalonia.Controls.Templates
-open Avalonia.Input
-open Avalonia.Interactivity
-open Avalonia.Layout
-open Avalonia.Media
-open Avalonia.Threading
-open Avalonia.VisualTree
-open NXUI.Extensions
 open FSharp.Control.Reactive
 open FSharp.UMX
 open MVUish.Avalonia
-open MVUish.Avalonia.Collections
 open IcedTasks
-open Navs
-open DevNull.Client
 open DevNull.Client.AttachmentSources
-open DevNull.Client.Components
 open DevNull.Client.Core
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
-open DevNull.Client.Core.Types
 open DevNull.Client.Errors
-open DevNull.Client.Env
 open Microsoft.Extensions.Logging
-open DevNull.Client.Formatting
-open DevNull.Client.Icons
-open DevNull.Client.ImageCache
 open DevNull.Client.Natives
-open DevNull.Client.Profiles
 open DevNull.Client.Remotes
 open DevNull.Client.RemotesState
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
-open DevNull.Client.Theme
-open DevNull.Client.UiClock
 open DevNull.Client.Views.State
 
 module CoreRemotes = DevNull.Client.Core.Api.Remotes
@@ -120,26 +96,28 @@ module RemotesModel =
   }
 
   /// One tab's next page, through the store.
-  let loadTab(store: RemotesStore, tab: InboxTab) : Async<unit> =
+  let inline loadTab(store: RemotesStore, tab: InboxTab) : Async<unit> =
     store.LoadTab tab
 
   /// One fetched request settled, through the store.
-  let settle(store: RemotesStore, partner: User, merging: bool) : Async<bool> =
+  let inline settle
+    (store: RemotesStore, partner: User, merging: bool)
+    : Async<bool> =
     store.SettleRequest(partner, merging)
 
   /// The page above the loaded messages, through the store.
-  let loadOlder(store: RemotesStore, target: ChatTarget) : Async<unit> =
+  let inline loadOlder(store: RemotesStore, target: ChatTarget) : Async<unit> =
     store.LoadOlder target
 
   /// Older pages until one message sits in the thread, through the
   /// store.
-  let walkTo
+  let inline walkTo
     (store: RemotesStore, target: ChatTarget, messageId: int)
     : Async<bool> =
     store.LoadUntil(target, messageId)
 
   /// One message's link card read again, through the store.
-  let preview
+  let inline preview
     (store: RemotesStore, target: ChatTarget, messageId: int)
     : Async<unit> =
     store.RefreshLinkPreview(target, messageId)
@@ -147,7 +125,7 @@ module RemotesModel =
   /// One thread pulled through its newest message, through the store.
   /// Nothing goes out while the reading does not ride the bottom edge
   /// or the window stands inactive.
-  let markRead
+  let inline markRead
     (store: RemotesStore, target: ChatTarget, focused: bool)
     : Async<bool> =
     store.MarkRead(target, focused)
@@ -159,13 +137,13 @@ module RemotesModel =
     |> Option.filter(fun text -> text <> "")
 
   /// One push, through the store.
-  let push
+  let inline push
     (store: RemotesStore, target: ChatTarget, message: OutgoingMessage)
     : Async<unit> =
     store.Push(target, message)
 
   /// One refused send staged again, through the store.
-  let retry
+  let inline retry
     (store: RemotesStore, target: ChatTarget, clientId: string<ClientId>)
     : Async<unit> =
     store.Retry(target, clientId)
@@ -279,7 +257,7 @@ module RemotesModel =
   /// The newest ping one thread carries, by its message id.
   let inline lastPingOf(thread: ThreadState) =
     thread.Messages
-    |> List.tryFindBack(fun message -> message.Event = Some Ping)
+    |> List.tryFindBack(fun message -> message.Event |> Option.contains Ping)
     |> Option.map _.Id
     |> Option.defaultValue 0
 
@@ -380,10 +358,14 @@ module RemotesModel =
         MessageUnpinSettled
     | None -> model, Cmd.none
 
-  let update (props: Props<'env>) (msg: Msg) (model: Model) : Model * Cmd<Msg> =
-    let log =
-      props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Remotes"
+  let loggerOf(props: Props<'env>) =
+    props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Remotes"
 
+  let updateCore
+    (log: ILogger, props: Props<'env>)
+    (msg: Msg)
+    (model: Model)
+    : Model * Cmd<Msg> =
     // Every log line is an effect: update returns it as a command,
     // and the loop writes it after the computation.
     let failed what error =
@@ -1121,6 +1103,8 @@ module RemotesModel =
             bounded 300 (describe failure)
           ))
     | VoiceDiscarded -> { model with Voice = None }, Cmd.none
+
+  let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
   /// The page's inlets from outside: the shared clock, the session, the
   /// store, and the watcher's readership handles. The thread watch

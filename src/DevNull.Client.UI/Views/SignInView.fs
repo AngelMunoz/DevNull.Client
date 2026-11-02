@@ -17,13 +17,10 @@ open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.DeviceAuth
 open DevNull.Client.Env
-open DevNull.Client.Errors
 open FsToolkit.ErrorHandling
 open Microsoft.Extensions.Logging
-open DevNull.Client.Navigation
 open DevNull.Client.SessionFiles
 open DevNull.Client.Stores
-open DevNull.Client.Theme
 
 type Props<'env
   when 'env :> IProvideClock
@@ -148,9 +145,10 @@ module State =
 
       props.OnDone())
 
-  let update (props: Props<'env>) msg model =
-    let log = props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.SignIn"
+  let loggerOf(props: Props<'env>) =
+    props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.SignIn"
 
+  let updateCore (log: ILogger, props: Props<'env>) msg model =
     match msg with
     | StartRequested ->
       let work() = asyncResult {
@@ -207,6 +205,8 @@ module State =
         { model with Status = Failed message },
         Cmd.ofAction(fun () ->
           log.LogWarning("The sign-in did not complete: {Error}", message))
+
+  let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
 /// The page's semantic regions; the view only composes these.
 module Parts =

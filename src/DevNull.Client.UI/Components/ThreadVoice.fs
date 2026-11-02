@@ -5,7 +5,6 @@ open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
 open Avalonia.Controls.Shapes
-open Avalonia.Input
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
@@ -18,7 +17,6 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Icons
 open DevNull.Client.Natives
 open DevNull.Client.SettingsStore
-open DevNull.Client.Theme
 open Microsoft.Extensions.Logging
 
 /// Only one note sounds at a time, the site's own rule: each claim

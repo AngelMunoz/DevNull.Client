@@ -11,7 +11,6 @@ open DevNull.Client
 open DevNull.Client.Core.Commit
 open DevNull.Client.Errors
 open DevNull.Client.Icons
-open DevNull.Client.Theme
 
 [<Struct>]
 type Props = {

@@ -1,17 +1,16 @@
 module DevNull.Client.Views.ProfileView
 
 open System
+open System.Collections.Generic
 open System.Globalization
+open System.Runtime.CompilerServices
 open Avalonia
 open Avalonia.Controls
-open Avalonia.Controls.Shapes
 open Avalonia.Media
-open Avalonia.Controls.Templates
 open Avalonia.Layout
 open NXUI.Extensions
-open IcedTasks
+open FSharp.Control.Reactive
 open MVUish.Avalonia
-open MVUish.Avalonia.Collections
 open Navs
 open DevNull.Client
 open DevNull.Client.Components
@@ -25,10 +24,8 @@ open DevNull.Client.Env
 open Microsoft.Extensions.Logging
 open DevNull.Client.ImageCache
 open DevNull.Client.Formatting
-open DevNull.Client.Navigation
 open DevNull.Client.Profiles
 open DevNull.Client.Stores
-open DevNull.Client.Theme
 open DevNull.Client.UiClock
 open DevNull.Client.UserSettingsStore
 open DevNull.Client.TranslationCache
@@ -86,7 +83,7 @@ module State =
     /// Whether translations show by themselves.
     Automatic: bool
     /// Every commit's translation on this page.
-    Translations: Translation.Book
+    Translations: TranslationModel.Book
   }
 
   type Msg =
@@ -115,7 +112,7 @@ module State =
     | TranslateRequested of Commit
     | OriginalRequested of Commit
     | TranslationDone of Commit * Result<TranslationPayload, AppError>
-    | TranslationRecalled of Commit * Translation.Book option
+    | TranslationRecalled of Commit * TranslationModel.Book option
 
   let replaceNode(items: CommitNode list, updated: Commit) : CommitNode list =
     items
@@ -157,7 +154,7 @@ module State =
     Pinning = None
     Note = None
     Automatic = false
-    Translations = Translation.initial
+    Translations = TranslationModel.initial
   }
 
   /// One feed read: whose commits, which tab, and the pager cursor.
@@ -186,7 +183,7 @@ module State =
           Pasteis = props.Session.Session.PasteisMode
           Automatic = props.Session.Session.AutomaticTranslation
           Translations =
-            Translation.seed(
+            TranslationModel.seed(
               (props.Env :> IProvideTranslations).Translations.Snapshot()
             )
     },
@@ -216,13 +213,13 @@ module State =
   /// the settings pick, and the 503 retries.
   let translate(props: Props<'env>, commit: Commit) =
     let language =
-      Translation.languageFor(
+      TranslationModel.languageFor(
         (props.Env :> IProvideUserSettings).UserSettings.Current,
         commit
       )
 
-    Translation.execute(
-      Translation.retryDelays,
+    TranslationModel.execute(
+      TranslationModel.retryDelays,
       fun () ->
         Commits.translate(
           props.Env,
@@ -234,7 +231,10 @@ module State =
         )
     )
 
-  let update (props: Props<'env>) msg model =
+  let loggerOf(props: Props<'env>) =
+    props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Profile"
+
+  let updateCore (log: ILogger, props: Props<'env>) msg model =
     let username =
       model.Details
       |> Option.map(fun details -> details.Profile.User.Handle)
@@ -251,9 +251,6 @@ module State =
            Cursor = None
          })
         CommitsFetched
-
-    let log =
-      props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Profile"
 
     // Every log line is an effect: update returns it as a command,
     // and the loop writes it after the computation.
@@ -635,18 +632,18 @@ module State =
       },
       Cmd.none
     | TranslateRequested commit when
-      Translation.canReuse(model.Translations, commit)
+      TranslationModel.canReuse(model.Translations, commit)
       ->
       {
         model with
             Translations =
-              Translation.showTranslated(model.Translations, commit.Id)
+              TranslationModel.showTranslated(model.Translations, commit.Id)
       },
       Cmd.none
     | TranslateRequested commit ->
       model,
       Cmd.OfAsync.perform
-        Translation.recall
+        TranslationModel.recall
         ((props.Env :> IProvideTranslations).Translations,
          model.Translations,
          commit.Id)
@@ -659,7 +656,8 @@ module State =
       | None ->
         {
           model with
-              Translations = Translation.request(model.Translations, commit.Id)
+              Translations =
+                TranslationModel.request(model.Translations, commit.Id)
         },
         Cmd.OfAsync.perform translate (props, commit) (fun result ->
           TranslationDone(commit, result))
@@ -667,11 +665,11 @@ module State =
       {
         model with
             Translations =
-              Translation.showOriginal(model.Translations, commit.Id)
+              TranslationModel.showOriginal(model.Translations, commit.Id)
       },
       Cmd.none
     | TranslationDone(commit, result) ->
-      let args: Translation.Finish = {
+      let args: TranslationModel.Finish = {
         Book = model.Translations
         Now = model.Now
         CommitId = commit.Id
@@ -680,15 +678,17 @@ module State =
 
       {
         model with
-            Translations = Translation.finish args
+            Translations = TranslationModel.finish args
       },
       Cmd.ofAction(fun () ->
         Async.Start(
-          Translation.store(
+          TranslationModel.store(
             (props.Env :> IProvideTranslations).Translations,
             args
           )
         ))
+
+  let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
   /// The page's inlets from outside: the shared clock and the session
   /// store.
@@ -1039,6 +1039,27 @@ module Parts =
 
     ContentControl().Content(content.ToBinding())
 
+/// The row inputs the page compares by reference, so a tick that left
+/// them the same does not reshape the feed.
+let rowInputsComparer = {
+  new IEqualityComparer<ProfileDetails option * CommitNode list * State.Tab> with
+    member _.Equals
+      (
+        (leftDetails, leftCommits, leftTab),
+        (rightDetails, rightCommits, rightTab)
+      ) =
+      leftTab = rightTab
+      && ReferenceEqualityComparer.Instance.Equals(leftDetails, rightDetails)
+      && ReferenceEqualityComparer.Instance.Equals(leftCommits, rightCommits)
+
+    member _.GetHashCode((details, commits, tab)) =
+      HashCode.Combine(
+        RuntimeHelpers.GetHashCode details,
+        RuntimeHelpers.GetHashCode commits,
+        tab.GetHashCode()
+      )
+}
+
 let view
   (props: Props<'env>)
   (model: IObservable<State.Model>)
@@ -1085,7 +1106,7 @@ let view
           model
           |> Observable.map(fun current ->
             fun commit ->
-              Translation.view {
+              TranslationModel.view {
                 Automatic = current.Automatic
                 Book = current.Translations
                 Now = current.Now
@@ -1157,7 +1178,12 @@ let view
       }
     ]
     Feed = {
-      Items = model |> Observable.map State.rowsOf
+      Items =
+        model
+        |> Observable.distinctUntilChangedKeyCompare
+          (fun current -> current.Details, current.Commits, current.Tab)
+          rowInputsComparer
+        |> Observable.map State.rowsOf
       KeyOf = State.rowKey
       Row =
         function

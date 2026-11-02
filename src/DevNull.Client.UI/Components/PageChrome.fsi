@@ -3,7 +3,6 @@ module DevNull.Client.Components.PageChrome
 open System
 open Avalonia
 open Avalonia.Controls
-open Avalonia.Media
 open DevNull.Client.Errors
 open DevNull.Client.Theme
 
@@ -12,10 +11,6 @@ open DevNull.Client.Theme
 type Line =
   | Off
   | Words of string
-
-/// One gated slice with one upstream subscription, replayed to a
-/// binding that joins after the last emission.
-val share: source: IObservable<'T> -> IObservable<'T>
 
 /// One content builder gated by the identity of its inputs: the source
 /// passes only when `keyOf` changes, and each pass builds the control.
@@ -33,7 +28,7 @@ val rebuildOn:
 
 /// One line of text in the given foreground class, following an
 /// observable source.
-val messagePanel: text: IObservable<string> * fg: StyleClass -> Control
+val inline messagePanel: text: IObservable<string> * fg: StyleClass -> Control
 
 /// The page's error card: one plain line per failure, in the danger
 /// tone, shown only while the page carries an error.

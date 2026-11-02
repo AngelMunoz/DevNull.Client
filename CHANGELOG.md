@@ -10,16 +10,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Installer (Windows):** the terminal command `devnull` starts the app from any shell; the full `DevNull.Client.exe` shim stays beside it.
+- **Threads:** returning to a thread you left restores your reading position in what you had loaded.
 
 ### Changed
 
 - **UI:** commit-card stars, pastels, and poll votes run through one shared action flow on every feed and thread page, and each result settles into the page that owns the card; a star on a search result now shows at once instead of waiting for the next search.
 - **UI:** every page's pinned title, error card, and busy or empty line now render through one shared header, and the log, notifications, saved, scheduled, search, profile, organization, settings, about, and sign-in pages all project through it.
+- **Sign-in:** the terms gate now says plainly what this is: an unofficial, third-party app that talks to /dev/null's public API, which may change and break the app without notice. The terms and the privacy policy remain /dev/null's own.
 
 ### Fixed
 
 - **UI:** a commit thread's card no longer rebuilds on every clock tick; the per-tick copies stayed bound until the thread closed, so long sessions no longer grow with the clock.
 - **UI:** the timeline's scroll-to-top works after the log is stashed and brought back: the feed follows the page's own return-to-top signal, so every request reaches the open log instead of stopping after the first leave.
+- **Composer:** staged image previews decode to the size they show and free their memory when the strip rebuilds or an image is removed — long writing sessions with several photos no longer hold the pixels of pictures already removed.
+- **Toasts:** the delete-undo toast follows the live state instead of freezing at the moment it appeared.
 
 ## [0.9.0] - 2026-10-31
 

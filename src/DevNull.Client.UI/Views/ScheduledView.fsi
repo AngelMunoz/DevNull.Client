@@ -1,6 +1,5 @@
 module DevNull.Client.Views.ScheduledView
 
-open System
 open Avalonia.Controls
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http

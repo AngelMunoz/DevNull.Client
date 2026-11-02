@@ -7,7 +7,6 @@ open Avalonia.Controls.Shapes
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
-open IcedTasks
 open MVUish.Avalonia
 open DevNull.Client
 open DevNull.Client.Core.Api
@@ -17,7 +16,6 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Errors
 open DevNull.Client.ImageCache
 open DevNull.Client.Stores
-open DevNull.Client.Theme
 
 type Props<'env
   when 'env :> IProvideClock

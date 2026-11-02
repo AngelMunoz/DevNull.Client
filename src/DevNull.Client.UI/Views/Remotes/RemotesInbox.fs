@@ -4,41 +4,20 @@ open System
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
-open Avalonia.Controls.Shapes
 open Avalonia.Controls.Templates
-open Avalonia.Input
-open Avalonia.Interactivity
 open Avalonia.Layout
 open Avalonia.Media
-open Avalonia.Threading
-open Avalonia.VisualTree
 open NXUI.Extensions
 open FSharp.Control.Reactive
-open FSharp.UMX
 open MVUish.Avalonia
 open MVUish.Avalonia.Collections
-open IcedTasks
-open Navs
 open DevNull.Client
-open DevNull.Client.AttachmentSources
 open DevNull.Client.Components
-open DevNull.Client.Core
 open DevNull.Client.Core.ApiTypes
-open DevNull.Client.Core.Capabilities
-open DevNull.Client.Core.Http
-open DevNull.Client.Core.Types
-open DevNull.Client.Errors
 open DevNull.Client.Formatting
-open DevNull.Client.Icons
 open DevNull.Client.ImageCache
-open DevNull.Client.Natives
-open DevNull.Client.Profiles
-open DevNull.Client.Remotes
 open DevNull.Client.RemotesState
-open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
-open DevNull.Client.Theme
-open DevNull.Client.UiClock
 
 /// The page's semantic regions; the view only composes these.
 module Parts =
@@ -523,7 +502,7 @@ module Parts =
           "nothing found"
         else
           ""
-      elif list.Items = Some [] then
+      elif list.Items |> Option.contains [] then
         RemotesRows.emptyLine current.Tab
       elif list.Items.IsNone then
         "loading the inbox…"

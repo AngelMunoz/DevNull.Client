@@ -4,15 +4,11 @@ open System
 open System.Collections.Generic
 open Avalonia
 open Avalonia.Controls
-open Avalonia.Controls.Shapes
 open Avalonia.Media
-open Avalonia.Controls.Templates
 open Avalonia.Layout
 open NXUI.Extensions
 open FSharp.Control.Reactive
-open IcedTasks
 open MVUish.Avalonia
-open MVUish.Avalonia.Collections
 open Navs
 open DevNull.Client
 open DevNull.Client.Components
@@ -27,10 +23,8 @@ open Microsoft.Extensions.Logging
 open DevNull.Client.Formatting
 open DevNull.Client.Icons
 open DevNull.Client.ImageCache
-open DevNull.Client.Navigation
 open DevNull.Client.Profiles
 open DevNull.Client.Stores
-open DevNull.Client.Theme
 open DevNull.Client.UiClock
 
 type Props<'env
@@ -162,10 +156,10 @@ module State =
     else
       "Notifications"
 
-  let update (props: Props<'env>) msg model =
-    let log =
-      props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Notifications"
+  let loggerOf(props: Props<'env>) =
+    props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Notifications"
 
+  let updateCore (log: ILogger, props: Props<'env>) msg model =
     // Every log line is an effect: update returns it as a command,
     // and the loop writes it after the computation.
     let failed what error =
@@ -323,6 +317,8 @@ module State =
 
       { model with Unread = unread }, Cmd.none
 
+  let update(props: Props<'env>) = updateCore(loggerOf props, props)
+
   /// The page's inlets from outside: the shared clock and the session
   /// store.
   let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
@@ -404,7 +400,7 @@ module Parts =
     Theme.bindClass(
       pill,
       Theme.FilterPillActive,
-      active |> Observable.map(fun current -> current = Some wire)
+      active |> Observable.map(fun current -> current |> Option.contains wire)
     )
     |> ignore
 

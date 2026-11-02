@@ -14,9 +14,7 @@ module RemotesModel =
   /// asks for.
   val update:
     props: Props<'env> ->
-    msg: State.Msg ->
-    model: State.Model ->
-      State.Model * Cmd<State.Msg>
+      (State.Msg -> State.Model -> State.Model * Cmd<State.Msg>)
 
   /// The page's inlets from outside: the shared clock, the session,
   /// the store, and the watcher's readership handles.

@@ -7,7 +7,6 @@ open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Env
 open DevNull.Client.ImageCache
-open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 
 /// What the composer answers to: a fresh commit, a reply, or a quote.

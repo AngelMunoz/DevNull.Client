@@ -2,20 +2,13 @@ module DevNull.Client.Views.LogView
 
 open System
 open System.Collections.Generic
-open System.Reactive.Subjects
 open System.Runtime.CompilerServices
 open Avalonia
 open Avalonia.Controls
-open Avalonia.Controls.Shapes
-open Avalonia.Controls.Templates
 open Avalonia.Layout
-open Avalonia.Media
-open Avalonia.Threading
 open NXUI.Extensions
 open FSharp.Control.Reactive
-open IcedTasks
 open MVUish.Avalonia
-open MVUish.Avalonia.Collections
 open Navs
 open DevNull.Client
 open DevNull.Client.AttachmentSources
@@ -32,11 +25,9 @@ open DevNull.Client.Formatting
 open DevNull.Client.Icons
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
-open DevNull.Client.Navigation
 open DevNull.Client.Profiles
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
-open DevNull.Client.Theme
 open DevNull.Client.Timeline
 open DevNull.Client.UiClock
 open DevNull.Client.UserSettingsStore
@@ -118,7 +109,7 @@ module State =
     /// Whether translations show by themselves.
     Automatic: bool
     /// Every commit's translation on this page.
-    Translations: Translation.Book
+    Translations: TranslationModel.Book
     /// Whether the page already asked for its automatic translations.
     AutoRan: bool
   }
@@ -151,7 +142,7 @@ module State =
     | OriginalRequested of Commit
     | TranslationDone of Commit * Result<TranslationPayload, AppError>
     | TranslationsAuto of (Commit * Result<TranslationPayload, AppError>) list
-    | TranslationRecalled of Commit * Translation.Book option
+    | TranslationRecalled of Commit * TranslationModel.Book option
     | PrefsArrived of settings: UserSettings option
 
   let initial = {
@@ -172,7 +163,7 @@ module State =
     Marker = None
     Previews = Map.empty
     Automatic = false
-    Translations = Translation.initial
+    Translations = TranslationModel.initial
     AutoRan = false
   }
 
@@ -220,7 +211,7 @@ module State =
           Pasteis = props.Session.Session.PasteisMode
           Automatic = props.Session.Session.AutomaticTranslation
           Translations =
-            Translation.seed(
+            TranslationModel.seed(
               (props.Env :> IProvideTranslations).Translations.Snapshot()
             )
           Marker = marker
@@ -231,7 +222,7 @@ module State =
   /// choose.
   let translateCall(props: Props<'env>, commit: Commit) =
     let language =
-      Translation.languageFor(
+      TranslationModel.languageFor(
         (props.Env :> IProvideUserSettings).UserSettings.Current,
         commit
       )
@@ -248,19 +239,23 @@ module State =
   /// Runs one commit's translate call: the language its own translation or
   /// the settings pick, and the 503 retries.
   let translate(props: Props<'env>, commit: Commit) =
-    Translation.execute(
-      Translation.retryDelays,
+    TranslationModel.execute(
+      TranslationModel.retryDelays,
       fun () -> translateCall(props, commit)
     )
 
   /// Asks for the page's unknown translations, one at a time, up to the
   /// budget a first screen needs.
   let autoTranslations(props: Props<'env>, commits: Commit list) =
-    Translation.auto((fun commit -> translateCall(props, commit)), 4, commits)
+    TranslationModel.auto(
+      (fun commit -> translateCall(props, commit)),
+      4,
+      commits
+    )
 
   /// Records this visit's newest commit as the next marker, once the
   /// feed has items to take it from.
-  let private markVisit(props: Props<'env>, items: CommitNode list) : Cmd<Msg> =
+  let markVisit(props: Props<'env>, items: CommitNode list) : Cmd<Msg> =
     match items with
     | [] -> Cmd.none
     | first :: _ ->
@@ -292,7 +287,7 @@ module State =
 
     let pending =
       if automatic && not model.AutoRan then
-        Translation.pending(
+        TranslationModel.pending(
           model.Translations,
           model.Items
           |> List.choose(function
@@ -308,7 +303,7 @@ module State =
       let marked =
         pending
         |> List.fold
-          (fun book commit -> Translation.request(book, commit.Id))
+          (fun book commit -> TranslationModel.request(book, commit.Id))
           model.Translations
 
       {
@@ -318,8 +313,10 @@ module State =
       },
       Cmd.OfAsync.perform autoTranslations (props, pending) TranslationsAuto
 
-  let update (props: Props<'env>) msg model =
-    let log = props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Log"
+  let loggerOf(props: Props<'env>) =
+    props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Log"
+
+  let updateCore (log: ILogger, props: Props<'env>) msg model =
     let kind = LogKinds.wire props.Log
 
     // Every log line is an effect: update returns it as a command,
@@ -628,18 +625,18 @@ module State =
       },
       Cmd.none
     | TranslateRequested commit when
-      Translation.canReuse(model.Translations, commit)
+      TranslationModel.canReuse(model.Translations, commit)
       ->
       {
         model with
             Translations =
-              Translation.showTranslated(model.Translations, commit.Id)
+              TranslationModel.showTranslated(model.Translations, commit.Id)
       },
       Cmd.none
     | TranslateRequested commit ->
       model,
       Cmd.OfAsync.perform
-        Translation.recall
+        TranslationModel.recall
         ((props.Env :> IProvideTranslations).Translations,
          model.Translations,
          commit.Id)
@@ -652,7 +649,8 @@ module State =
       | None ->
         {
           model with
-              Translations = Translation.request(model.Translations, commit.Id)
+              Translations =
+                TranslationModel.request(model.Translations, commit.Id)
         },
         Cmd.OfAsync.perform translate (props, commit) (fun result ->
           TranslationDone(commit, result))
@@ -660,7 +658,7 @@ module State =
       {
         model with
             Translations =
-              Translation.showOriginal(model.Translations, commit.Id)
+              TranslationModel.showOriginal(model.Translations, commit.Id)
       },
       Cmd.none
     | PrefsArrived settings ->
@@ -681,22 +679,22 @@ module State =
             match result with
             | Error(Refused(429, _, _)) -> book, stores
             | _ ->
-              let args: Translation.Finish = {
+              let args: TranslationModel.Finish = {
                 Book = book
                 Now = model.Now
                 CommitId = commit.Id
                 Result = result
               }
 
-              Translation.finish args,
+              TranslationModel.finish args,
               Cmd.ofAction(fun () ->
-                Async.Start(Translation.store(cache, args)))
+                Async.Start(TranslationModel.store(cache, args)))
               :: stores)
           (model.Translations, [])
 
       { model with Translations = book }, Cmd.batch stores
     | TranslationDone(commit, result) ->
-      let args: Translation.Finish = {
+      let args: TranslationModel.Finish = {
         Book = model.Translations
         Now = model.Now
         CommitId = commit.Id
@@ -705,15 +703,17 @@ module State =
 
       {
         model with
-            Translations = Translation.finish args
+            Translations = TranslationModel.finish args
       },
       Cmd.ofAction(fun () ->
         Async.Start(
-          Translation.store(
+          TranslationModel.store(
             (props.Env :> IProvideTranslations).Translations,
             args
           )
         ))
+
+  let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
   /// The page's inlets from outside: the shared clock, the session
   /// store, and — while the page sits in the tree — the since-poll and
@@ -1102,7 +1102,7 @@ let view
           model
           |> Observable.map(fun current ->
             fun commit ->
-              Translation.view {
+              TranslationModel.view {
                 Automatic = current.Automatic
                 Book = current.Translations
                 Now = current.Now

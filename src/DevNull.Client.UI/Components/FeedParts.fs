@@ -8,7 +8,6 @@ open Avalonia.Media
 open NXUI.Extensions
 open DevNull.Client
 open DevNull.Client.Core.ApiTypes
-open DevNull.Client.Theme
 
 /// The key of one feed row: the commit or tombstone id.
 let inline nodeKey(node: CommitNode) : string =

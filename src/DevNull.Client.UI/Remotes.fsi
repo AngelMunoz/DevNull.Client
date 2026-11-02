@@ -3,12 +3,10 @@ module DevNull.Client.Remotes
 open System
 open FSharp.UMX
 open Microsoft.Extensions.Logging
-open System.Reactive.Subjects
 open DevNull.Client.Core
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
-open DevNull.Client.Core.Types
 open DevNull.Client.Errors
 open DevNull.Client.RemotesState
 open DevNull.Client.Stores

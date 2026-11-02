@@ -11,21 +11,17 @@ open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
-open DevNull.Client.DeviceAuth
 open DevNull.Client.Env
 open DevNull.Client.ImageCache
 open DevNull.Client.Profiles
 open DevNull.Client.RecentSearchStore
 open DevNull.Client.Remotes
-open DevNull.Client.RemotesState
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
-open DevNull.Client.Navigation
 open DevNull.Client.Timeline
 open DevNull.Client.UiClock
 open DevNull.Client.UserSettingsStore
 open DevNull.Client.TranslationCache
-open DevNull.Client.Theme
 open DevNull.Client.Views
 
 /// Fires one navigation now and reports a failed one through the env's

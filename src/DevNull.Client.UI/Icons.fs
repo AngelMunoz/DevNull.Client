@@ -1,7 +1,6 @@
 module DevNull.Client.Icons
 
 open System.Collections.Concurrent
-open Avalonia
 open Avalonia.Controls
 open Avalonia.Media
 
@@ -160,4 +159,4 @@ let iconAt(glyph: Glyph, size: float) : PathIcon =
   icon.Data <- geometry glyph
   icon
 
-let icon glyph = iconAt(glyph, 18.0)
+let inline icon glyph = iconAt(glyph, 18.0)

@@ -5,7 +5,6 @@ open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
 open Avalonia.Controls.Shapes
-open Avalonia.Interactivity
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
@@ -24,7 +23,6 @@ open DevNull.Client.Icons
 open DevNull.Client.Natives
 open DevNull.Client.RemotesState
 open DevNull.Client.SettingsStore
-open DevNull.Client.Theme
 open Microsoft.Extensions.Logging
 
 /// The services one thread composer draws on: the viewer the mention

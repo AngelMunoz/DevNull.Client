@@ -8,7 +8,6 @@ open NXUI.Extensions
 open FSharp.Control.Reactive
 open DevNull.Client
 open DevNull.Client.Icons
-open DevNull.Client.Theme
 
 /// The width below which the chrome gives up its two columns: one pane
 /// at a time.
@@ -30,6 +29,7 @@ let view(props: Props) : Control =
       (columns.GetObservable(Visual.BoundsProperty)
        |> Observable.map(fun bounds -> bounds.Width))
       props.MainOpen
+    |> Slices.share
 
   // The side takes the whole strip while it stands alone, its share of
   // a wide one (the site's 320, proportionally less, floored so the

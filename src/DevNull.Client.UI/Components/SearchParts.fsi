@@ -24,11 +24,11 @@ module Intent =
   val ofTerm: term: string -> Reading
 
   /// True when the reading reaches the commit channel.
-  val searchesCommits: reading: Reading -> bool
+  val inline searchesCommits: reading: Reading -> bool
 
   /// True when a lone `@` announces a developer search but has nothing
   /// to search for yet.
-  val awaitsDeveloperName: term: string -> bool
+  val inline awaitsDeveloperName: term: string -> bool
 
 /// The site's canned suggestions, the words its empty dialog offers.
 val suggestions: string list

@@ -4,7 +4,6 @@ open System
 open Avalonia.Controls
 open Avalonia.Controls.Shapes
 open Avalonia.Layout
-open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
@@ -13,7 +12,6 @@ open DevNull.Client.Core.Commit
 open DevNull.Client.Errors
 open DevNull.Client.Icons
 open DevNull.Client.Natives
-open DevNull.Client.Theme
 
 /// The recording lane's own bounds, the web's own: a half second
 /// before a recording counts, a minute before it stops itself, and

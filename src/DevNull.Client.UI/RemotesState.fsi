@@ -4,7 +4,6 @@ open System
 open FSharp.UMX
 open DevNull.Client.Core
 open DevNull.Client.Core.ApiTypes
-open DevNull.Client.Core.Types
 
 /// One staged image, as the push API takes it.
 type ImageAttachment = DevNull.Client.Core.Commit.ImageAttachment

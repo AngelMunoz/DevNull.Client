@@ -731,8 +731,7 @@ let pinsMoved
   |> List.exists(fun item ->
     state.PinPreferences
     |> Map.tryFind(ChatTargets.summaryKey item)
-    |> Option.map _.Value
-    <> Some item.PinnedAt)
+    |> Option.forall(fun preference -> preference.Value <> item.PinnedAt))
   || page.Conversations
      |> List.exists(fun item ->
        item.PinnedAt.IsSome

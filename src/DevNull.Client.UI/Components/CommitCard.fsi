@@ -38,6 +38,24 @@ type ActionSlot = {
   Busy: IObservable<string option>
 }
 
+/// What one card reads about a commit's translation: the body to show, the
+/// notice, the Translate button's state, and the last failure.
+[<Struct>]
+type TranslationView = {
+  /// The translated body to show, or none for the original.
+  Body: TranslatedBody option
+  /// The source language's English name, for the notice.
+  SourceName: string option
+  /// The Translate button shows.
+  CanTranslate: bool
+  /// The call for this commit runs now.
+  Busy: bool
+  /// The server asked to wait; the button is disabled until the minute passes.
+  Waiting: bool
+  /// The last failure, in the server's words.
+  Error: string option
+}
+
 /// One commit row. `OnEvent` receives the intent events the host does
 /// not run itself. Every card rides the graph rail with its author's
 /// avatar; dense rows (the replies of a thread) shrink the node.
@@ -68,7 +86,7 @@ type Props = {
   Star: ActionSlot voption
   Vote: ActionSlot voption
   Pastel: ActionSlot voption
-  Translation: IObservable<Translation.View voption>
+  Translation: IObservable<TranslationView voption>
   /// The zone the header's time tooltip shows.
   Zone: Zone
 }
@@ -131,7 +149,7 @@ type RowProps = {
   Star: ActionSlot voption
   Vote: ActionSlot voption
   Pastel: ActionSlot voption
-  Translation: IObservable<Commit -> Translation.View voption>
+  Translation: IObservable<Commit -> TranslationView voption>
   Zone: Zone
 }
 

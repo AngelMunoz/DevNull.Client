@@ -62,12 +62,7 @@ let kindLabel(kind: string) : Control =
 let titleRow
   (model: IObservable<'model>, titleOf: 'model -> string, kind: string option)
   : Control =
-  let title =
-    model
-    |> Observable.map titleOf
-    |> Observable.distinctUntilChanged
-    |> Observable.replayBuffer 1
-    |> Observable.refCount
+  let title = model |> Slices.gate titleOf |> Slices.share
 
   let visible = title |> Observable.map(fun text -> text <> "" || kind.IsSome)
 
@@ -87,12 +82,7 @@ let titleRow
 let noteLine
   (model: IObservable<'model>, noteOf: 'model -> string option)
   : Control =
-  let note =
-    model
-    |> Observable.map noteOf
-    |> Observable.distinctUntilChanged
-    |> Observable.replayBuffer 1
-    |> Observable.refCount
+  let note = model |> Slices.gate noteOf |> Slices.share
 
   TextBlock()
     .Classes(Theme.name Theme.Muted)
@@ -104,9 +94,11 @@ let noteLine
 /// hand the feed no scroll slots, so a profile page never restores a
 /// place; the slots wait for a consumer.
 let feedColumn(feed: FeedProps<'row>) : Control =
-  let endVisible = feed.End |> Observable.map Option.isSome
+  let end' = feed.End |> Slices.gate id |> Slices.share
 
-  let endText = feed.End |> Observable.map(Option.defaultValue "")
+  let endVisible = end' |> Observable.map Option.isSome
+
+  let endText = end' |> Observable.map(Option.defaultValue "")
 
   let endLine =
     TextBlock()

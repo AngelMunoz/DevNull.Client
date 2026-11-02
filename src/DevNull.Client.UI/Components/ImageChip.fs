@@ -11,7 +11,6 @@ open NXUI.Extensions
 open FSharp.Control.Reactive
 open DevNull.Client
 open DevNull.Client.Core.Commit
-open DevNull.Client.Theme
 
 [<Struct>]
 type Description = {

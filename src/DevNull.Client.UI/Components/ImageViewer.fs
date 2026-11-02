@@ -9,7 +9,6 @@ open DevNull.Client
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Icons
 open DevNull.Client.ImageCache
-open DevNull.Client.Theme
 
 // The API's image and the control share the short name; the domain
 // value wins here.

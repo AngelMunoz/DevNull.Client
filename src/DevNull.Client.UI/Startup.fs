@@ -3,17 +3,13 @@ module DevNull.Client.Startup
 open System
 open System.IO
 open Avalonia
-open Avalonia.Controls
 open Avalonia.Controls.ApplicationLifetimes
 open Avalonia.Themes.Fluent
 open Microsoft.Extensions.Logging
-open NXUI.Extensions
 open Serilog
 open Serilog.Events
-open Serilog.Extensions.Logging
 open DevNull.Client.DeviceAuth
 open DevNull.Client.Env
-open DevNull.Client.Errors
 open DevNull.Client.Natives
 open DevNull.Client.SessionFiles
 open DevNull.Client.SettingsStore

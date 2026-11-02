@@ -197,7 +197,7 @@ Steps may swap when their dependencies allow.
   SearchDialog's lane. Verify: suites green; the thread composer reuses
   the strip and the key lane; grep shows no `BehaviorSubject<Sub>` and no
   view-filled subscription holder in the composer.
-- [ ] **P16 — Mechanical sweep.** The `Slices` module (`share`, `gate`,
+- [x] **P16 — Mechanical sweep.** The `Slices` module (`share`, `gate`,
   `gateByRef`) and its first adopters (the nine shared slices of §4.3); the
   per-update logger hoist (26 sites); `inline` one-liners; dead opens and
   messages; the two `private` markers; the `Status` namespace fix;
@@ -230,3 +230,4 @@ Steps may swap when their dependencies allow.
 | P13 | committed 2026-11-01 | `RemotesThread.fs` deleted; ThreadPane + ThreadComposer out; Feed gains `ScrollTo`/`Ride`; gates battery `audits/gates.ps1` adopted; scroll-restore limitation user-accepted |
 | P14 | committed 2026-11-02 | model 1,885 → 1,176 (+Types 195 +Rows 434, env-free); WAV `stageVoice` → `Core.Commit.Voices`; draft helpers → `Core.RemotesText`; `typingNames` handed to ThreadComposer as a `Typing` prop; zero Components→Views references (fsproj order proves it) |
 | P15 | committed 2026-11-02 | Composer 1,803 → 969 + seven elements (CompletionLane/ImageChip/AttachmentStrip/ComposerKeys/PollEditor/SchedulePicker/ComposerToolbar); lane death done — `BehaviorSubject<Sub>`/`lane.Value` at 0, element-local Snapshot subject justified; ThreadComposer 708 → 612 on the shared chip and keys; picked debug logs kept (Composer.fs:374/378); chip filename unified at 12px |
+| P16 | committed 2026-11-02 | `Slices` (share/gate/gateByRef) at 19 adopter sites; logger hoist (`update` → `updateCore(loggerOf props, props)`, `CreateLogger` inside update at 0); option-compare list fixed; `let private` in paired files at 0; Translation → `Views/TranslationModel` (pure move); 232 dead opens, 24 inline marks; rowsOf gated on (Details, Commits, Tab). Implementer died on a tool error at 44min; orchestrator verified from the tree. Phase 1 complete |

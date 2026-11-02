@@ -26,7 +26,7 @@ let Rate = 16000
 /// ComImport cast on it throws under PublishAot — so the calls go
 /// through the IUnknown vtable, whose layout is stable ABI: QueryInterface
 /// at slot 0, Release at slot 2, GetBuffer at slot 3 behind them.
-module private ByteAccess =
+module ByteAccess =
 
   /// The interface id of IMemoryBufferByteAccess.
   let iid = Guid("5B0D3235-4DBA-4D44-865E-8F1D0E4FD04D")
@@ -340,7 +340,7 @@ type Playback
 /// The microphone and the speaker through WinRT's own surfaces: the
 /// audio graph feeds the capture (the meter needs frames), and the
 /// media player sounds the notes (the OS decodes the container).
-module private Engine =
+module Engine =
 
   let graphSettings() =
     let settings =

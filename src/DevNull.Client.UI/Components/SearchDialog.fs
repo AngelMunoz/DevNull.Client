@@ -5,14 +5,12 @@ open System.Text.RegularExpressions
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Input
-open Avalonia.Interactivity
 open Avalonia.Layout
 open Avalonia.Media
 open Avalonia.Threading
 open Avalonia.VisualTree
 open NXUI.Extensions
 open FSharp.Control.Reactive
-open IcedTasks
 open MVUish.Avalonia
 open Navs
 open Microsoft.Extensions.Logging
@@ -25,12 +23,10 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Env
 open DevNull.Client.Icons
 open DevNull.Client.ImageCache
-open DevNull.Client.Navigation
 open DevNull.Client.Profiles
 open DevNull.Client.RecentSearchStore
 open DevNull.Client.Search
 open DevNull.Client.Stores
-open DevNull.Client.Theme
 open DevNull.Client.UiClock
 
 /// Everything the search dialog reads: the env it searches through,
@@ -227,11 +223,11 @@ module State =
 
     if count = 0 then 0 else Math.Min(model.Active, count - 1)
 
-  let update (props: Props<'env>) msg model =
-    let log =
-      props.Env.LoggerFactory.CreateLogger
-        "DevNull.Client.Components.SearchDialog"
+  let loggerOf(props: Props<'env>) =
+    props.Env.LoggerFactory.CreateLogger
+      "DevNull.Client.Components.SearchDialog"
 
+  let updateCore (log: ILogger, props: Props<'env>) msg model =
     let closeAndGo(url: string) =
       Cmd.batch [
         Cmd.ofEffect(fun _ -> Navigation.go(props.Nav, url, ignore))
@@ -344,6 +340,8 @@ module State =
       props.Recents.Clear(props.SignedIn.Session.User.Id)
       { model with Recents = [] }, Cmd.none
     | ClockTicked moment -> { model with Now = moment }, Cmd.none
+
+  let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
   /// The dialog's inlets: its session's two channels and the clock.
   let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =

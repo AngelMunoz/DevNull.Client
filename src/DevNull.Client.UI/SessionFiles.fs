@@ -26,7 +26,7 @@ let errorPath = Path.Combine(dataDirectory, "last-error.txt")
 
 // The content of one file, read off the caller's thread. The share
 // flags keep the read working beside a writer's atomic move.
-let private readAllTextShared(path: string) : Async<string> = asyncEx {
+let readAllTextShared(path: string) : Async<string> = asyncEx {
   use stream =
     new FileStream(
       path,

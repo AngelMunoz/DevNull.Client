@@ -4,7 +4,6 @@ open System
 open Avalonia.Controls
 open FSharp.Control.Reactive
 open MVUish.Avalonia
-open DevNull.Client
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Components
 open DevNull.Client.Core.Capabilities

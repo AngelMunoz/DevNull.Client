@@ -1,10 +1,10 @@
-module DevNull.Client.Components.Translation
+module DevNull.Client.Views.TranslationModel
 
 open System
 open FSharp.UMX
+open DevNull.Client.Components.CommitCard
 open DevNull.Client.Core
 open DevNull.Client.Core.ApiTypes
-open DevNull.Client.Core.Types
 open DevNull.Client.Errors
 open DevNull.Client.TranslationCache
 
@@ -27,24 +27,6 @@ type State = {
   Display: Display
   Error: string option
   CooldownUntil: DateTimeOffset option
-}
-
-/// What one card reads about a commit's translation: the body to show, the
-/// notice, the Translate button's state, and the last failure.
-[<Struct>]
-type View = {
-  /// The translated body to show, or none for the original.
-  Body: TranslatedBody option
-  /// The source language's English name, for the notice.
-  SourceName: string option
-  /// The Translate button shows.
-  CanTranslate: bool
-  /// The call for this commit runs now.
-  Busy: bool
-  /// The server asked to wait; the button is disabled until the minute passes.
-  Waiting: bool
-  /// The last failure, in the server's words.
-  Error: string option
 }
 
 /// Every commit's translation on one page, with the commits whose calls run.
@@ -82,7 +64,7 @@ val seed: translations: Map<string, CommitTranslation> -> Book
 
 /// What one card shows about a commit's translation, or none when it has
 /// nothing to say.
-val view: surface: Surface -> View voption
+val view: surface: Surface -> TranslationView voption
 
 /// Marks one commit's translate call as running.
 val request: book: Book * commitId: string -> Book

@@ -11,7 +11,6 @@ open DevNull.Client.Components.Avatar
 open DevNull.Client.Components.Palette
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.ImageCache
-open DevNull.Client.Theme
 
 [<Struct>]
 type View = {

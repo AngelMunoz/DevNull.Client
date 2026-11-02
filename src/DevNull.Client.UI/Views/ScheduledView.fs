@@ -9,7 +9,6 @@ open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
-open IcedTasks
 open MVUish.Avalonia
 open MVUish.Avalonia.Collections
 open Navs
@@ -24,9 +23,7 @@ open DevNull.Client.Env
 open DevNull.Client.Formatting
 open DevNull.Client.Icons
 open Microsoft.Extensions.Logging
-open DevNull.Client.Navigation
 open DevNull.Client.Stores
-open DevNull.Client.Theme
 open DevNull.Client.UiClock
 
 type Props<'env
@@ -110,10 +107,10 @@ module State =
   let init (props: Props<'env>) () =
     initial, Cmd.OfAsync.perform fetch (props.Env, props.Session, 1) Fetched
 
-  let update (props: Props<'env>) msg model =
-    let log =
-      props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Scheduled"
+  let loggerOf(props: Props<'env>) =
+    props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Scheduled"
 
+  let updateCore (log: ILogger, props: Props<'env>) msg model =
     let failed what error =
       Cmd.ofAction(fun () ->
         log.LogWarning(
@@ -300,6 +297,8 @@ module State =
         },
         Cmd.batch [ failed "the submission" error; Cmd.none ]
     | ClockTicked moment -> { model with Now = moment }, Cmd.none
+
+  let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
   let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
     Sub.fromObservable

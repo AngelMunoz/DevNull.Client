@@ -255,10 +255,10 @@ module State =
 
     { initial with Body = seeded }, Cmd.none
 
-  let update (props: Props<'env>) msg (model: Model) =
-    let log =
-      props.Env.LoggerFactory.CreateLogger "DevNull.Client.Components.Composer"
+  let loggerOf(props: Props<'env>) =
+    props.Env.LoggerFactory.CreateLogger "DevNull.Client.Components.Composer"
 
+  let updateCore (log: ILogger, props: Props<'env>) msg (model: Model) =
     match msg with
     | BodyChanged text ->
       let changed =
@@ -677,6 +677,8 @@ module State =
             "The commit was not scheduled: {Error}",
             bounded 300 (describe error)
           ))
+
+  let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
   /// The completion session's answers enter the program through the
   /// engine's subscription set, and the session itself retires with it.

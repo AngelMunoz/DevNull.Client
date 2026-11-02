@@ -4,7 +4,6 @@ open System
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.ImageCache
 open DevNull.Client.Formatting
-open DevNull.Client.Components
 open DevNull.Client.Components.CommitCard
 open DevNull.Client.Components.UserFlyout
 
@@ -13,7 +12,7 @@ open DevNull.Client.Components.UserFlyout
 /// the commit id whose star, vote, or pastel call runs, and the commit
 /// id whose pin call runs.
 [<Struct>]
-type Slices = {
+type RowSlices = {
   Pasteis: bool
   Now: DateTimeOffset
   PollChoices: Map<string, string>
@@ -37,7 +36,7 @@ type Host = {
   OnStar: Commit -> unit
   OnVote: Commit -> unit
   OnPastel: Commit -> unit
-  Translation: IObservable<Commit -> Translation.View voption>
+  Translation: IObservable<Commit -> TranslationView voption>
 }
 
 /// Builds one page's row context once. The three action slots share one
@@ -45,4 +44,4 @@ type Host = {
 /// are each mapped once from the page's model and multicasted, so every
 /// realized card follows one upstream subscription.
 val row:
-  host: Host * model: IObservable<'m> * slicesOf: ('m -> Slices) -> RowProps
+  host: Host * model: IObservable<'m> * slicesOf: ('m -> RowSlices) -> RowProps

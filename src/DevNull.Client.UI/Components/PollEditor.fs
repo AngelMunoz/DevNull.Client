@@ -9,7 +9,6 @@ open FSharp.Control.Reactive
 open DevNull.Client
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Icons
-open DevNull.Client.Theme
 
 [<Struct>]
 type Draft = {

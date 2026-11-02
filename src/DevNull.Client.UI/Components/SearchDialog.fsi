@@ -1,9 +1,7 @@
 module DevNull.Client.Components.SearchDialog
 
-open System
 open Avalonia.Controls
 open Navs
-open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Env

@@ -9,7 +9,6 @@ open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
-open IcedTasks
 open MVUish.Avalonia
 open MVUish.Avalonia.Collections
 open Microsoft.Extensions.Logging
@@ -17,7 +16,6 @@ open Navs
 open DevNull.Client
 open DevNull.Client.Components
 open DevNull.Client.Components.CommitCard
-open DevNull.Client.Components.SearchParts
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
@@ -27,12 +25,10 @@ open DevNull.Client.Errors
 open DevNull.Client.Icons
 open DevNull.Client.ImageCache
 open DevNull.Client.Formatting
-open DevNull.Client.Navigation
 open DevNull.Client.Profiles
 open DevNull.Client.RecentSearchStore
 open DevNull.Client.Search
 open DevNull.Client.Stores
-open DevNull.Client.Theme
 open DevNull.Client.Timeline
 open DevNull.Client.UiClock
 open DevNull.Client.UserSettingsStore
@@ -76,7 +72,7 @@ module State =
     /// Whether translations show by themselves.
     Automatic: bool
     /// Every commit's translation on this page.
-    Translations: Translation.Book
+    Translations: TranslationModel.Book
   }
 
   type Msg =
@@ -89,7 +85,7 @@ module State =
     | StarDone of Result<Commit, AppError>
     | ClockTicked of moment: DateTimeOffset
     | TranslationDone of Commit * Result<TranslationPayload, AppError>
-    | TranslationRecalled of Commit * Translation.Book option
+    | TranslationRecalled of Commit * TranslationModel.Book option
 
   let initial (props: Props<'env>) () : Model * Cmd<Msg> =
     let term = props.Term.Trim()
@@ -101,7 +97,7 @@ module State =
       Recents = props.Recents.Recent(props.SignedIn.Session.User.Id)
       Automatic = props.SignedIn.Session.AutomaticTranslation
       Translations =
-        Translation.seed(
+        TranslationModel.seed(
           (props.Env :> IProvideTranslations).Translations.Snapshot()
         )
     }
@@ -142,13 +138,13 @@ module State =
   /// the settings pick, and the 503 retries.
   let translate(props: Props<'env>, commit: Commit) =
     let language =
-      Translation.languageFor(
+      TranslationModel.languageFor(
         (props.Env :> IProvideUserSettings).UserSettings.Current,
         commit
       )
 
-    Translation.execute(
-      Translation.retryDelays,
+    TranslationModel.execute(
+      TranslationModel.retryDelays,
       fun () ->
         Commits.translate(
           props.Env,
@@ -160,9 +156,10 @@ module State =
         )
     )
 
-  let update (props: Props<'env>) msg (model: Model) =
-    let log = props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Search"
+  let loggerOf(props: Props<'env>) =
+    props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Search"
 
+  let updateCore (log: ILogger, props: Props<'env>) msg (model: Model) =
     let failure = CommitActions.failure log
 
     let failed what error =
@@ -202,18 +199,18 @@ module State =
         (props.Env, props.SignedIn, commit)
         StarDone
     | CardEvent(CommitCard.TranslateRequested commit) when
-      Translation.canReuse(model.Translations, commit)
+      TranslationModel.canReuse(model.Translations, commit)
       ->
       {
         model with
             Translations =
-              Translation.showTranslated(model.Translations, commit.Id)
+              TranslationModel.showTranslated(model.Translations, commit.Id)
       },
       Cmd.none
     | CardEvent(CommitCard.TranslateRequested commit) ->
       model,
       Cmd.OfAsync.perform
-        Translation.recall
+        TranslationModel.recall
         ((props.Env :> IProvideTranslations).Translations,
          model.Translations,
          commit.Id)
@@ -226,7 +223,8 @@ module State =
       | None ->
         {
           model with
-              Translations = Translation.request(model.Translations, commit.Id)
+              Translations =
+                TranslationModel.request(model.Translations, commit.Id)
         },
         Cmd.OfAsync.perform translate (props, commit) (fun result ->
           TranslationDone(commit, result))
@@ -234,7 +232,7 @@ module State =
       {
         model with
             Translations =
-              Translation.showOriginal(model.Translations, commit.Id)
+              TranslationModel.showOriginal(model.Translations, commit.Id)
       },
       Cmd.none
     | CardEvent _ -> model, Cmd.none
@@ -255,7 +253,7 @@ module State =
       | Error error -> model, failed "the star" error
     | ClockTicked moment -> { model with Now = moment }, Cmd.none
     | TranslationDone(commit, result) ->
-      let args: Translation.Finish = {
+      let args: TranslationModel.Finish = {
         Book = model.Translations
         Now = model.Now
         CommitId = commit.Id
@@ -264,15 +262,17 @@ module State =
 
       {
         model with
-            Translations = Translation.finish args
+            Translations = TranslationModel.finish args
       },
       Cmd.ofAction(fun () ->
         Async.Start(
-          Translation.store(
+          TranslationModel.store(
             (props.Env :> IProvideTranslations).Translations,
             args
           )
         ))
+
+  let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
   /// The page's inlets: its session's commit channel and the clock.
   let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
@@ -475,7 +475,7 @@ let view
       model
       |> Observable.map(fun model ->
         fun commit ->
-          Translation.view {
+          TranslationModel.view {
             Automatic = model.Automatic
             Book = model.Translations
             Now = model.Now

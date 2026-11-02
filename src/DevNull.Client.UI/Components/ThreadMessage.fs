@@ -5,13 +5,11 @@ open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
 open Avalonia.Controls.Shapes
-open Avalonia.Input
 open Avalonia.Interactivity
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
-open MVUish.Avalonia
 open DevNull.Client
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Http
@@ -20,7 +18,6 @@ open DevNull.Client.Icons
 open DevNull.Client.Natives
 open DevNull.Client.RemotesState
 open DevNull.Client.SettingsStore
-open DevNull.Client.Theme
 open DevNull.Client.Components.ThreadVoice
 open Microsoft.Extensions.Logging
 

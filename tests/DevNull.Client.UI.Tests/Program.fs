@@ -4,6 +4,7 @@ open Expecto
 
 open DevNull.Client.UI.Tests
 open DevNull.Client.UI.Tests.Composer
+open DevNull.Client.UI.Tests.FeedTests
 open DevNull.Client.UI.Tests.Natives
 open DevNull.Client.UI.Tests.OrganizationView
 open DevNull.Client.UI.Tests.Remotes
@@ -25,6 +26,7 @@ let main argv =
       // joined), and the gate must measure the soak's own work, not
       // the order it ran in.
       Leaks.tests
+      FeedTests.tests
       App.tests
       Search.tests
       Search.completionTests

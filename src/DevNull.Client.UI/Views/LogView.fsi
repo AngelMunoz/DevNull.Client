@@ -86,6 +86,9 @@ module State =
     NextCursor: string option
     Head: string option
     NewCount: int option
+    /// The number of return-to-top requests the page has taken; the
+    /// feed's scroll binds to changes in it.
+    ScrollTop: int
     Ranked: bool
     /// Whether the page sits in the visual tree: the since-poll pauses
     /// while it does not.
@@ -127,6 +130,7 @@ module State =
     | NewChecked of Result<LogPage, AppError>
     | NewRequested
     | NewFetched of Result<LogPage, AppError>
+    | ScrollTopRequested
     | AttachedChanged of attached: bool
     | ClockTicked of moment: DateTimeOffset
     | SessionChanged of state: SessionState

@@ -21,6 +21,7 @@
     <Compile Include="WhoToFollow.Tests.fs" />
     <Compile Include="Translation.Tests.fs" />
     <Compile Include="Leaks.Tests.fs" />
+    <Compile Include="Feed.Tests.fs" />
     <Compile Include="RemotesView.Tests.fs" />
     <Compile Include="OrganizationView.Tests.fs" />
     <Compile Include="Program.fs" />

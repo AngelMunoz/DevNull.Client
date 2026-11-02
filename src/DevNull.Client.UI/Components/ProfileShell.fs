@@ -131,6 +131,9 @@ let noteLine
     .Text(note |> Observable.map(Option.defaultValue ""))
     .IsVisible(note |> Observable.map Option.isSome)
 
+/// The profile pages' feed column. These feeds are always-top: they
+/// hand the feed no scroll slots, so a profile page never restores a
+/// place; the slots wait for a consumer.
 let feedColumn(feed: FeedProps<'row>) : Control =
   let endVisible = feed.End |> Observable.map Option.isSome
 
@@ -155,6 +158,7 @@ let feedColumn(feed: FeedProps<'row>) : Control =
     KeyOf = feed.KeyOf
     Row = feed.Row
     Footer = ValueSome footer
+    HasMore = feed.HasMore
     ScrollTop = ValueNone
     Restore = ValueNone
     OnScroll = ValueNone

@@ -13,8 +13,12 @@ type Props<'T when 'T: equality> = {
   KeyOf: 'T -> string
   Row: 'T -> Control
   Footer: Control voption
-  /// Emits when the feed must return to its top, whatever scrolled it
-  /// down. The listener ends when the feed leaves the visual tree.
+  /// Whether the host holds another page of rows. The restore chase
+  /// asks for more only while this holds.
+  HasMore: IObservable<bool>
+  /// Emits when the feed must return to its top. The page hands over a
+  /// slice of its own model that emits only on a real change, with the
+  /// initial replay skipped, so a restored offset survives the attach.
   ScrollTop: IObservable<unit> voption
   /// The scroll place this feed picks up, or none for a fresh feed.
   Restore: float voption

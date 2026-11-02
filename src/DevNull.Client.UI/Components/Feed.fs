@@ -1,22 +1,30 @@
 module DevNull.Client.Components.Feed
 
 open System
+open System.Collections.Generic
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
 open Avalonia.Controls.Templates
 open Avalonia.Layout
+open FSharp.Control.Reactive
 open NXUI.Extensions
 open MVUish.Avalonia
 open MVUish.Avalonia.Collections
 
 /// One remembered place coming back: lands once when the loaded extent
-/// reaches it, asks for more pages while it does not, then stays out of
-/// the way of the user's own scrolling.
-type Restore(target: float, needMore: (unit -> unit) voption) =
+/// reaches it, asks for more pages while it does not and the host holds
+/// one, then stays out of the way of the user's own scrolling.
+type Restore
+  (target: float, needMore: (unit -> unit) voption, hasMore: IObservable<bool>) as this
+  =
+  do hasMore.Subscribe(fun more -> this.More <- more) |> ignore
+
   member _.Target = target
 
   member val Landed = false with get, set
+
+  member val More = false with get, set
 
   member this.Chase(scroller: ScrollViewer) =
     if not this.Landed then
@@ -28,7 +36,7 @@ type Restore(target: float, needMore: (unit -> unit) voption) =
         this.Landed <- true
       elif scroller.Extent.Height - scroller.Viewport.Height >= this.Target then
         scroller.Offset <- Vector(0.0, this.Target)
-      else
+      elif this.More then
         needMore |> ValueOption.iter(fun ask -> ask())
 
 type Props<'T when 'T: equality> = {
@@ -36,8 +44,12 @@ type Props<'T when 'T: equality> = {
   KeyOf: 'T -> string
   Row: 'T -> Control
   Footer: Control voption
-  /// Emits when the feed must return to its top, whatever scrolled it
-  /// down. The listener ends when the feed leaves the visual tree.
+  /// Whether the host holds another page of rows. The restore chase
+  /// asks for more only while this holds.
+  HasMore: IObservable<bool>
+  /// Emits when the feed must return to its top. The page hands over a
+  /// slice of its own model that emits only on a real change, with the
+  /// initial replay skipped, so a restored offset survives the attach.
   ScrollTop: IObservable<unit> voption
   /// The scroll place this feed picks up, or none for a fresh feed.
   Restore: float voption
@@ -66,7 +78,13 @@ let view(props: Props<'T>) : Control =
     ItemsControl()
       .ItemTemplate(template)
       .ItemsPanel(FuncTemplate<Panel>(fun () -> VirtualizingStackPanel()))
-      .BindItemsSource(props.Items, props.KeyOf)
+      .BindItemsSource(
+        props.Items
+        |> Observable.distinctUntilChangedKeyCompare
+          (fun items -> box items)
+          ReferenceEqualityComparer.Instance,
+        props.KeyOf
+      )
 
   let children: Control array = [|
     items
@@ -92,7 +110,7 @@ let view(props: Props<'T>) : Control =
   let restore =
     match props.Restore with
     | ValueSome target when target > 0.0 ->
-      Some(Restore(target, props.OnNeedMore))
+      Some(Restore(target, props.OnNeedMore, props.HasMore))
     | _ -> None
 
   scroller.ScrollChanged.Add(fun _ ->
@@ -100,19 +118,13 @@ let view(props: Props<'T>) : Control =
 
     restore |> Option.iter(fun chase -> chase.Chase scroller))
 
-  // A return-to-top signal reaches the feed's own scroller; the
-  // listener ends with the feed's detach, so a parked page's stashed
-  // scroller stops listening.
+  // A return-to-top signal reaches the feed's own scroller through a
+  // property binding, so the subscription follows the scroller's life
+  // and survives a stash; the page only hands over real changes.
   match props.ScrollTop with
   | ValueNone -> ()
   | ValueSome signals ->
-    let listen =
-      Sub.ofId "scroll-top" (fun _ ->
-        signals.Subscribe(fun () -> scroller.Offset <- Vector(0.0, 0.0)))
-      |> Sub.untilDetached scroller
-      |> List.exactlyOne
-      |> snd
-
-    listen ignore |> ignore
+    scroller.Offset(signals |> Observable.map(fun () -> Vector(0.0, 0.0)))
+    |> ignore
 
   scroller

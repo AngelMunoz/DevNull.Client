@@ -917,11 +917,11 @@ uses).
 keeps model bindings until the route ends (leak class 5; dies in work-list
 step 4, but the issue tracks the defect).
 
-**BUG-3 — Scroll-to-top dies after the first stash.**
+~~**BUG-3 — Scroll-to-top dies after the first stash.**
 `Feed.fs:106-116`: the `untilDetached` subscription cannot restart; LogView
 is stashed and returned to (LogView.fs:1086-1093), so the timeline's
 scroll-to-top lands once per route instance. Confirmed by the library
-contract (MVUish XML 250-258).
+contract (MVUish XML 250-258).~~ — died in step P5
 
 ~~**BUG-4 — SearchView drops card-action results.**
 `SearchView.fs:205` (vote branch dead: `selectedOption(Map.empty, …)`),
@@ -1017,9 +1017,10 @@ Suspected until a profile-edit + refresh test exists.
 sweep issue.
 
 **VERIFY-18 — three suspects needing a UI test.**
-(a) Feed virtualization: outer `ScrollViewer` + `ItemsControl` +
+~~(a) Feed virtualization: outer `ScrollViewer` + `ItemsControl` +
 `VirtualizingStackPanel` (Feed.fs:65-87, RemotesInbox:460-466,
-RemotesThread:1680-1686) may realize every row — count realized containers.
+RemotesThread:1680-1686) may realize every row — count realized containers.~~
+— measured in step P5: 30 of 200 rows realized; virtualization holds.
 (b) Same-key item replacement through `BindItemsSource` may show stale row
 content. (c) The completion popup may stay open over the next page when the
 chrome hides (LogChrome:255 + Composer's `IsOpen` binding) — suspected.

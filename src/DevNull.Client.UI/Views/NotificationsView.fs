@@ -9,6 +9,7 @@ open Avalonia.Media
 open Avalonia.Controls.Templates
 open Avalonia.Layout
 open NXUI.Extensions
+open FSharp.Control.Reactive
 open IcedTasks
 open MVUish.Avalonia
 open MVUish.Avalonia.Collections
@@ -784,8 +785,16 @@ module Parts =
         }
     }
 
+    let hasMore = model |> Observable.map _.NextCursor.IsSome
+
     Feed.view {
-      Items = model |> Observable.map(fun current -> State.toRows current.Items)
+      Items =
+        model
+        |> Observable.map _.Items
+        |> Observable.distinctUntilChangedKeyCompare
+          (fun items -> box items)
+          ReferenceEqualityComparer.Instance
+        |> Observable.map State.toRows
       KeyOf = State.rowKey
       Row =
         (fun inboxRow ->
@@ -794,11 +803,9 @@ module Parts =
           | State.InboxRow.Entry notification -> row ctx notification)
       Footer =
         ValueSome(
-          PageChrome.loadMore(
-            model |> Observable.map _.NextCursor.IsSome,
-            fun () -> dispatch State.MoreRequested
-          )
+          PageChrome.loadMore(hasMore, fun () -> dispatch State.MoreRequested)
         )
+      HasMore = hasMore
       ScrollTop = ValueNone
       Restore = ValueNone
       OnScroll = ValueNone

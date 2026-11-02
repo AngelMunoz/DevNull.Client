@@ -114,12 +114,20 @@ Steps may swap when their dependencies allow.
   `bindClass` returns `IDisposable`; `Composer.Register` is deleted and the
   handle exposed. Verify: suites green; §1 grep gates (`CreateLogger` 26 →
   lower only if trivially safe, dead exports 0).
-- [ ] **P5 — Feed hardening.** `Feed.view` gates `Items` by reference and
-  gains `HasMore`; `ScrollTop` becomes a handle or model token (fixes the
-  rule-3 shape and the one-shot Sub); Header/Empty slots; feed scroll slots
-  on `ProfileShell.FeedProps`; a UI test counts realized containers (closes
-  VERIFY-18a either way). Verify: suites green; the new test asserts its
-  number.
+- [x] **P5 — Feed hardening.** `Feed.view` gates `Items` by reference
+  internally and gains a required `HasMore` that gates the restore chase;
+  the hosts that DERIVE their row list per emission (LogView's `toRows`,
+  NotificationsView's `toRows`) gate by input reference so the derivation
+  runs only when the feed inputs change (SavedView and OrganizationView
+  already pass stable list references); `ScrollTop` becomes a page-model
+  token consumed as a property binding — the store stream leaves the
+  props, the one-shot `Sub` dies, and BUG-3 (scroll-to-top dies after the
+  first stash) is fixed and struck; ProfileShell's feed column documents
+  always-top (its scroll slots wait for a consumer); NO Header/Empty slots
+  on Feed until a consumer exists (P13 will say). A UI test counts
+  realized containers and closes VERIFY-18a either way. Verify: suites
+  green; the new test asserts its number; BUG-3 and VERIFY-18a struck or
+  annotated in the audit.
 - [ ] **P6 — Rebuild-guard sweep.** One `bindContent(keyOf, build)` helper
   beside the chrome controls, applied to the 12+ ungated sites of §4.1
   rule 8. LEAK-2 dies here (strike it in §10). Verify: suites green; the
@@ -192,3 +200,4 @@ Steps may swap when their dependencies allow.
 | P3 | committed 2026-11-01 | `Line` + first `share` multicaster; one pinned header; SignIn fit with no new slots |
 | P4 | committed 2026-11-01 | net −149 lines; dead surface gone; scrim token; `bindClass` disposes at both accumulation sites |
 | P2b | committed 2026-11-01 | one `CommitRows`; five ctx copies gone; LogView's per-row slices dead |
+| P5 | committed 2026-11-01 | virtualization proven (30/200) and struck; BUG-3 fixed and struck; `HasMore` gates the chase |

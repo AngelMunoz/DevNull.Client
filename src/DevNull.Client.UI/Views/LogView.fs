@@ -3,6 +3,7 @@ module DevNull.Client.Views.LogView
 open System
 open System.Collections.Generic
 open System.Reactive.Subjects
+open System.Runtime.CompilerServices
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Shapes
@@ -98,6 +99,7 @@ module State =
     NextCursor: string option
     Head: string option
     NewCount: int option
+    ScrollTop: int
     Ranked: bool
     Attached: bool
     Now: DateTimeOffset
@@ -134,6 +136,7 @@ module State =
     | NewChecked of Result<LogPage, AppError>
     | NewRequested
     | NewFetched of Result<LogPage, AppError>
+    | ScrollTopRequested
     | AttachedChanged of attached: bool
     | ClockTicked of moment: DateTimeOffset
     | SessionChanged of state: SessionState
@@ -158,6 +161,7 @@ module State =
     NextCursor = None
     Head = None
     NewCount = None
+    ScrollTop = 0
     Ranked = false
     Attached = false
     Now = DateTimeOffset.UtcNow
@@ -602,6 +606,12 @@ module State =
           log.LogDebug("The pastel on {Commit} landed.", pastel.Commit.Id))
       | Error error ->
         { model with Error = Some error }, failed "the pastel" error
+    | ScrollTopRequested ->
+      {
+        model with
+            ScrollTop = model.ScrollTop + 1
+      },
+      Cmd.none
     | AttachedChanged attached -> { model with Attached = attached }, Cmd.none
     | ClockTicked moment -> { model with Now = moment }, Cmd.none
     | SessionChanged state ->
@@ -717,6 +727,12 @@ module State =
         | Timeline.CommitLanded -> Some ReloadRequested
         | Timeline.ScrollToTop -> None)
 
+    let scrollTopRequests =
+      props.Env.Timeline.Requests
+      |> Observable.choose(function
+        | Timeline.ScrollToTop -> Some ScrollTopRequested
+        | _ -> None)
+
     [
       Sub.fromObservable
         "clock"
@@ -737,6 +753,9 @@ module State =
 
       if model.Attached then
         Sub.fromObservable "chrome" chromeRequests
+
+      if model.Attached then
+        Sub.fromObservable "scroll-top" scrollTopRequests
     ]
     |> Sub.batch
 
@@ -973,44 +992,73 @@ module Parts =
       .IsVisible(model |> Observable.map _.NewCount.IsSome)
       .OnClickHandler(fun _ _ -> dispatch State.NewRequested)
 
+  /// The row inputs the page compares by reference, so a tick that
+  /// left them the same does not reshape the feed.
+  let rowInputsComparer = {
+    new IEqualityComparer<CommitNode list * bool * DateTimeOffset option> with
+      member _.Equals
+        (
+          (leftItems, leftRanked, leftMarker),
+          (rightItems, rightRanked, rightMarker)
+        ) =
+        ReferenceEqualityComparer.Instance.Equals(leftItems, rightItems)
+        && leftRanked = rightRanked
+        && ReferenceEqualityComparer.Instance.Equals(leftMarker, rightMarker)
+
+      member _.GetHashCode((items, ranked, marker)) =
+        HashCode.Combine(
+          RuntimeHelpers.GetHashCode items,
+          ranked,
+          RuntimeHelpers.GetHashCode marker
+        )
+  }
+
   /// The timeline itself: the virtualized feed over the page's rows.
-  /// The shared chrome's return-to-top signal reaches the feed's own
-  /// scroller, and the scroller's place parks in the timeline service,
-  /// so the next page of this log picks it back up.
+  /// The shared chrome's return-to-top signal reaches the page model,
+  /// and the scroller's place parks in the timeline service, so the
+  /// next page of this log picks it back up.
   let feed(args: FeedArgs<'env>) : Control =
     let props = args.Props
     let model = args.Model
     let place = props.Env.Timeline.OffsetOf props.Log
+    let hasMore = model |> Observable.map _.NextCursor.IsSome
+
+    let rows =
+      model
+      |> Observable.map(fun current ->
+        current.Items, current.Ranked, current.Marker)
+      |> Observable.distinctUntilChangedCompare(rowInputsComparer)
+      |> Observable.map(fun (items, ranked, marker) ->
+        State.toRows(
+          items,
+          ranked,
+          marker
+          |> Option.map(fun visitedAt -> {
+            VisitedAt = visitedAt
+            ViewerId = props.Session.Session.User.Id
+          })
+        ))
+
+    let scrollTop =
+      model
+      |> Observable.map _.ScrollTop
+      |> Observable.distinctUntilChanged
+      |> Observable.skip 1
+      |> Observable.map ignore
 
     Feed.view {
-      Items =
-        model
-        |> Observable.map(fun current ->
-          State.toRows(
-            current.Items,
-            current.Ranked,
-            current.Marker
-            |> Option.map(fun visitedAt -> {
-              VisitedAt = visitedAt
-              ViewerId = props.Session.Session.User.Id
-            })
-          ))
+      Items = rows
       KeyOf = State.keyOf
       Row = fun logRow -> row(args, logRow)
       Footer =
         ValueSome(
           PageChrome.loadMore(
-            model |> Observable.map _.NextCursor.IsSome,
+            hasMore,
             fun () -> args.Dispatch State.MoreRequested
           )
         )
-      ScrollTop =
-        ValueSome(
-          props.Env.Timeline.Requests
-          |> Observable.choose(function
-            | Timeline.ScrollToTop -> Some()
-            | _ -> None)
-        )
+      HasMore = hasMore
+      ScrollTop = ValueSome scrollTop
       Restore = (if place > 0.0 then ValueSome place else ValueNone)
       OnScroll =
         ValueSome(fun offset -> props.Env.Timeline.Remember(props.Log, offset))

@@ -383,6 +383,8 @@ module Parts =
       model: IObservable<State.Model>,
       ctx: CommitCard.RowProps
     ) : Control =
+    let hasMore = model |> Observable.map _.NextCursor.IsSome
+
     Feed.view {
       Items = model |> Observable.map _.Items
       KeyOf = FeedParts.nodeKey
@@ -398,11 +400,9 @@ module Parts =
           | Tombstone _ -> card
       Footer =
         ValueSome(
-          PageChrome.loadMore(
-            model |> Observable.map _.NextCursor.IsSome,
-            fun () -> dispatch State.MoreRequested
-          )
+          PageChrome.loadMore(hasMore, fun () -> dispatch State.MoreRequested)
         )
+      HasMore = hasMore
       ScrollTop = ValueNone
       Restore = ValueNone
       OnScroll = ValueNone

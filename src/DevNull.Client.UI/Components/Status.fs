@@ -7,22 +7,25 @@ open Avalonia.Media
 open NXUI.Extensions
 open DevNull.Client
 open DevNull.Client.Theme
+open FSharp.Control.Reactive
 
-/// One line of text in the given foreground class.
-let panel(text: string, fg: StyleClass) : Control =
+/// One line of text in the given foreground class, following an
+/// observable source.
+let panel(text: IObservable<string>, fg: StyleClass) : Control =
   TextBlock()
-    .Text(text)
     .TextWrapping(TextWrapping.Wrap)
     .TextAlignment(TextAlignment.Center)
     .Classes(Theme.name fg)
     .Margin(24.0)
     .HorizontalAlignment(HorizontalAlignment.Stretch)
     .VerticalAlignment(VerticalAlignment.Center)
+    .Text(text)
 
-let busy message = panel(message, Muted)
+/// The busy panel: one quiet line of text, centered.
+let busy(message: string) : Control = panel(Observable.single message, Muted)
 
-let error message = panel(message, FgDanger)
+/// The empty panel: one line of muted text, centered.
+let empty(message: string) : Control = panel(Observable.single message, Muted)
 
-let empty message = panel(message, Muted)
-
-let soon message = panel(message, Muted)
+/// The placeholder panel for a route the API does not serve yet.
+let soon(message: string) : Control = panel(Observable.single message, Muted)

@@ -642,7 +642,10 @@ let view
       fun current ->
         let loading = current.ProfileLoading || current.MentionsLoading
 
-        if loading then Some "Loading the organization…" else None
+        if loading then
+          PageChrome.Words "Loading the organization…"
+        else
+          PageChrome.Off
     Empty =
       fun current ->
         if
@@ -651,13 +654,13 @@ let view
           && current.Error.IsNone
           && current.Items.IsEmpty
         then
-          Some
+          PageChrome.Words
             $"Nobody has mentioned @{props.Handle} yet. Mention it in a commit and it shows up here."
         else
-          None
+          PageChrome.Off
     Note = fun _ -> None
     Header = fun () -> Parts.headerHost(props.Env.ImageCache, model)
-    Meta = fun () -> Parts.metaHost(log, model)
+    Meta = ValueSome(fun () -> Parts.metaHost(log, model))
     FeedLabel = Some "Organization feed"
     Tabs = [
       {

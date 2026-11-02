@@ -38,16 +38,16 @@ type Props<'model, 'row when 'row: equality> = {
   /// The inset the sticky area takes.
   Padding: Thickness
   ErrorOf: 'model -> AppError option
-  /// The busy line's words while the page loads; none hides it.
-  Busy: 'model -> string option
-  /// The empty line's words when the feed is empty; none hides it.
-  Empty: 'model -> string option
+  /// The busy line while the page loads; Off hides it.
+  Busy: 'model -> PageChrome.Line
+  /// The empty line when the feed is empty; Off hides it.
+  Empty: 'model -> PageChrome.Line
   /// The transient line under the tabs, when the page carries one.
   Note: 'model -> string option
   /// The header slot, projected by the mount.
   Header: unit -> Control
   /// The meta slot under the header, projected by the mount.
-  Meta: unit -> Control
+  Meta: (unit -> Control) voption
   /// The label above the tab row, when the page carries one.
   FeedLabel: string option
   Tabs: Tab list

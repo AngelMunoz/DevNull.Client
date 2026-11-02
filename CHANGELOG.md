@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **UI:** commit-card stars, pastels, and poll votes run through one shared action flow on every feed and thread page, and each result settles into the page that owns the card; a star on a search result now shows at once instead of waiting for the next search.
+- **UI:** every page's pinned title, error card, and busy or empty line now render through one shared header, and the log, notifications, saved, scheduled, search, profile, organization, settings, about, and sign-in pages all project through it.
 
 ## [0.9.0] - 2026-10-31
 

@@ -815,11 +815,21 @@ let view
     TitleOf = State.unreadTitle
     Padding = Theme.pinnedPadding
     ErrorOf = _.Error
-    Busy = fun current -> current.Loading, "Loading the inbox…"
+    Busy =
+      fun current ->
+        if current.Loading then
+          PageChrome.Words "Loading the inbox…"
+        else
+          PageChrome.Off
     Empty =
       fun current ->
-        not current.Loading && current.Error.IsNone && current.Items.IsEmpty,
-        "Nothing here yet. Follows, stars, and replies will show up here."
+        if
+          not current.Loading && current.Error.IsNone && current.Items.IsEmpty
+        then
+          PageChrome.Words
+            "Nothing here yet. Follows, stars, and replies will show up here."
+        else
+          PageChrome.Off
     Header = [ Parts.pillRow(model, dispatch) ]
     Body = Parts.feed(props, dispatch, model)
   }

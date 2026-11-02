@@ -676,11 +676,21 @@ let view
     TitleOf = fun _ -> "Scheduled commits"
     Padding = Theme.pinnedPadding
     ErrorOf = _.Error
-    Busy = fun current -> current.Loading, "Loading the queue…"
+    Busy =
+      fun current ->
+        if current.Loading then
+          PageChrome.Words "Loading the queue…"
+        else
+          PageChrome.Off
     Empty =
       fun current ->
-        not current.Loading && current.Error.IsNone && current.Items.IsEmpty,
-        "No scheduled commits. Choose Schedule in the composer to submit later."
+        if
+          not current.Loading && current.Error.IsNone && current.Items.IsEmpty
+        then
+          PageChrome.Words
+            "No scheduled commits. Choose Schedule in the composer to submit later."
+        else
+          PageChrome.Off
     Header = [ header ]
     Body = Parts.queue(props, dispatch, model)
   }

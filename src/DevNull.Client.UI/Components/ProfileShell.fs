@@ -6,6 +6,7 @@ open Avalonia.Controls
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
+open FSharp.Control.Reactive
 open DevNull.Client
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Errors
@@ -32,11 +33,11 @@ type Props<'model, 'row when 'row: equality> = {
   Kind: string option
   Padding: Thickness
   ErrorOf: 'model -> AppError option
-  Busy: 'model -> string option
-  Empty: 'model -> string option
+  Busy: 'model -> PageChrome.Line
+  Empty: 'model -> PageChrome.Line
   Note: 'model -> string option
   Header: unit -> Control
-  Meta: unit -> Control
+  Meta: (unit -> Control) voption
   FeedLabel: string option
   Tabs: Tab list
   Feed: FeedProps<'row>
@@ -67,12 +68,17 @@ let kindLabel(kind: string) : Control =
 let titleRow
   (model: IObservable<'model>, titleOf: 'model -> string, kind: string option)
   : Control =
-  let text = model |> Observable.map titleOf
+  let title =
+    model
+    |> Observable.map titleOf
+    |> Observable.distinctUntilChanged
+    |> Observable.replayBuffer 1
+    |> Observable.refCount
 
-  let visible = text |> Observable.map(fun title -> title <> "" || kind.IsSome)
+  let visible = title |> Observable.map(fun text -> text <> "" || kind.IsSome)
 
   let children: Control array = [|
-    TextBlock().Classes(Theme.name Theme.Title).Text(text)
+    TextBlock().Classes(Theme.name Theme.Title).Text(title)
     yield! kind |> Option.map kindLabel |> Option.toArray
   |]
 
@@ -112,11 +118,18 @@ let tabRow(tabs: Tab list) : Control =
 let noteLine
   (model: IObservable<'model>, noteOf: 'model -> string option)
   : Control =
+  let note =
+    model
+    |> Observable.map noteOf
+    |> Observable.distinctUntilChanged
+    |> Observable.replayBuffer 1
+    |> Observable.refCount
+
   TextBlock()
     .Classes(Theme.name Theme.Muted)
     .Margin(0.0, 8.0, 0.0, 0.0)
-    .Text(model |> Observable.map(noteOf >> Option.defaultValue ""))
-    .IsVisible(model |> Observable.map(noteOf >> Option.isSome))
+    .Text(note |> Observable.map(Option.defaultValue ""))
+    .IsVisible(note |> Observable.map Option.isSome)
 
 let feedColumn(feed: FeedProps<'row>) : Control =
   let endVisible = feed.End |> Observable.map Option.isSome
@@ -155,39 +168,6 @@ let feedLabel(label: string) : Control =
     .Text(label)
 
 let view(props: Props<'model, 'row>) : Control =
-  let model = props.Model
-
-  let error = PageChrome.errorPanel(model |> Observable.map props.ErrorOf)
-
-  let busyVisible = model |> Observable.map(props.Busy >> Option.isSome)
-
-  let busyText = model |> Observable.map(props.Busy >> Option.defaultValue "")
-
-  let busyPanel =
-    PageChrome.messagePanel(busyText, Theme.Muted).IsVisible(busyVisible)
-
-  let emptyVisible = model |> Observable.map(props.Empty >> Option.isSome)
-
-  let emptyText = model |> Observable.map(props.Empty >> Option.defaultValue "")
-
-  let emptyPanel =
-    PageChrome.messagePanel(emptyText, Theme.Muted).IsVisible(emptyVisible)
-
-  let pinnedChildren: Control array = [|
-    titleRow(model, props.Title, props.Kind)
-    props.Header()
-    props.Meta()
-    error
-    busyPanel
-    emptyPanel
-  |]
-
-  let pinned =
-    StackPanel()
-      .HorizontalAlignment(HorizontalAlignment.Stretch)
-      .Margin(props.Padding)
-      .Children(pinnedChildren)
-
   let label: Control =
     props.FeedLabel |> Option.map feedLabel |> Option.defaultValue(Panel())
 
@@ -198,13 +178,25 @@ let view(props: Props<'model, 'row>) : Control =
   body.Children(
     label.Row(0),
     tabRow(props.Tabs).Row(1),
-    noteLine(model, props.Note).Row(2),
+    noteLine(props.Model, props.Note).Row(2),
     feedColumn(props.Feed).Row(3)
   )
   |> ignore
 
-  let root = Grid()
+  let meta: Control list =
+    props.Meta |> ValueOption.toList |> List.map(fun factory -> factory())
 
-  root.RowDefinitions <- RowDefinitions("Auto,*")
-
-  root.Children(pinned.Row(0), body.Row(1))
+  PageChrome.page {
+    Model = props.Model
+    TitleOf = fun _ -> ""
+    Padding = props.Padding
+    ErrorOf = props.ErrorOf
+    Busy = props.Busy
+    Empty = props.Empty
+    Header = [
+      titleRow(props.Model, props.Title, props.Kind)
+      props.Header()
+      yield! meta
+    ]
+    Body = body
+  }

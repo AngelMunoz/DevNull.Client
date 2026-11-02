@@ -1069,11 +1069,20 @@ let view
       TitleOf = fun _ -> ""
       Padding = Thickness(0.0, 8.0, 0.0, 0.0)
       ErrorOf = _.Error
-      Busy = fun current -> current.Loading, "Loading the log…"
+      Busy =
+        fun current ->
+          if current.Loading then
+            PageChrome.Words "Loading the log…"
+          else
+            PageChrome.Off
       Empty =
         fun current ->
-          not current.Loading && current.Error.IsNone && current.Items.IsEmpty,
-          "Nothing here yet. Commit something."
+          if
+            not current.Loading && current.Error.IsNone && current.Items.IsEmpty
+          then
+            PageChrome.Words "Nothing here yet. Commit something."
+          else
+            PageChrome.Off
       Header = [ Parts.newPill(model, dispatch) ]
       Body = Parts.feed(props, dispatch, model)
     }

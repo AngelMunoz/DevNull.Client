@@ -11,6 +11,7 @@ open IcedTasks
 open MVUish.Avalonia
 open Navs
 open DevNull.Client
+open DevNull.Client.Components
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
@@ -294,15 +295,27 @@ let view
   (dispatch: Dispatch<State.Msg>)
   : Control =
 
-  ScrollViewer()
-    .Content(
-      Grid()
-        .Children(
-          Parts
-            .card(model, dispatch)
-            .VerticalAlignment(VerticalAlignment.Center)
-        )
-    )
+  let body =
+    ScrollViewer()
+      .Content(
+        Grid()
+          .Children(
+            Parts
+              .card(model, dispatch)
+              .VerticalAlignment(VerticalAlignment.Center)
+          )
+      )
+
+  PageChrome.page {
+    Model = model
+    TitleOf = fun _ -> ""
+    Padding = Thickness(0.0)
+    ErrorOf = fun _ -> None
+    Busy = fun _ -> PageChrome.Off
+    Empty = fun _ -> PageChrome.Off
+    Header = []
+    Body = body
+  }
 
 type Page<'env
   when 'env :> IProvideClock

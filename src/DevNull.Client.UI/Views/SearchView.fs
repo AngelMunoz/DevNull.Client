@@ -539,8 +539,8 @@ let view
     TitleOf = fun _ -> ""
     Padding = Thickness(0.0, 8.0, 0.0, 0.0)
     ErrorOf = fun _ -> None
-    Busy = fun _ -> false, ""
-    Empty = fun _ -> false, ""
+    Busy = fun _ -> PageChrome.Off
+    Empty = fun _ -> PageChrome.Off
     Header = [ Parts.inputRow(model, dispatch) ]
     Body = ScrollViewer().Content(body |> _.ToBinding())
   }

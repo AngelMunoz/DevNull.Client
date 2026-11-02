@@ -1,14 +1,15 @@
 module DevNull.Client.Status
 
+open System
 open Avalonia.Controls
-open Avalonia.Layout
-open Avalonia.Media
+open DevNull.Client.Theme
 
-/// The busy panel: one spinner line of text, centered.
+/// One line of text in the given foreground class, following an
+/// observable source.
+val panel: text: IObservable<string> * fg: StyleClass -> Control
+
+/// The busy panel: one quiet line of text, centered.
 val busy: message: string -> Control
-
-/// The error panel: one line of plain text, centered.
-val error: message: string -> Control
 
 /// The empty panel: one line of muted text, centered.
 val empty: message: string -> Control

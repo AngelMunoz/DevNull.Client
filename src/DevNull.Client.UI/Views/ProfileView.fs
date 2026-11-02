@@ -1125,9 +1125,9 @@ let view
     Busy =
       fun current ->
         if current.Loading then
-          Some "Loading the profile…"
+          PageChrome.Words "Loading the profile…"
         else
-          None
+          PageChrome.Off
     Empty =
       fun current ->
         // A profile with nothing but a pinned commit shows the pinned
@@ -1145,16 +1145,16 @@ let view
           && current.Commits.IsEmpty
           && not pinned
         then
-          Some(
+          PageChrome.Words(
             match current.Tab with
             | State.Commits -> "No commits yet."
             | State.Replies -> "No replies yet."
           )
         else
-          None
+          PageChrome.Off
     Note = _.Note
     Header = fun () -> Parts.headerHost(props, dispatch, model)
-    Meta = fun () -> Panel()
+    Meta = ValueNone
     FeedLabel = None
     Tabs = [
       {

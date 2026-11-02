@@ -6,46 +6,47 @@ open Avalonia.Controls
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
+open FSharp.Control.Reactive
 open DevNull.Client
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Errors
 open DevNull.Client.Theme
 
+/// One line of page text: off, or the words it says.
+[<Struct>]
+type Line =
+  | Off
+  | Words of string
+
+/// One gated slice with one upstream subscription, replayed to a
+/// binding that joins after the last emission.
+let share(source: IObservable<'T>) : IObservable<'T> =
+  source |> Observable.replayBuffer 1 |> Observable.refCount
+
 /// One line of text in the given foreground class, following an
 /// observable source.
 let messagePanel(text: IObservable<string>, fg: StyleClass) : Control =
-  TextBlock()
-    .TextWrapping(TextWrapping.Wrap)
-    .TextAlignment(TextAlignment.Center)
-    .Classes(Theme.name fg)
-    .Margin(24.0)
-    .HorizontalAlignment(HorizontalAlignment.Stretch)
-    .VerticalAlignment(VerticalAlignment.Center)
-    .Text(text)
+  Status.panel(text, fg)
 
 /// The page's error card: one plain line per failure, in the danger
 /// tone, shown only while the page carries an error.
 let errorPanel(error: IObservable<AppError option>) : Control =
-  let text =
+  let words =
     error
-    |> Observable.map(fun current ->
-      current |> Option.map describe |> Option.defaultValue "")
+    |> Observable.map(fun current -> current |> Option.map describe)
+    |> Observable.distinctUntilChanged
+    |> share
 
   Border()
     .Classes(Theme.name Theme.Card)
     .Margin(0.0, 8.0, 0.0, 8.0)
-    .Child(messagePanel(text, Theme.FgDanger))
-    .IsVisible(error |> Observable.map Option.isSome)
-
-/// The busy line of a page.
-let busy(visible: IObservable<bool>, message: string) : Control =
-  messagePanel(System.Reactive.Linq.Observable.Return message, Theme.Muted)
-    .IsVisible(visible)
-
-/// The empty line of a page.
-let empty(visible: IObservable<bool>, message: string) : Control =
-  messagePanel(System.Reactive.Linq.Observable.Return message, Theme.Muted)
-    .IsVisible(visible)
+    .Child(
+      messagePanel(
+        words |> Observable.map(Option.defaultValue ""),
+        Theme.FgDanger
+      )
+    )
+    .IsVisible(words |> Observable.map Option.isSome)
 
 /// The feed's load-more button, shown while the page holds a cursor.
 let loadMore(visible: IObservable<bool>, onClick: unit -> unit) : Control =
@@ -57,6 +58,18 @@ let loadMore(visible: IObservable<bool>, onClick: unit -> unit) : Control =
     .IsVisible(visible)
     .OnClickHandler(fun _ _ -> onClick())
 
+/// One quiet line of page text, shown while its slice says Words.
+let linePanel(line: IObservable<Line>) : Control =
+  let words =
+    line
+    |> Observable.map(fun current ->
+      match current with
+      | Off -> ""
+      | Words words -> words)
+
+  messagePanel(words, Theme.Muted)
+    .IsVisible(line |> Observable.map(fun current -> current <> Off))
+
 /// Everything one list page renders: the pinned header built from the
 /// page's own pieces, and the scrolling body built once. `Padding` is
 /// the pinned area's inset, so a page whose rows run edge to edge keeps
@@ -66,8 +79,8 @@ type PageProps<'m> = {
   TitleOf: 'm -> string
   Padding: Thickness
   ErrorOf: 'm -> AppError option
-  Busy: 'm -> bool * string
-  Empty: 'm -> bool * string
+  Busy: 'm -> Line
+  Empty: 'm -> Line
   /// The page's own header pieces, after the title, before the error.
   Header: Control list
   /// The scrolling body.
@@ -78,7 +91,11 @@ type PageProps<'m> = {
 let page(props: PageProps<'m>) : Control =
   let model = props.Model
 
-  let titleText = model |> Observable.map props.TitleOf
+  let titleText =
+    model
+    |> Observable.map props.TitleOf
+    |> Observable.distinctUntilChanged
+    |> share
 
   let title =
     TextBlock()
@@ -86,20 +103,17 @@ let page(props: PageProps<'m>) : Control =
       .Text(titleText)
       .IsVisible(titleText |> Observable.map(fun text -> text <> ""))
 
-  let busyVisible =
-    model |> Observable.map(fun current -> fst(props.Busy current))
+  let busy =
+    model
+    |> Observable.map props.Busy
+    |> Observable.distinctUntilChanged
+    |> share
 
-  let busyText = model |> Observable.map(fun current -> snd(props.Busy current))
-
-  let emptyVisible =
-    model |> Observable.map(fun current -> fst(props.Empty current))
-
-  let emptyText =
-    model |> Observable.map(fun current -> snd(props.Empty current))
-
-  let busyPanel = messagePanel(busyText, Theme.Muted).IsVisible(busyVisible)
-
-  let emptyPanel = messagePanel(emptyText, Theme.Muted).IsVisible(emptyVisible)
+  let empty =
+    model
+    |> Observable.map props.Empty
+    |> Observable.distinctUntilChanged
+    |> share
 
   let header: Control array = [| for piece in props.Header -> piece |]
 
@@ -107,8 +121,8 @@ let page(props: PageProps<'m>) : Control =
     title
     yield! header
     errorPanel(model |> Observable.map props.ErrorOf)
-    busyPanel
-    emptyPanel
+    linePanel busy
+    linePanel empty
   |]
 
   let pinned =

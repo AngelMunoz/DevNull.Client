@@ -8,8 +8,9 @@ open Avalonia.Media
 open NXUI.Extensions
 open Microsoft.Extensions.Logging
 open DevNull.Client
+open DevNull.Client.Components
 open DevNull.Client.DeviceAuth
-open DevNull.Client.Theme
+open FSharp.Control.Reactive
 
 /// One line of the stack list: the name and what it does here.
 let stackLine(name: string, what: string) : Control =
@@ -89,7 +90,6 @@ let view(log: ILogger) : Control =
     StackPanel()
       .Spacing(12.0)
       .Children(
-        TextBlock().Classes(Theme.name Theme.Title).Text("About"),
         TextBlock().Classes(Theme.name Theme.Subtitle).Text("DevNull.Client"),
         TextBlock()
           .TextWrapping(TextWrapping.Wrap)
@@ -107,12 +107,24 @@ let view(log: ILogger) : Control =
 
   // The page scrolls one axis: the column measures against the window,
   // never an unbounded extent.
-  ScrollViewer()
-    .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
-    .Padding(Theme.pagePadding)
-    .Content(
-      StackPanel()
-        .MaxWidth(720.0)
-        .HorizontalAlignment(HorizontalAlignment.Stretch)
-        .Children(content)
-    )
+  let body =
+    ScrollViewer()
+      .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
+      .Padding(Theme.pagePadding)
+      .Content(
+        StackPanel()
+          .MaxWidth(720.0)
+          .HorizontalAlignment(HorizontalAlignment.Stretch)
+          .Children(content)
+      )
+
+  PageChrome.page {
+    Model = Observable.single()
+    TitleOf = fun _ -> "About"
+    Padding = Theme.pagePadding
+    ErrorOf = fun _ -> None
+    Busy = fun _ -> PageChrome.Off
+    Empty = fun _ -> PageChrome.Off
+    Header = []
+    Body = body
+  }

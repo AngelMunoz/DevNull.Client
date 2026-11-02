@@ -503,24 +503,6 @@ module State =
 /// The page's semantic regions; the view only composes these.
 module Parts =
 
-  /// The error card: one plain line per failure, in the danger tone.
-  let errorPanel(model: IObservable<State.Model>) : Control =
-    let errorText =
-      TextBlock()
-        .TextWrapping(TextWrapping.Wrap)
-        .Classes(Theme.name Theme.FgDanger)
-        .Text(
-          model
-          |> Observable.map(fun current ->
-            current.Error |> Option.map describe |> Option.defaultValue "")
-        )
-
-    Border()
-      .Classes(Theme.name Theme.Card)
-      .Margin(0.0, 8.0, 0.0, 8.0)
-      .Child(errorText)
-      .IsVisible(model |> Observable.map(_.Error.IsSome))
-
   /// The note line, when an action left a message.
   let noteText(model: IObservable<State.Model>) : Control =
     TextBlock()
@@ -530,12 +512,6 @@ module Parts =
         |> Observable.map(fun current -> current.Note |> Option.defaultValue "")
       )
       .IsVisible(model |> Observable.map _.Note.IsSome)
-
-  /// The busy line of the page.
-  let busy(model: IObservable<State.Model>) : Control =
-    Status
-      .busy("Loading the settings…")
-      .IsVisible(model |> Observable.map _.Busy)
 
   /// The lane palette row.
   let laneRow
@@ -1184,30 +1160,44 @@ let view
   : Control =
   let user = props.Session.Session.User
 
-  ScrollViewer()
-    .Padding(Theme.pagePadding)
-    .Content(
-      StackPanel()
-        .MaxWidth(560.0)
-        .HorizontalAlignment(HorizontalAlignment.Stretch)
-        .Spacing(14.0)
-        .Children(
-          TextBlock().Classes(Theme.name Theme.Title).Text($"@{user.Handle}"),
-          TextBlock().Text(user.Name),
-          Parts.laneRow(model, dispatch),
-          Parts.themeRow(model, dispatch),
-          Parts.timezoneRow(model, dispatch),
-          Parts.languageRow(model, dispatch),
-          Parts.pasteisRow(model, dispatch),
-          Parts.syncButton dispatch,
-          Parts.applicationRow(model, dispatch),
-          Parts.devicesRow(props, model, dispatch),
-          Parts.signOutButton props,
-          Parts.errorPanel model,
-          Parts.noteText model,
-          Parts.busy model
-        )
-    )
+  let body =
+    ScrollViewer()
+      .Padding(Theme.pagePadding)
+      .Content(
+        StackPanel()
+          .MaxWidth(560.0)
+          .HorizontalAlignment(HorizontalAlignment.Stretch)
+          .Spacing(14.0)
+          .Children(
+            TextBlock().Text(user.Name),
+            Parts.laneRow(model, dispatch),
+            Parts.themeRow(model, dispatch),
+            Parts.timezoneRow(model, dispatch),
+            Parts.languageRow(model, dispatch),
+            Parts.pasteisRow(model, dispatch),
+            Parts.syncButton dispatch,
+            Parts.applicationRow(model, dispatch),
+            Parts.devicesRow(props, model, dispatch),
+            Parts.signOutButton props,
+            Parts.noteText model
+          )
+      )
+
+  PageChrome.page {
+    Model = model
+    TitleOf = fun _ -> $"@{user.Handle}"
+    Padding = Theme.pagePadding
+    ErrorOf = _.Error
+    Busy =
+      fun current ->
+        if current.Busy then
+          PageChrome.Words "Loading the settings…"
+        else
+          PageChrome.Off
+    Empty = fun _ -> PageChrome.Off
+    Header = []
+    Body = body
+  }
 
 type Page<'env
   when 'env :> IProvideClock

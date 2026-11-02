@@ -484,11 +484,20 @@ let view
     TitleOf = fun _ -> "Saved"
     Padding = Theme.pinnedPadding
     ErrorOf = _.Error
-    Busy = fun current -> current.Loading, "Loading the saved list…"
+    Busy =
+      fun current ->
+        if current.Loading then
+          PageChrome.Words "Loading the saved list…"
+        else
+          PageChrome.Off
     Empty =
       fun current ->
-        not current.Loading && current.Error.IsNone && current.Items.IsEmpty,
-        "Save commits to find them here."
+        if
+          not current.Loading && current.Error.IsNone && current.Items.IsEmpty
+        then
+          PageChrome.Words "Save commits to find them here."
+        else
+          PageChrome.Off
     Header = []
     Body = Parts.feed(props, dispatch, model)
   }

@@ -99,12 +99,15 @@ Steps may swap when their dependencies allow.
   copies and LogView's per-row ctx collapse onto it (audit §8 pattern 2;
   the ProfileView build-once shape is the model). Depends on: P2.
   Verify: suites green; `commitCtx` definitions 5 → 1.
-- [ ] **P3 — Chrome unification A.** `BusyState` replaces the
-  `bool * string` slots; PageChrome gains title/empty Control slots and a
-  footer; PageChrome and ProfileShell share one pinned header; `Status`
-  becomes the static text owner; the three hand-built scaffolds
-  (Settings/SignIn/About) project into PageChrome. Verify: suites green; no
-  page hand-builds a busy/empty/error line.
+- [x] **P3 — Chrome unification A.** One `Line` state (`Off | Words of
+  string`) replaces the `bool * string` slots and ProfileShell's
+  `string option` busy/empty; PageChrome and ProfileShell render one
+  shared pinned header; `Status` becomes the static text owner (its dead
+  exports die); the hand-built scaffolds (Settings/About, and SignIn if it
+  fits without new slots) project into PageChrome. No speculative slots:
+  title-as-Control and a PageChrome footer wait for a consumer (feed
+  footers ride Feed in P5). Verify: suites green; no page hand-builds a
+  busy/empty/error line; no `bool * string` projection remains.
 - [ ] **P4 — Chrome unification B (surface cleanup).** Dead exports and
   dead code (audit §2.3); `Theme.Brushes` shrinks to what the shell binds
   and its doc stops inviting the banned binding; `Keys.scrim`;
@@ -181,3 +184,4 @@ Steps may swap when their dependencies allow.
 | P0 | committed 2026-11-01 | report self-contained; workplan landed; branch `phase1/mvuish` |
 | P1 | committed 2026-11-01 | failure keeps two structured log fields (user feedback); merged to main |
 | P2 | committed 2026-11-01 | user review: inner-value option compares, no redundant match, debug logs restored; `PastelResult` payload; BUG-4 struck |
+| P3 | committed 2026-11-01 | `Line` + first `share` multicaster; one pinned header; SignIn fit with no new slots |

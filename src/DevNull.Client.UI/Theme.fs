@@ -22,6 +22,7 @@ module Keys =
   let surface = "AppSurface"
   let card = "AppCard"
   let border = "AppBorder"
+  let scrim = "AppScrim"
   let text = "AppText"
   let muted = "AppMuted"
   let accent = "AppAccent"
@@ -74,37 +75,11 @@ module Brushes =
   let surface = themed Keys.surface
   let card = themed Keys.card
   let border = themed Keys.border
-  let text = themed Keys.text
-  let muted = themed Keys.muted
   let accent = themed Keys.accent
-  let accentHover = themed Keys.accentHover
-  let accentPressed = themed Keys.accentPressed
   let onAccent = themed Keys.onAccent
-  let danger = themed Keys.danger
-  let success = themed Keys.success
-  let popover = themed Keys.popover
-  let rail = themed Keys.rail
-  let input = themed Keys.input
-  let primarySoft = themed Keys.primarySoft
-  let laneFallback = themed Keys.laneFallback
 
   let transparent: IObservable<IBrush> =
     System.Reactive.Linq.Observable.Return(Brushes.Transparent :> IBrush)
-
-  let lane(index: int) = themed(Keys.lane index)
-
-  /// One brush that never changes, as an observable.
-  let constant(brush: IBrush) : IObservable<IBrush> =
-    System.Reactive.Linq.Observable.Return brush
-
-  /// The brush of one lane value: a palette index, a user hex, or the
-  /// neutral fallback when the user carries no lane.
-  let laneOf(lane: Lane option) : IObservable<IBrush> =
-    match lane with
-    | Some(LaneIndex index) -> themed(Keys.lane index)
-    | Some(LaneColor hex) ->
-      constant(SolidColorBrush(Color.Parse hex) :> IBrush)
-    | None -> laneFallback
 
   /// One solid brush from a hex color, for user-painted lanes.
   let solid(hex: string) : IBrush =
@@ -252,9 +227,9 @@ let name class' =
 /// class list is the only thing the subscription touches.
 let bindClass
   (control: Control, class': StyleClass, active: IObservable<bool>)
-  : unit =
+  : IDisposable =
   active
-  |> Observable.add(fun flag ->
+  |> Observable.subscribe(fun flag ->
     if flag then
       control.Classes.Add(name class') |> ignore
     else
@@ -1298,6 +1273,7 @@ let darks() =
   color(Keys.surface, "#232326")
   color(Keys.card, "#18181a")
   color(Keys.border, "#2a2a2d")
+  color(Keys.scrim, "#8A000000")
   color(Keys.text, "#ececec")
   color(Keys.muted, "#a1a1a6")
   color(Keys.accent, "#7aa2f7")
@@ -1334,6 +1310,7 @@ let lights() =
   color(Keys.surface, "#eef0f2")
   color(Keys.card, "#ffffff")
   color(Keys.border, "#e1e4e8")
+  color(Keys.scrim, "#8A000000")
   color(Keys.text, "#121417")
   color(Keys.muted, "#5b616b")
   color(Keys.accent, "#3b6fe0")

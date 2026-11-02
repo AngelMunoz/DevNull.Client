@@ -1,6 +1,5 @@
 module DevNull.Client.Components.Composer
 
-open System
 open Avalonia.Controls
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.ApiTypes
@@ -17,13 +16,6 @@ type Target =
   | Fresh
   | ReplyTo of parentId: string
   | Quoting of quotedId: string
-
-/// One poll being built: two to four options and the time it stays
-/// open. A poll rides a fresh commit only, never beside images.
-type PollDraft = {
-  Options: string list
-  Duration: PollDuration
-}
 
 /// Where a host whose row recycles keeps the draft alive: the text the
 /// composer starts from, and the sink every change reaches. A recycled
@@ -55,17 +47,14 @@ type Props<'env
   OnScheduled: (ScheduledCommit -> unit) voption
   /// Opens the scheduled queue, from the schedule panel's link.
   OnOpenQueue: (unit -> unit) voption
-  /// Where the composer's program lifetime lands. A host whose page
-  /// is cached between visits (the log) registers the lifetime with
-  /// the route; every other host leaves it empty and the composer
-  /// stops itself when it leaves the visual tree.
-  Register: (IDisposable -> unit) voption
   /// The draft contract for hosts whose row recycles: the seed the
   /// composer starts from, and the sink every change reaches.
   Draft: DraftSource voption
 }
 
-/// One composer, self-contained: mounts the MVUish program.
+/// One composer, self-contained: mounts the MVUish program. It is
+/// replace-only: a host builds one and never re-shows it, and the first
+/// detach ends the program.
 type Page<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource

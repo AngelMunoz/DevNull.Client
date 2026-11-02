@@ -408,7 +408,6 @@ module Parts =
             DecodeWidth = 720
             DecodeHeight = ValueSome(int height)
             Stretch = stretch
-            Placeholder = ValueNone
             ToolTip = image.Description |> ValueOption.ofOption
           }
 

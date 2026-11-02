@@ -12,6 +12,7 @@ open Avalonia.Input
 open Avalonia.Layout
 open Avalonia.Media
 open Avalonia.Platform
+open Avalonia.Styling
 open Avalonia.Threading
 open Avalonia.VisualTree
 open NXUI.Extensions
@@ -195,8 +196,8 @@ let navItem(context: NavContext, entry: NavEntry) : Control =
 
   // The active look lives in the NavItemActive class, whose colors are
   // themed resources; the subscription only moves the class.
-  Theme.bindClass(item, Theme.NavItemActive, active)
-  Theme.bindClass(item, Theme.RailItem, context.Compact)
+  Theme.bindClass(item, Theme.NavItemActive, active) |> ignore
+  Theme.bindClass(item, Theme.RailItem, context.Compact) |> ignore
 
   entry.Visible
   |> ValueOption.iter(fun visible -> item.IsVisible(visible) |> ignore)
@@ -273,7 +274,7 @@ let footer(context: FooterContext) : Control =
       .OnClickHandler(fun _ _ -> context.Navigate "/profile")
 
   account.Name <- "SidebarAccount"
-  Theme.bindClass(account, Theme.RailItem, context.Compact)
+  Theme.bindClass(account, Theme.RailItem, context.Compact) |> ignore
 
   let signIn =
     Button()
@@ -283,7 +284,7 @@ let footer(context: FooterContext) : Control =
       .IsVisible(signedIn |> Observable.map not)
       .OnClickHandler(fun _ _ -> context.Navigate "/signin")
 
-  Theme.bindClass(signIn, Theme.RailItem, context.Compact)
+  Theme.bindClass(signIn, Theme.RailItem, context.Compact) |> ignore
 
   StackPanel().Children(account, signIn)
 
@@ -429,7 +430,6 @@ let composeDialog
               OnCommitted = fun _ -> close()
               OnScheduled = ValueSome(fun _ -> close())
               OnOpenQueue = ValueNone
-              Register = ValueNone
               Draft = ValueNone
             }
           )
@@ -709,6 +709,9 @@ type Shell<'env
       settings.SetSidebarExpanded next
       expanded.OnNext next
 
+    // One brush for every modal scrim: the theme key, read once.
+    let scrim = Theme.solid(ThemeVariant.Dark, Theme.Keys.scrim)
+
     // The compose dialog: one overlay above the panes, below the band
     // so the caption stays reachable. It opens only signed in.
     let composeOpen = new BehaviorSubject<bool>(false)
@@ -732,7 +735,7 @@ type Shell<'env
 
     let composeScrim =
       Border()
-        .Background(Brushes.solid "#8A000000")
+        .Background(scrim)
         .OnPointerPressedHandler(fun _ _ -> closeCompose())
 
     let composeLayer =
@@ -780,24 +783,22 @@ type Shell<'env
             )
 
           searchHost.Content <-
-            SearchDialog.Page(
-              {
-                Env = env
-                SignedIn = entry
-                Searches = searches
-                Recents = (env :> IProvideRecentSearches).RecentSearches
-                Nav = router
-                OpenCompose = fun () -> composeOpen.OnNext true
-                Close = closeSearch
-              }
-            )
+            SearchDialog.Page {
+              Env = env
+              SignedIn = entry
+              Searches = searches
+              Recents = (env :> IProvideRecentSearches).RecentSearches
+              Nav = router
+              OpenCompose = fun () -> composeOpen.OnNext true
+              Close = closeSearch
+            }
         | SignedOut -> closeSearch()
       else
         searchHost.Content <- null)
 
     let searchScrim =
       Border()
-        .Background(Brushes.solid "#8A000000")
+        .Background(scrim)
         .OnPointerPressedHandler(fun _ _ -> closeSearch())
 
     let searchLayer =
@@ -822,9 +823,7 @@ type Shell<'env
         helpHost.Content <- null)
 
     let helpScrim =
-      Border()
-        .Background(Brushes.solid "#8A000000")
-        .OnPointerPressedHandler(fun _ _ -> closeHelp())
+      Border().Background(scrim).OnPointerPressedHandler(fun _ _ -> closeHelp())
 
     let helpLayer =
       Panel()
@@ -878,7 +877,7 @@ type Shell<'env
           termsHost.Content <- null)
 
     // The scrim stays: the terms are answered, never clicked away.
-    let termsScrim = Border().Background(Brushes.solid "#8A000000")
+    let termsScrim = Border().Background(scrim)
 
     let termsLayer =
       Panel().IsVisible(termsOpen).Children(termsScrim, termsHost)
@@ -1111,7 +1110,7 @@ type Shell<'env
               composeOpen.OnNext true)
 
       commitButton.Name <- "NavCommitButton"
-      Theme.bindClass(commitButton, Theme.RailItem, compact)
+      Theme.bindClass(commitButton, Theme.RailItem, compact) |> ignore
 
       // The site's collapse row, under Commit: the labels show only
       // while the sidebar can expand.
@@ -1148,7 +1147,7 @@ type Shell<'env
             .OnClickHandler(fun _ _ -> toggleSidebar())
 
         ToolTip.SetTip(button, "Toggle navigation")
-        Theme.bindClass(button, Theme.RailItem, compact)
+        Theme.bindClass(button, Theme.RailItem, compact) |> ignore
         button
 
       // The site's search row: the palette's opener, right under the
@@ -1173,7 +1172,7 @@ type Shell<'env
             .OnClickHandler(fun _ _ -> searchOpen.OnNext true)
 
         ToolTip.SetTip(button, "Search")
-        Theme.bindClass(button, Theme.RailItem, compact)
+        Theme.bindClass(button, Theme.RailItem, compact) |> ignore
         button
 
       let navChildren: Control array = [|
@@ -1396,10 +1395,7 @@ type Shell<'env
     split.PaneBackground <- Avalonia.Media.Brushes.Transparent
     split.UseLightDismissOverlayMode <- true
 
-    split.Resources.Add(
-      "SplitViewLightDismissOverlayBackground",
-      Brushes.solid "#8A000000"
-    )
+    split.Resources.Add("SplitViewLightDismissOverlayBackground", scrim)
 
     split.Pane <- sidebarPane
     split.Content <- shell

@@ -74,7 +74,6 @@ type Props<'env
   OnCommitted: Commit -> unit
   OnScheduled: (ScheduledCommit -> unit) voption
   OnOpenQueue: (unit -> unit) voption
-  Register: (IDisposable -> unit) voption
   Draft: DraftSource voption
 }
 
@@ -1803,21 +1802,10 @@ type Page<'env
         })
       |> Program.withSubscription(State.subscribe(session, lane))
 
-    match props.Register with
-    | ValueNone ->
-      let root, _ = Program.runWithLifetime this () program
-      this.Content <- root
-    | ValueSome register ->
-      let root, lifetime = Program.runWithLifecycle () program
-      this.Content <- root
+    // The composer is replace-only: the first detach ends the program.
+    let root, _ = Program.runWithLifetime this () program
+    this.Content <- root
 
-      // A cached page ends without touching the composer's branches
-      // above, so the lifetime's end is the one transition that covers
-      // a page left with staged images.
-      register
-        {
-          new IDisposable with
-            member _.Dispose() =
-              lifetime.Dispose()
-              State.collectStaged()
-        }
+    // A host left with staged images collects them on the composer's
+    // one live teardown.
+    this.DetachedFromVisualTree.Add(fun _ -> State.collectStaged())

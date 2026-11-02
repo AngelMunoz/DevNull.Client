@@ -56,7 +56,6 @@ let show(show: Show) : unit =
         DecodeWidth = 1600
         DecodeHeight = ValueSome(int(show.Owner.ClientSize.Height * 0.9))
         Stretch = Stretch.Uniform
-        Placeholder = ValueNone
         ToolTip = ValueNone
       }
 

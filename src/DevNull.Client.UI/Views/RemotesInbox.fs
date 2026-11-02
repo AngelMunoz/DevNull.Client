@@ -293,7 +293,7 @@ module Parts =
         .Margin(0.0, 8.0, 0.0, 8.0)
         .IsVisible(active)
 
-    Theme.bindClass(button, Theme.PrimarySoftBack, active)
+    Theme.bindClass(button, Theme.PrimarySoftBack, active) |> ignore
 
     // The rail owns the row's first dock slot. A sized child left to a
     // panel's default stretch alignment centers, which drew the marker
@@ -401,11 +401,14 @@ module Parts =
               )
               .OnClickHandler(fun _ _ -> dispatch(State.TabChosen tab))
 
-          Theme.bindClass(
-            button,
-            Theme.TabButtonActive,
-            model |> Observable.map(fun current -> current.Tab = tab)
-          )
+          let active =
+            Theme.bindClass(
+              button,
+              Theme.TabButtonActive,
+              model |> Observable.map(fun current -> current.Tab = tab)
+            )
+
+          button.DetachedFromVisualTree.Add(fun _ -> active.Dispose())
 
           button
 

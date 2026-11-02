@@ -105,7 +105,7 @@ let tabRow(tabs: Tab list) : Control =
           .Column(index)
           .OnClickHandler(fun _ _ -> tab.Choose())
 
-      Theme.bindClass(button, Theme.TabButtonActive, tab.Active)
+      Theme.bindClass(button, Theme.TabButtonActive, tab.Active) |> ignore
 
       button
   |]

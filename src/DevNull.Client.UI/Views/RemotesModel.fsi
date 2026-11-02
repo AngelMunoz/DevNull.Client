@@ -163,9 +163,6 @@ module State =
     | VoiceStaged of Result<(ImageAttachment * Waveform), AppError>
     | VoiceDiscarded
 
-  /// The search term the raw box text stands for.
-  val inline termOf: query: string -> string
-
   /// The tabs the inbox shows, with their labels.
   val tabsOf: requestsOn: bool -> (InboxTab * string) list
 
@@ -269,11 +266,6 @@ module State =
 
   /// The links one draft carries, first-wins order.
   val linksOf: text: string -> string list
-
-  /// The `@token` the caret stands in, when one does: the letters after
-  /// an `@` that opens a word, up to the caret. None once the token
-  /// closed or the caret sits elsewhere.
-  val mentionOf: text: string * caret: int -> string option
 
   /// One handle's completion of the mention at the caret: the rewritten
   /// text and where the caret lands after it.

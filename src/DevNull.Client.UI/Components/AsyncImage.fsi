@@ -5,9 +5,9 @@ open Avalonia.Media
 open DevNull.Client.ImageCache
 
 /// One asynchronously loaded image: the caller reserves the box (Width
-/// and Height on the returned control), the placeholder holds it, and
-/// the decoded bitmap replaces the placeholder when it lands. Attach
-/// starts the load; detach and recycle cancel it.
+/// and Height on the returned control), an empty panel holds it, and
+/// the decoded bitmap replaces the panel when it lands. Attach starts
+/// the load; detach and recycle cancel it.
 [<Struct>]
 type Props = {
   Cache: ImageCacheService
@@ -18,7 +18,6 @@ type Props = {
   /// tall photo costs its displayed pixels, not its full frame.
   DecodeHeight: int voption
   Stretch: Stretch
-  Placeholder: Control voption
   ToolTip: string voption
 }
 

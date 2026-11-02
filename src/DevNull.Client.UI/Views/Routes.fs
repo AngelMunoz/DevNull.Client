@@ -305,7 +305,6 @@ let settingsPage
       SettingsView.Page {
         Env = env
         Session = session
-        Nav = nav
         OnSignOut =
           fun () ->
             env.Session.Leave()

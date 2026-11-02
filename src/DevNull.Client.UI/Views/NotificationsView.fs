@@ -405,6 +405,7 @@ module Parts =
       Theme.FilterPillActive,
       active |> Observable.map(fun current -> current = Some wire)
     )
+    |> ignore
 
     pill
 

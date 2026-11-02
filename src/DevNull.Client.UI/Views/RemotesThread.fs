@@ -188,7 +188,6 @@ module Thread =
                 DecodeWidth = 512
                 DecodeHeight = ValueSome 320
                 Stretch = Stretch.UniformToFill
-                Placeholder = ValueNone
                 ToolTip = image.Description |> Option.toValueOption
               }
             )
@@ -2312,19 +2311,25 @@ module Thread =
         )
         .IsVisible(counter |> Observable.map(fun length -> length >= 1600))
 
-    Theme.bindClass(
-      counterBlock,
-      Theme.FgWarning,
-      counter |> Observable.map(fun length -> length >= 1900 && length < 2000)
-    )
+    let warning =
+      Theme.bindClass(
+        counterBlock,
+        Theme.FgWarning,
+        counter |> Observable.map(fun length -> length >= 1900 && length < 2000)
+      )
 
     // The counter goes quiet-danger at the limit; the class carries
     // the color, never a brush observable.
-    Theme.bindClass(
-      counterBlock,
-      Theme.FgDanger,
-      counter |> Observable.map(fun length -> length >= 2000)
-    )
+    let danger =
+      Theme.bindClass(
+        counterBlock,
+        Theme.FgDanger,
+        counter |> Observable.map(fun length -> length >= 2000)
+      )
+
+    counterBlock.DetachedFromVisualTree.Add(fun _ ->
+      warning.Dispose()
+      danger.Dispose())
 
     // The typing line, the site's own slot: the meta row's leading
     // word while the partner or the org types, its three dots chasing

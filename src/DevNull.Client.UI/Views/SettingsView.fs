@@ -20,7 +20,6 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Errors
 open DevNull.Client.Env
 open Microsoft.Extensions.Logging
-open DevNull.Client.Navigation
 open DevNull.Client.UserSettingsStore
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
@@ -37,7 +36,6 @@ type Props<'env
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
-  Nav: INavigable
   /// Runs when the user asks to sign out; the caller drops the session.
   OnSignOut: unit -> unit
   Context: RouteContext
@@ -51,7 +49,6 @@ module State =
     Me: Me option
     Devices: Device list option
     Error: AppError option
-    Note: string option
     Busy: bool
     /// The local machine preferences, live from the settings store.
     Settings: AppSettings
@@ -81,7 +78,6 @@ module State =
     | DevicesDone of Result<Device list, AppError>
     | RevokeRequested of Device
     | RevokeDone of Result<unit, AppError> * Device
-    | MeNote of string
     | CloseToTraySet of enabled: bool
     | ThemeChosen of choice: ThemeChoice
     | SettingsChanged of settings: AppSettings
@@ -102,7 +98,6 @@ module State =
     Me = None
     Devices = None
     Error = None
-    Note = None
     Busy = true
     Settings = {
       CloseToTray = false
@@ -201,7 +196,6 @@ module State =
             "The account request failed: {Error}",
             bounded 300 (describe error)
           ))
-    | MeNote note -> { model with Note = Some note }, Cmd.none
     | DevicesDone result ->
       match result with
       | Ok devices -> { model with Devices = Some devices }, Cmd.none
@@ -502,16 +496,6 @@ module State =
 
 /// The page's semantic regions; the view only composes these.
 module Parts =
-
-  /// The note line, when an action left a message.
-  let noteText(model: IObservable<State.Model>) : Control =
-    TextBlock()
-      .Classes(Theme.name Theme.Muted)
-      .Text(
-        model
-        |> Observable.map(fun current -> current.Note |> Option.defaultValue "")
-      )
-      .IsVisible(model |> Observable.map _.Note.IsSome)
 
   /// The lane palette row.
   let laneRow
@@ -1178,8 +1162,7 @@ let view
             Parts.syncButton dispatch,
             Parts.applicationRow(model, dispatch),
             Parts.devicesRow(props, model, dispatch),
-            Parts.signOutButton props,
-            Parts.noteText model
+            Parts.signOutButton props
           )
       )
 

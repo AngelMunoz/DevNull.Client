@@ -1080,7 +1080,6 @@ module Parts =
         OnCommitted = fun _ -> dispatch State.ReloadRequested
         OnScheduled = ValueNone
         OnOpenQueue = ValueNone
-        Register = ValueNone
         Draft = ValueNone
       }
 
@@ -1093,7 +1092,6 @@ module Parts =
           fun commit -> Navigation.go(props.Nav, "/commit/" + commit.Id, ignore)
         OnScheduled = ValueNone
         OnOpenQueue = ValueNone
-        Register = ValueNone
         Draft = ValueNone
       }
 

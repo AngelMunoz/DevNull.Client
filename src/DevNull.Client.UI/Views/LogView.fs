@@ -936,7 +936,6 @@ module Parts =
                       dispatch(State.ReplyPosted commit.Id)
                   OnScheduled = ValueNone
                   OnOpenQueue = ValueNone
-                  Register = ValueNone
                   Draft =
                     ValueSome {
                       Seed = props.Env.Timeline.DraftOf commit.Id

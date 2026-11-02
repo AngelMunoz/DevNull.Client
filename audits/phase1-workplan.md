@@ -108,7 +108,7 @@ Steps may swap when their dependencies allow.
   title-as-Control and a PageChrome footer wait for a consumer (feed
   footers ride Feed in P5). Verify: suites green; no page hand-builds a
   busy/empty/error line; no `bool * string` projection remains.
-- [ ] **P4 — Chrome unification B (surface cleanup).** Dead exports and
+- [x] **P4 — Chrome unification B (surface cleanup).** Dead exports and
   dead code (audit §2.3); `Theme.Brushes` shrinks to what the shell binds
   and its doc stops inviting the banned binding; `Keys.scrim`;
   `bindClass` returns `IDisposable`; `Composer.Register` is deleted and the
@@ -132,8 +132,13 @@ Steps may swap when their dependencies allow.
   Tabs/Composer/RailNode/Header/OnReload and stops knowing
   `Composer.Fresh`/`Timeline.CommitLanded`/`/scheduled`; `SplitChrome`
   owns RemotesView's side/main/back/breakpoint; the band-offset sweep runs
-  (issue #15's strip is adjacent, not in scope). Verify: suites green; the
-  log chrome and the remotes two-pane render through the new hosts.
+  (issue #15's strip is adjacent, not in scope). The strip becomes one
+  shared stateless `TabStrip` part used by LogChrome and ProfileShell
+  (user review finding): prefer a property/pseudo-class active look over
+  `bindClass` — no class subscription to own — and this rewrite consumes
+  LogChrome's two parked option-compare sites (:102/:218). Verify: suites
+  green; the log chrome and the remotes two-pane render through the new
+  hosts.
 - [ ] **P9 — Palette extraction.** One `Palette` host (scroller, row
   subject, `followRows`, keyboard walk) with SearchDialog and Completion
   supplying row models and actions; `KbdChip`, `StatusLine`, `UserRow`
@@ -185,3 +190,4 @@ Steps may swap when their dependencies allow.
 | P1 | committed 2026-11-01 | failure keeps two structured log fields (user feedback); merged to main |
 | P2 | committed 2026-11-01 | user review: inner-value option compares, no redundant match, debug logs restored; `PastelResult` payload; BUG-4 struck |
 | P3 | committed 2026-11-01 | `Line` + first `share` multicaster; one pinned header; SignIn fit with no new slots |
+| P4 | committed 2026-11-01 | net −149 lines; dead surface gone; scrim token; `bindClass` disposes at both accumulation sites |

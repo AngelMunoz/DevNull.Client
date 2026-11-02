@@ -101,6 +101,7 @@ module Parts =
       Theme.TabButtonActive,
       active |> Observable.map(fun current -> current = Some info.Kind)
     )
+    |> ignore
 
     button
 
@@ -119,12 +120,10 @@ module Parts =
       .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
       .Margin(0.0, Theme.bandHeight, 0.0, 0.0)
       .Child(
-        strip.Children(
-          [|
-            for index, info in List.indexed logTabs ->
-              tab(active, dispatch, info).Column(index)
-          |]
-        )
+        strip.Children [|
+          for index, info in List.indexed logTabs ->
+            tab(active, dispatch, info).Column(index)
+        |]
       )
 
   /// The staged commit: the signed-in user's avatar rides the rail's
@@ -142,7 +141,6 @@ module Parts =
         OnScheduled = ValueNone
         OnOpenQueue =
           ValueSome(fun () -> Navigation.go(props.Nav, "/scheduled", ignore))
-        Register = ValueNone
         Draft = ValueNone
       }
 

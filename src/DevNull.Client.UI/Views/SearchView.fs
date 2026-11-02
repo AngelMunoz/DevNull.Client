@@ -80,7 +80,6 @@ module State =
   }
 
   type Msg =
-    | Typed of string
     | SearchedFor of string
     | Cleared
     | Picked of string
@@ -170,7 +169,6 @@ module State =
       Cmd.ofAction(fun () -> failure what error)
 
     match msg with
-    | Typed text -> { model with Term = text }, Cmd.none
     | SearchedFor term ->
       let trimmed = term.Trim()
 

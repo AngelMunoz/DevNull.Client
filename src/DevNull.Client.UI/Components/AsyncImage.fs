@@ -22,7 +22,6 @@ type Props = {
   /// tall photo costs its displayed pixels, not its full frame.
   DecodeHeight: int voption
   Stretch: Stretch
-  Placeholder: Control voption
   ToolTip: string voption
 }
 
@@ -36,10 +35,7 @@ type Props = {
 type Loader(props: Props) as this =
   inherit ContentControl()
 
-  let placeholder: Control =
-    match props.Placeholder with
-    | ValueSome control -> control
-    | ValueNone -> Panel() :> Control
+  let placeholder: Control = Panel() :> Control
 
   // The load's token source is the control's lifecycle state, the one
   // mutable field; attach and detach own it, both on the UI thread.

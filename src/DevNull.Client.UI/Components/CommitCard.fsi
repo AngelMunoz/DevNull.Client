@@ -73,9 +73,6 @@ type Props = {
   Zone: Zone
 }
 
-/// Renders one commit as a row of the log.
-val view: props: Props -> Control
-
 /// One poll choice change, in the shape the page model stores it.
 [<Struct>]
 type ChoiceChange = {

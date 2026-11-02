@@ -74,7 +74,6 @@ module State =
 
   type Msg =
     | Fetched of Result<ScheduledPage, AppError>
-    | PageRequested of page: int
     | PreviousRequested
     | NextRequested
     | UnfoldToggled of id: string
@@ -149,15 +148,6 @@ module State =
               Error = Some error
         },
         failed "the queue fetch" error
-    | PageRequested page ->
-      {
-        model with
-            Loading = true
-            Error = None
-            Notice = None
-            Unfolded = Set.empty
-      },
-      Cmd.OfAsync.perform fetch (props.Env, props.Session, page) Fetched
     | PreviousRequested ->
       let page = max 1 (model.CurrentPage - 1)
 

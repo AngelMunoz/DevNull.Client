@@ -10,9 +10,9 @@ open Avalonia.Styling
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.SettingsStore
 
-/// The named brushes of the app. Every brush is an observable of the
-/// themed resource: the value follows the light and dark dictionaries
-/// as the variant changes, so views bind it once and never re-style.
+/// The shell's surface brushes. These observables are for the shell's
+/// own chrome only: views and components bind style classes, never a
+/// brush observable.
 module Brushes =
 
   /// The themed brush of one resource key, following the theme variant.
@@ -30,62 +30,17 @@ module Brushes =
   /// The hairline around cards and separators.
   val border: IObservable<IBrush>
 
-  /// The primary text color.
-  val text: IObservable<IBrush>
-
-  /// The secondary text color: handles, timestamps, hints.
-  val muted: IObservable<IBrush>
-
-  /// The primary: the commit button, links, the active states.
+  /// The primary: the commit button, links, and active states.
   val accent: IObservable<IBrush>
-
-  /// The primary one step down: the hover fill.
-  val accentHover: IObservable<IBrush>
-
-  /// The primary two steps down: the pressed fill.
-  val accentPressed: IObservable<IBrush>
 
   /// The text on top of accent and danger fills.
   val onAccent: IObservable<IBrush>
 
-  /// The destructive color: delete account, report.
-  val danger: IObservable<IBrush>
-
-  /// The success color: delivered states, positive outcomes.
-  val success: IObservable<IBrush>
-
-  /// The popover fill: floating menus and pickers above the page.
-  val popover: IObservable<IBrush>
-
-  /// The rail line color.
-  val rail: IObservable<IBrush>
-
-  /// The input fill. Aliases the rail token until an input surface of
-  /// its own is needed.
-  val input: IObservable<IBrush>
-
-  /// The soft primary wash behind active elements.
-  val primarySoft: IObservable<IBrush>
-
   /// No fill at all.
   val transparent: IObservable<IBrush>
 
-  /// One lane color for the palette indexes 0 to 5, cycling on
-  /// out-of-range indexes.
-  val lane: index: int -> IObservable<IBrush>
-
-  /// One brush that never changes, as an observable.
-  val constant: brush: IBrush -> IObservable<IBrush>
-
-  /// The brush of one lane value: a palette index, a user hex, or the
-  /// neutral fallback when the user carries no lane.
-  val laneOf: lane: Lane option -> IObservable<IBrush>
-
   /// One solid brush from a hex color, for user-painted lanes.
   val solid: hex: string -> IBrush
-
-  /// The lane color when a user carries no lane.
-  val laneFallback: IObservable<IBrush>
 
 /// The bundled Geist fonts.
 module Fonts =
@@ -174,10 +129,13 @@ val pinnedPadding: Thickness
 /// The readable name of one class, for `.Classes(...)`.
 val name: class': StyleClass -> string
 
-/// Moves one class on and off a control as the observable flips. The
-/// class list is the only thing the subscription touches.
+/// Moves one class on and off a control as the observable flips and
+/// returns the subscription. The class list is the only thing the
+/// subscription touches; dispose it when the styled control is
+/// replaced or leaves the tree.
 val bindClass:
-  control: Control * class': StyleClass * active: IObservable<bool> -> unit
+  control: Control * class': StyleClass * active: IObservable<bool> ->
+    IDisposable
 
 /// The lane slot one control paints: the property the lane class
 /// styles. One slot per class keeps a lane-painted control from
@@ -227,7 +185,8 @@ val style: class': StyleClass -> Style
 val styles: unit -> Styles
 
 /// The themed brush of one key as the given variant holds it. Tests and
-/// non-bindable spots read through this; views bind the observables.
+/// non-bindable spots read through this; views and components bind
+/// style classes, never brush observables.
 val solid: variant: ThemeVariant * key: string -> IBrush
 
 /// The keys of the themed resources, so callers never spell them.
@@ -244,6 +203,9 @@ module Keys =
 
   /// The hairline color.
   val border: string
+
+  /// The modal scrim over the shell's dialogs.
+  val scrim: string
 
   /// The primary text color.
   val text: string

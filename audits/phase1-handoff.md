@@ -1,6 +1,6 @@
 # Phase 1 handoff — resume here in a fresh session
 
-Last updated: 2026-11-01, after P13 landed. Owner of this file: whoever
+Last updated: 2026-11-02, after P14 landed. Owner of this file: whoever
 continues the dev loop. Read `AGENTS.md` and `audits/phase1-workplan.md`
 first; this file is the state snapshot, the plan is the authority.
 
@@ -9,7 +9,7 @@ first; this file is the state snapshot, the plan is the authority.
 - Branch `phase1/mvuish`, fast-forward-merged into local `main` after every
   approved step. **`origin/main` is behind and unpushed — pushing needs the
   user's explicit go.**
-- Committed: P0-P4, P2b, P5-P13 (see `git log --oneline -16`). The audit
+- Committed: P0-P4, P2b, P5-P14 (see `git log --oneline -20`). The audit
   report at the repo root and the work plan under `audits/` are committed
   with the work.
 - Uncommitted: nothing (each step lands only after the user's verdict).
@@ -66,14 +66,16 @@ work outside Phase 1.
 
 ## Next steps
 
-- **P14** — RemotesModel split (Types/Rows/Voice + slim model), the
-  `Views/Remotes/` folder grouping, and the layering fix: after P14 NO
-  Components file may reference Views (resolves ThreadRecorder's
-  `stageVoice` and ThreadComposer's five pure helper reads — move them to
-  Core beside `Commit.Voices` where the composer needs them, or hand them
-  in as props; pick per usage).
+- **P14** — landed. `Views/Remotes/` holds `RemotesTypes`, the env-free
+  `RemotesRows`, and the slim `RemotesModel` (1,176 from 1,885); the WAV
+  `stageVoice` lives in `Core.Commit.Voices`, the draft helpers in
+  `Core.RemotesText`; `typingNames` reaches `ThreadComposer` as a
+  `Typing: IObservable<string list>` prop. No Components file references
+  Views — the fsproj order proves it.
 - **P15** — Composer split with the lane death (contract is in the plan:
-  no `BehaviorSubject<Sub>`, no view-filled subscription holder).
+  no `BehaviorSubject<Sub>`, no view-filled subscription holder; the
+  `ImageChip` is shared with the thread composer — but the thread's
+  participants-only `mentionPicker` is NOT the lane and must stay put).
 - **P16** — mechanical sweep; its parked lists (option compares, per-update
   loggers, `let private` markers, dead opens) are itemized in the plan.
 

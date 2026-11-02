@@ -134,6 +134,22 @@ module Voices =
 
   let bars(waveform: Waveform) : int list = List.ofArray waveform.Bars
 
+  /// The 48 loudness bars of one finished recording, sampled evenly
+  /// across its samples, 0 to 100.
+  let barsOf(samples: int16 array) : int list = [
+    for bar in 0..47 ->
+      let from' = bar * samples.Length / 48
+      let upto = (bar + 1) * samples.Length / 48
+
+      let peak =
+        seq { from' .. max from' (upto - 1) }
+        |> Seq.map(fun at -> abs(int samples[at]))
+        |> Seq.append(Seq.singleton 0)
+        |> Seq.max
+
+      min 100 (peak * 100 / 32768)
+  ]
+
   let isWebM(bytes: byte array) =
     bytes.Length >= 4
     && bytes.[0] = 0x1Auy
@@ -143,6 +159,17 @@ module Voices =
 
   let isWav(bytes: byte array) =
     asciiAt(0, "RIFF", bytes) && asciiAt(8, "WAVE", bytes)
+
+  /// The samples a 16 kHz mono S16LE WAV carries, or none when the
+  /// bytes are any other container.
+  let samplesOf(bytes: byte array) : int16 array option =
+    if bytes.Length >= 44 && isWav bytes then
+      let pcm: int16 array = Array.zeroCreate((bytes.Length - 44) / 2)
+
+      Buffer.BlockCopy(bytes, 44, pcm, 0, pcm.Length * 2)
+      Some pcm
+    else
+      None
 
   /// Checks one voice note's size and format, and computes the SHA-256
   /// the signed payload needs. The recording's length and encoding stay
@@ -167,6 +194,28 @@ module Voices =
           Bytes = bytes
           Hash = CommitImages.sha256 bytes
         }
+
+  /// One recording's bytes staged as the push API takes them: a voice
+  /// attachment and its waveform. The parsing reads the WAV's own
+  /// samples for the bars, so bytes the sampler cannot read refuse
+  /// the stage instead of staging a silent waveform.
+  let stageVoice<'e when VoiceError<'e>>
+    (bytes: byte array)
+    : Result<ImageAttachment * Waveform, 'e> =
+    let parsed: Result<Voice, 'e> = parse("voice.wav", bytes)
+
+    match parsed, samplesOf bytes with
+    | Ok _, Some samples ->
+      barsOf samples
+      |> parseWaveform
+      |> Result.map(fun bars ->
+        ({
+          FileName = "voice.wav"
+          Bytes = bytes
+         },
+         bars))
+    | Error failure, _ -> Error failure
+    | Ok _, None -> Error('e.UnsupportedVoice "voice.wav")
 
   /// The server takes a voice note alone, or with a reply: never beside
   /// a body or images.

@@ -14,7 +14,6 @@ open DevNull.Client.Errors
 open DevNull.Client.Icons
 open DevNull.Client.Natives
 open DevNull.Client.Theme
-open DevNull.Client.Views
 
 /// The recording lane's own bounds, the web's own: a half second
 /// before a recording counts, a minute before it stops itself, and
@@ -282,7 +281,7 @@ type RecordLane(audio: IAudioEngine voption, report: Recorder.Report -> unit) as
       { model with Phase = Recorder.Done }, Cmd.none
     | Recorder.TakeReady taken ->
       let staged =
-        taken |> Result.mapError CaptureFailed |> Result.bind State.stageVoice
+        taken |> Result.mapError CaptureFailed |> Result.bind Voices.stageVoice
 
       report(Recorder.Staged staged)
 

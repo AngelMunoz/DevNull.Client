@@ -52,8 +52,11 @@ type Page<'env
 
   do
     let program =
-      Program.mkProgram (State.init props) (State.update props) (view props)
-      |> Program.withSubscription(State.subscribe props)
+      Program.mkProgram
+        (RemotesModel.init props)
+        (RemotesModel.update props)
+        (view props)
+      |> Program.withSubscription(RemotesModel.subscribe props)
 
     let root, lifetime = Program.runWithLifecycle () program
 

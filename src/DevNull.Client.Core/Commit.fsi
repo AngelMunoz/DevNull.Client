@@ -66,9 +66,21 @@ module Voices =
   /// The bars a waveform holds.
   val bars: waveform: Waveform -> int list
 
+  /// The 48 loudness bars of one finished recording, sampled evenly
+  /// across its samples, 0 to 100.
+  val barsOf: samples: int16 array -> int list
+
   /// Checks one voice note's size and format, and computes the SHA-256 the signed payload needs.
   val parse:
     fileName: string * bytes: byte array -> Result<Voice, 'e>
+      when VoiceError<'e>
+
+  /// One recording's bytes staged as the push API takes them: a voice
+  /// attachment and its waveform. The parsing reads the WAV's own
+  /// samples for the bars, so bytes the sampler cannot read refuse
+  /// the stage instead of staging a silent waveform.
+  val stageVoice:
+    bytes: byte array -> Result<ImageAttachment * Waveform, 'e>
       when VoiceError<'e>
 
   /// The server takes a voice note alone, or with a reply: never beside a body or images.

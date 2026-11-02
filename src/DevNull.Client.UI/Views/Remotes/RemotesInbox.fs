@@ -132,7 +132,7 @@ module Parts =
         .Children(
           TextBlock()
             .Classes(Theme.name Theme.Subtitle)
-            .Text(State.orgTitle(viewerId, row))
+            .Text(RemotesRows.orgTitle(viewerId, row))
             .TextTrimming(TextTrimming.CharacterEllipsis),
           TextBlock()
             .Classes(Theme.name Theme.Mono)
@@ -248,7 +248,7 @@ module Parts =
 
     let body: Control array = [|
       titleLine(ctx.ViewerId, row)
-      excerptLine(State.excerptOf(ctx.ViewerId, row))
+      excerptLine(RemotesRows.excerptOf(ctx.ViewerId, row))
       yield! settle
     |]
 
@@ -429,7 +429,7 @@ module Parts =
           let strip = StackPanel().Orientation(Orientation.Horizontal)
 
           strip.Children [|
-            for tab, label in State.tabsOf current.RequestsOn ->
+            for tab, label in RemotesRows.tabsOf current.RequestsOn ->
               tabOf(tab, label)
           |]
           |> ignore
@@ -480,7 +480,7 @@ module Parts =
       ItemsControl()
         .ItemTemplate(template)
         .ItemsPanel(FuncTemplate<Panel>(fun () -> VirtualizingStackPanel()))
-        .BindItemsSource(list, State.rowKey)
+        .BindItemsSource(list, RemotesRows.rowKey)
 
     let scroller = ScrollViewer().Content(items)
 
@@ -524,7 +524,7 @@ module Parts =
         else
           ""
       elif list.Items = Some [] then
-        State.emptyLine current.Tab
+        RemotesRows.emptyLine current.Tab
       elif list.Items.IsNone then
         "loading the inbox…"
       else
@@ -691,7 +691,7 @@ module Parts =
       ViewerId = viewerId
     }
 
-    let list = model |> Observable.map State.rowsOf
+    let list = model |> Observable.map RemotesRows.rowsOf
 
     let column =
       let grid = Grid()

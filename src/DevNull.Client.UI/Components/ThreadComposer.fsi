@@ -53,6 +53,8 @@ type Props = {
   Services: Services
   Target: ChatTarget
   Thread: IObservable<ThreadState>
+  /// The typing handles the page shapes from the thread.
+  Typing: IObservable<string list>
   Draft: IObservable<string>
   Images: IObservable<ImageAttachment list>
   LinkChoice: IObservable<LinkCard>

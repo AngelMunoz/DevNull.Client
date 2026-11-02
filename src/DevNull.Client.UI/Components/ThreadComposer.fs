@@ -30,7 +30,6 @@ open DevNull.Client.Natives
 open DevNull.Client.RemotesState
 open DevNull.Client.SettingsStore
 open DevNull.Client.Theme
-open DevNull.Client.Views
 open Microsoft.Extensions.Logging
 
 /// The services one thread composer draws on: the viewer the mention
@@ -74,6 +73,7 @@ type Props = {
   Services: Services
   Target: ChatTarget
   Thread: IObservable<ThreadState>
+  Typing: IObservable<string list>
   Draft: IObservable<string>
   Images: IObservable<ImageAttachment list>
   LinkChoice: IObservable<LinkCard>
@@ -160,14 +160,14 @@ let imageChip(actions: Actions, image: ImageAttachment, index: int) : Control =
 /// draft's links, the first one, or none. The button shows only while
 /// the draft carries a link.
 let linkPicker(props: Props) : Control =
-  let links = props.Draft |> Observable.map State.linksOf
+  let links = props.Draft |> Observable.map RemotesText.linksOf
 
   let label =
     Observable.combineLatest links props.LinkChoice
     |> Observable.map(fun (found, chosen) ->
       match chosen with
       | LinkCard.CardOf url when found |> List.contains url ->
-        State.plainLink url
+        RemotesText.plainLink url
       | LinkCard.NoCard -> "no card"
       | _ -> if found.IsEmpty then "no links" else "first link")
 
@@ -177,7 +177,7 @@ let linkPicker(props: Props) : Control =
       "first link", LinkCard.FirstLink
 
       for url in found do
-        State.plainLink url, LinkCard.CardOf url
+        RemotesText.plainLink url, LinkCard.CardOf url
 
       "no card", LinkCard.NoCard
     ])
@@ -235,11 +235,7 @@ let linkPicker(props: Props) : Control =
 /// the org types, its three dots chasing each other on the theme's own
 /// beat.
 let typingLine(props: Props) : Control =
-  let names =
-    props.Thread
-    |> Observable.map(fun current ->
-      State.typingNames(isOrg props.Target, current))
-    |> Observable.distinctUntilChanged
+  let names = props.Typing |> Observable.distinctUntilChanged
 
   let dot(klass: string) =
     Ellipse()
@@ -265,7 +261,7 @@ let typingLine(props: Props) : Control =
       TextBlock()
         .Classes(Theme.name Theme.Mono)
         .FontSize(11.0)
-        .Text(names |> Observable.map State.typingText)
+        .Text(names |> Observable.map RemotesText.typingText)
     )
     .IsVisible(names |> Observable.map(List.isEmpty >> not))
 
@@ -447,7 +443,8 @@ let mentionPicker(props: Props, input: TextBox) : Control =
   let applyMention(handle: string) =
     let typed = input.Text |> Option.ofObj |> Option.defaultValue ""
 
-    let next, caret = State.mentionCompleted(typed, input.CaretIndex, handle)
+    let next, caret =
+      RemotesText.mentionCompleted(typed, input.CaretIndex, handle)
 
     input.Text <- next
     input.CaretIndex <- caret

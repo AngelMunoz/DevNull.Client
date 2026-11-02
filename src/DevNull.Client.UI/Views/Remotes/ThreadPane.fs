@@ -59,71 +59,6 @@ module ThreadPane =
     Media: ThreadMessage.Media
   }
 
-  /// The word and shape one message's meta line carries: `pushed`
-  /// until the other side pulled, then `pulled` with its own clock
-  /// time in a direct thread, or the org's pull count.
-  let receiptWord
-    (isOrg: bool, thread: ThreadState, message: Message)
-    : (bool * string) option =
-    if isOrg then
-      let others =
-        thread.Members
-        |> List.filter(fun member' -> member'.User.Id <> message.UserId)
-
-      let pulled =
-        others
-        |> List.filter(fun member' -> member'.ReadThroughId >= message.Id)
-
-      if List.isEmpty others then
-        None
-      elif
-        List.length pulled = List.length others && List.length others > 3
-      then
-        Some(true, "pulled by everyone")
-      else
-        Some(true, $"pulled by {List.length pulled} of {List.length others}")
-    elif
-      thread.PartnerReadThroughId >= message.Id
-      && thread.PartnerReadThroughId > 0
-    then
-      let pulledAt = message.CreatedAt.LocalDateTime.ToString("h:mm tt")
-
-      Some(true, $"pulled {pulledAt}")
-    else
-      Some(false, "pushed")
-
-  /// The who-reacted line: the viewer, the partner, a member the
-  /// thread carries — each as their handle — or someone the payload
-  /// did not name.
-  let whoNames
-    (thread: ThreadState option, viewerId: string, who: string list)
-    : string =
-    who
-    |> List.map(fun userId ->
-      if userId = viewerId then
-        "you"
-      else
-        let named =
-          match thread with
-          | Some thread ->
-            match thread.Target with
-            | Partner user when user.Id = userId -> Some("@" + user.Handle)
-            | _ ->
-              thread.Members
-              |> List.tryFind(fun member' -> member'.User.Id = userId)
-              |> Option.map(fun member' -> "@" + member'.User.Handle)
-          | None -> None
-
-        named |> Option.defaultValue "someone")
-    |> String.concat ", "
-
-  /// One message's pin state as the thread holds it: the org's pinned
-  /// list once it loaded, the message's own mark before that.
-  let pinnedNow(current: ThreadState, message: Message) : bool =
-    match current.Pinned with
-    | Some pins -> pins |> List.exists(fun pin -> pin.Id = message.Id)
-    | None -> message.PinnedAt.IsSome
-
   /// One bubble's page-side ask: the row context, the live thread,
   /// the reaction usage, the run's side and author, and the message.
   [<Struct>]
@@ -148,12 +83,15 @@ module ThreadPane =
 
   /// The reaction tray's two lists from the page's usage history.
   let reactionChoices(usage: ReactionUse list) : ThreadMessage.ReactionChoices =
-    let quick = State.quickReactions usage
+    let quick = RemotesRows.quickReactions usage
 
     {
       Quick = quick
       Rest =
-        usage |> State.frequentReactions |> List.except quick |> List.distinct
+        usage
+        |> RemotesRows.frequentReactions
+        |> List.except quick
+        |> List.distinct
     }
 
   /// The gallery the images report up to, opened over the clicked
@@ -184,14 +122,15 @@ module ThreadPane =
           thread.Messages
           |> List.tryFind(fun held -> held.Id = message.Id)
           |> Option.map(fun held ->
-            State.summarizeReactions(held.Reactions, ctx.ViewerId))
+            RemotesRows.summarizeReactions(held.Reactions, ctx.ViewerId))
           |> Option.defaultValue []
           |> List.map(fun summary ->
             ({
               Emoji = summary.Emoji
               Count = summary.Count
               Mine = summary.IsMine
-              Who = whoNames(Some thread, ctx.ViewerId, summary.Who)
+              Who =
+                RemotesRows.whoNames(Some thread, ctx.ViewerId, summary.Who)
             }
             : ThreadMessage.ReactionChip)))
         |> Option.defaultValue [])
@@ -215,7 +154,7 @@ module ThreadPane =
             match current with
             | Some thread ->
               ({
-                Pinned = pinnedNow(thread, message)
+                Pinned = RemotesRows.pinnedNow(thread, message)
                 Maintainer = thread.Role |> Option.contains Maintainer
               }
               : ThreadMessage.PinState)
@@ -237,14 +176,15 @@ module ThreadPane =
         |> Observable.map(fun current ->
           current
           |> Option.bind(fun thread ->
-            State.statusOf(ctx.IsOrg, ctx.ViewerId, thread))
+            RemotesRows.statusOf(ctx.IsOrg, ctx.ViewerId, thread))
           |> Option.map _.Id
           |> Option.contains message.Id)
       Receipt =
         live
         |> Observable.map(fun current ->
           current
-          |> Option.bind(fun thread -> receiptWord(ctx.IsOrg, thread, message)))
+          |> Option.bind(fun thread ->
+            RemotesRows.receiptWord(ctx.IsOrg, thread, message)))
       Preview = preview
       Reactions = reactions
       ReactionChoices = ask.Usage |> Observable.map reactionChoices
@@ -291,7 +231,7 @@ module ThreadPane =
         |> Observable.map(fun current ->
           current
           |> Option.bind(fun thread ->
-            State.statusOf(ctx.IsOrg, ctx.ViewerId, thread)))
+            RemotesRows.statusOf(ctx.IsOrg, ctx.ViewerId, thread)))
       Bubble =
         fun message ->
           bubbleProps {
@@ -334,7 +274,7 @@ module ThreadPane =
     let rowItems =
       ask.Thread
       |> Observable.map(fun current ->
-        State.threadRows {
+        RemotesRows.threadRows {
           State.ViewerId = ctx.ViewerId
           IsOrg = ctx.IsOrg
           Now = DateTimeOffset.UtcNow
@@ -352,7 +292,7 @@ module ThreadPane =
       | State.ThreadRow.Day(_, label) -> ThreadMessage.dayRow label
       | State.ThreadRow.Head count -> ThreadMessage.headRow count
       | State.ThreadRow.Event message ->
-        ThreadMessage.eventRow(State.eventText(ctx.ViewerId, message))
+        ThreadMessage.eventRow(RemotesRows.eventText(ctx.ViewerId, message))
       | State.ThreadRow.Run ofRun ->
         ThreadMessage.run(
           runProps {
@@ -377,7 +317,7 @@ module ThreadPane =
     let scroller =
       (Feed.view {
         Items = rowItems
-        KeyOf = State.threadRowKey
+        KeyOf = RemotesRows.threadRowKey
         Row = row
         Footer = ValueNone
         HasMore = hasOlder
@@ -762,6 +702,10 @@ module ThreadPane =
                   Services = composerServices
                   Target = target
                   Thread = thread
+                  Typing =
+                    thread
+                    |> Observable.map(fun current ->
+                      RemotesRows.typingNames(isOrg, current))
                   Draft = model |> Observable.map _.Draft
                   Images = model |> Observable.map _.Images
                   LinkChoice = model |> Observable.map _.LinkChoice

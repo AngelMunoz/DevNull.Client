@@ -167,19 +167,22 @@ module Parts =
   let cardHost
     (cache: ImageCacheService, model: IObservable<State.Model>)
     : Control =
-    let card: IObservable<Control> =
-      model
-      |> Observable.map(fun current ->
-        match current.Details with
-        | Some details ->
-          StackPanel()
-            .Spacing(16.0)
-            .Children(
-              identityHead(cache, details.Profile),
-              stats details.Profile,
-              bioLine details.Profile
-            )
-        | None -> Status.empty "")
+    let card =
+      PageChrome.rebuildOn(
+        model,
+        (fun current -> current.Details),
+        fun current ->
+          match current.Details with
+          | Some details ->
+            StackPanel()
+              .Spacing(16.0)
+              .Children(
+                identityHead(cache, details.Profile),
+                stats details.Profile,
+                bioLine details.Profile
+              )
+          | None -> Status.empty ""
+      )
 
     let host = ContentControl()
 

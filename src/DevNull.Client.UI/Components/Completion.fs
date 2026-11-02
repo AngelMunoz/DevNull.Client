@@ -208,10 +208,21 @@ let view
 
   // What rows exist and which quiet state stands in for them; the
   // armed row rides its own observable, so a key move repaints one
-  // chip instead of rebuilding the list.
-  let shape =
-    state
-    |> Observable.map(fun current -> {
+  // chip instead of rebuilding the list. The gate sits before the
+  // shape allocation.
+  let keyOf(current: View) =
+    current.Query,
+    current.Caption,
+    current.Users,
+    current.Organizations,
+    current.Issue,
+    current.Searching,
+    current.Throttled
+
+  let rows = new BehaviorSubject<Control array>(Array.empty)
+
+  let build(current: View) : Control =
+    let shape: Shape = {
       Caption = current.Caption
       Users = current.Users
       Organizations = current.Organizations
@@ -219,12 +230,7 @@ let view
       Searching = current.Searching
       Throttled = current.Throttled
       Query = current.Query
-    })
-    |> Observable.distinctUntilChanged
-
-  let rows = new BehaviorSubject<Control array>(Array.empty)
-
-  let build(shape: Shape) =
+    }
 
     let captionRow() =
       TextBlock()
@@ -310,7 +316,8 @@ let view
       .Name("CompletionScroller")
       .MaxHeight(320.0)
       .Content(
-        ContentControl().Content((shape |> Observable.map build).ToBinding())
+        ContentControl()
+          .Content(PageChrome.rebuildOn(state, keyOf, build) |> _.ToBinding())
       )
 
   {

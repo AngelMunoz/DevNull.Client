@@ -673,11 +673,14 @@ module Parts =
 
     let events =
       let content =
-        group
-        |> Observable.map(fun current ->
-          StackPanel().Margin(24.0, 0.0, 0.0, 0.0).Children [|
-            for item in current.Items -> eventRow(ctx.Images, item, now)
-          |])
+        PageChrome.rebuildOn(
+          group,
+          id,
+          fun current ->
+            StackPanel().Margin(24.0, 0.0, 0.0, 0.0).Children [|
+              for item in current.Items -> eventRow(ctx.Images, item, now)
+            |]
+        )
 
       ContentControl()
         .Content(content.ToBinding())

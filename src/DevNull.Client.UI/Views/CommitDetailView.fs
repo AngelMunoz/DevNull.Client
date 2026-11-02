@@ -891,15 +891,18 @@ module Parts =
       .busy("Loading the commit…")
       .IsVisible(model |> Observable.map _.Loading)
 
-  // The card is rebuilt whenever the commit changes: the snapshot keeps
-  // the star visual honest.
+  // The card is rebuilt whenever the focused page changes: the snapshot
+  // keeps the star visual honest, and an unrelated tick leaves it alone.
   let cardHost(ctx: Ctx) : Control =
     let content =
-      ctx.Model
-      |> Observable.map(fun current ->
-        match current.Page with
-        | Some page -> CommitCard.feedRow ctx.Rows (LiveCommit page.Commit)
-        | None -> Status.empty "")
+      PageChrome.rebuildOn(
+        ctx.Model,
+        (fun current -> current.Page),
+        (fun current ->
+          match current.Page with
+          | Some page -> CommitCard.feedRow ctx.Rows (LiveCommit page.Commit)
+          | None -> Status.empty "")
+      )
 
     ContentControl().Content(content.ToBinding())
 
@@ -922,9 +925,11 @@ module Parts =
       // The control exists only while the mode is on.
       ContentControl()
         .Content(
-          model
-          |> Observable.map(fun current ->
-            if current.Pasteis then button :> Control else Panel())
+          PageChrome.rebuildOn(
+            model,
+            (fun current -> current.Pasteis),
+            (fun current -> if current.Pasteis then button else Panel())
+          )
           |> _.ToBinding()
         )
 

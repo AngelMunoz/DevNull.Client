@@ -912,10 +912,10 @@ row recycling make it common; native memory grows. Fix: dispose on the
 cancellation paths (the drop-on-replace/detach pattern the file already
 uses).
 
-**LEAK-2 — CommitDetailView builds a rooted card per emission.**
+~~**LEAK-2 — CommitDetailView builds a rooted card per emission.**
 `CommitDetailView.fs:942-951`: ungated `Content` rebuild; each replaced card
 keeps model bindings until the route ends (leak class 5; dies in work-list
-step 4, but the issue tracks the defect).
+step 4, but the issue tracks the defect).~~ — died in step P6
 
 ~~**BUG-3 — Scroll-to-top dies after the first stash.**
 `Feed.fs:106-116`: the `untilDetached` subscription cannot restart; LogView

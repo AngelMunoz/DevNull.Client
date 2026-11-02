@@ -17,6 +17,20 @@ type Line =
 /// binding that joins after the last emission.
 val share: source: IObservable<'T> -> IObservable<'T>
 
+/// One content builder gated by the identity of its inputs: the source
+/// passes only when `keyOf` changes, and each pass builds the control.
+///
+/// `keyOf` MUST cover every value `build` reads. An input left out of
+/// the key leaves the built control stale until another keyed input
+/// moves; an input wider than the build needs rebuilds the subtree
+/// without a reason. A key compares by value when it is a string or a
+/// value type, by reference when it is any other reference value
+/// (records, lists, unions), and part by part when it is a tuple, so
+/// several identities can travel as one key.
+val rebuildOn:
+  source: IObservable<'a> * keyOf: ('a -> 'k) * build: ('a -> Control) ->
+    IObservable<Control>
+
 /// One line of text in the given foreground class, following an
 /// observable source.
 val messagePanel: text: IObservable<string> * fg: StyleClass -> Control

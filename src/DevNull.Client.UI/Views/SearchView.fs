@@ -483,54 +483,62 @@ let view
           })
   }
 
+  let bodyKey(current: State.Model) =
+    let answer = State.answerOf current
+
+    current.Term, current.Recents, answer.Term, answer.Commits
+
   let body =
-    model
-    |> Observable.map(fun current ->
-      let term = current.Term.Trim()
+    PageChrome.rebuildOn(
+      model,
+      bodyKey,
+      fun current ->
+        let term = current.Term.Trim()
 
-      let suggestions =
-        SearchParts.suggestions |> List.filter(fun words -> words <> term)
+        let suggestions =
+          SearchParts.suggestions |> List.filter(fun words -> words <> term)
 
-      let quietChildren: Control array = [|
-        if not current.Recents.IsEmpty then
-          Parts.quietSection(dispatch, "Recent searches", current.Recents)
+        let quietChildren: Control array = [|
+          if not current.Recents.IsEmpty then
+            Parts.quietSection(dispatch, "Recent searches", current.Recents)
 
-        Parts.quietSection(dispatch, "Try searching for…", suggestions)
-      |]
+          Parts.quietSection(dispatch, "Try searching for…", suggestions)
+        |]
 
-      let quietRows = StackPanel().Children(quietChildren)
+        let quietRows = StackPanel().Children(quietChildren)
 
-      if term = "" then
-        quietRows
-      else
-        let answer = State.answerOf current
+        if term = "" then
+          quietRows
+        else
+          let answer = State.answerOf current
 
-        let results =
-          if State.searching current then
-            Parts.placeholders()
-          elif answer.Commits.IsEmpty then
-            Parts.fatalOf term
-          else
-            let rows =
-              ItemsControl()
-                .ItemTemplate(
-                  FuncDataTemplate<CommitNode>(
-                    (fun node _ -> CommitCard.feedRow ctx node),
-                    false
+          let results =
+            if State.searching current then
+              Parts.placeholders()
+            elif answer.Commits.IsEmpty then
+              Parts.fatalOf term
+            else
+              let rows =
+                ItemsControl()
+                  .ItemTemplate(
+                    FuncDataTemplate<CommitNode>(
+                      (fun node _ -> CommitCard.feedRow ctx node),
+                      false
+                    )
                   )
-                )
-                .BindItemsSource(
-                  model
-                  |> Observable.map(fun now ->
-                    answer.Commits
-                    :> System.Collections.Generic.IReadOnlyList<CommitNode>),
-                  FeedParts.nodeKey
-                )
+                  .BindItemsSource(
+                    model
+                    |> Observable.map(fun now ->
+                      answer.Commits
+                      :> System.Collections.Generic.IReadOnlyList<CommitNode>),
+                    FeedParts.nodeKey
+                  )
 
-            StackPanel()
-              .Children(Parts.countHeader(answer.Commits.Length), rows)
+              StackPanel()
+                .Children(Parts.countHeader(answer.Commits.Length), rows)
 
-        StackPanel().Children(results, quietRows))
+          StackPanel().Children(results, quietRows)
+    )
 
   PageChrome.page {
     Model = model

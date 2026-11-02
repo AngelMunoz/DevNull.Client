@@ -501,55 +501,61 @@ module Parts =
   let laneRow
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =
-    // The palette is rebuilt when the lane changes: the ring follows.
+    // The palette is rebuilt when its inputs change: the ring follows.
+    let palette(current: State.Model) : Control =
+      match current.Me with
+      | Some me ->
+        let current' = State.laneIndex me.PreferredLane
+
+        let laneButton(index: int) : Control =
+          Button()
+            .Width(34.0)
+            .Height(34.0)
+            .CornerRadius(17.0)
+            .BorderThickness(2.0)
+            .OnClickHandler(fun _ _ -> dispatch(State.LaneSet index))
+            .Classes(
+              Theme.laneClass(Theme.LaneBack, Some(LaneIndex index)),
+              Theme.name(
+                if current' = Some index then
+                  Theme.TextEdge
+                else
+                  Theme.Hairline
+              )
+            )
+
+        let automatic =
+          Button()
+            .Classes(Theme.name Theme.NavButton)
+            .Content("Automatic")
+            .OnClickHandler(fun _ _ -> dispatch State.LaneAutomatic)
+
+        if me.PreferredLane = None then
+          automatic.Classes(Theme.name Theme.CardBack) |> ignore
+
+        let row: Control array = [|
+          automatic
+          for index in 0..5 do
+            laneButton index
+        |]
+
+        StackPanel()
+          .Orientation(Orientation.Horizontal)
+          .Spacing(6.0)
+          .Children(row)
+      | None -> Status.empty ""
+
+    let keyOf(current: State.Model) =
+      match current.Me with
+      | Some me ->
+        struct (true,
+                me.PreferredLane.IsNone,
+                State.laneIndex me.PreferredLane |> Option.defaultValue -1)
+      | None -> struct (false, false, -1)
+
     let laneHost =
-      let content: IObservable<Control> =
-        model
-        |> Observable.map(fun current ->
-          match current.Me with
-          | Some me ->
-            let current' = State.laneIndex me.PreferredLane
-
-            let laneButton(index: int) : Control =
-              Button()
-                .Width(34.0)
-                .Height(34.0)
-                .CornerRadius(17.0)
-                .BorderThickness(2.0)
-                .OnClickHandler(fun _ _ -> dispatch(State.LaneSet index))
-                .Classes(
-                  Theme.laneClass(Theme.LaneBack, Some(LaneIndex index)),
-                  Theme.name(
-                    if current' = Some index then
-                      Theme.TextEdge
-                    else
-                      Theme.Hairline
-                  )
-                )
-
-            let automatic =
-              Button()
-                .Classes(Theme.name Theme.NavButton)
-                .Content("Automatic")
-                .OnClickHandler(fun _ _ -> dispatch State.LaneAutomatic)
-
-            if me.PreferredLane = None then
-              automatic.Classes(Theme.name Theme.CardBack) |> ignore
-
-            let row: Control array = [|
-              automatic
-              for index in 0..5 do
-                laneButton index
-            |]
-
-            StackPanel()
-              .Orientation(Orientation.Horizontal)
-              .Spacing(6.0)
-              .Children(row)
-            :> Control
-          | None -> Status.empty "")
-
-      ContentControl().Content(content.ToBinding())
+      ContentControl()
+        .Content(PageChrome.rebuildOn(model, keyOf, palette).ToBinding())
 
     StackPanel()
       .Spacing(6.0)
@@ -572,30 +578,33 @@ module Parts =
     let themeHost = ContentControl()
 
     let choices =
-      model
-      |> Observable.map(fun current ->
-        let choiceButton(label: string, choice: ThemeChoice) : Control =
-          let button =
-            Button()
-              .Classes(Theme.name Theme.NavButton)
-              .Content(label)
-              .OnClickHandler(fun _ _ -> dispatch(State.ThemeChosen choice))
+      PageChrome.rebuildOn(
+        model,
+        (fun current -> current.Settings.Theme),
+        fun current ->
+          let choiceButton(label: string, choice: ThemeChoice) : Control =
+            let button =
+              Button()
+                .Classes(Theme.name Theme.NavButton)
+                .Content(label)
+                .OnClickHandler(fun _ _ -> dispatch(State.ThemeChosen choice))
 
-          if current.Settings.Theme = choice then
-            button.Classes(Theme.name Theme.AccentEdge) |> ignore
+            if current.Settings.Theme = choice then
+              button.Classes(Theme.name Theme.AccentEdge) |> ignore
 
-          button
+            button
 
-        let row: Control array = [|
-          choiceButton("System", System)
-          choiceButton("Light", Light)
-          choiceButton("Dark", Dark)
-        |]
+          let row: Control array = [|
+            choiceButton("System", System)
+            choiceButton("Light", Light)
+            choiceButton("Dark", Dark)
+          |]
 
-        StackPanel()
-          .Orientation(Orientation.Horizontal)
-          .Spacing(6.0)
-          .Children(row))
+          StackPanel()
+            .Orientation(Orientation.Horizontal)
+            .Spacing(6.0)
+            .Children(row)
+      )
 
     themeHost.Content(choices.ToBinding()) |> ignore
 
@@ -655,6 +664,8 @@ module Parts =
     Model: IObservable<State.Model>
     Query: State.Model -> string
     Rows: State.Model -> (string * string) list
+    /// The identity of the rows the filter reads.
+    Key: State.Model -> obj
     Typed: string -> unit
     Picked: string -> unit
   }
@@ -672,35 +683,38 @@ module Parts =
     let list =
       ContentControl()
         .Content(
-          args.Model
-          |> Observable.map(fun current ->
-            let text = (args.Query current).Trim().ToLowerInvariant()
+          PageChrome.rebuildOn(
+            args.Model,
+            (fun current -> args.Query current, args.Key current),
+            fun current ->
+              let text = (args.Query current).Trim().ToLowerInvariant()
 
-            let matching =
-              args.Rows current
-              |> List.filter(fun (key, label) ->
-                text = ""
-                || key.ToLowerInvariant().Contains text
-                || label.ToLowerInvariant().Contains text)
-              |> List.truncate 80
+              let matching =
+                args.Rows current
+                |> List.filter(fun (key, label) ->
+                  text = ""
+                  || key.ToLowerInvariant().Contains text
+                  || label.ToLowerInvariant().Contains text)
+                |> List.truncate 80
 
-            if matching.IsEmpty then
-              Status.empty "No match."
-            else
-              StackPanel()
-                .Spacing(2.0)
-                .Children(
-                  [|
-                    for (key, label) in matching ->
-                      Button()
-                        .Classes(Theme.name Theme.NavButton)
-                        .HorizontalAlignment(HorizontalAlignment.Stretch)
-                        .HorizontalContentAlignment(HorizontalAlignment.Left)
-                        .Content(label)
-                        .OnClickHandler(fun _ _ -> args.Picked key)
-                      :> Control
-                  |]
-                ))
+              if matching.IsEmpty then
+                Status.empty "No match."
+              else
+                StackPanel()
+                  .Spacing(2.0)
+                  .Children(
+                    [|
+                      for (key, label) in matching ->
+                        Button()
+                          .Classes(Theme.name Theme.NavButton)
+                          .HorizontalAlignment(HorizontalAlignment.Stretch)
+                          .HorizontalContentAlignment(HorizontalAlignment.Left)
+                          .Content(label)
+                          .OnClickHandler(fun _ _ -> args.Picked key)
+                        :> Control
+                    |]
+                  )
+          )
           |> _.ToBinding()
         )
 
@@ -814,6 +828,7 @@ module Parts =
             fun _ -> [
               for zone in zones -> zone.Id, $"{zone.Offset}  {zone.Id}"
             ]
+          Key = fun _ -> zones
           Typed = fun text -> dispatch(State.ZoneQueryChanged text)
           Picked = fun id -> dispatch(State.ZonePicked(Some id))
         },
@@ -942,6 +957,7 @@ module Parts =
                   language.Code, label
               ])
               |> Option.defaultValue []
+          Key = fun current -> current.Prefs
           Typed = fun text -> dispatch(State.LanguageQueryChanged text)
           Picked = fun code -> dispatch(State.LanguagePicked(Some code))
         },
@@ -1103,19 +1119,21 @@ module Parts =
             )
         )
 
-    let rows: IObservable<Control> =
-      model
-      |> Observable.map(fun current ->
-        match current.Devices with
-        | Some devices ->
-          if devices.IsEmpty then
-            Status.empty "No devices."
-          else
-            StackPanel()
-              .Spacing(8.0)
-              .Children([| for device in devices -> rowOf device |])
-            :> Control
-        | None -> Status.busy "Loading the devices…")
+    let rows =
+      PageChrome.rebuildOn(
+        model,
+        (fun current -> current.Devices),
+        fun current ->
+          match current.Devices with
+          | Some devices ->
+            if devices.IsEmpty then
+              Status.empty "No devices."
+            else
+              StackPanel()
+                .Spacing(8.0)
+                .Children([| for device in devices -> rowOf device |])
+          | None -> Status.busy "Loading the devices…"
+      )
 
     StackPanel()
       .Spacing(8.0)

@@ -315,17 +315,21 @@ module Parts =
 
     ContentControl()
       .Content(
-        props.Translation
-        |> Observable.map(function
-          | ValueSome { Body = Some translated } ->
-            bodyGen(
-              props.Flyout,
-              Accent,
-              commit.Body,
-              translated.BodySegments,
-              []
-            )
-          | _ -> original)
+        PageChrome.rebuildOn(
+          props.Translation,
+          id,
+          fun view ->
+            match view with
+            | ValueSome { Body = Some translated } ->
+              bodyGen(
+                props.Flyout,
+                Accent,
+                commit.Body,
+                translated.BodySegments,
+                []
+              )
+            | _ -> original
+        )
         |> _.ToBinding()
       )
 
@@ -375,7 +379,9 @@ module Parts =
           .Children(Array.concat [ notice; failure ])
 
     ContentControl()
-      .Content(props.Translation |> Observable.map line |> _.ToBinding())
+      .Content(
+        PageChrome.rebuildOn(props.Translation, id, line) |> _.ToBinding()
+      )
 
   /// The image block under the body: one image full width, two or
   /// three in a two-column grid. Each cell is a fixed box with the
@@ -1157,9 +1163,11 @@ module Parts =
         // into the tree.
         ContentControl()
           .Content(
-            props.Pastels
-            |> Observable.map(fun on ->
-              if on then button :> Control else Panel())
+            PageChrome.rebuildOn(
+              props.Pastels,
+              id,
+              (fun on -> if on then button else Panel())
+            )
             |> _.ToBinding()
           )
       | ValueNone -> Panel()
@@ -1216,26 +1224,56 @@ module Parts =
     // shows while the site may translate the commit, and disables while
     // the call runs or the rate limit waits.
     let translate: Control =
+      let label =
+        props.Translation
+        |> Observable.map(fun view ->
+          match view with
+          | ValueSome view when view.CanTranslate && view.Busy ->
+            "Translating…"
+          | _ -> "Translate")
+
+      let enabled =
+        props.Translation
+        |> Observable.map(fun view ->
+          match view with
+          | ValueSome view ->
+            view.CanTranslate && not view.Busy && not view.Waiting
+          | ValueNone -> false)
+
+      let button =
+        let built =
+          iconAction(
+            "TranslateButton",
+            Glyph.Translate,
+            ValueNone,
+            fun _ -> onEvent(TranslateRequested commit)
+          )
+
+        built
+          .Content(
+            StackPanel()
+              .Orientation(Orientation.Horizontal)
+              .Spacing(4.0)
+              .Children(
+                Icons.iconAt(Glyph.Translate, 16.0),
+                TextBlock().Classes(Theme.name Theme.Mono).Text(label)
+              )
+          )
+          .IsEnabled(enabled)
+
       ContentControl()
         .Content(
-          props.Translation
-          |> Observable.map(fun view ->
-            match view with
-            | ValueSome {
-                          CanTranslate = true
-                          Busy = busy
-                          Waiting = waiting
-                        } ->
-              let button =
-                iconAction(
-                  "TranslateButton",
-                  Glyph.Translate,
-                  ValueSome(if busy then "Translating…" else "Translate"),
-                  fun _ -> onEvent(TranslateRequested commit)
-                )
-
-              button.IsEnabled(not busy && not waiting) :> Control
-            | _ -> Panel())
+          PageChrome.rebuildOn(
+            props.Translation,
+            (fun view ->
+              view
+              |> ValueOption.map _.CanTranslate
+              |> ValueOption.defaultValue false),
+            (fun view ->
+              match view with
+              | ValueSome view when view.CanTranslate -> button
+              | _ -> Panel())
+          )
           |> _.ToBinding()
         )
 

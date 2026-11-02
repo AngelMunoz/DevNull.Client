@@ -2294,8 +2294,6 @@ module Thread =
     let voiceRides =
       model |> Observable.map(fun current -> current.Voice.IsSome)
 
-    let reply = thread |> Observable.map(fun current -> current.ReplyingTo)
-
     let counter = draft |> Observable.map(fun text -> text.TrimEnd().Length)
 
     // The site's own word: quiet until 80%, amber from 95%, danger at
@@ -2377,29 +2375,32 @@ module Thread =
     let replyBar =
       ContentControl()
         .Content(
-          reply
-          |> Observable.map(function
-            | Some parent ->
-              StackPanel()
-                .Orientation(Orientation.Horizontal)
-                .Spacing(8.0)
-                .Children(
-                  TextBlock()
-                    .Classes(Theme.name Theme.Muted)
-                    .FontSize(12.0)
-                    .Text($"in reply to: {parent.Body}")
-                    .TextTrimming(TextTrimming.CharacterEllipsis),
-                  Button()
-                    .Classes(Theme.name Theme.GhostButton)
-                    .Padding(4.0, 0.0, 4.0, 2.0)
-                    .FontSize(11.0)
-                    .Content("cancel")
-                    .OnClickHandler(fun _ args ->
-                      args.Handled <- true
-                      dispatch State.ReplyCancelled)
-                )
-              :> Control
-            | None -> null)
+          PageChrome.rebuildOn(
+            thread,
+            (fun current -> current.ReplyingTo),
+            fun current ->
+              match current.ReplyingTo with
+              | Some parent ->
+                StackPanel()
+                  .Orientation(Orientation.Horizontal)
+                  .Spacing(8.0)
+                  .Children(
+                    TextBlock()
+                      .Classes(Theme.name Theme.Muted)
+                      .FontSize(12.0)
+                      .Text($"in reply to: {parent.Body}")
+                      .TextTrimming(TextTrimming.CharacterEllipsis),
+                    Button()
+                      .Classes(Theme.name Theme.GhostButton)
+                      .Padding(4.0, 0.0, 4.0, 2.0)
+                      .FontSize(11.0)
+                      .Content("cancel")
+                      .OnClickHandler(fun _ args ->
+                        args.Handled <- true
+                        dispatch State.ReplyCancelled)
+                  )
+              | None -> Panel()
+          )
           |> _.ToBinding()
         )
 
@@ -3604,22 +3605,24 @@ module Thread =
       target: ChatTarget,
       thread: IObservable<ThreadState>
     ) : Control =
-    let access =
-      thread |> Observable.map _.Access |> Observable.distinctUntilChanged
-
     ContentControl()
       .Content(
-        access
-        |> Observable.map(function
-          | PushOpen -> composer(props, model, dispatch, solo, target, thread)
-          | PushRequest
-          | PushWaiting
-          | PushRestricted
-          | PushClosed
-          | UnknownAccess _ as refused ->
-            match target with
-            | Partner partner -> accessBar(dispatch, partner, refused)
-            | Org _ -> null)
+        PageChrome.rebuildOn(
+          thread,
+          (fun current -> current.Access),
+          (fun current ->
+            match current.Access with
+            | PushOpen ->
+              composer(props, model, dispatch, solo, target, thread)
+            | PushRequest
+            | PushWaiting
+            | PushRestricted
+            | PushClosed
+            | UnknownAccess _ as refused ->
+              match target with
+              | Partner partner -> accessBar(dispatch, partner, refused)
+              | Org _ -> Panel())
+        )
         |> _.ToBinding()
       )
 
@@ -3712,9 +3715,11 @@ module Thread =
                 .VerticalAlignment(VerticalAlignment.Center),
               ContentControl()
                 .Content(
-                  thread
-                  |> Observable.map(fun current ->
-                    memberStack(ctx, current.Members))
+                  PageChrome.rebuildOn(
+                    thread,
+                    (fun current -> current.Members),
+                    (fun current -> memberStack(ctx, current.Members))
+                  )
                   |> _.ToBinding()
                 )
             )

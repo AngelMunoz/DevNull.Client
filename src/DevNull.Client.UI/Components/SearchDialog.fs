@@ -631,11 +631,25 @@ module Parts =
 
       built
 
+    let keyOf(current: State.Model) =
+      let people = State.peopleOf current
+      let commits = State.commitsOf current
+
+      current.Term,
+      current.Recents,
+      people.Term,
+      people.Users,
+      people.Throttled,
+      commits.Term,
+      commits.Commits,
+      commits.Throttled
+
     let content =
-      model
-      |> Observable.map State.entriesOf
-      |> Observable.distinctUntilChanged
-      |> Observable.map build
+      PageChrome.rebuildOn(
+        model,
+        keyOf,
+        fun current -> build(State.entriesOf current)
+      )
 
     let scroller =
       ScrollViewer().MaxHeight(460.0).Content(content |> _.ToBinding())

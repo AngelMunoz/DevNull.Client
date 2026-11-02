@@ -1010,10 +1010,11 @@ module Parts =
       dispatch: Dispatch<State.Msg>,
       model: IObservable<State.Model>
     ) : Control =
-    ContentControl()
-      .Content(
-        model
-        |> Observable.map(fun current ->
+    let content =
+      PageChrome.rebuildOn(
+        model,
+        (fun current -> current.Details),
+        (fun current ->
           match current.Details with
           | Some details ->
             let isSelf =
@@ -1033,10 +1034,10 @@ module Parts =
                   |]
                   (profileSections details)
               )
-            :> Control
           | None -> Status.empty "")
-        |> _.ToBinding()
       )
+
+    ContentControl().Content(content.ToBinding())
 
 let view
   (props: Props<'env>)

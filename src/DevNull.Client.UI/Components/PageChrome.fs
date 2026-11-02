@@ -1,10 +1,13 @@
 module DevNull.Client.Components.PageChrome
 
 open System
+open System.Collections.Generic
+open System.Runtime.CompilerServices
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Layout
 open Avalonia.Media
+open Microsoft.FSharp.Reflection
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open DevNull.Client
@@ -20,6 +23,67 @@ type Line =
 
 let share(source: IObservable<'T>) : IObservable<'T> =
   source |> Observable.replayBuffer 1 |> Observable.refCount
+
+let rec sameRebuildKey (left: objnull) (right: objnull) : bool =
+  if obj.ReferenceEquals(left, right) then
+    true
+  elif isNull left || isNull right then
+    false
+  else
+    let left = nonNull left
+    let right = nonNull right
+    let kind = left.GetType()
+
+    if kind <> right.GetType() then
+      false
+    elif FSharpType.IsTuple kind then
+      let leftFields = FSharpValue.GetTupleFields left
+      let rightFields = FSharpValue.GetTupleFields right
+
+      leftFields.Length = rightFields.Length
+      && Array.forall2 sameRebuildKey leftFields rightFields
+    elif kind = typeof<string> || kind.IsValueType then
+      left.Equals right
+    else
+      false
+
+let rec hashRebuildKey(key: objnull) : int =
+  if isNull key then
+    0
+  else
+    let key = nonNull key
+    let kind = key.GetType()
+
+    if FSharpType.IsTuple kind then
+      let fields = FSharpValue.GetTupleFields key
+
+      (17, fields)
+      ||> Array.fold(fun hash field -> hash * 397 + hashRebuildKey field)
+    elif kind = typeof<string> || kind.IsValueType then
+      key.GetHashCode()
+    else
+      RuntimeHelpers.GetHashCode key
+
+type RebuildKeyComparer() =
+  interface IEqualityComparer<objnull> with
+    member _.Equals(left, right) =
+      if isNull left || isNull right then
+        isNull left && isNull right
+      else
+        sameRebuildKey left right
+
+    member _.GetHashCode(key) = hashRebuildKey key
+
+let rebuildOn
+  (source: IObservable<'a>, keyOf: 'a -> 'k, build: 'a -> Control)
+  : IObservable<Control> =
+  let key: 'a -> objnull = fun value -> box(keyOf value)
+
+  source
+  |> Observable.distinctUntilChangedKeyCompare
+    key
+    (RebuildKeyComparer() :> IEqualityComparer<objnull>)
+  |> Observable.map build
 
 /// One line of text in the given foreground class, following an
 /// observable source.

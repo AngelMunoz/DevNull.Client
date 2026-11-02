@@ -360,66 +360,82 @@ module Parts =
   let tabRow
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =
+    let waiting =
+      model
+      |> Observable.map(fun current ->
+        current.State.Requests |> Option.defaultValue 0)
+
     let strip =
-      Observable.combineLatest
-        (model |> Observable.map _.RequestsOn)
-        (model
-         |> Observable.map(fun current ->
-           current.State.Requests |> Option.defaultValue 0))
-      |> Observable.distinctUntilChanged
-      |> Observable.map(fun (on, waiting) ->
-        let tabOf(tab: InboxTab, label: string) : Control =
-          let waitingPill =
-            Border()
-              .Classes(Theme.name Theme.TabBadge)
-              .Child(
-                TextBlock()
-                  .Text(if waiting > 99 then "99+" else string waiting)
+      PageChrome.rebuildOn(
+        model,
+        (fun current -> current.RequestsOn),
+        fun current ->
+          let tabOf(tab: InboxTab, label: string) : Control =
+            let badge: Control array = [|
+              if tab = TabFetched then
+                let waitingPill =
+                  Border()
+                    .Classes(Theme.name Theme.TabBadge)
+                    .IsVisible(
+                      waiting |> Observable.map(fun count -> count > 0)
+                    )
+                    .Child(
+                      TextBlock()
+                        .Text(
+                          waiting
+                          |> Observable.map(fun count ->
+                            if count > 99 then "99+" else string count)
+                        )
+                    )
+
+                let tip =
+                  TextBlock()
+                    .Text(
+                      waiting |> Observable.map(fun count -> $"{count} waiting")
+                    )
+
+                ToolTip.SetTip(waitingPill, tip)
+                yield waitingPill
+            |]
+
+            let button =
+              Button()
+                .Classes(Theme.name Theme.TabButton)
+                .Padding(12.0, 8.0, 12.0, 6.0)
+                .Content(
+                  StackPanel()
+                    .Orientation(Orientation.Horizontal)
+                    .Spacing(6.0)
+                    .Children(
+                      [|
+                        yield (TextBlock().Text(label) :> Control)
+                        yield! badge
+                      |]
+                    )
+                )
+                .OnClickHandler(fun _ _ -> dispatch(State.TabChosen tab))
+
+            let active =
+              Theme.bindClass(
+                button,
+                Theme.TabButtonActive,
+                model |> Observable.map(fun current -> current.Tab = tab)
               )
 
-          ToolTip.SetTip(waitingPill, $"{waiting} waiting")
+            button.DetachedFromVisualTree.Add(fun _ -> active.Dispose())
 
-          let badge: Control array = [|
-            if tab = TabFetched && waiting > 0 then
-              yield waitingPill
+            button
+
+          let strip = StackPanel().Orientation(Orientation.Horizontal)
+
+          strip.Children [|
+            for tab, label in State.tabsOf current.RequestsOn ->
+              tabOf(tab, label)
           |]
+          |> ignore
 
-          let button =
-            Button()
-              .Classes(Theme.name Theme.TabButton)
-              .Padding(12.0, 8.0, 12.0, 6.0)
-              .Content(
-                StackPanel()
-                  .Orientation(Orientation.Horizontal)
-                  .Spacing(6.0)
-                  .Children(
-                    [|
-                      yield (TextBlock().Text(label) :> Control)
-                      yield! badge
-                    |]
-                  )
-              )
-              .OnClickHandler(fun _ _ -> dispatch(State.TabChosen tab))
-
-          let active =
-            Theme.bindClass(
-              button,
-              Theme.TabButtonActive,
-              model |> Observable.map(fun current -> current.Tab = tab)
-            )
-
-          button.DetachedFromVisualTree.Add(fun _ -> active.Dispose())
-
-          button
-
-        let strip = StackPanel().Orientation(Orientation.Horizontal)
-
-        strip.Children [|
-          for tab, label in State.tabsOf on -> tabOf(tab, label)
-        |]
-        |> ignore
-
-        strip)
+          strip
+      )
 
     ContentControl().Content(strip |> _.ToBinding())
 
@@ -549,23 +565,25 @@ module Parts =
     let picks = ContentControl()
 
     picks.Content(
-      candidates
-      |> Observable.distinctUntilChanged
-      |> Observable.map(fun found ->
-        let rows: Control array = [|
-          for person in found ->
-            Button()
-              .Classes(Theme.name Theme.GhostButton)
-              .Padding(6.0, 2.0, 6.0, 2.0)
-              .FontSize(12.0)
-              .HorizontalContentAlignment(HorizontalAlignment.Left)
-              .Content($"+ @{person.User.Handle}")
-              .OnClickHandler(fun _ args ->
-                args.Handled <- true
-                dispatch(State.OrgMemberChanged person.User.Handle))
-        |]
+      PageChrome.rebuildOn(
+        candidates,
+        id,
+        fun found ->
+          let rows: Control array = [|
+            for person in found ->
+              Button()
+                .Classes(Theme.name Theme.GhostButton)
+                .Padding(6.0, 2.0, 6.0, 2.0)
+                .FontSize(12.0)
+                .HorizontalContentAlignment(HorizontalAlignment.Left)
+                .Content($"+ @{person.User.Handle}")
+                .OnClickHandler(fun _ args ->
+                  args.Handled <- true
+                  dispatch(State.OrgMemberChanged person.User.Handle))
+          |]
 
-        StackPanel().Children rows)
+          StackPanel().Children rows
+      )
       |> _.ToBinding()
     )
     |> ignore
@@ -573,24 +591,26 @@ module Parts =
     let chosen =
       ContentControl()
         .Content(
-          model
-          |> Observable.map(fun current -> current.OrgMembers)
-          |> Observable.distinctUntilChanged
-          |> Observable.map(fun members ->
-            let picked =
-              if members.IsEmpty then
-                "nobody picked yet"
-              else
-                let names = String.concat ", " members
+          PageChrome.rebuildOn(
+            model,
+            (fun current -> current.OrgMembers),
+            fun current ->
+              let members = current.OrgMembers
 
-                $"members: {names} ({1 + List.length members}/100)"
+              let picked =
+                if members.IsEmpty then
+                  "nobody picked yet"
+                else
+                  let names = String.concat ", " members
 
-            TextBlock()
-              .Classes(Theme.name Theme.Mono)
-              .FontSize(11.0)
-              .Text(picked)
-              .TextWrapping(TextWrapping.Wrap)
-            :> Control)
+                  $"members: {names} ({1 + List.length members}/100)"
+
+              TextBlock()
+                .Classes(Theme.name Theme.Mono)
+                .FontSize(11.0)
+                .Text(picked)
+                .TextWrapping(TextWrapping.Wrap)
+          )
           |> _.ToBinding()
         )
 

@@ -128,7 +128,7 @@ Steps may swap when their dependencies allow.
   realized containers and closes VERIFY-18a either way. Verify: suites
   green; the new test asserts its number; BUG-3 and VERIFY-18a struck or
   annotated in the audit.
-- [ ] **P6 — Rebuild-guard sweep.** One `bindContent(keyOf, build)` helper
+- [x] **P6 — Rebuild-guard sweep.** One `bindContent(keyOf, build)` helper
   beside the chrome controls, applied to the 12+ ungated sites of §4.1
   rule 8. LEAK-2 dies here (strike it in §10). Verify: suites green; the
   CommitDetailView card no longer re-subscribes per emission.
@@ -201,3 +201,4 @@ Steps may swap when their dependencies allow.
 | P4 | committed 2026-11-01 | net −149 lines; dead surface gone; scrim token; `bindClass` disposes at both accumulation sites |
 | P2b | committed 2026-11-01 | one `CommitRows`; five ctx copies gone; LogView's per-row slices dead |
 | P5 | committed 2026-11-01 | virtualization proven (30/200) and struck; BUG-3 fixed and struck; `HasMore` gates the chase |
+| P6 | committed 2026-11-01 | `rebuildOn` at 22 sites; LEAK-2 struck; badge/tooltip live-bound |

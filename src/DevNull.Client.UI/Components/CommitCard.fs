@@ -32,22 +32,16 @@ type MentionTone =
   | Accent
   | OnFill
 
-/// What one card reports up: open the thread, toggle the star, give a
-/// pastel, start a quote, reveal the reply composer, choose a poll
-/// option, ask for the vote, walk more replies of a thread preview, pin
-/// the commit to the author's profile, or show the commit translated.
+/// What one card reports up: open the thread, reveal the reply
+/// composer, walk more replies of a thread preview, start a quote,
+/// choose a poll option, or show the commit translated.
 [<Struct>]
 type Event =
   | Opened of Commit
   | ReplyToggled of Commit
-  | ThreadRequested of Commit
   | MoreRepliesRequested of Commit
-  | StarToggled of Commit
-  | PastelGiven of Commit
   | QuoteRequested of Commit
   | PollChoiceChanged of Commit * PollOption * chosen: bool
-  | PollVoteRequested of Commit
-  | PinToggled of Commit
   | TranslateRequested of Commit
   | OriginalRequested of Commit
 
@@ -69,30 +63,16 @@ type ActionSlot = {
   Busy: IObservable<string option>
 }
 
-/// The host-run card actions one row may offer. A slot left absent
-/// keeps the card's event routing for that action.
-[<Struct>]
-type ActionSlots = {
-  Star: ActionSlot voption
-  Vote: ActionSlot voption
-  Pastel: ActionSlot voption
-} with
-
-  static member none = {
-    Star = ValueNone
-    Vote = ValueNone
-    Pastel = ValueNone
-  }
-
-/// One commit row. `OnEvent` receives every interaction. Every card
-/// rides the graph rail with its author's avatar; dense rows (the
-/// replies of a thread) shrink the node. `Now` is the clock the poll's
-/// status follows; `Voting` names the commit whose vote is in flight,
-/// so the button disables; `PollChoice` is the option the page model
-/// holds for this commit; `Pin` offers the profile pin on the author's
-/// own top-level commits, where the host decides to show it at all;
-/// `Slots` are the host-run star, vote, and pastel actions;
-/// `Translation` is what the card shows about the commit's translation.
+/// One commit row. `OnEvent` receives the intent events the host does
+/// not run itself. Every card rides the graph rail with its author's
+/// avatar; dense rows (the replies of a thread) shrink the node.
+/// `Now` is the clock the poll's status follows; `PollChoice` is the
+/// option the page model holds for this commit; `Pin` offers the
+/// profile pin on the author's own top-level commits, where the host
+/// decides to show it at all; `Star`, `Vote`, and `Pastel` are the
+/// host-run actions, and a slot left absent leaves its control out of
+/// the card; `Translation` is what the card shows about the commit's
+/// translation.
 [<Struct>]
 type Props = {
   Commit: Commit
@@ -100,13 +80,14 @@ type Props = {
   ViewerId: string
   Pastels: IObservable<bool>
   Now: IObservable<DateTimeOffset>
-  Voting: IObservable<string option>
   PollChoice: IObservable<string option>
   Dense: bool
   Images: ImageCacheService
   Flyout: Source voption
   Pin: PinToggle voption
-  Slots: ActionSlots
+  Star: ActionSlot voption
+  Vote: ActionSlot voption
+  Pastel: ActionSlot voption
   Translation: IObservable<Translation.View voption>
   /// The zone the header's time tooltip shows.
   Zone: Zone
@@ -144,6 +125,9 @@ let selectedOption
 
 /// The card's semantic regions; the view only composes these.
 module Parts =
+
+  let inline inFlight(commit: Commit, busy: string option) : bool =
+    Option.contains commit.Id busy
 
   /// One piece of a text run after the mentions split: plain prose,
   /// or one interactive handle carrying the mention that names it.
@@ -494,8 +478,8 @@ module Parts =
         .Margin(0.0, 6.0, 0.0, 0.0)
 
   /// Everything the poll block needs: the commit it rides, its poll,
-  /// the host's event routing, the viewer, the clock, the vote in
-  /// flight, the hover source, and the parked choice.
+  /// the host's event routing, the viewer, the clock, the hover
+  /// source, the parked choice, and the host's vote action.
   [<Struct>]
   type PollViewCtx = {
     Commit: Commit
@@ -503,7 +487,6 @@ module Parts =
     OnEvent: Event -> unit
     ViewerId: string
     Now: IObservable<DateTimeOffset>
-    Voting: IObservable<string option>
     PollChoice: IObservable<string option>
     Vote: ActionSlot voption
     Flyout: Source voption
@@ -665,9 +648,12 @@ module Parts =
   /// toggle, with the ring and the label inside it. The page model owns
   /// the checked option, so the row reports the change and does not
   /// keep a second copy.
-  let choiceRow(ctx: PollViewCtx, option: PollOption) : ToggleButton =
+  let choiceRow
+    (ctx: PollViewCtx, slot: ActionSlot, option: PollOption)
+    : ToggleButton =
     let chosen =
-      ctx.PollChoice |> Observable.map(fun choice -> choice = Some option.Id)
+      ctx.PollChoice
+      |> Observable.map(fun choice -> Option.contains option.Id choice)
 
     let dot =
       Border()
@@ -718,8 +704,7 @@ module Parts =
         })
 
     let idle =
-      ctx.Voting
-      |> Observable.map(fun commitId -> commitId <> Some ctx.Commit.Id)
+      slot.Busy |> Observable.map(fun busy -> inFlight(ctx.Commit, busy) |> not)
 
     let enabled =
       Observable.combineLatest canVoteNow idle
@@ -740,12 +725,13 @@ module Parts =
       // opens the thread, and an unhandled click bubbles to it.
       .OnClickHandler(fun _ args -> args.Handled <- true)
 
-  /// The poll block: the results once the server publishes them, or
-  /// the choices and the Vote button while the poll takes votes.
+  /// The poll block: the results once the server publishes them, the
+  /// choices and the Vote button while the poll takes votes, or a
+  /// read-only list of options when the host offers no vote.
   let pollView(ctx: PollViewCtx) : Control =
     let body: Control =
-      match ctx.Poll.TotalVotes with
-      | Some total ->
+      match ctx.Poll.TotalVotes, ctx.Vote with
+      | Some total, _ ->
         let rows: Control array = [|
           for option in ctx.Poll.Options -> resultOptionRow(ctx, option)
         |]
@@ -764,21 +750,16 @@ module Parts =
         StackPanel()
           .Spacing(8.0)
           .Children(StackPanel().Spacing(8.0).Children(rows), summaryText)
-      | None ->
+      | None, ValueSome slot ->
         let rows: Control array = [|
-          for option in ctx.Poll.Options -> choiceRow(ctx, option)
+          for option in ctx.Poll.Options -> choiceRow(ctx, slot, option)
         |]
-
-        let busy =
-          match ctx.Vote with
-          | ValueSome slot -> slot.Busy
-          | ValueNone -> ctx.Voting
 
         let canSubmit =
           Observable.combineLatest
             (ctx.PollChoice |> Observable.map Option.isSome)
-            (busy
-             |> Observable.map(fun commitId -> commitId <> Some ctx.Commit.Id))
+            (slot.Busy
+             |> Observable.map(fun busy -> inFlight(ctx.Commit, busy) |> not))
           |> Observable.map(fun (chosen, idle) -> chosen && idle)
 
         let canVoteNow =
@@ -792,14 +773,9 @@ module Parts =
             })
 
         let voteLabel =
-          busy
-          |> Observable.map(fun commitId ->
-            if commitId = Some ctx.Commit.Id then "Voting…" else "Vote")
-
-        let voteCommand() =
-          match ctx.Vote with
-          | ValueSome slot -> slot.Command ctx.Commit
-          | ValueNone -> ctx.OnEvent(PollVoteRequested ctx.Commit)
+          slot.Busy
+          |> Observable.map(fun busy ->
+            if inFlight(ctx.Commit, busy) then "Voting…" else "Vote")
 
         let vote =
           Button()
@@ -812,7 +788,7 @@ module Parts =
             .IsEnabled(canSubmit)
             .OnClickHandler(fun _ args ->
               args.Handled <- true
-              voteCommand())
+              slot.Command ctx.Commit)
 
         let status =
           TextBlock()
@@ -830,6 +806,21 @@ module Parts =
         StackPanel()
           .Spacing(8.0)
           .Children(StackPanel().Spacing(8.0).Children(rows), footer)
+      | None, ValueNone ->
+        let rows: Control array = [|
+          for option in ctx.Poll.Options -> resultOptionRow(ctx, option)
+        |]
+
+        let status =
+          TextBlock()
+            .Classes(Theme.name Theme.Mono)
+            .Text(
+              ctx.Now |> Observable.map(fun now -> pollStatus(now, ctx.Poll))
+            )
+
+        StackPanel()
+          .Spacing(8.0)
+          .Children(StackPanel().Spacing(8.0).Children(rows), status)
 
     StackPanel().Margin(0.0, 12.0, 0.0, 0.0).Children(body)
 
@@ -1117,47 +1108,40 @@ module Parts =
       |> ValueOption.ofOption
 
     // The server refuses a star on the author's own commit: the site
-    // answers with a read-only count, so the toggle never arms.
-    let star =
-      if commit.Author.Id = props.ViewerId then
+    // answers with a read-only count, so the toggle never arms. A host
+    // with no star slot draws no star control at all.
+    let star: Control =
+      match props.Star with
+      | ValueNone -> Panel()
+      | ValueSome _ when commit.Author.Id = props.ViewerId ->
         iconAction("StarCount", Glyph.Star, starLabel, fun _ -> ())
           .IsEnabled(false)
           .Classes(Theme.name Theme.FgMuted)
-      else
-        let button =
-          match props.Slots.Star with
-          | ValueSome slot ->
-            iconAction(
-              "StarButton",
-              Glyph.Star,
-              starLabel,
-              fun _ -> slot.Command commit
-            )
-              .IsEnabled(
-                slot.Busy |> Observable.map(fun busy -> busy <> Some commit.Id)
-              )
-          | ValueNone ->
-            iconAction(
-              "StarButton",
-              Glyph.Star,
-              starLabel,
-              fun _ -> onEvent(StarToggled commit)
-            )
-
-        button.Classes(
-          Theme.name(if starred then Theme.FgAccent else Theme.FgMuted)
+      | ValueSome slot ->
+        iconAction(
+          "StarButton",
+          Glyph.Star,
+          starLabel,
+          fun _ -> slot.Command commit
         )
+          .IsEnabled(
+            slot.Busy
+            |> Observable.map(fun busy -> inFlight(commit, busy) |> not)
+          )
+          .Classes(
+            Theme.name(if starred then Theme.FgAccent else Theme.FgMuted)
+          )
 
-    let pastel =
-      let count =
-        if commit.PasteisCount > 0 then
-          ValueSome(shortCount commit.PasteisCount)
-        else
-          ValueNone
+    let pastel: Control =
+      match props.Pastel with
+      | ValueSome slot ->
+        let count =
+          if commit.PasteisCount > 0 then
+            ValueSome(shortCount commit.PasteisCount)
+          else
+            ValueNone
 
-      let button =
-        match props.Slots.Pastel with
-        | ValueSome slot ->
+        let button =
           iconAction(
             "PastelButton",
             Glyph.Pastel,
@@ -1165,24 +1149,21 @@ module Parts =
             fun _ -> slot.Command commit
           )
             .IsEnabled(
-              slot.Busy |> Observable.map(fun busy -> busy <> Some commit.Id)
+              slot.Busy
+              |> Observable.map(fun busy -> inFlight(commit, busy) |> not)
             )
-        | ValueNone ->
-          iconAction(
-            "PastelButton",
-            Glyph.Pastel,
-            count,
-            fun _ -> onEvent(PastelGiven commit)
-          )
 
-      // The control exists only while the mode is on: the host rebuilds
-      // with the flag, so nothing named PastelButton leaks into the tree.
-      ContentControl()
-        .Content(
-          props.Pastels
-          |> Observable.map(fun on -> if on then button :> Control else Panel())
-          |> _.ToBinding()
-        )
+        // The control exists only while the mode is on: the host
+        // rebuilds with the flag, so nothing named PastelButton leaks
+        // into the tree.
+        ContentControl()
+          .Content(
+            props.Pastels
+            |> Observable.map(fun on ->
+              if on then button :> Control else Panel())
+            |> _.ToBinding()
+          )
+      | ValueNone -> Panel()
 
     let quote =
       iconAction(
@@ -1199,7 +1180,7 @@ module Parts =
     let pin: Control =
       match props.Pin with
       | ValueSome toggle when
-        commit.Author.Id = props.ViewerId && commit.ParentId = None
+        commit.Author.Id = props.ViewerId && Option.isNone commit.ParentId
         ->
         let pinned = commit.IsPinned
         let glyph = if pinned then Glyph.PinOff else Glyph.Pin
@@ -1219,7 +1200,8 @@ module Parts =
         )
 
         button.IsEnabled(
-          toggle.Busy |> Observable.map(fun busy -> busy <> Some commit.Id)
+          toggle.Busy
+          |> Observable.map(fun busy -> inFlight(commit, busy) |> not)
         )
       | _ -> Panel()
 
@@ -1304,9 +1286,8 @@ let view(props: Props) : Control =
         OnEvent = props.OnEvent
         ViewerId = props.ViewerId
         Now = props.Now
-        Voting = props.Voting
         PollChoice = props.PollChoice
-        Vote = props.Slots.Vote
+        Vote = props.Vote
         Flyout = props.Flyout
       }
     | None -> ()
@@ -1447,29 +1428,30 @@ let tombstone() : Control =
 /// Everything one card row needs from its host page: where its events
 /// go, the live pastéis flag and clock, the poll choices, the row's
 /// density, the image cache, the profile pin affordance when the host
-/// shows one at all, and the translation each commit shows.
+/// shows one at all, the host-run star, vote, and pastel actions, and
+/// the translation each commit shows.
 [<Struct>]
 type RowProps = {
   OnEvent: Event -> unit
   ViewerId: string
   Pasteis: IObservable<bool>
   Now: IObservable<DateTimeOffset>
-  Voting: IObservable<string option>
   PollChoices: IObservable<Map<string, string>>
   Dense: bool
   Images: ImageCacheService
   Flyout: Source voption
   Pin: PinToggle voption
+  Star: ActionSlot voption
+  Vote: ActionSlot voption
+  Pastel: ActionSlot voption
   Translation: IObservable<Commit -> Translation.View voption>
   Zone: Zone
 }
 
-/// One commit row over a feed node with the host-run card actions; a
-/// slot left absent keeps that action's event routing.
-let feedRowWith
-  (props: RowProps, slots: ActionSlots)
-  (node: CommitNode)
-  : Control =
+/// One commit row over a feed node: the card with the host's actions
+/// and event routing, or the deletion marker. Every feed page shares
+/// this; only the routing differs.
+let feedRow (props: RowProps) (node: CommitNode) : Control =
   match node with
   | LiveCommit commit ->
     view {
@@ -1478,7 +1460,6 @@ let feedRowWith
       ViewerId = props.ViewerId
       Pastels = props.Pasteis
       Now = props.Now
-      Voting = props.Voting
 
       PollChoice =
         props.PollChoices
@@ -1488,18 +1469,14 @@ let feedRowWith
       Images = props.Images
       Flyout = props.Flyout
       Pin = props.Pin
-      Slots = slots
+      Star = props.Star
+      Vote = props.Vote
+      Pastel = props.Pastel
       Translation =
         props.Translation |> Observable.map(fun lookup -> lookup commit)
       Zone = props.Zone
     }
   | Tombstone _ -> tombstone()
-
-/// One commit row over a feed node: the card with the host's event
-/// routing, or the deletion marker. Every feed page shares this;
-/// only the routing differs.
-let feedRow (props: RowProps) (node: CommitNode) : Control =
-  feedRowWith (props, ActionSlots.none) node
 
 /// One body from its segments — the text with its mentions wrapped,
 /// the code blocks boxed — whatever carries it: a commit card or a

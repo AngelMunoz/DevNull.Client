@@ -58,22 +58,20 @@ type PastelArgs = {
   Commit: Commit
 }
 
-/// Gives one pastel and answers with the updated commit, so every
-/// card action settles through one fold.
+/// Gives one pastel and answers with the pastel's own result — the
+/// updated commit and the count the cycle has left — so the page
+/// keeps one fold and its own note.
 let pastel
   (
     env: #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp,
     args: PastelArgs
-  ) : Async<Result<Commit, AppError>> = async {
+  ) : Async<Result<PastelResult, AppError>> =
   let request: Pasteis.ActionRequest = {
     KeyFile = args.Session.KeyFile
     CommitId = args.Commit.Id
   }
 
-  match! Pasteis.give(env, request) with
-  | Ok pastel -> return Ok pastel.Commit
-  | Error error -> return Error error
-}
+  Pasteis.give(env, request)
 
 /// Logs one card action's failure through the given logger, the
 /// action's name and the bounded server message kept as separate

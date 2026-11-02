@@ -923,10 +923,10 @@ is stashed and returned to (LogView.fs:1086-1093), so the timeline's
 scroll-to-top lands once per route instance. Confirmed by the library
 contract (MVUish XML 250-258).
 
-**BUG-4 — SearchView drops card-action results.**
+~~**BUG-4 — SearchView drops card-action results.**
 `SearchView.fs:205` (vote branch dead: `selectedOption(Map.empty, …)`),
 `:256-269` (`StarDone`/`PollVotedDone` discard the returned commit). Stars
-and votes on search rows stay stale until the next search.
+and votes on search rows stay stale until the next search.~~ — died in step P2
 
 **BUG-5 — Remotes inbox behaviors.**
 (a) Clearing the search box cannot clear the search — the whitespace filter

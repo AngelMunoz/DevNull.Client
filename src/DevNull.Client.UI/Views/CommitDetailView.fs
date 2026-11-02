@@ -117,11 +117,14 @@ module State =
     | ReloadRequested
     | MoreReplies
     | CardEvent of CommitCard.Event
+    | StarToggled of Commit
+    | PollVoteRequested of Commit
+    | PastelGiven of Commit
     | PastelRequested of commitId: string
     | DeleteRequested
     | StarDone of Result<Commit, AppError>
     | PollVotedDone of Result<Commit, AppError>
-    | PastelGiven of Result<PastelResult, AppError>
+    | PastelDone of Result<PastelResult, AppError>
     | Deleted of Result<unit, AppError>
     | PinToggled of Commit
     | PinDone of pinned: bool * Result<Commit, AppError>
@@ -254,13 +257,10 @@ module State =
 
     // Every log line is an effect: update returns it as a command,
     // and the loop writes it after the computation.
+    let failure = CommitActions.failure log
+
     let failed what error =
-      Cmd.ofAction(fun () ->
-        log.LogWarning(
-          "The {What} failed: {Error}",
-          what,
-          bounded 300 (describe error)
-        ))
+      Cmd.ofAction(fun () -> failure what error)
 
     match msg with
     | ThreadFetched result ->
@@ -325,7 +325,7 @@ module State =
         replies
         (props.Env, props.Session, props.CommitId, model.RepliesCursor)
         RepliesFetched
-    | CardEvent(CommitCard.StarToggled commit) ->
+    | StarToggled commit ->
       { model with Error = None },
       Cmd.OfAsync.perform
         CommitActions.toggleStar
@@ -338,9 +338,16 @@ module State =
       model,
       Cmd.ofEffect(fun _ ->
         Navigation.go(props.Nav, "/commit/" + commit.Id, ignore))
-    | CardEvent(CommitCard.PastelGiven commit) ->
+    | PastelGiven commit ->
       { model with Error = None; Note = None },
-      Cmd.ofMsg(PastelRequested commit.Id)
+      Cmd.OfAsync.perform
+        CommitActions.pastel
+        (props.Env,
+         {
+           Session = props.Session
+           Commit = commit
+         })
+        PastelDone
     | CardEvent(CommitCard.QuoteRequested commit) ->
       // The focused card quotes in place; any other card opens its own
       // thread with the quote composer armed over it.
@@ -374,36 +381,28 @@ module State =
               }
       },
       Cmd.none
-    | CardEvent(CommitCard.PollVoteRequested commit) ->
+    | PollVoteRequested commit ->
       match CommitCard.selectedOption(model.PollChoices, commit) with
       | None -> model, Cmd.none
       | Some option ->
-        let vote() =
-          Commits.vote(
-            props.Env,
-            {
-              KeyFile = props.Session.KeyFile
-              CommitId = commit.Id
-              OptionId = option.Id
-            }
-          )
-
         {
           model with
               Error = None
               Voting = Some commit.Id
         },
-        Cmd.OfAsync.perform vote () PollVotedDone
-    | CardEvent(CommitCard.ThreadRequested commit) ->
-      model,
-      Cmd.ofEffect(fun _ ->
-        Navigation.go(props.Nav, "/commit/" + commit.Id, ignore))
+        Cmd.OfAsync.perform
+          CommitActions.vote
+          (props.Env,
+           {
+             Session = props.Session
+             Commit = commit
+             Option = option
+           })
+          PollVotedDone
     | CardEvent(CommitCard.MoreRepliesRequested commit) ->
       model,
       Cmd.ofEffect(fun _ ->
         Navigation.go(props.Nav, "/commit/" + commit.Id, ignore))
-    | CardEvent(CommitCard.PinToggled commit) ->
-      model, Cmd.ofMsg(PinToggled commit)
     | CardEvent(CommitCard.TranslateRequested commit) when
       Translation.canReuse(model.Translations, commit)
       ->
@@ -573,17 +572,11 @@ module State =
         { model with Error = Some error },
         failed "the nested replies fetch" error
     | PastelRequested commitId ->
-      let give() =
-        Pasteis.give(
-          props.Env,
-          {
-            KeyFile = props.Session.KeyFile
-            CommitId = commitId
-          }
-        )
-
-      { model with Error = None; Note = None },
-      Cmd.OfAsync.perform give () PastelGiven
+      model.Page
+      |> Option.map _.Commit
+      |> Option.filter(fun commit -> commit.Id = commitId)
+      |> Option.map(fun commit -> model, Cmd.ofMsg(PastelGiven commit))
+      |> Option.defaultValue(model, Cmd.none)
     | DeleteRequested ->
       let remove() =
         Commits.delete(
@@ -629,7 +622,7 @@ module State =
               Voting = None
         },
         failed "the poll vote" error
-    | PastelGiven result ->
+    | PastelDone result ->
       match result with
       | Ok pastel ->
         {
@@ -757,37 +750,45 @@ module Parts =
 
   /// The card context every thread card shares: events route into the
   /// page's card message.
-  let commitCtx(ctx: Ctx, dense: bool) : CommitCard.RowProps = {
-    OnEvent = State.CardEvent >> ctx.Dispatch
-    Pasteis = ctx.Model |> Observable.map _.Pasteis
-    ViewerId = ctx.ViewerId
-    Now = ctx.Model |> Observable.map _.Now
-    Voting = ctx.Model |> Observable.map _.Voting
-    PollChoices = ctx.Model |> Observable.map _.PollChoices
-    Dense = dense
-    Images = ctx.Images
-    Flyout = ctx.Flyout
+  let commitCtx(ctx: Ctx, dense: bool) : CommitCard.RowProps =
+    let busy = ctx.Model |> Observable.map _.Voting
 
-    // The card's own gate decides whether the pin arms — the author's
-    // top-level commits — so the focused card and every related card
-    // may carry the affordance.
-    Pin =
-      ValueSome {
-        Command = State.PinToggled >> ctx.Dispatch
-        Busy = ctx.Model |> Observable.map _.Pinning
-      }
-    Translation =
-      ctx.Model
-      |> Observable.map(fun model ->
-        fun commit ->
-          Translation.view {
-            Automatic = model.Automatic
-            Book = model.Translations
-            Now = model.Now
-            Commit = commit
-          })
-    Zone = ctx.Zone
-  }
+    let slot(command: Commit -> unit) : CommitCard.ActionSlot voption =
+      ValueSome { Command = command; Busy = busy }
+
+    {
+      OnEvent = State.CardEvent >> ctx.Dispatch
+      Pasteis = ctx.Model |> Observable.map _.Pasteis
+      ViewerId = ctx.ViewerId
+      Now = ctx.Model |> Observable.map _.Now
+      PollChoices = ctx.Model |> Observable.map _.PollChoices
+      Dense = dense
+      Images = ctx.Images
+      Flyout = ctx.Flyout
+
+      // The card's own gate decides whether the pin arms — the author's
+      // top-level commits — so the focused card and every related card
+      // may carry the affordance.
+      Pin =
+        ValueSome {
+          Command = State.PinToggled >> ctx.Dispatch
+          Busy = ctx.Model |> Observable.map _.Pinning
+        }
+      Star = slot(fun commit -> ctx.Dispatch(State.StarToggled commit))
+      Vote = slot(fun commit -> ctx.Dispatch(State.PollVoteRequested commit))
+      Pastel = slot(fun commit -> ctx.Dispatch(State.PastelGiven commit))
+      Translation =
+        ctx.Model
+        |> Observable.map(fun model ->
+          fun commit ->
+            Translation.view {
+              Automatic = model.Automatic
+              Book = model.Translations
+              Now = model.Now
+              Commit = commit
+            })
+      Zone = ctx.Zone
+    }
 
   /// The "Show N more" walk of one node's replies, the muted dot of
   /// the site's continuation.

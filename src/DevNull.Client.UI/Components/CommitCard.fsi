@@ -7,22 +7,16 @@ open DevNull.Client.ImageCache
 open DevNull.Client.Formatting
 open DevNull.Client.Components.UserFlyout
 
-/// What one card reports up: open the thread, toggle the star, give a
-/// pastel, start a quote, reveal the reply composer, choose a poll
-/// option, ask for the vote, walk more replies of a thread preview, pin
-/// the commit to the author's profile, or show the commit translated.
+/// What one card reports up: open the thread, reveal the reply
+/// composer, walk more replies of a thread preview, start a quote,
+/// choose a poll option, or show the commit translated.
 [<Struct>]
 type Event =
   | Opened of Commit
   | ReplyToggled of Commit
-  | ThreadRequested of Commit
   | MoreRepliesRequested of Commit
-  | StarToggled of Commit
-  | PastelGiven of Commit
   | QuoteRequested of Commit
   | PollChoiceChanged of Commit * PollOption * chosen: bool
-  | PollVoteRequested of Commit
-  | PinToggled of Commit
   | TranslateRequested of Commit
   | OriginalRequested of Commit
 
@@ -44,33 +38,21 @@ type ActionSlot = {
   Busy: IObservable<string option>
 }
 
-/// The host-run card actions one row may offer. A slot left absent
-/// keeps the card's event routing for that action.
-[<Struct>]
-type ActionSlots = {
-  Star: ActionSlot voption
-  Vote: ActionSlot voption
-  Pastel: ActionSlot voption
-} with
-
-  /// No host-run action: every control reports through `OnEvent`.
-  static member none: ActionSlots
-
-/// One commit row. `OnEvent` receives every interaction. Every card
-/// rides the graph rail with its author's avatar; dense rows (the
-/// replies of a thread) shrink the node. `ViewerId` is the signed-in
-/// user: the author of their own commit sees a star count, never a
-/// toggle — the server refuses the star. `Pastels` says whether the
-/// viewer's pastel controls show at all, live so the flag can move
-/// under a built card; `Now` is the clock the relative time follows;
-/// `Images` loads the author avatar and the commit's images; `Flyout`
-/// is the hover card source for the author, when the host has one.
-/// `Voting` names the commit whose vote is in flight; `PollChoice` is
-/// the option the page model holds for this commit; `Pin` offers the
-/// profile pin on the author's own top-level commits, where the host
-/// decides to show it at all; `Slots` are the host-run star, vote, and
-/// pastel actions; `Translation` is what the card shows about the
-/// commit's translation.
+/// One commit row. `OnEvent` receives the intent events the host does
+/// not run itself. Every card rides the graph rail with its author's
+/// avatar; dense rows (the replies of a thread) shrink the node.
+/// `ViewerId` is the signed-in user: the author of their own commit
+/// sees a star count, never a toggle — the server refuses the star.
+/// `Pastels` says whether the viewer's pastel controls show at all,
+/// live so the flag can move under a built card; `Now` is the clock
+/// the relative time follows; `Images` loads the author avatar and
+/// the commit's images; `Flyout` is the hover card source for the
+/// author, when the host has one. `PollChoice` is the option the page
+/// model holds for this commit; `Pin` offers the profile pin on the
+/// author's own top-level commits, where the host decides to show it at
+/// all; `Star`, `Vote`, and `Pastel` are the host-run actions, and a
+/// slot left absent leaves its control out of the card; `Translation`
+/// is what the card shows about the commit's translation.
 [<Struct>]
 type Props = {
   Commit: Commit
@@ -78,13 +60,14 @@ type Props = {
   ViewerId: string
   Pastels: IObservable<bool>
   Now: IObservable<DateTimeOffset>
-  Voting: IObservable<string option>
   PollChoice: IObservable<string option>
   Dense: bool
   Images: ImageCacheService
   Flyout: Source voption
   Pin: PinToggle voption
-  Slots: ActionSlots
+  Star: ActionSlot voption
+  Vote: ActionSlot voption
+  Pastel: ActionSlot voption
   Translation: IObservable<Translation.View voption>
   /// The zone the header's time tooltip shows.
   Zone: Zone
@@ -135,32 +118,30 @@ val body:
 /// go, the signed-in viewer, the live pastéis flag and clock, the poll
 /// choices, the row's density, the image cache, the hover card
 /// source, the profile pin affordance when the host shows one at all,
-/// and the translation each commit shows.
+/// the host-run star, vote, and pastel actions, and the translation
+/// each commit shows.
 [<Struct>]
 type RowProps = {
   OnEvent: Event -> unit
   ViewerId: string
   Pasteis: IObservable<bool>
   Now: IObservable<DateTimeOffset>
-  Voting: IObservable<string option>
   PollChoices: IObservable<Map<string, string>>
   Dense: bool
   Images: ImageCacheService
   Flyout: Source voption
   Pin: PinToggle voption
+  Star: ActionSlot voption
+  Vote: ActionSlot voption
+  Pastel: ActionSlot voption
   Translation: IObservable<Commit -> Translation.View voption>
   Zone: Zone
 }
 
-/// One commit row over a feed node: the card with the host's event
-/// routing, or the deletion marker. Every feed page shares this;
-/// only the routing differs.
+/// One commit row over a feed node: the card with the host's actions
+/// and event routing, or the deletion marker. Every feed page shares
+/// this; only the routing differs.
 val feedRow: props: RowProps -> node: CommitNode -> Control
-
-/// One commit row over a feed node with the host-run card actions; a
-/// slot left absent keeps that action's event routing.
-val feedRowWith:
-  props: RowProps * slots: ActionSlots -> node: CommitNode -> Control
 
 /// The thread preview under a feed card: the replies to show (the
 /// payload slice, or the list a host grew), as the site's slim chain

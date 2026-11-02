@@ -44,10 +44,11 @@ type PastelArgs = {
   Commit: Commit
 }
 
-/// Gives one pastel and answers with the updated commit, so every
-/// card action settles through one fold.
+/// Gives one pastel and answers with the pastel's own result — the
+/// updated commit and the count the cycle has left — so the page
+/// keeps one fold and its own note.
 val pastel:
-  env: 'env * args: PastelArgs -> Async<Result<Commit, AppError>>
+  env: 'env * args: PastelArgs -> Async<Result<PastelResult, AppError>>
     when 'env :> IProvideClock
     and 'env :> IProvideNonceSource
     and 'env :> IProvideSigner

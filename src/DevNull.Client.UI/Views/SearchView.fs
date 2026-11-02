@@ -86,8 +86,8 @@ module State =
     | Picked of string
     | CommitsArrived of CommitsFound
     | CardEvent of CommitCard.Event
+    | StarToggled of Commit
     | StarDone of Result<Commit, AppError>
-    | PollVotedDone of Result<Commit, AppError>
     | ClockTicked of moment: DateTimeOffset
     | TranslationDone of Commit * Result<TranslationPayload, AppError>
     | TranslationRecalled of Commit * Translation.Book option
@@ -133,6 +133,12 @@ module State =
     SearchTerms.commitTerm model.Term |> ValueOption.isSome
     && (answerOf model).Term = ""
 
+  let replaceNode(items: CommitNode list, updated: Commit) : CommitNode list =
+    items
+    |> List.map(function
+      | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
+      | node -> node)
+
   /// Runs one commit's translate call: the language its own translation or
   /// the settings pick, and the 503 retries.
   let translate(props: Props<'env>, commit: Commit) =
@@ -158,13 +164,10 @@ module State =
   let update (props: Props<'env>) msg (model: Model) =
     let log = props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Search"
 
+    let failure = CommitActions.failure log
+
     let failed what error =
-      Cmd.ofAction(fun () ->
-        log.LogWarning(
-          "The {What} failed: {Error}",
-          what,
-          bounded 300 (describe error)
-        ))
+      Cmd.ofAction(fun () -> failure what error)
 
     match msg with
     | Typed text -> { model with Term = text }, Cmd.none
@@ -190,32 +193,16 @@ module State =
       Cmd.none
     | Picked term -> model, Cmd.ofMsg(SearchedFor term)
     | CommitsArrived found -> { model with Answer = ValueSome found }, Cmd.none
-    | CardEvent(CommitCard.Opened commit)
-    | CardEvent(CommitCard.ThreadRequested commit) ->
+    | CardEvent(CommitCard.Opened commit) ->
       model,
       Cmd.ofEffect(fun _ ->
         Navigation.go(props.Nav, "/commit/" + commit.Id, ignore))
-    | CardEvent(CommitCard.StarToggled commit) ->
+    | StarToggled commit ->
       model,
       Cmd.OfAsync.perform
         CommitActions.toggleStar
         (props.Env, props.SignedIn, commit)
         StarDone
-    | CardEvent(CommitCard.PollVoteRequested commit) ->
-      match CommitCard.selectedOption(Map.empty, commit) with
-      | None -> model, Cmd.none
-      | Some option ->
-        let vote() =
-          Commits.vote(
-            props.Env,
-            {
-              KeyFile = props.SignedIn.KeyFile
-              CommitId = commit.Id
-              OptionId = option.Id
-            }
-          )
-
-        model, Cmd.OfAsync.perform vote () PollVotedDone
     | CardEvent(CommitCard.TranslateRequested commit) when
       Translation.canReuse(model.Translations, commit)
       ->
@@ -256,17 +243,18 @@ module State =
     | StarDone result ->
       match result with
       | Ok updated ->
-        model,
+        {
+          model with
+              Answer =
+                model.Answer
+                |> ValueOption.map(fun found -> {
+                  found with
+                      Commits = replaceNode(found.Commits, updated)
+                })
+        },
         Cmd.ofAction(fun () ->
           log.LogDebug("The star on {Commit} settled.", updated.Id))
       | Error error -> model, failed "the star" error
-    | PollVotedDone result ->
-      match result with
-      | Ok updated ->
-        model,
-        Cmd.ofAction(fun () ->
-          log.LogDebug("The vote on {Commit} landed.", updated.Id))
-      | Error error -> model, failed "the poll vote" error
     | ClockTicked moment -> { model with Now = moment }, Cmd.none
     | TranslationDone(commit, result) ->
       let args: Translation.Finish = {
@@ -454,7 +442,6 @@ let view
     Pasteis = model |> Observable.map(fun _ -> false)
     ViewerId = props.SignedIn.Session.User.Id
     Now = model |> Observable.map _.Now
-    Voting = model |> Observable.map(fun _ -> None)
     PollChoices = model |> Observable.map(fun _ -> Map.empty)
     Dense = false
     Images = props.Env.ImageCache
@@ -478,6 +465,13 @@ let view
         Cache = props.Env.ImageCache
       }
     Pin = ValueNone
+    Star =
+      ValueSome {
+        Command = fun commit -> dispatch(State.StarToggled commit)
+        Busy = System.Reactive.Linq.Observable.Return(None: string option)
+      }
+    Vote = ValueNone
+    Pastel = ValueNone
     Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
     Translation =
       model

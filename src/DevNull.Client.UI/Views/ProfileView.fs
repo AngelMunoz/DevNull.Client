@@ -257,13 +257,10 @@ module State =
 
     // Every log line is an effect: update returns it as a command,
     // and the loop writes it after the computation.
+    let failure = CommitActions.failure log
+
     let failed what error =
-      Cmd.ofAction(fun () ->
-        log.LogWarning(
-          "The {What} failed: {Error}",
-          what,
-          bounded 300 (describe error)
-        ))
+      Cmd.ofAction(fun () -> failure what error)
 
     match msg with
     | Fetched result ->
@@ -474,22 +471,20 @@ module State =
       match CommitCard.selectedOption(model.PollChoices, commit) with
       | None -> model, Cmd.none
       | Some option ->
-        let vote() =
-          Commits.vote(
-            props.Env,
-            {
-              KeyFile = props.Session.KeyFile
-              CommitId = commit.Id
-              OptionId = option.Id
-            }
-          )
-
         {
           model with
               Error = None
               Voting = Some commit.Id
         },
-        Cmd.OfAsync.perform vote () PollVotedDone
+        Cmd.OfAsync.perform
+          CommitActions.vote
+          (props.Env,
+           {
+             Session = props.Session
+             Commit = commit
+             Option = option
+           })
+          PollVotedDone
     | PollVotedDone result ->
       match result with
       | Ok updated ->
@@ -509,16 +504,15 @@ module State =
         },
         failed "the poll vote" error
     | PastelGiven commit ->
-      let give() =
-        Pasteis.give(
-          props.Env,
-          {
-            KeyFile = props.Session.KeyFile
-            CommitId = commit.Id
-          }
-        )
-
-      { model with Error = None }, Cmd.OfAsync.perform give () PastelDone
+      { model with Error = None },
+      Cmd.OfAsync.perform
+        CommitActions.pastel
+        (props.Env,
+         {
+           Session = props.Session
+           Commit = commit
+         })
+        PastelDone
     | PastelDone result ->
       match result with
       | Ok pastel ->
@@ -1050,68 +1044,69 @@ module Parts =
       props: Props<'env>,
       dispatch: Dispatch<State.Msg>,
       model: IObservable<State.Model>
-    ) : CommitCard.RowProps = {
-    OnEvent =
-      function
-      | CommitCard.Opened c ->
-        Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
-      | CommitCard.ThreadRequested c ->
-        Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
-      | CommitCard.ReplyToggled c ->
-        Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
-      | CommitCard.MoreRepliesRequested c ->
-        Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
-      | CommitCard.StarToggled c -> dispatch(State.StarToggled c)
-      | CommitCard.PastelGiven c -> dispatch(State.PastelGiven c)
-      | CommitCard.PollChoiceChanged(commit, option, chosen) ->
-        dispatch(State.PollChoiceChanged(commit, option, chosen))
-      | CommitCard.PollVoteRequested commit ->
-        dispatch(State.PollVoteRequested commit)
-      | CommitCard.QuoteRequested c ->
-        Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
-      | CommitCard.PinToggled c -> dispatch(State.PinToggled c)
-      | CommitCard.TranslateRequested commit ->
-        dispatch(State.TranslateRequested commit)
-      | CommitCard.OriginalRequested commit ->
-        dispatch(State.OriginalRequested commit)
-    Pasteis = model |> Observable.map _.Pasteis
-    ViewerId = props.Session.Session.User.Id
-    Now = model |> Observable.map _.Now
-    Voting = model |> Observable.map _.Voting
-    PollChoices = model |> Observable.map _.PollChoices
-    Dense = false
-    Images = props.Env.ImageCache
-    Flyout =
-      ValueSome {
-        UserFlyout.Fetch = props.Env.Profiles.Fetch
-        OnOpen =
-          fun username ->
-            Navigation.go(props.Nav, "/profile/" + username, ignore)
-        OnOpenOrg =
-          fun handle -> Navigation.go(props.Nav, "/org/" + handle, ignore)
-        Cache = props.Env.ImageCache
-      }
+    ) : CommitCard.RowProps =
+    let busy = model |> Observable.map _.Voting
 
-    // The card's own gate decides whether the pin arms — the author's
-    // top-level commits — so every row may carry the affordance: a
-    // stranger's profile never arms it, a reply never does.
-    Pin =
-      ValueSome {
-        Command = State.PinToggled >> dispatch
-        Busy = model |> Observable.map _.Pinning
-      }
-    Translation =
-      model
-      |> Observable.map(fun model ->
-        fun commit ->
-          Translation.view {
-            Automatic = model.Automatic
-            Book = model.Translations
-            Now = model.Now
-            Commit = commit
-          })
-    Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
-  }
+    let slot(command: Commit -> unit) : CommitCard.ActionSlot voption =
+      ValueSome { Command = command; Busy = busy }
+
+    {
+      OnEvent =
+        function
+        | CommitCard.Opened c ->
+          Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
+        | CommitCard.ReplyToggled c ->
+          Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
+        | CommitCard.MoreRepliesRequested c ->
+          Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
+        | CommitCard.QuoteRequested c ->
+          Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
+        | CommitCard.PollChoiceChanged(commit, option, chosen) ->
+          dispatch(State.PollChoiceChanged(commit, option, chosen))
+        | CommitCard.TranslateRequested commit ->
+          dispatch(State.TranslateRequested commit)
+        | CommitCard.OriginalRequested commit ->
+          dispatch(State.OriginalRequested commit)
+      Pasteis = model |> Observable.map _.Pasteis
+      ViewerId = props.Session.Session.User.Id
+      Now = model |> Observable.map _.Now
+      PollChoices = model |> Observable.map _.PollChoices
+      Dense = false
+      Images = props.Env.ImageCache
+      Flyout =
+        ValueSome {
+          UserFlyout.Fetch = props.Env.Profiles.Fetch
+          OnOpen =
+            fun username ->
+              Navigation.go(props.Nav, "/profile/" + username, ignore)
+          OnOpenOrg =
+            fun handle -> Navigation.go(props.Nav, "/org/" + handle, ignore)
+          Cache = props.Env.ImageCache
+        }
+
+      // The card's own gate decides whether the pin arms — the author's
+      // top-level commits — so every row may carry the affordance: a
+      // stranger's profile never arms it, a reply never does.
+      Pin =
+        ValueSome {
+          Command = State.PinToggled >> dispatch
+          Busy = model |> Observable.map _.Pinning
+        }
+      Star = slot(fun commit -> dispatch(State.StarToggled commit))
+      Vote = slot(fun commit -> dispatch(State.PollVoteRequested commit))
+      Pastel = slot(fun commit -> dispatch(State.PastelGiven commit))
+      Translation =
+        model
+        |> Observable.map(fun model ->
+          fun commit ->
+            Translation.view {
+              Automatic = model.Automatic
+              Book = model.Translations
+              Now = model.Now
+              Commit = commit
+            })
+      Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
+    }
 
 let view
   (props: Props<'env>)

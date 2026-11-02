@@ -52,7 +52,9 @@ Roles: **orchestrator** (the session that holds this plan), **implementer**
    and the verification evidence. The user reviews.
 6. **Commit.** Only after the user approves. The commit carries the step's
    files, the changelog entry, and this file's updated checkbox. **No
-   commits exist between step start and user approval.**
+   commits exist between step start and user approval.** The user's
+   go-ahead to run the next step is never commit approval for the
+   current one — only an explicit review verdict commits.
 
 Standing constraints on every step (from `AGENTS.md` and the skill gate):
 `dotnet fantomas .` before staging; every new F# file pairs with its `.fsi`;
@@ -85,7 +87,7 @@ Steps may swap when their dependencies allow.
   LogView as the pilot migration. Depends on: P0. Verify: suites green;
   LogView renders through the consolidated actions; its duplicated arms are
   gone.
-- [ ] **P2 — Issue #1, part B.** Migrate ProfileView, CommitDetailView,
+- [x] **P2 — Issue #1, part B.** Migrate ProfileView, CommitDetailView,
   OrganizationView, SavedView, SearchView onto the action slots; the card
   union drops the never-raised cases and the six effect arms; the
   transitional `ActionSlots`/`feedRowWith` dissolve into individual
@@ -164,7 +166,11 @@ Steps may swap when their dependencies allow.
   `gateByRef`) and its first adopters (the nine shared slices of §4.3); the
   per-update logger hoist (26 sites); `inline` one-liners; dead opens and
   messages; the two `private` markers; the `Status` namespace fix;
-  `Translation.fs` moves to `Views/TranslationModel.fs`. Verify: suites
+  `Translation.fs` moves to `Views/TranslationModel.fs`; the direct option
+  comparisons outside P2's scope compare inner values instead (P2 review
+  list: RemotesState.fs:735, Shell.fs:843, LogChrome.fs:102/:218,
+  WhoToFollow.fs:193/:229/:263, NotificationsView.fs:406, RemotesInbox.fs:507,
+  RemotesModel.fs:991). Verify: suites
   green; grep gates — `CreateLogger` inside `update` at 0,
   `replayBuffer`/`refCount` present at the nine boundaries.
 
@@ -174,3 +180,4 @@ Steps may swap when their dependencies allow.
 |---|---|---|
 | P0 | committed 2026-11-01 | report self-contained; workplan landed; branch `phase1/mvuish` |
 | P1 | committed 2026-11-01 | failure keeps two structured log fields (user feedback); merged to main |
+| P2 | committed 2026-11-01 | user review: inner-value option compares, no redundant match, debug logs restored; `PastelResult` payload; BUG-4 struck |

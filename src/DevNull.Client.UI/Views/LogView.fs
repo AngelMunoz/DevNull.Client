@@ -129,7 +129,7 @@ module State =
     | StarToggled of Commit
     | StarDone of Result<Commit, AppError>
     | PastelGiven of Commit
-    | PastelDone of Result<Commit, AppError>
+    | PastelDone of Result<PastelResult, AppError>
     | CheckNew
     | NewChecked of Result<LogPage, AppError>
     | NewRequested
@@ -425,7 +425,7 @@ module State =
       Cmd.OfAsync.perform fetch (props, None) Fetched
     | ReplyToggled commit ->
       let replyingTo =
-        if model.ReplyingTo = Some commit.Id then
+        if Option.contains commit.Id model.ReplyingTo then
           None
         else
           Some commit.Id
@@ -476,7 +476,8 @@ module State =
               Voting = None
               PollChoices = model.PollChoices |> Map.remove updated.Id
         },
-        Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The vote on {Commit} landed.", updated.Id))
       | Error error ->
         {
           model with
@@ -560,10 +561,15 @@ module State =
         { model with Error = Some error }, failed "the next page" error
     | StarToggled commit ->
       { model with Error = None },
-      Cmd.OfAsync.perform
-        CommitActions.toggleStar
-        (props.Env, props.Session, commit)
-        StarDone
+      Cmd.batch [
+        Cmd.OfAsync.perform
+          CommitActions.toggleStar
+          (props.Env, props.Session, commit)
+          StarDone
+
+        Cmd.ofAction(fun () ->
+          log.LogTrace("The star on {Commit} is being toggled.", commit.Id))
+      ]
     | StarDone result ->
       match result with
       | Ok updated ->
@@ -571,7 +577,8 @@ module State =
           model with
               Items = replaceNode(model.Items, updated)
         },
-        Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The star on {Commit} settled.", updated.Id))
       | Error error ->
         { model with Error = Some error }, failed "the star" error
     | PastelGiven commit ->
@@ -586,12 +593,13 @@ module State =
         PastelDone
     | PastelDone result ->
       match result with
-      | Ok updated ->
+      | Ok pastel ->
         {
           model with
-              Items = replaceNode(model.Items, updated)
+              Items = replaceNode(model.Items, pastel.Commit)
         },
-        Cmd.none
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The pastel on {Commit} landed.", pastel.Commit.Id))
       | Error error ->
         { model with Error = Some error }, failed "the pastel" error
     | AttachedChanged attached -> { model with Attached = attached }, Cmd.none
@@ -770,7 +778,7 @@ module State =
             | LiveCommit commit ->
               let day = dayLabel(now, commit.CreatedAt)
 
-              if prevDay <> Some day then
+              if not(Option.contains day prevDay) then
                 LogRow.Day day
                 LogRow.Node commit
               else
@@ -841,65 +849,50 @@ module Parts =
       props: Props<'env>,
       dispatch: Dispatch<State.Msg>,
       model: IObservable<State.Model>
-    ) : CommitCard.RowProps = {
-    OnEvent =
-      function
-      | CommitCard.Opened c ->
-        Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
-      | CommitCard.ThreadRequested c ->
-        Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
-      | CommitCard.MoreRepliesRequested c ->
-        dispatch(State.PreviewMoreRequested c)
-      | CommitCard.QuoteRequested c ->
-        Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
-      | CommitCard.ReplyToggled c -> dispatch(State.ReplyToggled c)
-      | CommitCard.PollChoiceChanged(commit, option, chosen) ->
-        dispatch(State.PollChoiceChanged(commit, option, chosen))
-      | CommitCard.TranslateRequested commit ->
-        dispatch(State.TranslateRequested commit)
-      | CommitCard.OriginalRequested commit ->
-        dispatch(State.OriginalRequested commit)
-      | CommitCard.StarToggled _
-      | CommitCard.PastelGiven _
-      | CommitCard.PollVoteRequested _
-      | CommitCard.PinToggled _ -> ()
-    Pasteis = model |> Observable.map _.Pasteis
-    ViewerId = props.Session.Session.User.Id
-    Now = model |> Observable.map _.Now
-    Voting = model |> Observable.map _.Voting
-    PollChoices = model |> Observable.map _.PollChoices
-    Dense = false
-    Images = props.Env.ImageCache
-    Flyout = flyoutOf props
-    Pin = ValueNone
-    Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
-    Translation =
-      model
-      |> Observable.map(fun model ->
-        fun commit ->
-          Translation.view {
-            Automatic = model.Automatic
-            Book = model.Translations
-            Now = model.Now
-            Commit = commit
-          })
-  }
-
-  /// The card's host-run actions: every command dispatches its page
-  /// message, and every busy stream is the page's own in-flight vote
-  /// slice.
-  let actionSlots
-    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
-    : CommitCard.ActionSlots =
+    ) : CommitCard.RowProps =
     let busy = model |> Observable.map _.Voting
 
     let slot(command: Commit -> unit) : CommitCard.ActionSlot voption =
       ValueSome { Command = command; Busy = busy }
 
     {
+      OnEvent =
+        function
+        | CommitCard.Opened c ->
+          Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
+        | CommitCard.MoreRepliesRequested c ->
+          dispatch(State.PreviewMoreRequested c)
+        | CommitCard.QuoteRequested c ->
+          Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
+        | CommitCard.ReplyToggled c -> dispatch(State.ReplyToggled c)
+        | CommitCard.PollChoiceChanged(commit, option, chosen) ->
+          dispatch(State.PollChoiceChanged(commit, option, chosen))
+        | CommitCard.TranslateRequested commit ->
+          dispatch(State.TranslateRequested commit)
+        | CommitCard.OriginalRequested commit ->
+          dispatch(State.OriginalRequested commit)
+      Pasteis = model |> Observable.map _.Pasteis
+      ViewerId = props.Session.Session.User.Id
+      Now = model |> Observable.map _.Now
+      PollChoices = model |> Observable.map _.PollChoices
+      Dense = false
+      Images = props.Env.ImageCache
+      Flyout = flyoutOf props
+      Pin = ValueNone
       Star = slot(fun commit -> dispatch(State.StarToggled commit))
       Vote = slot(fun commit -> dispatch(State.PollVoteRequested commit))
       Pastel = slot(fun commit -> dispatch(State.PastelGiven commit))
+      Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
+      Translation =
+        model
+        |> Observable.map(fun model ->
+          fun commit ->
+            Translation.view {
+              Automatic = model.Automatic
+              Book = model.Translations
+              Now = model.Now
+              Commit = commit
+            })
     }
 
   /// One feed row: a separator, a commit card with its revealed reply
@@ -913,7 +906,6 @@ module Parts =
     (logRow: LogRow)
     : Control =
     let ctx = commitCtx(props, dispatch, model)
-    let slots = actionSlots(model, dispatch)
 
     match logRow with
     | LogRow.Day label -> FeedParts.dayRow label
@@ -930,7 +922,7 @@ module Parts =
           .Content(
             model
             |> Observable.map(fun current ->
-              current.ReplyingTo = Some commit.Id)
+              Option.contains commit.Id current.ReplyingTo)
             |> Observable.distinctUntilChanged
             |> Observable.map(fun answering ->
               if answering then
@@ -980,14 +972,10 @@ module Parts =
             )
 
       StackPanel()
-        .Children(
-          CommitCard.feedRowWith (ctx, slots) (LiveCommit commit),
-          preview,
-          reply
-        )
+        .Children(CommitCard.feedRow ctx (LiveCommit commit), preview, reply)
 
     | LogRow.TombstoneRow tombstone ->
-      CommitCard.feedRowWith (ctx, slots) (Tombstone tombstone)
+      CommitCard.feedRow ctx (Tombstone tombstone)
 
   /// The new-commits pill: a count over the feed, one click to take it.
   let newPill

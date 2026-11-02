@@ -590,6 +590,35 @@ let focusInlineComposer(window: Window) : bool =
     true
   | _ -> false
 
+/// The log chrome's rail node: the signed-in user's avatar, ring and
+/// all. The chrome keeps the rail line and the 64px column.
+let logRailNode(session: SignedInSession, cache: ImageCacheService) : Control =
+  let nodeTop = 9.0
+
+  let avatar =
+    Border()
+      .Name("ComposerRailNode")
+      .Classes(Theme.name Theme.CardBack)
+      .BorderThickness(Thickness(2.0))
+      .CornerRadius(46.0)
+      .Padding(1.0)
+      .HorizontalAlignment(HorizontalAlignment.Center)
+      .VerticalAlignment(VerticalAlignment.Top)
+      .Margin(0.0, nodeTop, 0.0, 0.0)
+      .Child(
+        Avatar.view {
+          Name = session.Session.User.Name
+          Url = session.Session.User.AvatarUrl
+          Lane = None
+          Size = 40.0
+          Cache = cache
+        }
+      )
+
+  avatar.Classes(Theme.laneClass(Theme.LaneBorder, None)) |> ignore
+
+  avatar
+
 type Shell<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
@@ -1290,8 +1319,23 @@ type Shell<'env
         chromeHost.Content <-
           LogChrome.Page {
             Env = env
-            Session = entry
             Nav = router
+            Composer =
+              fun () ->
+                Composer.Page {
+                  Env = env
+                  Session = entry
+                  Target = Composer.Fresh
+                  OnCommitted = fun _ -> env.Timeline.CommitLanded()
+                  OnScheduled = ValueNone
+                  OnOpenQueue =
+                    ValueSome(fun () ->
+                      Navigation.go(router, "/scheduled", ignore))
+                  Draft = ValueNone
+                }
+            RailNode = fun () -> logRailNode(entry, env.ImageCache)
+            Header = ValueNone
+            OnReload = fun () -> env.Timeline.ForceReload()
           }
       | SignedIn _ -> ()
       | SignedOut ->

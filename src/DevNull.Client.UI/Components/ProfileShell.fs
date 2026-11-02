@@ -12,12 +12,6 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Errors
 open DevNull.Client.Theme
 
-type Tab = {
-  Label: string
-  Active: IObservable<bool>
-  Choose: unit -> unit
-}
-
 type FeedProps<'row when 'row: equality> = {
   Items: IObservable<'row list>
   KeyOf: 'row -> string
@@ -39,7 +33,7 @@ type Props<'model, 'row when 'row: equality> = {
   Header: unit -> Control
   Meta: (unit -> Control) voption
   FeedLabel: string option
-  Tabs: Tab list
+  Tabs: TabStrip.Tab list
   Feed: FeedProps<'row>
 }
 
@@ -89,31 +83,6 @@ let titleRow
     .VerticalAlignment(VerticalAlignment.Center)
     .Children(children)
     .IsVisible(visible)
-
-let tabRow(tabs: Tab list) : Control =
-  let strip = Grid()
-
-  strip.ColumnDefinitions <-
-    ColumnDefinitions(String.Join(",", [ for _ in tabs -> "*" ]))
-
-  let buttons: Control array = [|
-    for index, tab in List.indexed tabs ->
-      let button =
-        Button()
-          .Classes(Theme.name Theme.TabButton)
-          .Content(tab.Label)
-          .Column(index)
-          .OnClickHandler(fun _ _ -> tab.Choose())
-
-      Theme.bindClass(button, Theme.TabButtonActive, tab.Active) |> ignore
-
-      button
-  |]
-
-  Border()
-    .Classes(Theme.name Theme.Hairline)
-    .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
-    .Child(strip.Children(buttons))
 
 let noteLine
   (model: IObservable<'model>, noteOf: 'model -> string option)
@@ -181,7 +150,7 @@ let view(props: Props<'model, 'row>) : Control =
 
   body.Children(
     label.Row(0),
-    tabRow(props.Tabs).Row(1),
+    TabStrip.view(props.Tabs).Row(1),
     noteLine(props.Model, props.Note).Row(2),
     feedColumn(props.Feed).Row(3)
   )

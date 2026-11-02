@@ -601,9 +601,13 @@ let styleTable: (StyleClass * (unit -> Style)) list = [
   TabButton,
   fun () ->
     // The page tab: a full-width row of centered titles over a
-    // hairline, the active one underlined in primary.
+    // hairline. A button carries the shell's class-driven active tab;
+    // a toggle carries its checked state.
     styleOf(
-      (fun selector -> selector.OfType<Button>().Class(name TabButton)),
+      (fun selector ->
+        let button = selector.OfType<Button>().Class(name TabButton)
+        let toggle = selector.OfType<ToggleButton>().Class(name TabButton)
+        Selectors.Or([| button; toggle |])),
       [|
         Button.BackgroundProperty, box Brushes.Transparent
         Button.BorderThicknessProperty, box(Thickness(0.0, 0.0, 0.0, 3.0))
@@ -622,11 +626,21 @@ let styleTable: (StyleClass * (unit -> Style)) list = [
   fun () ->
     styleOf(
       (fun selector ->
-        selector
-          .OfType<Button>()
-          .Class(name TabButton)
-          .Class(name TabButtonActive)),
+        let button =
+          selector
+            .OfType<Button>()
+            .Class(name TabButton)
+            .Class(name TabButtonActive)
+
+        let toggle =
+          selector
+            .OfType<ToggleButton>()
+            .Class(name TabButton)
+            .Class(":checked")
+
+        Selectors.Or([| button; toggle |])),
       [|
+        Button.BackgroundProperty, box Brushes.Transparent
         Button.BorderBrushProperty, themed Keys.accent
         Button.ForegroundProperty, themed Keys.text
       |]
@@ -947,7 +961,16 @@ let styles() =
   styles.Add(
     styleOf(
       (fun selector ->
-        selector.OfType<Button>().Class(name TabButton).Class(":pointerover")),
+        let button =
+          selector.OfType<Button>().Class(name TabButton).Class(":pointerover")
+
+        let toggle =
+          selector
+            .OfType<ToggleButton>()
+            .Class(name TabButton)
+            .Class(":pointerover")
+
+        Selectors.Or([| button; toggle |])),
       [| Button.BackgroundProperty, themed Keys.surface |]
     )
   )

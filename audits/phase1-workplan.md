@@ -136,7 +136,7 @@ Steps may swap when their dependencies allow.
   plus the scrim token; `Shortcuts.helpCard` becomes dialog content (the
   bindings rows stay in Shortcuts). Depends on: P4 (scrim token). Verify:
   suites green; the five overlays open and close through one host.
-- [ ] **P8 — LogChrome slots + SplitChrome.** LogChrome takes
+- [x] **P8 — LogChrome slots + SplitChrome.** LogChrome takes
   Tabs/Composer/RailNode/Header/OnReload and stops knowing
   `Composer.Fresh`/`Timeline.CommitLanded`/`/scheduled`; `SplitChrome`
   owns RemotesView's side/main/back/breakpoint; the band-offset sweep runs
@@ -203,3 +203,4 @@ Steps may swap when their dependencies allow.
 | P5 | committed 2026-11-01 | virtualization proven (30/200) and struck; BUG-3 fixed and struck; `HasMore` gates the chase |
 | P6 | committed 2026-11-01 | `rebuildOn` at 22 sites; LEAK-2 struck; badge/tooltip live-bound |
 | P7 | committed 2026-11-01 | five overlays → five layer calls; toast re-bound live (orchestrator fix) |
+| P8 | committed 2026-11-01 | TabStrip on `:checked`; LogChrome slotted; SplitChrome; pin test de-flaked |

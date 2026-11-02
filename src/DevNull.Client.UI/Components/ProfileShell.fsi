@@ -6,14 +6,6 @@ open Avalonia.Controls
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Errors
 
-/// One tab of the shell's row: its label, the stream that says whether
-/// it is the active tab, and what picking it does.
-type Tab = {
-  Label: string
-  Active: IObservable<bool>
-  Choose: unit -> unit
-}
-
 /// One feed of the shell: the rows the mount drives, the row key and
 /// renderer, the cursor pager, and the quiet line under the last row.
 type FeedProps<'row when 'row: equality> = {
@@ -50,7 +42,7 @@ type Props<'model, 'row when 'row: equality> = {
   Meta: (unit -> Control) voption
   /// The label above the tab row, when the page carries one.
   FeedLabel: string option
-  Tabs: Tab list
+  Tabs: TabStrip.Tab list
   Feed: FeedProps<'row>
 }
 

@@ -3718,6 +3718,21 @@ let pinTests =
 
         do! openOrgAsync window
 
+        // The pin control arrives with the thread's role; wait for it
+        // before the click so the first load cannot land after the ask.
+        let! control =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              controlByName(root, "PinMessage41")
+              |> Option.map(fun control ->
+                (control :?> Button).Content = "Pin message")
+              |> Option.defaultValue false)
+          )
+
+        Expect.isTrue control "the maintainer's pin control never showed"
+
         do!
           onUiAsync(fun () ->
             controlByName(window, "PinMessage41")
@@ -3728,7 +3743,9 @@ let pinTests =
           waitForAsync(
             5000,
             (fun () -> window),
-            (fun root -> hasText(root, "Pin for the whole org?"))
+            (fun root ->
+              hasText(root, "Pin for the whole org?")
+              && (controlByName(root, "ConfirmPin") |> Option.isSome))
           )
 
         Expect.isTrue asked "the refusal path never asked"

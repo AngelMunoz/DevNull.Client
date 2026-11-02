@@ -3,51 +3,47 @@ module DevNull.Client.Components.LogChrome
 open System
 open Avalonia.Controls
 open DevNull.Client.Core.ApiTypes
-open DevNull.Client.Core.Capabilities
-open DevNull.Client.Core.Http
 open DevNull.Client.Env
-open DevNull.Client.AttachmentSources
-open DevNull.Client.ImageCache
-open DevNull.Client.SshKeys
-open DevNull.Client.Stores
-open DevNull.Client.Timeline
 open DevNull.Client.RouteStore
+open Navs
 
-/// The shared log chrome: the three log tabs and the one composer
-/// every tab posts through, the way the site's log header does. The
-/// chrome lives above the router outlet; a click on the active tab
-/// asks the timeline service to reload (through its gate) and return
-/// the feed to its top. The chrome follows the route store through its
-/// program's subscriptions; the page ends on its first detach, and the
-/// chrome is replaced, never re-shown.
-type Props<'env
-  when 'env :> IProvideClock
-  and 'env :> IProvideNonceSource
-  and 'env :> IProvideSigner
-  and 'env :> IProvideHttp
-  and 'env :> IProvideImageCache
-  and 'env :> IProvideAttachmentSources
-  and 'env :> IProvideTimeline
-  and 'env :> IProvideRoutes
-  and 'env :> IProvideSshKeys
-  and 'env :> IProvideLogging> = {
-  Env: 'env
-  Session: SignedInSession
-  Nav: Navs.INavigable
+/// The stateless log chrome: the tab strip over the composer rail. The
+/// default log host supplies the slots; a second surface can host the
+/// same layout with its own tabs, composer, rail node, and header.
+[<Struct>]
+type Props = {
+  /// The tabs the strip places, one full-width column each.
+  Tabs: TabStrip.Tab list
+  /// The composer the rail stages, built once by the host.
+  Composer: unit -> Control
+  /// The signed-in user's avatar node, built once by the host.
+  RailNode: unit -> Control
+  /// The optional header above the tabs.
+  Header: (unit -> Control) voption
+  /// The active tab's reload action.
+  OnReload: unit -> unit
 }
 
-/// The log chrome page: the tab strip over the composer rail.
-type Page<'env
-  when 'env :> IProvideClock
-  and 'env :> IProvideNonceSource
-  and 'env :> IProvideSigner
-  and 'env :> IProvideHttp
-  and 'env :> IProvideImageCache
-  and 'env :> IProvideAttachmentSources
-  and 'env :> IProvideTimeline
-  and 'env :> IProvideRoutes
-  and 'env :> IProvideSshKeys
-  and 'env :> IProvideLogging> =
+/// One stateless chrome: the optional header, the tab strip, and the
+/// composer rail with its dashed line and 64px node column. The chrome
+/// owns the band inset.
+val view: props: Props -> Control
+
+/// The log host's input: the route store, the navigation, and the
+/// slots the shell builds for the shared chrome.
+type PageProps<'env when 'env :> IProvideRoutes and 'env :> IProvideLogging> = {
+  Env: 'env
+  Nav: INavigable
+  Composer: unit -> Control
+  RailNode: unit -> Control
+  Header: (unit -> Control) voption
+  OnReload: unit -> unit
+}
+
+/// The log chrome page: the route-following tabs over the slots. A
+/// click on the active tab asks the host to reload; every other click
+/// navigates to its log.
+type Page<'env when 'env :> IProvideRoutes and 'env :> IProvideLogging> =
   inherit UserControl
 
-  new: props: Props<'env> -> Page<'env>
+  new: props: PageProps<'env> -> Page<'env>

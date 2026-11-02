@@ -75,6 +75,10 @@
     <Compile Include="Components\PageChrome.fs" />
     <Compile Include="Components\DialogChrome.fsi" />
     <Compile Include="Components\DialogChrome.fs" />
+    <Compile Include="Components\TabStrip.fsi" />
+    <Compile Include="Components\TabStrip.fs" />
+    <Compile Include="Components\SplitChrome.fsi" />
+    <Compile Include="Components\SplitChrome.fs" />
     <Compile Include="Components\FeedParts.fsi" />
     <Compile Include="Components\FeedParts.fs" />
     <Compile Include="Components\AsyncImage.fsi" />

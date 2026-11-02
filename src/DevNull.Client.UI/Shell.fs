@@ -28,7 +28,6 @@ open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
-open DevNull.Client.DeviceAuth
 open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.Icons
@@ -214,6 +213,13 @@ type FooterContext = {
   Compact: IObservable<bool>
 }
 
+/// The guard key: the signed-in user's id, empty when signed out. A
+/// session refresh with the same id leaves a guarded cell alone.
+let inline userKey(state: SessionState) : string =
+  match state with
+  | SignedIn entry -> entry.Session.User.Id
+  | SignedOut -> ""
+
 /// The sidebar footer: the signed-in user's row, or the sign-in entry.
 /// The account row rebuilds only when the signed-in user changes — an
 /// unread refresh keeps the built one.
@@ -224,46 +230,42 @@ let footer(context: FooterContext) : Control =
       | SignedIn _ -> true
       | SignedOut -> false)
 
-  let host = ContentControl()
-
   // The identity cell, the way the chrome's guard works: a poll's
   // session refresh lands here without rebuilding the row.
-  let account = new BehaviorSubject<string>("")
-
-  context.Session
-  |> Observable.add(fun state ->
+  let accountRow(state: SessionState) : Control =
     match state with
-    | SignedIn entry when account.Value <> entry.Session.User.Id ->
-      account.OnNext entry.Session.User.Id
+    | SignedIn entry ->
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Spacing(12.0)
+        .Children(
+          Avatar.view {
+            Name = entry.Session.User.Name
+            Url = entry.Session.User.AvatarUrl
+            Lane = None
+            Size = 36.0
+            Cache = context.Images
+          },
+          StackPanel()
+            .VerticalAlignment(VerticalAlignment.Center)
+            .IsVisible(context.Compact |> Observable.map not)
+            .Children(
+              TextBlock()
+                .Classes(Theme.name Theme.Subtitle)
+                .Text(entry.Session.User.Name),
+              TextBlock()
+                .Classes(Theme.name Theme.Mono)
+                .Text("@" + entry.Session.User.Handle)
+            )
+        )
+    | SignedOut -> Panel()
 
-      host.Content <-
-        StackPanel()
-          .Orientation(Orientation.Horizontal)
-          .Spacing(12.0)
-          .Children(
-            Avatar.view {
-              Name = entry.Session.User.Name
-              Url = entry.Session.User.AvatarUrl
-              Lane = None
-              Size = 36.0
-              Cache = context.Images
-            },
-            StackPanel()
-              .VerticalAlignment(VerticalAlignment.Center)
-              .IsVisible(context.Compact |> Observable.map not)
-              .Children(
-                TextBlock()
-                  .Classes(Theme.name Theme.Subtitle)
-                  .Text(entry.Session.User.Name),
-                TextBlock()
-                  .Classes(Theme.name Theme.Mono)
-                  .Text("@" + entry.Session.User.Handle)
-              )
-          )
-    | SignedIn _ -> ()
-    | SignedOut ->
-      account.OnNext ""
-      host.Content <- null)
+  let host =
+    ContentControl()
+      .Content(
+        PageChrome.rebuildOn(context.Session, userKey, accountRow)
+        |> _.ToBinding()
+      )
 
   let account =
     Button()
@@ -444,126 +446,6 @@ let composeDialog
 
   card
 
-/// The terms gate: one dialog the app shows while the account has not
-/// accepted the terms in force. Ticking the box arms Accept; Accept
-/// records the version the app showed and hands the refreshed account
-/// back, and the shell's own session refresh closes the layer. There
-/// is no close: the terms are answered, not skipped.
-let termsDialog
-  (
-    env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideLogging,
-    session: SignedInSession,
-    onAccepted: Me -> unit
-  ) : Control =
-  let log =
-    (env :> IProvideLogging).LoggerFactory.CreateLogger "DevNull.Client.Shell"
-
-  let agreed = new BehaviorSubject<bool>(false)
-  let busy = new BehaviorSubject<bool>(false)
-  let failure = new BehaviorSubject<string voption>(ValueNone)
-
-  let canAccept =
-    Observable.combineLatest agreed busy
-    |> Observable.map(fun (ticked, working) -> ticked && not working)
-
-  let accept() =
-    busy.OnNext true
-    failure.OnNext ValueNone
-
-    asyncEx {
-      let! outcome =
-        Me.acceptTerms(
-          env,
-          {
-            KeyFile = session.KeyFile
-            Version = session.Session.TermsVersion
-          }
-        )
-
-      match outcome with
-      | Ok me -> onAccepted me
-      | Error error -> failure.OnNext(ValueSome(describe error))
-
-      busy.OnNext false
-    }
-    |> Async.StartImmediate
-
-  let card =
-    Border()
-      .Classes(Theme.name Theme.Card)
-      .MaxWidth(520.0)
-      .Child(
-        StackPanel()
-          .Spacing(12.0)
-          .Children(
-            TextBlock()
-              .Classes(Theme.name Theme.Title)
-              .Text("Before you continue"),
-            TextBlock()
-              .Classes(Theme.name Theme.Muted)
-              .TextWrapping(TextWrapping.Wrap)
-              .Text(
-                "Accept the terms and the privacy policy to keep using this app."
-              ),
-            StackPanel()
-              .Orientation(Orientation.Horizontal)
-              .Spacing(8.0)
-              .Children(
-                Button()
-                  .Classes(Theme.name Theme.GhostButton)
-                  .Padding(8.0, 4.0, 8.0, 4.0)
-                  .Content("Read the terms")
-                  .OnClickHandler(fun _ args ->
-                    args.Handled <- true
-
-                    match startBrowser(baseAddress + "/terms") with
-                    | Ok() -> ()
-                    | Error message ->
-                      log.LogWarning("The page did not open: {Error}", message)),
-                Button()
-                  .Classes(Theme.name Theme.GhostButton)
-                  .Padding(8.0, 4.0, 8.0, 4.0)
-                  .Content("Read the privacy policy")
-                  .OnClickHandler(fun _ args ->
-                    args.Handled <- true
-
-                    match startBrowser(baseAddress + "/privacy") with
-                    | Ok() -> ()
-                    | Error message ->
-                      log.LogWarning("The page did not open: {Error}", message))
-              ),
-            CheckBox()
-              .Content("I accept the terms and the privacy policy.")
-              .OnIsCheckedChangedHandler(fun box _ ->
-                let ticked =
-                  match box.IsChecked with
-                  | value when value.HasValue && value.Value -> true
-                  | _ -> false
-
-                agreed.OnNext ticked),
-            Button()
-              .Classes(Theme.name Theme.AccentButton)
-              .HorizontalAlignment(HorizontalAlignment.Right)
-              .Content("Accept")
-              .IsEnabled(canAccept)
-              .OnClickHandler(fun _ _ -> accept()),
-            TextBlock()
-              .Classes(Theme.name Theme.FgDanger)
-              .TextWrapping(TextWrapping.Wrap)
-              .IsVisible(failure |> Observable.map ValueOption.isSome)
-              .Text(
-                failure
-                |> Observable.map(function
-                  | ValueSome word -> word
-                  | ValueNone -> "")
-              )
-          )
-      )
-
-  card.Name <- "TermsDialog"
-  card
-
 /// Focuses the composer on screen, when one is. The site's Commit
 /// button focuses the log's inline composer instead of opening the
 /// dialog over it. A hidden composer — the shared chrome off the log —
@@ -618,6 +500,292 @@ let logRailNode(session: SignedInSession, cache: ImageCacheService) : Control =
   avatar.Classes(Theme.laneClass(Theme.LaneBorder, None)) |> ignore
 
   avatar
+
+/// What the sidebar content reads: its navigation, the layout band, the
+/// account it docks, and the shell actions its buttons raise.
+type SidebarProps = {
+  Navigate: string -> unit
+  Active: BehaviorSubject<string voption>
+  Compact: IObservable<bool>
+  Layout: IObservable<Layout>
+  Entries: NavEntry list
+  Session: IObservable<SessionState>
+  Images: ImageCacheService
+  OpenCompose: unit -> unit
+  OpenSearch: unit -> unit
+  ToggleSidebar: unit -> unit
+  FocusComposer: unit -> bool
+}
+
+/// The sidebar content: the wordmark, the entries, the commit and
+/// search rows, the collapse row, and the docked footer.
+let sidebar(props: SidebarProps) : Control =
+  // The service's name as plain text, the one form the brand asks
+  // for: lowercase, both slashes. No retyped wordmark and no copied
+  // lockup; this is an unofficial client. The rail keeps the first
+  // form of the name, because the full one cannot fit.
+  let wordmark =
+    TextBlock()
+      .Classes(Theme.name Theme.Title)
+      .Text("/dev/null")
+      .IsVisible(props.Compact |> Observable.map not)
+
+  let mark =
+    TextBlock()
+      .Classes(Theme.name Theme.Title)
+      .Text("/dev")
+      .FontSize(20.0)
+      .HorizontalAlignment(HorizontalAlignment.Center)
+      .IsVisible(props.Compact)
+
+  let tagline =
+    TextBlock()
+      .Classes(Theme.name Theme.Muted)
+      .Text("unofficial desktop client")
+      .IsVisible(props.Compact |> Observable.map not)
+
+  // The header clears the drag band the shell lays over the top strip;
+  // the site's own py-6 keeps the same rhythm below it.
+  let header =
+    StackPanel()
+      .Margin(Thickness(14.0, Theme.bandHeight + 12.0, 14.0, 24.0))
+      .Children(mark, wordmark, tagline)
+
+  let commitButton =
+    Button()
+      .Classes(Theme.name Theme.NavCommit)
+      .Margin(0.0, 8.0, 0.0, 8.0)
+      .Content(
+        StackPanel()
+          .Orientation(Orientation.Horizontal)
+          .Spacing(12.0)
+          .Children(
+            Icons.icon Glyph.Commit,
+            TextBlock()
+              .Text("Commit")
+              .IsVisible(props.Compact |> Observable.map not)
+          )
+      )
+      .OnClickHandler(fun _ _ ->
+        // The site focuses the log's own composer when one is on
+        // screen, and opens the dialog everywhere else.
+        if
+          props.Active.Value <> ValueSome "log" || not(props.FocusComposer())
+        then
+          props.OpenCompose())
+
+  commitButton.Name <- "NavCommitButton"
+  Theme.bindClass(commitButton, Theme.RailItem, props.Compact) |> ignore
+
+  // The site's collapse row, under Commit: the labels show only while
+  // the sidebar can expand.
+  let collapse =
+    let iconLeft =
+      Icons
+        .iconAt(Glyph.PanelLeftClose, 18.0)
+        .IsVisible(props.Compact |> Observable.map not)
+
+    let iconRight =
+      Icons.iconAt(Glyph.PanelLeftOpen, 18.0).IsVisible(props.Compact)
+
+    let label =
+      TextBlock()
+        .Text("Collapse")
+        .IsVisible(props.Compact |> Observable.map not)
+
+    let button =
+      Button()
+        .Name("NavCollapse")
+        .Classes(Theme.name Theme.NavItem)
+        .Content(
+          StackPanel()
+            .Orientation(Orientation.Horizontal)
+            .Spacing(10.0)
+            .Children(iconLeft, iconRight, label)
+        )
+        .IsVisible(
+          props.Layout
+          |> Observable.map(fun current ->
+            match current with
+            | Standard
+            | Wide -> true
+            | _ -> false)
+        )
+        .OnClickHandler(fun _ _ -> props.ToggleSidebar())
+
+    ToolTip.SetTip(button, "Toggle navigation")
+    Theme.bindClass(button, Theme.RailItem, props.Compact) |> ignore
+    button
+
+  // The site's search row: the palette's opener, right under the nav
+  // items. The pair that opens it lives in the bindings sheet, not on
+  // the row.
+  let searchRow =
+    let button =
+      Button()
+        .Name("NavSearchButton")
+        .Classes(Theme.name Theme.NavItem)
+        .Content(
+          StackPanel()
+            .Orientation(Orientation.Horizontal)
+            .Spacing(10.0)
+            .Children(
+              Icons.icon Glyph.Search,
+              TextBlock()
+                .Text("Search")
+                .IsVisible(props.Compact |> Observable.map not)
+            )
+        )
+        .OnClickHandler(fun _ _ -> props.OpenSearch())
+
+    ToolTip.SetTip(button, "Search")
+    Theme.bindClass(button, Theme.RailItem, props.Compact) |> ignore
+    button
+
+  let navContext: NavContext = {
+    Navigate = props.Navigate
+    Active = props.Active
+    Compact = props.Compact
+  }
+
+  let navChildren: Control array = [|
+    header
+    for entry in props.Entries do
+      navItem(navContext, entry)
+    searchRow
+    commitButton
+    collapse
+  |]
+
+  let navList = ScrollViewer().Content(StackPanel().Children(navChildren))
+
+  // The rail keeps the footer's full width: the old page margin plus
+  // the nav row padding clipped the 36px avatar.
+  let footerMargin =
+    props.Compact
+    |> Observable.map(fun isCompact ->
+      if isCompact then
+        Thickness(0.0, 8.0, 0.0, 12.0)
+      else
+        Thickness(14.0, 8.0, 14.0, 12.0))
+
+  let sidebarFooter =
+    footer(
+      {
+        Navigate = props.Navigate
+        Session = props.Session
+        Images = props.Images
+        Compact = props.Compact
+      }
+    )
+      .DockBottom()
+      .Margin(footerMargin)
+
+  DockPanel().LastChildFill(true).Children(sidebarFooter, navList)
+
+/// What the aside composition reads: the env its two cards need, the
+/// session that guards their rebuild, where a suggestion opens, and
+/// whether the wide band shows it.
+type AsideProps<'env
+  when 'env :> IProvideClock
+  and 'env :> IProvideNonceSource
+  and 'env :> IProvideSigner
+  and 'env :> IProvideHttp
+  and 'env :> IProvideSession
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideRoutes
+  and 'env :> IProvideLogging> = {
+  Env: 'env
+  Session: IObservable<SessionState>
+  Navigate: string -> unit
+  Wide: IObservable<bool>
+}
+
+/// The aside composition: the signed-in user's card over who to
+/// follow, rebuilt only when the signed-in user changes.
+let aside(props: AsideProps<'env>) : Control =
+  let stack(state: SessionState) : Control =
+    match state with
+    | SignedIn entry ->
+      StackPanel()
+        .Spacing(24.0)
+        .Children(
+          ProfileCard.Page { Env = props.Env; Session = entry },
+          WhoToFollow.Page {
+            Env = props.Env
+            Session = entry
+            OnOpen = props.Navigate
+          }
+        )
+    | SignedOut -> Panel()
+
+  let host =
+    ContentControl()
+      .Content(
+        PageChrome.rebuildOn(props.Session, userKey, stack) |> _.ToBinding()
+      )
+
+  host.Name <- "AsideHost"
+  host.Margin <- Thickness(24.0, Theme.bandHeight + 24.0, 24.0, 24.0)
+
+  ScrollViewer()
+    .Width(320.0)
+    .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
+    .IsVisible(props.Wide)
+    .Content(host)
+
+/// What the shared log chrome reads: the env its composer and timeline
+/// calls need, the navigation its tabs follow, and the session that
+/// guards the rebuild.
+type ChromeProps<'env
+  when 'env :> IProvideClock
+  and 'env :> IProvideNonceSource
+  and 'env :> IProvideSigner
+  and 'env :> IProvideHttp
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLogging
+  and 'env :> IProvideTimeline
+  and 'env :> IProvideRoutes> = {
+  Env: 'env
+  Nav: INavigable
+  Session: IObservable<SessionState>
+}
+
+/// The shared log chrome: the tabs and the composer every log page
+/// posts through. It rebuilds only when the signed-in user changes, so
+/// a poll's session refresh never touches the composer's draft.
+let chromeFeed(props: ChromeProps<'env>) : Control =
+  let chrome(state: SessionState) : Control =
+    match state with
+    | SignedIn entry ->
+      LogChrome.Page {
+        Env = props.Env
+        Nav = props.Nav
+        Composer =
+          fun () ->
+            Composer.Page {
+              Env = props.Env
+              Session = entry
+              Target = Composer.Fresh
+              OnCommitted = fun _ -> props.Env.Timeline.CommitLanded()
+              OnScheduled = ValueNone
+              OnOpenQueue =
+                ValueSome(fun () ->
+                  Navigation.go(props.Nav, "/scheduled", ignore))
+              Draft = ValueNone
+            }
+        RailNode = fun () -> logRailNode(entry, props.Env.ImageCache)
+        Header = ValueNone
+        OnReload = fun () -> props.Env.Timeline.ForceReload()
+      }
+    | SignedOut -> Panel()
+
+  ContentControl()
+    .Content(
+      PageChrome.rebuildOn(props.Session, userKey, chrome) |> _.ToBinding()
+    )
 
 type Shell<'env
   when 'env :> IProvideClock
@@ -843,17 +1011,18 @@ type Shell<'env
     let termsContent() : Control =
       match session.Current with
       | SignedIn entry ->
-        termsDialog(
-          env,
-          entry,
-          fun me ->
-            session.Refresh {
-              entry.Session with
-                  UnreadNotificationsCount = me.UnreadNotificationsCount
-                  TermsVersion = me.TermsVersion
-                  TermsAccepted = Some me.TermsAccepted
-            }
-        )
+        TermsDialog.Page {
+          Env = env
+          Session = entry
+          OnAccepted =
+            fun me ->
+              session.Refresh {
+                entry.Session with
+                    UnreadNotificationsCount = me.UnreadNotificationsCount
+                    TermsVersion = me.TermsVersion
+                    TermsAccepted = Some me.TermsAccepted
+              }
+        }
       | SignedOut -> Panel()
 
     let termsLayer =
@@ -1039,174 +1208,22 @@ type Shell<'env
       }
     ]
 
-    let item entry =
-      navItem(
-        {
-          Navigate = navigate
-          Active = activeSection
-          Compact = compact
-        },
-        entry
-      )
-
     // The sidebar: one tree for both modes, so no control lands in two
     // parents.
-    let sidebarContent() : Control =
-      // The service's name as plain text, the one form the brand asks
-      // for: lowercase, both slashes. No retyped wordmark and no
-      // copied lockup; this is an unofficial client. The rail keeps
-      // the first form of the name, because the full one cannot fit.
-      let wordmark =
-        TextBlock()
-          .Classes(Theme.name Theme.Title)
-          .Text("/dev/null")
-          .IsVisible(compact |> Observable.map not)
-
-      let mark =
-        TextBlock()
-          .Classes(Theme.name Theme.Title)
-          .Text("/dev")
-          .FontSize(20.0)
-          .HorizontalAlignment(HorizontalAlignment.Center)
-          .IsVisible(compact)
-
-      let tagline =
-        TextBlock()
-          .Classes(Theme.name Theme.Muted)
-          .Text("unofficial desktop client")
-          .IsVisible(compact |> Observable.map not)
-
-      // The header clears the drag band the shell lays over the top
-      // strip; the site's own py-6 keeps the same rhythm below it.
-      let header =
-        StackPanel()
-          .Margin(Thickness(14.0, Theme.bandHeight + 12.0, 14.0, 24.0))
-          .Children(mark, wordmark, tagline)
-
-      let commitButton =
-        Button()
-          .Classes(Theme.name Theme.NavCommit)
-          .Margin(0.0, 8.0, 0.0, 8.0)
-          .Content(
-            StackPanel()
-              .Orientation(Orientation.Horizontal)
-              .Spacing(12.0)
-              .Children(
-                Icons.icon Glyph.Commit,
-                TextBlock()
-                  .Text("Commit")
-                  .IsVisible(compact |> Observable.map not)
-              )
-          )
-          .OnClickHandler(fun _ _ ->
-            // The site focuses the log's own composer when one is on
-            // screen, and opens the dialog everywhere else.
-            if
-              activeSection.Value <> ValueSome "log"
-              || not(focusInlineComposer this)
-            then
-              composeOpen.OnNext true)
-
-      commitButton.Name <- "NavCommitButton"
-      Theme.bindClass(commitButton, Theme.RailItem, compact) |> ignore
-
-      // The site's collapse row, under Commit: the labels show only
-      // while the sidebar can expand.
-      let collapse =
-        let iconLeft =
-          Icons
-            .iconAt(Glyph.PanelLeftClose, 18.0)
-            .IsVisible(compact |> Observable.map not)
-
-        let iconRight =
-          Icons.iconAt(Glyph.PanelLeftOpen, 18.0).IsVisible(compact)
-
-        let label =
-          TextBlock().Text("Collapse").IsVisible(compact |> Observable.map not)
-
-        let button =
-          Button()
-            .Name("NavCollapse")
-            .Classes(Theme.name Theme.NavItem)
-            .Content(
-              StackPanel()
-                .Orientation(Orientation.Horizontal)
-                .Spacing(10.0)
-                .Children(iconLeft, iconRight, label)
-            )
-            .IsVisible(
-              layout
-              |> Observable.map(fun current ->
-                match current with
-                | Standard
-                | Wide -> true
-                | _ -> false)
-            )
-            .OnClickHandler(fun _ _ -> toggleSidebar())
-
-        ToolTip.SetTip(button, "Toggle navigation")
-        Theme.bindClass(button, Theme.RailItem, compact) |> ignore
-        button
-
-      // The site's search row: the palette's opener, right under the
-      // nav items. The pair that opens it lives in the bindings sheet,
-      // not on the row.
-      let searchRow =
-        let button =
-          Button()
-            .Name("NavSearchButton")
-            .Classes(Theme.name Theme.NavItem)
-            .Content(
-              StackPanel()
-                .Orientation(Orientation.Horizontal)
-                .Spacing(10.0)
-                .Children(
-                  Icons.icon Glyph.Search,
-                  TextBlock()
-                    .Text("Search")
-                    .IsVisible(compact |> Observable.map not)
-                )
-            )
-            .OnClickHandler(fun _ _ -> searchOpen.OnNext true)
-
-        ToolTip.SetTip(button, "Search")
-        Theme.bindClass(button, Theme.RailItem, compact) |> ignore
-        button
-
-      let navChildren: Control array = [|
-        header
-        for entry in entries do
-          item entry
-        searchRow
-        commitButton
-        collapse
-      |]
-
-      let navList = ScrollViewer().Content(StackPanel().Children(navChildren))
-
-      // The rail keeps the footer's full width: the old page margin
-      // plus the nav row padding clipped the 36px avatar.
-      let footerMargin =
-        compact
-        |> Observable.map(fun isCompact ->
-          if isCompact then
-            Thickness(0.0, 8.0, 0.0, 12.0)
-          else
-            Thickness(14.0, 8.0, 14.0, 12.0))
-
-      let sidebarFooter =
-        footer(
-          {
-            Navigate = navigate
-            Session = session.Observe
-            Images = (env :> IProvideImageCache).ImageCache
-            Compact = compact
-          }
-        )
-          .DockBottom()
-          .Margin(footerMargin)
-
-      DockPanel().LastChildFill(true).Children(sidebarFooter, navList)
+    let sidebarContent =
+      sidebar {
+        Navigate = navigate
+        Active = activeSection
+        Compact = compact
+        Layout = layout
+        Entries = entries
+        Session = session.Observe
+        Images = (env :> IProvideImageCache).ImageCache
+        OpenCompose = fun () -> composeOpen.OnNext true
+        OpenSearch = fun () -> searchOpen.OnNext true
+        ToggleSidebar = toggleSidebar
+        FocusComposer = fun () -> focusInlineComposer this
+      }
 
     // The pane keeps one look per mode: the drawer fills with the
     // surface and wears a hairline under the band; the docked pane
@@ -1236,7 +1253,7 @@ type Shell<'env
 
     let sidebarPane =
       Border()
-        .Child(sidebarContent())
+        .Child(sidebarContent)
         .BorderBrush(Brushes.border)
         .Background(paneBackground)
         .Margin(paneMargin)
@@ -1248,42 +1265,13 @@ type Shell<'env
     // the site's right column does past its wide breakpoint. It
     // rebuilds only when the signed-in user changes, the way the chrome
     // does; the rail follows the route on its own.
-    let asideHost = ContentControl()
-
-    asideHost.Name <- "AsideHost"
-
-    asideHost.Margin <- Thickness(24.0, Theme.bandHeight + 24.0, 24.0, 24.0)
-
-    let asideUser = new BehaviorSubject<string>("")
-
-    session.Observe
-    |> Observable.add(fun state ->
-      match state with
-      | SignedIn entry when asideUser.Value <> entry.Session.User.Id ->
-        asideUser.OnNext entry.Session.User.Id
-
-        asideHost.Content <-
-          StackPanel()
-            .Spacing(24.0)
-            .Children(
-              ProfileCard.Page { Env = env; Session = entry },
-              WhoToFollow.Page {
-                Env = env
-                Session = entry
-                OnOpen = navigate
-              }
-            )
-      | SignedIn _ -> ()
-      | SignedOut ->
-        asideUser.OnNext ""
-        asideHost.Content <- null)
-
-    let aside =
-      ScrollViewer()
-        .Width(320.0)
-        .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
-        .IsVisible(wide)
-        .Content(asideHost)
+    let asidePane =
+      aside {
+        Env = env
+        Session = session.Observe
+        Navigate = navigate
+        Wide = wide
+      }
 
     let outlet = RouterOutlet(Router = Some router)
 
@@ -1307,40 +1295,12 @@ type Shell<'env
     // The shared log chrome: the tabs and the composer every log page
     // posts through. It rebuilds only when the signed-in user changes,
     // so a poll's session refresh never touches the composer's draft.
-    let chromeHost = ContentControl()
-    let chromeUser = new BehaviorSubject<string>("")
-
-    session.Observe
-    |> Observable.add(fun state ->
-      match state with
-      | SignedIn entry when chromeUser.Value <> entry.Session.User.Id ->
-        chromeUser.OnNext entry.Session.User.Id
-
-        chromeHost.Content <-
-          LogChrome.Page {
-            Env = env
-            Nav = router
-            Composer =
-              fun () ->
-                Composer.Page {
-                  Env = env
-                  Session = entry
-                  Target = Composer.Fresh
-                  OnCommitted = fun _ -> env.Timeline.CommitLanded()
-                  OnScheduled = ValueNone
-                  OnOpenQueue =
-                    ValueSome(fun () ->
-                      Navigation.go(router, "/scheduled", ignore))
-                  Draft = ValueNone
-                }
-            RailNode = fun () -> logRailNode(entry, env.ImageCache)
-            Header = ValueNone
-            OnReload = fun () -> env.Timeline.ForceReload()
-          }
-      | SignedIn _ -> ()
-      | SignedOut ->
-        chromeUser.OnNext ""
-        chromeHost.Content <- null)
+    let chromeHost =
+      chromeFeed {
+        Env = env
+        Nav = router
+        Session = session.Observe
+      }
 
     // The reading column: the site's main — a card surface between two
     // hairlines, 620px wide while the labels show, 796px once the rail
@@ -1392,7 +1352,7 @@ type Shell<'env
       grid.ColumnDefinitions <- ColumnDefinitions("*,Auto")
       grid.MaxWidth <- stripWidth
 
-      grid.Children(mainHost.Column(0), aside.Column(1)) |> ignore
+      grid.Children(mainHost.Column(0), asidePane.Column(1)) |> ignore
 
       grid
 

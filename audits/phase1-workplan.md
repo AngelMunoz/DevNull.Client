@@ -152,7 +152,7 @@ Steps may swap when their dependencies allow.
   supplying row models and actions; `KbdChip`, `StatusLine`, `UserRow`
   parts beside it. Verify: suites green; a UI test walks keys through the
   one host from both surfaces.
-- [ ] **P10 — Shell decomposition.** One helper for the four
+- [x] **P10 — Shell decomposition.** One helper for the four
   identity-guarded cells; `termsDialog` becomes a proper component; the
   sidebar, aside, band, and chrome feed become named elements the Shell
   composes. Depends on: P7. Verify: suites green; the four guards share one
@@ -212,3 +212,4 @@ Steps may swap when their dependencies allow.
 | P7 | committed 2026-11-01 | five overlays → five layer calls; toast re-bound live (orchestrator fix) |
 | P8 | committed 2026-11-01 | TabStrip on `:checked`; LogChrome slotted; SplitChrome; pin test de-flaked |
 | P9 | committed 2026-11-01 | one Palette over data; control-array subjects gone; Completion's `Surface` gone; lane death committed to P15 |
+| P10 | committed 2026-11-01 | four guards → `rebuildOn`; TermsDialog component + new third-party copy; named shell elements |

@@ -119,6 +119,7 @@ type StyleClass =
   | FgWarning
   | FgOnAccent
   | SurfaceBack
+  | ScrimBack
   | PrimarySoftBack
   | AccentBack
   | CardBack
@@ -194,6 +195,7 @@ let name class' =
   | FgWarning -> "fg-warning"
   | FgOnAccent -> "fg-on-accent"
   | SurfaceBack -> "surface-back"
+  | ScrimBack -> "scrim-back"
   | PrimarySoftBack -> "primary-soft-back"
   | AccentBack -> "accent-back"
   | CardBack -> "card-back"
@@ -1074,6 +1076,13 @@ let styles() =
     styleOf(
       (fun selector -> selector.OfType<Border>().Class(name SurfaceBack)),
       [| Border.BackgroundProperty, themed Keys.surface |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector -> selector.OfType<Border>().Class(name ScrimBack)),
+      [| Border.BackgroundProperty, themed Keys.scrim |]
     )
   )
 

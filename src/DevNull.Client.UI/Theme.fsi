@@ -86,6 +86,8 @@ type StyleClass =
   | FgWarning
   | FgOnAccent
   | SurfaceBack
+  /// The modal scrim surface.
+  | ScrimBack
   | PrimarySoftBack
   | AccentBack
   | CardBack

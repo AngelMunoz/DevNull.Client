@@ -73,6 +73,8 @@
     <Compile Include="Components\Status.fs" />
     <Compile Include="Components\PageChrome.fsi" />
     <Compile Include="Components\PageChrome.fs" />
+    <Compile Include="Components\DialogChrome.fsi" />
+    <Compile Include="Components\DialogChrome.fs" />
     <Compile Include="Components\FeedParts.fsi" />
     <Compile Include="Components\FeedParts.fs" />
     <Compile Include="Components\AsyncImage.fsi" />

@@ -132,7 +132,7 @@ Steps may swap when their dependencies allow.
   beside the chrome controls, applied to the 12+ ungated sites of §4.1
   rule 8. LEAK-2 dies here (strike it in §10). Verify: suites green; the
   CommitDetailView card no longer re-subscribes per emission.
-- [ ] **P7 — DialogChrome.** One host for the shell's five overlay copies
+- [x] **P7 — DialogChrome.** One host for the shell's five overlay copies
   plus the scrim token; `Shortcuts.helpCard` becomes dialog content (the
   bindings rows stay in Shortcuts). Depends on: P4 (scrim token). Verify:
   suites green; the five overlays open and close through one host.
@@ -202,3 +202,4 @@ Steps may swap when their dependencies allow.
 | P2b | committed 2026-11-01 | one `CommitRows`; five ctx copies gone; LogView's per-row slices dead |
 | P5 | committed 2026-11-01 | virtualization proven (30/200) and struck; BUG-3 fixed and struck; `HasMore` gates the chase |
 | P6 | committed 2026-11-01 | `rebuildOn` at 22 sites; LEAK-2 struck; badge/tooltip live-bound |
+| P7 | committed 2026-11-01 | five overlays → five layer calls; toast re-bound live (orchestrator fix) |

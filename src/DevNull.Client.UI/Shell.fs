@@ -415,9 +415,6 @@ let composeDialog
     Border()
       .Classes(Theme.name Theme.Card)
       .MaxWidth(560.0)
-      .Margin(24.0, Theme.bandHeight + 24.0, 24.0, 24.0)
-      .HorizontalAlignment(HorizontalAlignment.Center)
-      .VerticalAlignment(VerticalAlignment.Center)
       .Child(
         StackPanel()
           .Spacing(8.0)
@@ -496,9 +493,6 @@ let termsDialog
     Border()
       .Classes(Theme.name Theme.Card)
       .MaxWidth(520.0)
-      .Margin(24.0, Theme.bandHeight + 24.0, 24.0, 24.0)
-      .HorizontalAlignment(HorizontalAlignment.Center)
-      .VerticalAlignment(VerticalAlignment.Center)
       .Child(
         StackPanel()
           .Spacing(12.0)
@@ -709,126 +703,98 @@ type Shell<'env
       settings.SetSidebarExpanded next
       expanded.OnNext next
 
-    // One brush for every modal scrim: the theme key, read once.
+    // The SplitView's own light-dismiss scrim: the theme key, read once.
     let scrim = Theme.solid(ThemeVariant.Dark, Theme.Keys.scrim)
 
     // The compose dialog: one overlay above the panes, below the band
     // so the caption stays reachable. It opens only signed in.
     let composeOpen = new BehaviorSubject<bool>(false)
 
-    let composeHost =
-      ContentControl()
-        .HorizontalContentAlignment(HorizontalAlignment.Stretch)
-        .VerticalContentAlignment(VerticalAlignment.Stretch)
-
     let closeCompose() = composeOpen.OnNext false
 
-    composeOpen
-    |> Observable.add(fun isOpen ->
-      if isOpen then
-        match session.Current with
-        | SignedIn entry ->
-          composeHost.Content <- composeDialog(env, entry, closeCompose)
-        | SignedOut -> closeCompose()
-      else
-        composeHost.Content <- null)
-
-    let composeScrim =
-      Border()
-        .Background(scrim)
-        .OnPointerPressedHandler(fun _ _ -> closeCompose())
+    let composeContent() : Control =
+      match session.Current with
+      | SignedIn entry -> composeDialog(env, entry, closeCompose)
+      | SignedOut ->
+        closeCompose()
+        Panel()
 
     let composeLayer =
-      Panel()
-        .IsVisible(composeOpen :> IObservable<bool>)
-        .Children(composeScrim, composeHost)
+      DialogChrome.layer {
+        Open = composeOpen
+        Content = composeContent
+        Scrim = true
+        OnScrimClick = ValueSome closeCompose
+        Place = DialogChrome.Center
+      }
 
     // The search dialog: the site's command palette, one overlay
     // beside the composer. It opens only signed in, and its own
     // session dies with the page it built.
     let searchOpen = new BehaviorSubject<bool>(false)
 
-    let searchHost =
-      ContentControl()
-        .HorizontalContentAlignment(HorizontalAlignment.Stretch)
-        .VerticalContentAlignment(Avalonia.Layout.VerticalAlignment.Stretch)
-
     let closeSearch() = searchOpen.OnNext false
 
-    searchOpen
-    |> Observable.add(fun isOpen ->
-      if isOpen then
-        match session.Current with
-        | SignedIn entry ->
-          let log =
-            env.LoggerFactory.CreateLogger "DevNull.Client.SearchDialog"
+    let searchContent() : Control =
+      match session.Current with
+      | SignedIn entry ->
+        let log = env.LoggerFactory.CreateLogger "DevNull.Client.SearchDialog"
 
-          let searches =
-            new Search.Session(
-              (fun term ->
-                DevNull.Client.Core.Api.Search.users(
-                  env,
-                  { KeyFile = entry.KeyFile; Term = term }
-                )),
-              (fun term ->
-                DevNull.Client.Core.Api.Search.commits(
-                  env,
-                  {
-                    KeyFile = entry.KeyFile
-                    Term = term
-                    Limit = Some 5
-                  }
-                )),
-              log
-            )
+        let searches =
+          new Search.Session(
+            (fun term ->
+              DevNull.Client.Core.Api.Search.users(
+                env,
+                { KeyFile = entry.KeyFile; Term = term }
+              )),
+            (fun term ->
+              DevNull.Client.Core.Api.Search.commits(
+                env,
+                {
+                  KeyFile = entry.KeyFile
+                  Term = term
+                  Limit = Some 5
+                }
+              )),
+            log
+          )
 
-          searchHost.Content <-
-            SearchDialog.Page {
-              Env = env
-              SignedIn = entry
-              Searches = searches
-              Recents = (env :> IProvideRecentSearches).RecentSearches
-              Nav = router
-              OpenCompose = fun () -> composeOpen.OnNext true
-              Close = closeSearch
-            }
-        | SignedOut -> closeSearch()
-      else
-        searchHost.Content <- null)
-
-    let searchScrim =
-      Border()
-        .Background(scrim)
-        .OnPointerPressedHandler(fun _ _ -> closeSearch())
+        SearchDialog.Page {
+          Env = env
+          SignedIn = entry
+          Searches = searches
+          Recents = (env :> IProvideRecentSearches).RecentSearches
+          Nav = router
+          OpenCompose = fun () -> composeOpen.OnNext true
+          Close = closeSearch
+        }
+      | SignedOut ->
+        closeSearch()
+        Panel()
 
     let searchLayer =
-      Panel().IsVisible(searchOpen).Children(searchScrim, searchHost)
+      DialogChrome.layer {
+        Open = searchOpen :> IObservable<bool>
+        Content = searchContent
+        Scrim = true
+        OnScrimClick = ValueSome closeSearch
+        Place = DialogChrome.Center
+      }
 
     // The bindings list: the same overlay shape as the compose dialog,
     // built on open and released on close.
     let helpOpen = new BehaviorSubject<bool>(false)
 
-    let helpHost =
-      ContentControl()
-        .HorizontalContentAlignment(HorizontalAlignment.Stretch)
-        .VerticalContentAlignment(VerticalAlignment.Stretch)
-
     let closeHelp() = helpOpen.OnNext false
 
-    helpOpen
-    |> Observable.add(fun isOpen ->
-      if isOpen then
-        helpHost.Content <- Shortcuts.helpCard()
-      else
-        helpHost.Content <- null)
-
-    let helpScrim =
-      Border().Background(scrim).OnPointerPressedHandler(fun _ _ -> closeHelp())
-
     let helpLayer =
-      Panel()
-        .IsVisible(helpOpen :> IObservable<bool>)
-        .Children(helpScrim, helpHost)
+      DialogChrome.layer {
+        Open = helpOpen :> IObservable<bool>
+        Content = Shortcuts.helpCard
+        Scrim = true
+        OnScrimClick = ValueSome closeHelp
+        Place = DialogChrome.Center
+      }
 
     // The terms gate: while the signed account has not accepted the
     // terms in force, one dialog blocks the panes. Only the session's
@@ -842,45 +808,33 @@ type Shell<'env
         | SignedIn entry -> entry.Session.TermsAccepted = Some false
         | SignedOut -> false)
 
-    let termsHost =
-      ContentControl()
-        .HorizontalContentAlignment(HorizontalAlignment.Stretch)
-        .VerticalContentAlignment(VerticalAlignment.Stretch)
-
-    // The open cell, the way the chrome's guard works: a poll's session
-    // refresh lands here without rebuilding the dialog, so a ticked box
-    // survives while the terms stay unaccepted.
-    let termsAsked = new BehaviorSubject<bool>(false)
-
-    termsOpen
-    |> Observable.add(fun isOpen ->
-      if termsAsked.Value <> isOpen then
-        termsAsked.OnNext isOpen
-
-        if isOpen then
-          match session.Current with
-          | SignedIn entry ->
-            termsHost.Content <-
-              termsDialog(
-                env,
-                entry,
-                fun me ->
-                  session.Refresh {
-                    entry.Session with
-                        UnreadNotificationsCount = me.UnreadNotificationsCount
-                        TermsVersion = me.TermsVersion
-                        TermsAccepted = Some me.TermsAccepted
-                  }
-              )
-          | SignedOut -> termsHost.Content <- null
-        else
-          termsHost.Content <- null)
-
-    // The scrim stays: the terms are answered, never clicked away.
-    let termsScrim = Border().Background(scrim)
+    // The layer's change-only gate keeps a poll's session refresh from
+    // rebuilding the dialog, so a ticked box survives while the terms
+    // stay unaccepted.
+    let termsContent() : Control =
+      match session.Current with
+      | SignedIn entry ->
+        termsDialog(
+          env,
+          entry,
+          fun me ->
+            session.Refresh {
+              entry.Session with
+                  UnreadNotificationsCount = me.UnreadNotificationsCount
+                  TermsVersion = me.TermsVersion
+                  TermsAccepted = Some me.TermsAccepted
+            }
+        )
+      | SignedOut -> Panel()
 
     let termsLayer =
-      Panel().IsVisible(termsOpen).Children(termsScrim, termsHost)
+      DialogChrome.layer {
+        Open = termsOpen
+        Content = termsContent
+        Scrim = true
+        OnScrimClick = ValueNone
+        Place = DialogChrome.Center
+      }
 
     // The delete undo: the server keeps a deleted commit restorable
     // for its undo window, so a delete leaves one quiet toast over the
@@ -906,8 +860,6 @@ type Shell<'env
       }
       |> Async.Start)
 
-    let undoHost = ContentControl()
-
     let restore(commitId: string) = asyncEx {
       match session.Current with
       | SignedIn entry ->
@@ -932,42 +884,59 @@ type Shell<'env
       | SignedOut -> emitOnUi(undoToast, ValueNone)
     }
 
-    undoToast
-    |> Observable.add(function
-      | ValueSome(commitId, message) ->
-        undoHost.Content <-
-          Border()
-            .Name("UndoToast")
-            .Classes(Theme.name Theme.Card)
-            .Padding(16.0)
-            .Margin(24.0)
-            .HorizontalAlignment(HorizontalAlignment.Center)
-            .VerticalAlignment(VerticalAlignment.Bottom)
-            .Child(
-              StackPanel()
-                .Orientation(Orientation.Horizontal)
-                .Spacing(12.0)
-                .Children(
-                  TextBlock()
-                    .VerticalAlignment(VerticalAlignment.Center)
-                    .TextWrapping(TextWrapping.Wrap)
-                    .Text(
-                      match message with
-                      | Some word -> word
-                      | None -> "Commit deleted."
-                    ),
-                  Button()
-                    .Classes(Theme.name Theme.AccentButton)
-                    .Content("Undo")
-                    .IsVisible(message |> Option.isNone)
-                    .OnClickHandler(fun _ _ ->
-                      asyncEx { return! restore commitId }
-                      |> Async.StartImmediate)
-                )
-            )
-      | ValueNone -> undoHost.Content <- null)
+    let undoContent() : Control =
+      // The card binds its own live slices: a failed restore swaps the
+      // words and hides Undo while the toast stays open, and a second
+      // delete re-aims the same card. The click reads the current toast,
+      // never the one the card was built for.
+      let words =
+        undoToast
+        |> Observable.map(fun current ->
+          match current with
+          | ValueSome(_, Some word) -> word
+          | _ -> "Commit deleted.")
 
-    let undoLayer = Panel().Children(undoHost)
+      let canUndo =
+        undoToast
+        |> Observable.map(fun current ->
+          match current with
+          | ValueSome(_, Some _) -> false
+          | _ -> true)
+
+      Border()
+        .Name("UndoToast")
+        .Classes(Theme.name Theme.Card)
+        .Padding(16.0)
+        .Child(
+          StackPanel()
+            .Orientation(Orientation.Horizontal)
+            .Spacing(12.0)
+            .Children(
+              TextBlock()
+                .VerticalAlignment(VerticalAlignment.Center)
+                .TextWrapping(TextWrapping.Wrap)
+                .Text(words),
+              Button()
+                .Classes(Theme.name Theme.AccentButton)
+                .Content("Undo")
+                .IsVisible(canUndo)
+                .OnClickHandler(fun _ _ ->
+                  match undoToast.Value with
+                  | ValueSome(commitId, _) ->
+                    asyncEx { return! restore commitId }
+                    |> Async.StartImmediate
+                  | ValueNone -> ())
+            )
+        )
+
+    let undoLayer =
+      DialogChrome.layer {
+        Open = undoToast |> Observable.map ValueOption.isSome
+        Content = undoContent
+        Scrim = false
+        OnScrimClick = ValueNone
+        Place = DialogChrome.Bottom
+      }
 
     // The remotes entry shows only while the account carries the
     // direct messages; its badge follows the store's unread total.

@@ -339,9 +339,6 @@ let helpCard() : Control =
       .Classes(Theme.name Theme.Card)
       .MaxWidth(460.0)
       .MaxHeight(520.0)
-      .Margin(24.0, Theme.bandHeight + 24.0, 24.0, 24.0)
-      .HorizontalAlignment(HorizontalAlignment.Center)
-      .VerticalAlignment(VerticalAlignment.Center)
       .Focusable(true)
       .Child(
         ScrollViewer()

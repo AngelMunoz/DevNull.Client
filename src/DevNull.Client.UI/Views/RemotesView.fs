@@ -19,20 +19,16 @@ open DevNull.Client.Stores
 open DevNull.Client.UiClock
 
 /// The page's own composition: the inbox column and the thread column
-/// through the shared two-pane frame. One solo stage sounds every note
-/// the page plays, and the program drives them all.
+/// through the shared two-pane frame; the program drives them all.
 let view
   (props: Props<'env>)
   (model: IObservable<State.Model>)
   (dispatch: Dispatch<State.Msg>)
   : Control =
 
-  // One note sounds at a time across every pane the program builds.
-  let solo = Thread.Solo()
-
   SplitChrome.view {
     Side = Parts.inbox(props, model, dispatch)
-    Main = Thread.column(props, model, dispatch, solo)
+    Main = Thread.column(props, model, dispatch)
     MainOpen =
       model |> Observable.map(fun current -> current.State.OpenTarget.IsSome)
     OnBack = fun () -> dispatch State.Closed

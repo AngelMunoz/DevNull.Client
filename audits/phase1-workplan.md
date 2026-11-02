@@ -157,7 +157,7 @@ Steps may swap when their dependencies allow.
   sidebar, aside, band, and chrome feed become named elements the Shell
   composes. Depends on: P7. Verify: suites green; the four guards share one
   helper.
-- [ ] **P11 — RemotesThread split A.** Extract `Components/ThreadVoice.fs`
+- [x] **P11 — RemotesThread split A.** Extract `Components/ThreadVoice.fs`
   and `Components/ThreadRecorder.fs` along the audit §7.4 seams
   (`VoiceCtx`/`Solo`; `audio` + `report`). Verify: suites green after each
   extraction; the file count of `RemotesThread.fs` drops by the seam sizes.
@@ -172,7 +172,10 @@ Steps may swap when their dependencies allow.
   `RemotesRows.fs`, `RemotesVoice.fs` (WAV work beside Core's
   `Commit.Voices`), the model file shrinks to init/update/subscribe;
   the Remotes files group under `Views/Remotes/`; fsproj order stays
-  honest. Verify: suites green; the pure row shaping is callable without an
+  honest. Also resolves P11's deviation: `ThreadRecorder` compiles after
+  `RemotesModel` only because `RecordLane.TakeReady` calls `State.stageVoice`
+  — move `stageVoice` beside the WAV work or hand the lane a stage callback
+  so Components stops depending on the page model. Verify: suites green; the pure row shaping is callable without an
   env.
 - [ ] **P15 — Composer split.** `CompletionLane`, `AttachmentStrip`
   (with `ImageChip`, now shared with the thread composer), `PollEditor`,
@@ -213,3 +216,4 @@ Steps may swap when their dependencies allow.
 | P8 | committed 2026-11-01 | TabStrip on `:checked`; LogChrome slotted; SplitChrome; pin test de-flaked |
 | P9 | committed 2026-11-01 | one Palette over data; control-array subjects gone; Completion's `Surface` gone; lane death committed to P15 |
 | P10 | committed 2026-11-01 | four guards → `rebuildOn`; TermsDialog component + new third-party copy; named shell elements |
+| P11 | committed 2026-11-01 | ThreadVoice (567) + ThreadRecorder (335) out; Solo pane-internal; dead phase slice removed (review) |

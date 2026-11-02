@@ -115,6 +115,8 @@
     <Compile Include="Components\LogChrome.fs" />
     <Compile Include="Components\TermsDialog.fsi" />
     <Compile Include="Components\TermsDialog.fs" />
+    <Compile Include="Components\ThreadVoice.fsi" />
+    <Compile Include="Components\ThreadVoice.fs" />
     <Compile Include="Views\CommitActions.fsi" />
     <Compile Include="Views\CommitActions.fs" />
     <Compile Include="Views\CommitRows.fsi" />
@@ -129,6 +131,8 @@
     <Compile Include="Views\NotificationsView.fs" />
     <Compile Include="Views\RemotesModel.fsi" />
     <Compile Include="Views\RemotesModel.fs" />
+    <Compile Include="Components\ThreadRecorder.fsi" />
+    <Compile Include="Components\ThreadRecorder.fs" />
     <Compile Include="Views\RemotesInbox.fsi" />
     <Compile Include="Views\RemotesInbox.fs" />
     <Compile Include="Views\RemotesThread.fsi" />

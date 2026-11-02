@@ -13,17 +13,11 @@ open MVUish.Avalonia
 /// follows the model stream, so a poll refresh never rebuilds a row.
 module Thread =
 
-  /// Only one note sounds at a time, the site's own rule: each claim
-  /// stops the playback that held the stage before it.
-  type Solo =
-    new: unit -> Solo
-    member Claim: playback: IAudioPlayback -> unit
-
   /// The detail column: the pane of the checked-out target — rebuilt
-  /// only when the target moves — or the quiet invitation.
+  /// only when the target moves — or the quiet invitation. The column
+  /// owns the one note stage its panes play through.
   val column:
     props: Props<'env> *
     model: IObservable<State.Model> *
-    dispatch: Dispatch<State.Msg> *
-    solo: Solo ->
+    dispatch: Dispatch<State.Msg> ->
       Control

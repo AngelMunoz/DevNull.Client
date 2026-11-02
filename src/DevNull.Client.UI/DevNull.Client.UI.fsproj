@@ -133,6 +133,12 @@
     <Compile Include="Views\RemotesModel.fs" />
     <Compile Include="Components\ThreadRecorder.fsi" />
     <Compile Include="Components\ThreadRecorder.fs" />
+    <Compile Include="Components\ThreadMessage.fsi" />
+    <Compile Include="Components\ThreadMessage.fs" />
+    <Compile Include="Components\ThreadChrome.fsi" />
+    <Compile Include="Components\ThreadChrome.fs" />
+    <Compile Include="Components\ThreadMenus.fsi" />
+    <Compile Include="Components\ThreadMenus.fs" />
     <Compile Include="Views\RemotesInbox.fsi" />
     <Compile Include="Views\RemotesInbox.fs" />
     <Compile Include="Views\RemotesThread.fsi" />

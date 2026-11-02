@@ -63,6 +63,15 @@ contextual records beyond; changelog under `Unreleased` with a bold area
 prefix (docs-only steps carry no changelog entry); every View/Component
 change is checked against the `devnull-mvuish-audit` gate.
 
+Idiom rules on NEW code (P12 review finding — checked every step from
+P12 on, by the implementer AND the orchestrator's read of the diff):
+uninterrupted fluent chains — no `let host = Control()` then
+`host.X(...) |> ignore` then return `host`; if a chain stops reading,
+extract a named element function; `yield` only as `yield!` splicing a
+collection; `Option.filter`/`map`/`bind` over any match that merely
+re-wraps an option; decompose over-nested control builders within the
+file into named one-concern elements.
+
 ## Resume protocol
 
 A new session, in order: read `AGENTS.md` → read the audit report at the
@@ -161,7 +170,7 @@ Steps may swap when their dependencies allow.
   and `Components/ThreadRecorder.fs` along the audit §7.4 seams
   (`VoiceCtx`/`Solo`; `audio` + `report`). Verify: suites green after each
   extraction; the file count of `RemotesThread.fs` drops by the seam sizes.
-- [ ] **P12 — RemotesThread split B.** Extract `ThreadMessage.fs`,
+- [x] **P12 — RemotesThread split B.** Extract `ThreadMessage.fs`,
   `ThreadChrome.fs`, `ThreadMenus.fs` (§7.4). Verify: suites green.
 - [ ] **P13 — RemotesThread split C.** The thread list moves onto
   `Feed.Props` (deletes `list`/`ScrollState`), `ThreadComposer.fs` and
@@ -217,3 +226,4 @@ Steps may swap when their dependencies allow.
 | P9 | committed 2026-11-01 | one Palette over data; control-array subjects gone; Completion's `Surface` gone; lane death committed to P15 |
 | P10 | committed 2026-11-01 | four guards → `rebuildOn`; TermsDialog component + new third-party copy; named shell elements |
 | P11 | committed 2026-11-01 | ThreadVoice (567) + ThreadRecorder (335) out; Solo pane-internal; dead phase slice removed (review) |
+| P12 | committed 2026-11-01 | pane 2,981 → ~1,530; seams broken (action records); idiom pass per user review: decomposition, fluent chains, yield!/implicit comprehensions, Option combinators |

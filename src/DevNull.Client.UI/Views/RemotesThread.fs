@@ -76,203 +76,17 @@ module Thread =
     Asked: bool
   }
 
-  /// Everything one row of the thread reads: the dispatch, the model,
-  /// the image cache, the viewer, and whether the thread is an org's.
+  /// What the page's remaining thread code shares with the message
+  /// rows it composes: the dispatch and model it still owns, the
+  /// viewer, whether the thread is an org's, and the message media.
   type RowCtx = {
     Dispatch: Dispatch<State.Msg>
     Model: IObservable<State.Model>
-    Images: ImageCacheService
     ViewerId: string
     IsOrg: bool
-    Nav: INavigable
-    Audio: IAudioEngine voption
-    Http: IHttp
-    Settings: AppSettingsStore
-    /// The one note that may sound at a time.
-    Solo: Solo
-    Log: ILogger
-    /// How wide the reading pane stands, so bubbles take their
-    /// fraction of it the way the site caps theirs.
-    PaneWidth: IObservable<float>
+    Media: ThreadMessage.Media
   }
 
-  /// One author's name as the receipt and ghost lines know it.
-  let authorName(ctx: RowCtx, who: User option, authorId: string) : string =
-    match who with
-    | Some user -> user.Name
-    | None -> if authorId = ctx.ViewerId then "You" else "Someone"
-
-  /// The reply ghost: the message a bubble answers, peeking out above
-  /// it. A click walks the thread to the original.
-  let ghost
-    (ctx: RowCtx, reply: MessageParent, mine: bool, author: string)
-    : Control =
-    let snippet =
-      let body = reply.Body.Replace("\r", " ").Replace("\n", " ")
-
-      // The site's snippet: links fall away, so the words carry it.
-      let words =
-        body.Split(' ')
-        |> Array.filter(fun word ->
-          not(word.StartsWith "http://" || word.StartsWith "https://"))
-
-      let trimmed = String.concat " " words |> _.Trim()
-
-      if trimmed <> "" then
-        trimmed
-      elif reply.HasVoice then
-        "voice note"
-      elif reply.ImagesCount > 1 then
-        $"{reply.ImagesCount} images"
-      else
-        "image"
-
-    Button()
-      .Classes(Theme.name Theme.GhostButton)
-      .Padding(8.0, 3.0, 8.0, 3.0)
-      .FontSize(12.0)
-      .Opacity(0.9)
-      .HorizontalAlignment(
-        if mine then
-          HorizontalAlignment.Right
-        else
-          HorizontalAlignment.Left
-      )
-      .Content(
-        StackPanel()
-          .Spacing(1.0)
-          .Children(
-            TextBlock()
-              .Classes(Theme.name Theme.Mono)
-              .FontSize(11.0)
-              .Text(author),
-            TextBlock()
-              .Classes(Theme.name Theme.Muted)
-              .FontSize(12.0)
-              .Text(snippet)
-              .TextTrimming(TextTrimming.CharacterEllipsis)
-              .MaxWidth(260.0)
-          )
-      )
-      .OnClickHandler(fun _ args ->
-        args.Handled <- true
-        ctx.Dispatch(State.GhostWanted reply.Id))
-
-  /// The images of one message: fixed boxes on the signed URLs, the
-  /// click opening the gallery.
-  let images(ctx: RowCtx, who: Message) : Control voption =
-    if who.Images.IsEmpty then
-      ValueNone
-    else
-      let boxes: Control array = [|
-        for image in who.Images ->
-          AsyncImage
-            .view(
-              {
-                Cache = ctx.Images
-                Url = image.Url
-                DecodeWidth = 512
-                DecodeHeight = ValueSome 320
-                Stretch = Stretch.UniformToFill
-                ToolTip = image.Description |> Option.toValueOption
-              }
-            )
-            .Width(232.0)
-            .Height(150.0)
-      |]
-
-      let gallery = WrapPanel().Children(boxes)
-
-      let open' =
-        Button()
-          .Classes(Theme.name Theme.CommitRow)
-          .Padding(0.0)
-          .CornerRadius(10.0)
-          .Content(gallery)
-          .OnClickHandler(fun sender _ ->
-            match TopLevel.GetTopLevel sender with
-            | :? Window as owner ->
-              ImageViewer.show {
-                Owner = owner
-                Cache = ctx.Images
-                Photos = who.Images
-                Start = 0
-              }
-            | _ -> ())
-
-      ValueSome open'
-
-  /// One message's link card, live from the thread: the card once the
-  /// server read it, the quiet word while it reads.
-  let linkCard
-    (ctx: RowCtx, key: string, messageId: int, mine: bool)
-    : Control voption =
-    let cardOf(preview: LinkPreview) : Control =
-      if preview.IsPending then
-        TextBlock()
-          .Classes(Theme.name Theme.Mono)
-          .FontSize(12.0)
-          .Margin(0.0, 4.0, 0.0, 0.0)
-          .Text("reading the link…")
-      else
-        Border()
-          .CornerRadius(10.0)
-          .BorderThickness(1.0)
-          .Classes(Theme.name Theme.Hairline)
-          .Padding(10.0, 8.0, 10.0, 8.0)
-          .Margin(0.0, 6.0, 0.0, 0.0)
-          .MaxWidth(280.0)
-          .Child(
-            StackPanel()
-              .Spacing(2.0)
-              .Children(
-                TextBlock()
-                  .Classes(
-                    if mine then
-                      Theme.name Theme.FgOnAccent
-                    else
-                      Theme.name Theme.Subtitle
-                  )
-                  .Text(preview.Title |> Option.defaultValue preview.Url)
-                  .TextWrapping(TextWrapping.Wrap),
-                TextBlock()
-                  .Classes(
-                    if mine then
-                      Theme.name Theme.FgOnAccent
-                    else
-                      Theme.name Theme.Mono
-                  )
-                  .FontSize(11.0)
-                  .Text(preview.Url)
-                  .TextTrimming(TextTrimming.CharacterEllipsis)
-              )
-          )
-
-    let card =
-      ctx.Model
-      |> Observable.map(fun current ->
-        current.State.Threads
-        |> Map.tryFind key
-        |> Option.bind(fun thread ->
-          thread.Messages
-          |> List.tryFind(fun message -> message.Id = messageId)
-          |> Option.bind _.LinkPreview))
-      |> Observable.distinctUntilChanged
-
-    let host = ContentControl()
-
-    host.Content(
-      card
-      |> Observable.map(function
-        | Some preview -> cardOf preview
-        | None -> null)
-      |> _.ToBinding()
-    )
-    |> ignore
-
-    host.IsVisible(card |> Observable.map Option.isSome) |> ignore
-
-    ValueSome host
 
   /// The word and shape one message's meta line carries: `pushed`
   /// until the other side pulled, then `pulled` with its own clock
@@ -307,86 +121,6 @@ module Thread =
     else
       Some(false, "pushed")
 
-  /// The receipts under one message, the site's own meta line: the
-  /// status glyph — a filled dot once pushed, two dots joined by a
-  /// rail once pulled — beside the word. Live from the thread,
-  /// because the read position moves under a built row.
-  let receipts
-    (ctx: RowCtx, key: string, message: Message, mine: bool)
-    : Control voption =
-    if not mine then
-      ValueNone
-    else
-      let partnerLane = message.User |> Option.bind _.Lane
-
-      // The glyph: my filled dot while only pushed; once pulled, my
-      // dot joined by the rail to the partner's lane-colored one.
-      let glyph(pulled: bool) : Control =
-        let mine = Ellipse().Classes(Theme.name Theme.AccentDot)
-
-        mine.Width <- 8.0
-        mine.Height <- 8.0
-
-        if pulled then
-          let theirs = Ellipse()
-
-          theirs.Width <- 8.0
-          theirs.Height <- 8.0
-          Theme.laneFill(theirs, partnerLane)
-
-          StackPanel()
-            .Orientation(Orientation.Horizontal)
-            .Spacing(3.0)
-            .VerticalAlignment(VerticalAlignment.Center)
-            .Children(
-              mine,
-              Border()
-                .Classes(Theme.name Theme.Hairline)
-                .Width(8.0)
-                .Height(1.5)
-                .VerticalAlignment(VerticalAlignment.Center),
-              theirs
-            )
-        else
-          mine
-
-      let line =
-        ctx.Model
-        |> Observable.map(fun current ->
-          current.State.Threads
-          |> Map.tryFind key
-          |> Option.bind(fun thread -> receiptWord(ctx.IsOrg, thread, message)))
-        |> Observable.distinctUntilChanged
-
-      let host = ContentControl()
-
-      host.Content(
-        line
-        |> Observable.map(function
-          | Some(pulled, word) ->
-            StackPanel()
-              .Orientation(Orientation.Horizontal)
-              .Spacing(5.0)
-              .VerticalAlignment(VerticalAlignment.Center)
-              .Children(
-                glyph pulled,
-                TextBlock()
-                  .Classes(Theme.name Theme.Mono)
-                  .FontSize(11.0)
-                  .Text(word)
-              )
-            :> Control
-          | None -> null)
-        |> _.ToBinding()
-      )
-      |> ignore
-
-      host.Margin <- Thickness(4.0, 2.0, 4.0, 0.0)
-      host.HorizontalAlignment <- HorizontalAlignment.Right
-
-      host.IsVisible(line |> Observable.map Option.isSome) |> ignore
-
-      ValueSome host
 
   /// The who-reacted line: the viewer, the partner, a member the
   /// thread carries — each as their handle — or someone the payload
@@ -413,94 +147,6 @@ module Thread =
         named |> Option.defaultValue "someone")
     |> String.concat ", "
 
-  /// One reaction chip: the emoji and its count in the site's own
-  /// shape — no button chrome, just the bordered count a pointer
-  /// press toggles. Worn on the mine wash when the viewer's reaction
-  /// is among them; the tip names who left it.
-  let reactionChip
-    (ctx: RowCtx, messageId: int, summary: State.ReactionSummary, who: string)
-    : Control =
-    let chip =
-      Border()
-        .Classes(
-          Theme.name(
-            if summary.IsMine then
-              Theme.ReactionChipMine
-            else
-              Theme.ReactionChip
-          )
-        )
-        .Child(
-          StackPanel()
-            .Orientation(Orientation.Horizontal)
-            .Spacing(4.0)
-            .Children(
-              TextBlock().Text(summary.Emoji),
-              TextBlock()
-                .Classes(Theme.name Theme.Mono)
-                .FontSize(11.0)
-                .Text(string summary.Count)
-            )
-        )
-
-    ToolTip.SetTip(chip, who)
-
-    chip.PointerPressed.Add(fun args ->
-      args.Handled <- true
-      ctx.Dispatch(State.ReactWanted(messageId, summary.Emoji)))
-
-    chip :> Control
-
-  /// The chips row under one message: one chip per emoji the message
-  /// carries, live from the thread. The message carries none until it
-  /// does, and the row hides then.
-  let reactionChips(ctx: RowCtx, key: string, messageId: int) : Control =
-    let summaries =
-      ctx.Model
-      |> Observable.map(fun current ->
-        let thread = current.State.Threads |> Map.tryFind key
-
-        let chips =
-          thread
-          |> Option.bind(fun thread ->
-            thread.Messages
-            |> List.tryFind(fun message -> message.Id = messageId)
-            |> Option.map(fun message ->
-              State.summarizeReactions(message.Reactions, ctx.ViewerId)))
-
-        (chips |> Option.defaultValue [], thread))
-      |> Observable.distinctUntilChanged
-
-    let host = ContentControl()
-
-    host.Content(
-      summaries
-      |> Observable.map(fun (rows, thread) ->
-        let chips: Control array = [|
-          for summary in rows ->
-            reactionChip(
-              ctx,
-              messageId,
-              summary,
-              whoNames(thread, ctx.ViewerId, summary.Who)
-            )
-        |]
-
-        StackPanel()
-          .Orientation(Orientation.Horizontal)
-          .Spacing(4.0)
-          .Margin(2.0, 2.0, 0.0, 0.0)
-          .Children(chips))
-      |> _.ToBinding()
-    )
-    |> ignore
-
-    host.IsVisible(
-      summaries |> Observable.map(fun (rows, _) -> not rows.IsEmpty)
-    )
-    |> ignore
-
-    host
 
   /// One message's pin state as the thread holds it: the org's pinned
   /// list once it loaded, the message's own mark before that.
@@ -509,604 +155,203 @@ module Thread =
     | Some pins -> pins |> List.exists(fun pin -> pin.Id = message.Id)
     | None -> message.PinnedAt.IsSome
 
-  /// The pin control beside one bubble of an org thread: the
-  /// maintainer's pin and unpin, the contributor's static glyph on a
-  /// pinned message, nothing otherwise. Live from the thread, because
-  /// a pin or a poll moves it under a built row.
-  let pinAction(ctx: RowCtx, key: string, message: Message) : Control =
-    let state =
-      ctx.Model
-      |> Observable.map(fun current ->
-        let thread = current.State.Threads |> Map.tryFind key
 
-        let pinned =
-          thread
-          |> Option.map(fun held -> pinnedNow(held, message))
-          |> Option.defaultValue false
 
-        let maintainer =
-          match thread with
-          | Some held -> held.Role = Some Maintainer
-          | None -> false
 
-        pinned, maintainer)
-      |> Observable.distinctUntilChanged
 
-    let host = ContentControl()
 
-    host.Content(
-      state
-      |> Observable.map(fun (pinned, maintainer) ->
-        if maintainer then
-          Button()
-            .Name($"PinMessage{message.Id}")
-            .Classes(Theme.name Theme.GhostButton)
-            .Padding(4.0, 0.0, 4.0, 2.0)
-            .FontSize(11.0)
-            .Content(if pinned then "Unpin message" else "Pin message")
-            .OnClickHandler(fun _ args ->
-              args.Handled <- true
 
-              ctx.Dispatch(
-                if pinned then
-                  State.MessageUnpinWanted message
-                else
-                  State.PinAskWanted message
-              ))
-          :> Control
-        elif pinned then
-          let glyph = Icons.iconAt(Glyph.Pin, 12.0)
-          ToolTip.SetTip(glyph, "Pinned message")
-          glyph :> Control
-        else
-          null)
-      |> _.ToBinding()
-    )
-    |> ignore
-
-    host
-
-  /// The reaction tray the hover react button opens: the quick picks
-  /// on top, the ranked rest under a divider — the site's toolbar
-  /// shape, one flyout, no nested picker. A pick closes it, the
-  /// site's own tray rule.
-  let reactionTray(ctx: RowCtx, messageId: int) : Popup =
-    let tray = Popup()
-
-    let ranked =
-      ctx.Model
-      |> Observable.map(fun current ->
-        let usage = current.State.ReactionUsage |> Option.defaultValue []
-
-        let quick = State.quickReactions usage
-
-        quick,
-        quick @ (usage |> State.frequentReactions |> List.except quick)
-        |> List.distinct)
-      |> Observable.distinctUntilChanged
-
-    let host = ContentControl()
-
-    host.Content(
-      ranked
-      |> Observable.map(fun (quick, all) ->
-        let pick(size: float, mark: string) : Control =
-          Button()
-            .Classes(Theme.name Theme.GhostButton)
-            .Padding(4.0)
-            .FontSize(size)
-            .Content(mark)
-            .OnClickHandler(fun _ args ->
-              args.Handled <- true
-              tray.IsOpen <- false
-              ctx.Dispatch(State.ReactWanted(messageId, mark)))
-          :> Control
-
-        let quickRow: Control array = [|
-          for mark in quick -> pick(17.0, mark)
-        |]
-
-        let rest: Control array = [|
-          for mark in List.skip (List.length quick) all -> pick(15.0, mark)
-        |]
-
-        StackPanel()
-          .Spacing(4.0)
-          .Children(
-            WrapPanel().Children(quickRow),
-            Border()
-              .Classes(Theme.name Theme.Hairline)
-              .Height(1.0)
-              .HorizontalAlignment(HorizontalAlignment.Stretch),
-            WrapPanel().MaxWidth(220.0).Children(rest)
-          ))
-      |> _.ToBinding()
-    )
-    |> ignore
-
-    tray.Child <-
-      Border()
-        .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
-        .BorderThickness(1.0)
-        .CornerRadius(8.0)
-        .Padding(6.0)
-        .Child(host)
-
-    tray
-
-  /// Everything one bubble's build reads: the row context, the run's
-  /// key, the message, whose side it sits on, and whether the receipts
-  /// line stands under it.
+  /// One bubble's page-side ask: the row context, the live thread,
+  /// the reaction usage, the run's side and author, and the message.
   [<Struct>]
   type BubbleAsk = {
     Ctx: RowCtx
-    Key: string
-    Message: Message
+    Thread: IObservable<ThreadState option>
+    Usage: IObservable<ReactionUse list>
     Mine: bool
-    ShowsStatus: IObservable<bool>
+    Author: User option
+    Message: Message
   }
 
-  /// The hover-revealed actions beside one bubble: reply and react,
-  /// 28px icons outside the bubble edge, vertically centered. They
-  /// take no room in the thread; the pointer over the message row is
-  /// what shows them, the site's group-hover rule.
-  let hoverActions(ask: BubbleAsk, tray: Popup) : Control =
-    let react =
-      Button()
-        .Classes(Theme.name Theme.GhostButton)
-        .Padding(0.0)
-        .Width(28.0)
-        .Height(28.0)
-        .Content(Icons.iconAt(Glyph.Reaction, 16.0))
-        .OnClickHandler(fun _ args ->
-          args.Handled <- true
-          tray.IsOpen <- not tray.IsOpen)
+  /// One run's page-side ask: the row context, the live thread, the
+  /// reaction usage, and the run itself.
+  [<Struct>]
+  type RunAsk = {
+    Ctx: RowCtx
+    Thread: IObservable<ThreadState option>
+    Usage: IObservable<ReactionUse list>
+    Run: State.Run
+  }
 
-    ToolTip.SetTip(react, "Add reaction")
+  /// The reaction tray's two lists from the page's usage history.
+  let reactionChoices(usage: ReactionUse list) : ThreadMessage.ReactionChoices =
+    let quick = State.quickReactions usage
 
-    let reply =
-      Button()
-        .Classes(Theme.name Theme.GhostButton)
-        .Padding(0.0)
-        .Width(28.0)
-        .Height(28.0)
-        .Content(Icons.iconAt(Glyph.Reply, 16.0))
-        .OnClickHandler(fun _ args ->
-          args.Handled <- true
-          ask.Ctx.Dispatch(State.ReplyWanted ask.Message))
+    {
+      Quick = quick
+      Rest =
+        usage |> State.frequentReactions |> List.except quick |> List.distinct
+    }
 
-    ToolTip.SetTip(reply, "Reply")
+  /// The gallery the images report up to, opened over the clicked
+  /// control's own window.
+  let openGallery(ctx: RowCtx, message: Message, source: Control) =
+    match TopLevel.GetTopLevel(source) with
+    | :? Window as owner ->
+      ImageViewer.show {
+        Owner = owner
+        Cache = ctx.Media.Cache
+        Photos = message.Images
+        Start = 0
+      }
+    | _ -> ()
 
-    StackPanel()
-      .Orientation(Orientation.Horizontal)
-      .Spacing(2.0)
-      .VerticalAlignment(VerticalAlignment.Center)
-      .Classes(Theme.name Theme.HoverActions)
-      .Children(reply, react)
-      .Name(
-        (if ask.Mine then
-           "BubbleActionsMine"
-         else
-           "BubbleActionsTheirs")
-      )
+  /// One bubble's props: the message and its side, the run's author,
+  /// the media, and the live slices the page derives from the thread.
+  let bubbleProps(ask: BubbleAsk) : ThreadMessage.BubbleProps =
+    let ctx = ask.Ctx
+    let message = ask.Message
+    let live = ask.Thread
 
-  /// One bubble: the message body in a rounded fill, mine on the
-  /// accent, theirs on the card surface. A voice note rides in a box
-  /// of its own, the way the site gives it one, and the flash target
-  /// is whichever box stands alone at the message's edge.
-  let bubble(ask: BubbleAsk) : Control =
-    let {
-          Ctx = ctx
-          Key = key
-          Message = who
-          Mine = mine
-          ShowsStatus = showsStatus
-        } =
-      ask
-
-    let body =
-      CommitCard.body(
-        ValueNone,
-        who.Body,
-        who.BodySegments,
-        who.Mentions,
-        (if mine then CommitCard.OnFill else CommitCard.Accent)
-      )
-
-    let tray = reactionTray(ctx, who.Id)
-
-    let shown = images(ctx, who)
-    let card = linkCard(ctx, key, who.Id, mine)
-
-    let voiceBox =
-      who.Voice
-      |> Option.map(fun clip ->
-        Border()
-          .Classes(
-            Theme.name(if mine then Theme.AccentBack else Theme.SurfaceBack)
-          )
-          .CornerRadius(12.0)
-          .Padding(8.0)
-          .Margin(0.0, 4.0, 0.0, 0.0)
-          .Child(
-            voiceChip(
-              {
-                Audio = ctx.Audio
-                Http = ctx.Http
-                Settings = ctx.Settings
-                Solo = ctx.Solo
-                Log = ctx.Log
-                Source = Remote clip
-              }
-            )
-          ))
-
-    // The card host binds to the model stream and is always built, so
-    // the body box's gate reads the message itself: a voice-only note
-    // carries nothing beside the note, and an empty body box would
-    // render as a bare padding pill above the player.
-    let carriesMore = who.Body <> "" || shown.IsSome || who.LinkPreview.IsSome
-
-    let bodyBox =
-      Border()
-        .Name(
-          (if carriesMore || voiceBox.IsNone then
-             $"ChatMessage{who.Id}"
-           else
-             "ChatMessageBody")
-        )
-        .Classes(
-          Theme.name(if mine then Theme.AccentBack else Theme.SurfaceBack)
-        )
-        .CornerRadius(12.0)
-        .Padding(10.0, 6.0, 10.0, 6.0)
-        .MaxWidth(ctx.PaneWidth |> Observable.map(fun w -> w * 0.85))
-        .Child(
-          StackPanel()
-            .Spacing(4.0)
-            .Children(
-              [|
-                if who.Body <> "" then
-                  yield body
-
-                match shown with
-                | ValueSome gallery -> yield gallery
-                | ValueNone -> ()
-
-                match card with
-                | ValueSome preview -> yield preview
-                | ValueNone -> ()
-              |]
-            )
-        )
-
-    (match voiceBox with
-     | Some box when not carriesMore ->
-       box.Name($"ChatMessage{who.Id}") |> ignore
-     | _ -> ())
-
-    // The double-click heart: the site's double-tap, on the desktop's
-    // own pair of clicks.
-    let heart(args: RoutedEventArgs) =
-      args.Handled <- true
-      ctx.Dispatch(State.ReactWanted(who.Id, "❤️"))
-
-    let actions = hoverActions(ask, tray)
-
-    let column =
-      StackPanel().Spacing(2.0).Children [|
-        match who.ReplyTo with
-        | Some reply ->
-          let author =
-            authorName(
-              ctx,
-              (match who.User with
-               | Some user when reply.UserId <> ctx.ViewerId -> Some user
-               | _ -> None),
-              reply.UserId
-            )
-
-          yield ghost(ctx, reply, mine, author)
-        | None -> ()
-
-        if carriesMore || voiceBox.IsNone then
-          yield bodyBox
-
-        match voiceBox with
-        | Some box -> yield box
-        | None -> ()
-
-        yield
-          StackPanel()
-            .Orientation(Orientation.Horizontal)
-            .Spacing(4.0)
-            .Margin(2.0, 2.0, 0.0, 0.0)
-            .Children
-            [|
-              reactionChips(ctx, key, who.Id)
-
-              if ctx.IsOrg then
-                pinAction(ctx, key, who)
-            |]
-      |]
-
-    column.DoubleTapped.Add heart
-
-    // The row's whole lane must hold the pointer: a backgroundless
-    // panel passes the samples between the action buttons through to
-    // the page behind, and the pointer-over state drops mid-crossing
-    // before the far icon is reached.
-    let row =
-      DockPanel()
-        .Classes(Theme.name Theme.MsgRow)
-        .Background(Brushes.Transparent)
-        .LastChildFill(true)
-        .HorizontalAlignment(
-          if mine then
-            HorizontalAlignment.Right
-          else
-            HorizontalAlignment.Left
-        )
-
-    // The actions hang outside the bubble edge: on the far side for
-    // mine, on the near side for theirs, the way the site floats
-    // them off the bubble. The HoverActions style carries the
-    // hide-and-show on the row's own pointer-over state.
-    (if mine then
-       actions.Dock(Dock.Left)
-     else
-       actions.Dock(Dock.Right))
-    |> ignore
-
-    column.Dock(Dock.Left) |> ignore
-    row.Children(actions, column) |> ignore
-    row.Children.Add(tray)
-
-    match receipts(ctx, key, who, mine) with
-    | ValueSome line ->
-      line.IsVisible(showsStatus) |> ignore
-
-      StackPanel()
-        .Spacing(2.0)
-        .HorizontalAlignment(
-          if mine then
-            HorizontalAlignment.Right
-          else
-            HorizontalAlignment.Left
-        )
-        .Children(row, line)
-      :> Control
-    | ValueNone -> row :> Control
-
-  /// One staged bubble: the message on its way in, or one the server
-  /// refused — refused once more with its retry. The staged shape is
-  /// hollow with a dashed accent edge, the refused one a solid danger
-  /// edge.
-  let stagedBubble(ctx: RowCtx, pending: PendingSend) : Control =
-    let children: Control array = [|
-      match pending.Message.Body with
-      | Some text ->
-        yield CommitCard.body(ValueNone, text, [], [], CommitCard.Accent)
-      | None -> ()
-
-      yield
-        StackPanel()
-          .Orientation(Orientation.Horizontal)
-          .Spacing(6.0)
-          .Children(
-            TextBlock()
-              .Classes(
-                Theme.name(
-                  if pending.Rejected then Theme.FgDanger else Theme.Muted
-                )
-              )
-              .FontSize(11.0)
-              .Text((if pending.Rejected then "rejected · retry" else "staged")),
-            (if pending.Rejected then
-               Button()
-                 .Classes(Theme.name Theme.GhostButton)
-                 .Padding(4.0, 0.0, 4.0, 2.0)
-                 .FontSize(11.0)
-                 .Content("retry")
-                 .OnClickHandler(fun _ args ->
-                   args.Handled <- true
-                   ctx.Dispatch(State.RetryWanted pending.ClientId))
-               :> Control
-             else
-               TextBlock() :> Control)
-          )
-    |]
-
-    let inner =
-      StackPanel().Spacing(4.0).Margin(10.0, 6.0, 10.0, 6.0).Children(children)
-
-    if pending.Rejected then
-      Border()
-        .Classes(Theme.name Theme.RejectedBubble)
-        .CornerRadius(12.0)
-        .Padding(0.0)
-        .Child(inner)
-        .HorizontalAlignment(HorizontalAlignment.Right)
-    else
-      // The dashed edge the site draws around a message on its way
-      // in: a rectangle under the content, the one dashed line the
-      // chat carries.
-      let edge = Rectangle().Classes(Theme.name Theme.StagedEdge)
-
-      edge.RadiusX <- 11.0
-      edge.RadiusY <- 11.0
-
-      let dashes = Avalonia.Collections.AvaloniaList<float>()
-
-      dashes.Add 2.0
-      dashes.Add 2.0
-      edge.StrokeDashArray <- dashes
-
-      Grid()
-        .Children(edge, inner)
-        .HorizontalAlignment(HorizontalAlignment.Right)
-
-  /// One author's run: the org label, the bubbles stacked, and under
-  /// the last bubble the clock time the site prints for the other
-  /// side's runs.
-  let run(ctx: RowCtx, key: string, ofRun: State.Run) : Control =
-    let statusMessage =
-      ctx.Model
+    let reactions =
+      live
       |> Observable.map(fun current ->
-        current.State.Threads
-        |> Map.tryFind key
+        current
+        |> Option.map(fun thread ->
+          thread.Messages
+          |> List.tryFind(fun held -> held.Id = message.Id)
+          |> Option.map(fun held ->
+            State.summarizeReactions(held.Reactions, ctx.ViewerId))
+          |> Option.defaultValue []
+          |> List.map(fun summary ->
+            ({
+              Emoji = summary.Emoji
+              Count = summary.Count
+              Mine = summary.IsMine
+              Who = whoNames(Some thread, ctx.ViewerId, summary.Who)
+            }
+            : ThreadMessage.ReactionChip)))
+        |> Option.defaultValue [])
+      |> Observable.distinctUntilChanged
+
+    let preview =
+      live
+      |> Observable.map(fun current ->
+        current
         |> Option.bind(fun thread ->
-          State.statusOf(ctx.IsOrg, ctx.ViewerId, thread)))
+          thread.Messages
+          |> List.tryFind(fun held -> held.Id = message.Id)
+          |> Option.bind _.LinkPreview))
+      |> Observable.distinctUntilChanged
 
-    let children: Control array = [|
-      if ctx.IsOrg && not ofRun.IsMine then
-        let label: Control =
-          match ofRun.Author with
-          | Some user ->
-            StackPanel()
-              .Orientation(Orientation.Horizontal)
-              .Spacing(4.0)
-              .Children(
-                Avatar.view {
-                  Name = user.Name
-                  Url = user.AvatarUrl
-                  Lane = user.Lane
-                  Size = 16.0
-                  Cache = ctx.Images
-                },
-                TextBlock()
-                  .Classes(Theme.name Theme.Mono)
-                  .FontSize(11.0)
-                  .Text(authorName(ctx, ofRun.Author, ofRun.AuthorId))
-                  .VerticalAlignment(VerticalAlignment.Center)
-              )
-            :> Control
-          | None ->
-            TextBlock()
-              .Classes(Theme.name Theme.Mono)
-              .FontSize(11.0)
-              .Text(authorName(ctx, ofRun.Author, ofRun.AuthorId))
-            :> Control
-
-        yield
-          label
-            .Margin(4.0, 6.0, 4.0, 0.0)
-            .HorizontalAlignment(HorizontalAlignment.Left)
-
-      for carried in ofRun.Bubbles ->
-        match carried with
-        | State.Sent message ->
-          bubble {
-            Ctx = ctx
-            Key = key
-            Message = message
-            Mine = ofRun.IsMine
-            ShowsStatus =
-              (statusMessage
-               |> Observable.map(fun status ->
-                 status |> Option.map _.Id |> Option.contains message.Id))
-          }
-        | State.Staged pending -> stagedBubble(ctx, pending)
-
-      // Every run ends in its clock time, the site's own meta line —
-      // mine's too, right-aligned, except the one run whose line is
-      // the receipt instead (the newest message of the conversation).
-      match
-        ofRun.Bubbles
-        |> List.tryFindBack(function
-          | State.Sent _ -> true
-          | State.Staged _ -> false)
-      with
-      | Some(State.Sent last) ->
-        let at = last.CreatedAt.LocalDateTime.ToString("h:mm tt")
-
-        let line =
-          TextBlock()
-            .Classes(Theme.name Theme.Mono)
-            .FontSize(11.0)
-            .Margin(4.0, 0.0, 4.0, 0.0)
-            .Text(at)
-            .HorizontalAlignment(
-              if ofRun.IsMine then
-                HorizontalAlignment.Right
-              else
-                HorizontalAlignment.Left
-            )
-
-        line.IsVisible(
-          statusMessage
-          |> Observable.map(fun status ->
-            not(
-              ofRun.IsMine
-              && status |> Option.map _.Id |> Option.contains last.Id
-            ))
+    let pin =
+      if ctx.IsOrg then
+        ValueSome(
+          live
+          |> Observable.map(fun current ->
+            match current with
+            | Some thread ->
+              ({
+                Pinned = pinnedNow(thread, message)
+                Maintainer = thread.Role |> Option.contains Maintainer
+              }
+              : ThreadMessage.PinState)
+            | None ->
+              ({ Pinned = false; Maintainer = false }: ThreadMessage.PinState))
+          |> Observable.distinctUntilChanged
         )
-        |> ignore
+      else
+        ValueNone
 
-        yield line
-      | _ -> ()
-    |]
+    {
+      ThreadMessage.Message = message
+      Mine = ask.Mine
+      ViewerId = ctx.ViewerId
+      Author = ask.Author
+      Media = ctx.Media
+      ShowsStatus =
+        live
+        |> Observable.map(fun current ->
+          current
+          |> Option.bind(fun thread ->
+            State.statusOf(ctx.IsOrg, ctx.ViewerId, thread))
+          |> Option.map _.Id
+          |> Option.contains message.Id)
+      Receipt =
+        live
+        |> Observable.map(fun current ->
+          current
+          |> Option.bind(fun thread -> receiptWord(ctx.IsOrg, thread, message)))
+      Preview = preview
+      Reactions = reactions
+      ReactionChoices = ask.Usage |> Observable.map reactionChoices
+      Pin = pin
+      Actions = {
+        Reply = fun who -> ctx.Dispatch(State.ReplyWanted who)
+        React = fun emoji -> ctx.Dispatch(State.ReactWanted(message.Id, emoji))
+        Pin =
+          fun wanted ->
+            ctx.Dispatch(
+              if wanted then
+                State.PinAskWanted message
+              else
+                State.MessageUnpinWanted message
+            )
+        OpenImage = fun (who, source) -> openGallery(ctx, who, source)
+        Walk = fun id -> ctx.Dispatch(State.GhostWanted id)
+      }
+    }
 
-    StackPanel()
-      .Spacing(2.0)
-      .Margin(0.0, 6.0, 0.0, 0.0)
-      .HorizontalAlignment(
-        if ofRun.IsMine then
-          HorizontalAlignment.Right
-        else
-          HorizontalAlignment.Left
-      )
-      .Children(children)
+  /// One run's props: the run mapped to the message element's own
+  /// shape, the live status message, and the per-bubble factory.
+  let runProps(ask: RunAsk) : ThreadMessage.RunProps =
+    let ctx = ask.Ctx
+    let ofRun = ask.Run
 
-  /// One quiet org event line.
-  let eventRow(ctx: RowCtx, message: Message) : Control =
-    TextBlock()
-      .Classes(Theme.name Theme.Mono)
-      .FontSize(12.0)
-      .Margin(0.0, 8.0, 0.0, 0.0)
-      .HorizontalAlignment(HorizontalAlignment.Center)
-      .Text(State.eventText(ctx.ViewerId, message))
-
-  /// One calendar-day break: the centered quiet pill with its leading
-  /// dot, and no rule.
-  let dayRow(label: string) : Control =
-    Border()
-      .Classes(Theme.name Theme.DayMarker)
-      .Margin(0.0, 12.0, 0.0, 0.0)
-      .HorizontalAlignment(HorizontalAlignment.Center)
-      .Child(
-        StackPanel()
-          .Orientation(Orientation.Horizontal)
-          .Spacing(6.0)
-          .Children(
-            Ellipse().Classes(Theme.name Theme.DayMarker),
-            TextBlock().Text(label)
-          )
-      )
-
-  /// The unread divider: the "HEAD · N new" line the head wears.
-  /// The unread divider: the "HEAD · N new" word on the left with the
-  /// hairline running off after it, the way the site's head rule
-  /// reads.
-  let headRow(count: int) : Control =
-    DockPanel()
-      .Margin(0.0, 10.0, 0.0, 0.0)
-      .Children(
-        TextBlock()
-          .Classes(Theme.name Theme.HeadRule)
-          .Dock(Dock.Left)
-          .Text($"HEAD · {count} new"),
-        Border()
-          .Classes(Theme.name Theme.HeadRule)
-          .Height(1.0)
-          .VerticalAlignment(VerticalAlignment.Center)
-      )
+    {
+      ThreadMessage.Run = {
+        IsMine = ofRun.IsMine
+        AuthorId = ofRun.AuthorId
+        Author = ofRun.Author
+        Bubbles = [
+          for carried in ofRun.Bubbles ->
+            match carried with
+            | State.Sent message -> ThreadMessage.Sent message
+            | State.Staged pending -> ThreadMessage.Staged pending
+        ]
+      }
+      IsOrg = ctx.IsOrg
+      ViewerId = ctx.ViewerId
+      Media = ctx.Media
+      Status =
+        ask.Thread
+        |> Observable.map(fun current ->
+          current
+          |> Option.bind(fun thread ->
+            State.statusOf(ctx.IsOrg, ctx.ViewerId, thread)))
+      Bubble =
+        fun message ->
+          bubbleProps {
+            Ctx = ctx
+            Thread = ask.Thread
+            Usage = ask.Usage
+            Mine = ofRun.IsMine
+            Author = message.User
+            Message = message
+          }
+      OnRetry = fun pending -> ctx.Dispatch(State.RetryWanted pending.ClientId)
+    }
 
   /// The message list: virtualized, keyed, following its tail.
   let list
     (ctx: RowCtx, key: string, restore: float, thread: IObservable<ThreadState>)
     : Control =
     let scroll = ScrollState(restore)
+
+    let liveThread =
+      ctx.Model
+      |> Observable.map(fun current -> current.State.Threads |> Map.tryFind key)
+      |> Observable.distinctUntilChanged
 
     let rowItems =
       thread
@@ -1118,6 +363,12 @@ module Thread =
           Thread = current
         })
 
+    let usage =
+      ctx.Model
+      |> Observable.map(fun current ->
+        current.State.ReactionUsage |> Option.defaultValue [])
+      |> Observable.distinctUntilChanged
+
     let template =
       FuncDataTemplate<State.ThreadRow>(
         (fun item _ ->
@@ -1125,10 +376,19 @@ module Thread =
             Panel() :> Control
           else
             match item with
-            | State.ThreadRow.Day(_, label) -> dayRow label
-            | State.ThreadRow.Head count -> headRow count
-            | State.ThreadRow.Event message -> eventRow(ctx, message)
-            | State.ThreadRow.Run ofRun -> run(ctx, key, ofRun)),
+            | State.ThreadRow.Day(_, label) -> ThreadMessage.dayRow label
+            | State.ThreadRow.Head count -> ThreadMessage.headRow count
+            | State.ThreadRow.Event message ->
+              ThreadMessage.eventRow(State.eventText(ctx.ViewerId, message))
+            | State.ThreadRow.Run ofRun ->
+              ThreadMessage.run(
+                runProps {
+                  Ctx = ctx
+                  Thread = liveThread
+                  Usage = usage
+                  Run = ofRun
+                }
+              )),
         false
       )
 
@@ -1930,801 +1190,8 @@ module Thread =
         inputRow
       )
 
-  /// The bar that takes the composer's place when the viewer cannot
-  /// push: a fetched request to settle, or the word on why. The
-  /// server's copy verbatim.
-  let accessBar
-    (dispatch: Dispatch<State.Msg>, partner: User, access: PushAccess)
-    : Control =
-    let bar =
-      match access with
-      | PushRequest ->
-        StackPanel()
-          .Orientation(Orientation.Horizontal)
-          .Spacing(8.0)
-          .Children(
-            TextBlock()
-              .Text(
-                $"@{partner.Handle} wants to push to you. Merge to reply, or drop it. They won't be told."
-              )
-              .TextWrapping(TextWrapping.Wrap)
-              .Classes(Theme.name Theme.Muted),
-            Button()
-              .Classes(Theme.name Theme.GhostButton)
-              .Content("Drop")
-              .OnClickHandler(fun _ args ->
-                args.Handled <- true
-                dispatch(State.SettleWanted(partner, false))),
-            Button()
-              .Classes(Theme.name Theme.AccentButton)
-              .Content("Merge")
-              .OnClickHandler(fun _ args ->
-                args.Handled <- true
-                dispatch(State.SettleWanted(partner, true)))
-          )
-        :> Control
-      | PushWaiting ->
-        TextBlock()
-          .Classes(Theme.name Theme.Mono)
-          .FontSize(13.0)
-          .Text($"pushed. waiting for @{partner.Handle} to merge your request")
-          .TextWrapping(TextWrapping.Wrap)
-        :> Control
-      | PushRestricted ->
-        TextBlock()
-          .Classes(Theme.name Theme.Mono)
-          .FontSize(13.0)
-          .Text(
-            $"@{partner.Handle} doesn't follow you, so you can't push to them yet"
-          )
-          .TextWrapping(TextWrapping.Wrap)
-        :> Control
-      | PushClosed
-      | UnknownAccess _ ->
-        TextBlock()
-          .Classes(Theme.name Theme.Mono)
-          .FontSize(13.0)
-          .Text($"@{partner.Handle} isn't taking remotes")
-          .TextWrapping(TextWrapping.Wrap)
-        :> Control
-      | PushOpen -> TextBlock() :> Control
 
-    bar
 
-  /// One quiet line the menus say when the server refuses, shown under
-  /// the pane's header.
-  let notice(model: IObservable<State.Model>) : Control =
-    TextBlock()
-      .Classes(Theme.name Theme.Mono)
-      .FontSize(11.0)
-      .Text(
-        model
-        |> Observable.map(fun current ->
-          current.Notice |> Option.defaultValue "")
-      )
-      .TextWrapping(TextWrapping.Wrap)
-      .IsVisible(model |> Observable.map(fun current -> current.Notice.IsSome))
-
-  /// One pinned message as a snippet: its words without links, or the
-  /// word for what a bodyless message carries.
-  let snippetOf(message: Message) : string =
-    let body = message.Body.Replace("\r", " ").Replace("\n", " ")
-
-    let words =
-      body.Split(' ')
-      |> Array.filter(fun word ->
-        not(word.StartsWith "http://" || word.StartsWith "https://"))
-
-    let trimmed = String.concat " " words |> _.Trim()
-
-    if trimmed <> "" then trimmed
-    elif message.Voice.IsSome then "voice note"
-    elif not message.Images.IsEmpty then "image"
-    else ""
-
-  /// One pinned message's author as the banner and panel name them:
-  /// the member's own name, the user id only when the member is gone.
-  let authorOf(current: ThreadState, message: Message) : string =
-    current.Members
-    |> List.tryFind(fun member' -> member'.User.Id = message.UserId)
-    |> Option.map(fun member' -> member'.User.Name)
-    |> Option.defaultValue message.UserId
-
-  /// The pinned banner row over an org thread: `pinned · {count}` with
-  /// the latest pin's author and a snippet. A click opens the pinned
-  /// panel — the banner and the panel are the only pin surface.
-  let pinnedBanner
-    (dispatch: Dispatch<State.Msg>, thread: IObservable<ThreadState>)
-    : Control =
-    let info =
-      thread
-      |> Observable.map(fun current ->
-        let pins = current.Pinned |> Option.defaultValue []
-
-        match pins with
-        | [] -> None
-        | latest :: _ ->
-          Some(List.length pins, authorOf(current, latest), snippetOf latest))
-      |> Observable.distinctUntilChanged
-
-    let host = ContentControl()
-
-    host.Content(
-      info
-      |> Observable.map(function
-        | Some(count, author, snippet) ->
-          Button()
-            .Name("RemotesPinnedBanner")
-            .Classes(Theme.name Theme.GhostButton)
-            .Padding(6.0, 2.0, 6.0, 2.0)
-            .FontSize(11.0)
-            .HorizontalAlignment(HorizontalAlignment.Left)
-            .Content(
-              StackPanel()
-                .Orientation(Orientation.Horizontal)
-                .Spacing(6.0)
-                .Children(
-                  Icons.iconAt(Glyph.Pin, 12.0),
-                  TextBlock()
-                    .Classes(Theme.name Theme.Mono)
-                    .Text($"pinned · {count}"),
-                  TextBlock().Classes(Theme.name Theme.Mono).Text(author),
-                  TextBlock()
-                    .Classes(Theme.name Theme.Muted)
-                    .Text(snippet)
-                    .TextTrimming(TextTrimming.CharacterEllipsis)
-                    .MaxWidth(320.0)
-                )
-            )
-            .OnClickHandler(fun _ args ->
-              args.Handled <- true
-              dispatch(State.PinnedPanelWanted true))
-          :> Control
-        | None -> null)
-      |> _.ToBinding()
-    )
-    |> ignore
-
-    host
-
-  /// The pinned panel over the reading: the org's pinned messages
-  /// under their count, with the close control.
-  let pinnedPanel
-    (
-      dispatch: Dispatch<State.Msg>,
-      thread: IObservable<ThreadState>,
-      shown: IObservable<bool>
-    ) : Control =
-    let rows =
-      thread
-      |> Observable.map(fun current ->
-        let pins = current.Pinned |> Option.defaultValue []
-
-        let rowOf(message: Message) : string * string =
-          (authorOf(current, message), snippetOf message)
-
-        (List.length pins, [ for message in pins -> rowOf message ]))
-      |> Observable.distinctUntilChanged
-
-    ContentControl()
-      .IsVisible(shown)
-      .Content(
-        rows
-        |> Observable.map(fun (count, rows) ->
-          let pinRow(author: string, snippet: string) : Control =
-            StackPanel()
-              .Spacing(1.0)
-              .Children(
-                TextBlock()
-                  .Classes(Theme.name Theme.Mono)
-                  .FontSize(11.0)
-                  .Text(author),
-                TextBlock()
-                  .Classes(Theme.name Theme.Muted)
-                  .FontSize(12.0)
-                  .Text(snippet)
-                  .TextWrapping(TextWrapping.Wrap)
-              )
-
-          Border()
-            .Name("RemotesPinnedPanel")
-            .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
-            .BorderThickness(1.0)
-            .CornerRadius(10.0)
-            .Padding(12.0)
-            .Margin(12.0)
-            .MaxHeight(360.0)
-            .VerticalAlignment(VerticalAlignment.Top)
-            .Child(
-              StackPanel()
-                .Spacing(6.0)
-                .Children(
-                  TextBlock()
-                    .Classes(Theme.name Theme.Subtitle)
-                    .FontSize(13.0)
-                    .Text("Pinned messages"),
-                  TextBlock()
-                    .Classes(Theme.name Theme.Mono)
-                    .FontSize(11.0)
-                    .Text($"pinned · {count}"),
-                  ScrollViewer()
-                    .MaxHeight(240.0)
-                    .VerticalScrollBarVisibility(ScrollBarVisibility.Auto)
-                    .Content(
-                      StackPanel()
-                        .Spacing(8.0)
-                        .Children(
-                          [|
-                            for author, snippet in rows ->
-                              pinRow(author, snippet)
-                          |]
-                        )
-                    ),
-                  Button()
-                    .Name("ClosePinnedMessages")
-                    .Classes(Theme.name Theme.GhostButton)
-                    .Padding(6.0, 2.0, 6.0, 2.0)
-                    .FontSize(12.0)
-                    .HorizontalAlignment(HorizontalAlignment.Left)
-                    .Content("Close pinned messages")
-                    .OnClickHandler(fun _ args ->
-                      args.Handled <- true
-                      dispatch(State.PinnedPanelWanted false))
-                )
-            )
-          :> Control)
-        |> _.ToBinding()
-      )
-
-  /// The first-pin dialog: the site's own question, the choice that
-  /// never asks again, and the two buttons. It stands over the pane
-  /// while one pin waits for its answer.
-  let pinDialog
-    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
-    : Control =
-    let open' =
-      model
-      |> Observable.map(fun current -> current.PinAsk.IsSome)
-      |> Observable.distinctUntilChanged
-
-    let host = ContentControl()
-
-    host.Content(
-      open'
-      |> Observable.map(function
-        | false -> TextBlock() :> Control
-        | true ->
-          let keep = CheckBox().Content("Don't show this again").FontSize(12.0)
-
-          let chosen() =
-            match keep.IsChecked with
-            | value when value.HasValue && value.Value -> true
-            | _ -> false
-
-          let card =
-            Border()
-              .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
-              .BorderThickness(1.0)
-              .CornerRadius(10.0)
-              .Padding(14.0)
-              .MaxWidth(380.0)
-              .HorizontalAlignment(HorizontalAlignment.Center)
-              .VerticalAlignment(VerticalAlignment.Center)
-              .Child(
-                StackPanel()
-                  .Spacing(8.0)
-                  .Children(
-                    TextBlock()
-                      .Classes(Theme.name Theme.Subtitle)
-                      .FontSize(13.0)
-                      .Text("Pin for the whole org?"),
-                    TextBlock()
-                      .Classes(Theme.name Theme.Muted)
-                      .FontSize(12.0)
-                      .Text(
-                        "Everyone in the org sees pinned messages, including people added without Share history, who can't read anything pushed before they joined."
-                      )
-                      .TextWrapping(TextWrapping.Wrap),
-                    keep,
-                    StackPanel()
-                      .Orientation(Orientation.Horizontal)
-                      .Spacing(8.0)
-                      .HorizontalAlignment(HorizontalAlignment.Right)
-                      .Children(
-                        Button()
-                          .Classes(Theme.name Theme.GhostButton)
-                          .Padding(8.0, 2.0, 8.0, 2.0)
-                          .FontSize(12.0)
-                          .Content("Cancel")
-                          .OnClickHandler(fun _ args ->
-                            args.Handled <- true
-                            dispatch State.PinAskCancelled),
-                        Button()
-                          .Name("ConfirmPin")
-                          .Classes(Theme.name Theme.AccentButton)
-                          .Padding(8.0, 2.0, 8.0, 2.0)
-                          .FontSize(12.0)
-                          .Content("Pin message")
-                          .OnClickHandler(fun _ args ->
-                            args.Handled <- true
-                            dispatch(State.PinConfirmed(chosen())))
-                      )
-                  )
-              )
-
-          Grid()
-            .Children(Border().Background(Brushes.Black).Opacity(0.35), card)
-          :> Control)
-      |> _.ToBinding()
-    )
-    |> ignore
-
-    host.IsVisible(open') |> ignore
-
-    host
-
-  /// One menu pick as a button row.
-  let menuPick
-    (dispatch: Dispatch<State.Msg>, label: string, msg: State.Msg)
-    : Control =
-    Button()
-      .Classes(Theme.name Theme.GhostButton)
-      .Padding(6.0, 2.0, 6.0, 2.0)
-      .FontSize(12.0)
-      .HorizontalAlignment(HorizontalAlignment.Stretch)
-      .HorizontalContentAlignment(HorizontalAlignment.Left)
-      .Content(label)
-      .OnClickHandler(fun _ args ->
-        args.Handled <- true
-        dispatch msg)
-
-  /// One destructive pick: the site's own word first, so one click
-  /// never lands it. The flyout carries the question, the
-  /// consequences, and the Cancel and destructive buttons.
-  let confirmPick
-    (
-      dispatch: Dispatch<State.Msg>,
-      label: string,
-      title: string,
-      body: string,
-      verb: string,
-      msg: State.Msg
-    ) : Control =
-    let flyout = Popup()
-
-    flyout.Child <-
-      Border()
-        .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
-        .BorderThickness(1.0)
-        .CornerRadius(6.0)
-        .Padding(10.0)
-        .MaxWidth(300.0)
-        .Child(
-          StackPanel()
-            .Spacing(6.0)
-            .Children(
-              TextBlock()
-                .Classes(Theme.name Theme.Subtitle)
-                .FontSize(13.0)
-                .Text(title),
-              TextBlock()
-                .Classes(Theme.name Theme.Muted)
-                .FontSize(12.0)
-                .TextWrapping(TextWrapping.Wrap)
-                .Text(body),
-              StackPanel()
-                .Orientation(Orientation.Horizontal)
-                .Spacing(8.0)
-                .HorizontalAlignment(HorizontalAlignment.Right)
-                .Children(
-                  Button()
-                    .Classes(Theme.name Theme.GhostButton)
-                    .Padding(8.0, 2.0, 8.0, 2.0)
-                    .FontSize(12.0)
-                    .Content("Cancel")
-                    .OnClickHandler(fun _ args ->
-                      args.Handled <- true
-                      flyout.IsOpen <- false),
-                  Button()
-                    .Classes(Theme.name Theme.DangerButton)
-                    .Padding(8.0, 2.0, 8.0, 2.0)
-                    .FontSize(12.0)
-                    .Content(verb)
-                    .OnClickHandler(fun _ args ->
-                      args.Handled <- true
-                      flyout.IsOpen <- false
-                      dispatch msg)
-                )
-            )
-        )
-
-    Panel()
-      .Children(
-        Button()
-          .Classes(Theme.name Theme.GhostButton)
-          .Padding(6.0, 2.0, 6.0, 2.0)
-          .FontSize(12.0)
-          .HorizontalAlignment(HorizontalAlignment.Stretch)
-          .HorizontalContentAlignment(HorizontalAlignment.Left)
-          .Content(label)
-          .OnClickHandler(fun _ args ->
-            args.Handled <- true
-            flyout.IsOpen <- not flyout.IsOpen),
-        flyout
-      )
-
-  /// The conversation's own menu: view profile, pin, stash, mutes,
-  /// block or leave. The flyout is control-owned, the way the link
-  /// picker's is.
-  let actionsMenu
-    (
-      props: Props<'env>,
-      model: IObservable<State.Model>,
-      dispatch: Dispatch<State.Msg>,
-      target: ChatTarget,
-      thread: IObservable<ThreadState>
-    ) : Control =
-    let title =
-      match target with
-      | Partner partner -> partner.Name
-      | Org org -> org.Name |> Option.defaultValue "the org"
-
-    let pinned =
-      thread |> Observable.map(fun current -> current.PinnedAt.IsSome)
-
-    let archived = thread |> Observable.map _.IsArchived
-
-    let pick(label: string, msg: State.Msg) : Control =
-      menuPick(dispatch, label, msg)
-
-    let stateful
-      (label: string, msg: State.Msg, shown: IObservable<bool>)
-      : Control =
-      let control = pick(label, msg)
-      control.IsVisible(shown) |> ignore
-      control
-
-    let rows: Control array = [|
-      match target with
-      | Partner partner ->
-        yield
-          Button()
-            .Classes(Theme.name Theme.GhostButton)
-            .Padding(6.0, 2.0, 6.0, 2.0)
-            .FontSize(12.0)
-            .HorizontalContentAlignment(HorizontalAlignment.Left)
-            .Content("view profile")
-            .OnClickHandler(fun _ args ->
-              args.Handled <- true
-              Navigation.go(props.Nav, "/profile/" + partner.Handle, ignore))
-      | Org _ -> ()
-
-      yield stateful("pin", State.PinWanted true, pinned |> Observable.map not)
-
-      yield stateful("unpin", State.PinWanted false, pinned)
-
-      yield
-        stateful(
-          "stash",
-          State.ArchiveWanted true,
-          archived |> Observable.map not
-        )
-
-      yield stateful("pop", State.ArchiveWanted false, archived)
-
-      yield!
-        [
-          "mute 1 hour", MuteHour
-          "mute until tomorrow", MuteTomorrow
-          "mute 1 week", MuteWeek
-          "mute forever", MuteForever
-          "unmute", MuteOff
-        ]
-        |> List.map(fun (label, how) -> pick(label, State.MuteWanted how))
-
-      match target with
-      | Partner partner ->
-        yield
-          confirmPick(
-            dispatch,
-            $"block @{partner.Handle}",
-            $"Block {partner.Name}?",
-            "This conversation goes away for both of you, and neither of you can message, follow, reply to, or star the other. They won't be told. You can unblock them any time from your settings.",
-            "Block",
-            State.BlockWanted partner
-          )
-      | Org _ ->
-        yield
-          confirmPick(
-            dispatch,
-            $"leave {title}",
-            $"Leave {title}?",
-            "You stop seeing the org and its history. A maintainer would have to add you back. If you are its only maintainer, the longest-standing member takes over.",
-            "Leave",
-            State.OrgRemoveWanted(props.Session.Session.User.Handle, true)
-          )
-    |]
-
-    let flyout =
-      Popup()
-        .Child(
-          Border()
-            .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
-            .BorderThickness(1.0)
-            .CornerRadius(6.0)
-            .Padding(4.0)
-            .Child(StackPanel().Children(rows))
-        )
-
-    let more =
-      Button()
-        .Classes(Theme.name Theme.GhostButton)
-        .Padding(6.0)
-        .Content("···")
-        .OnClickHandler(fun _ args ->
-          args.Handled <- true
-          flyout.IsOpen <- not flyout.IsOpen)
-
-    ToolTip.SetTip(more, $"More options for {title}")
-
-    Panel()
-      .Children(more, flyout)
-      .HorizontalAlignment(HorizontalAlignment.Right)
-
-  /// The org header's member stack: the org's members, ringed and
-  /// overlapped, two rows deep when the org is wide.
-  let memberStack(ctx: RowCtx, members: ThreadMember list) : Control =
-    StackPanel().Orientation(Orientation.Horizontal).Spacing(0.0).Children [|
-      for member' in members ->
-        (Avatar.view {
-          Name = member'.User.Name
-          Url = member'.User.AvatarUrl
-          Lane = member'.User.Lane
-          Size = 26.0
-          Cache = ctx.Images
-        })
-          .Margin(-6.0, 0.0, 0.0, 0.0)
-    |]
-
-  /// The maintainer's menu on an org header: rename, add members with
-  /// the share-history choice, a role change per member, remove, and
-  /// leave. Control-owned flyout, the house pattern.
-  let orgMenu
-    (
-      props: Props<'env>,
-      model: IObservable<State.Model>,
-      dispatch: Dispatch<State.Msg>,
-      org: OrgRef,
-      thread: IObservable<ThreadState>
-    ) : Control =
-    let viewer = props.Session.Session.User
-
-    let members = thread |> Observable.map(fun current -> current.Members)
-
-    let role = thread |> Observable.map(fun current -> current.Role)
-
-    let renameBox =
-      TextBox()
-        .Name("OrgRename")
-        .PlaceholderText("name")
-        .MaxLength(60)
-        .MinHeight(30.0)
-        .FontSize(12.0)
-        .MaxWidth(180.0)
-        .Text(
-          model
-          |> Observable.map _.OrgRename
-          |> Observable.distinctUntilChanged
-          |> _.ToBinding()
-        )
-        .OnTextChangedHandler(fun box _ ->
-          box.Text
-          |> Option.ofObj
-          |> Option.defaultValue ""
-          |> State.OrgRenameChanged
-          |> dispatch)
-
-    let memberBox =
-      TextBox()
-        .Name("OrgMember")
-        .PlaceholderText("@handle")
-        .MinHeight(30.0)
-        .FontSize(12.0)
-        .MaxWidth(180.0)
-        .OnKeyDownHandler(fun box args ->
-          if args.Key = Key.Enter then
-            args.Handled <- true
-
-            let typed =
-              box.Text |> Option.ofObj |> Option.defaultValue "" |> _.Trim()
-
-            dispatch(State.OrgMemberChanged typed))
-
-    // The add-section's own count: everyone the org would hold once
-    // the picked names land.
-    let addCount =
-      Observable.combineLatest members (model |> Observable.map _.OrgMembers)
-      |> Observable.map(fun (current, picked) ->
-        let others =
-          current |> List.filter(fun member' -> member'.User.Id <> viewer.Id)
-
-        List.length others + 1 + List.length picked)
-      |> Observable.distinctUntilChanged
-
-    let memberHost = ContentControl()
-
-    memberHost.Content(
-      members
-      |> Observable.map(fun current ->
-        current |> List.filter(fun member' -> member'.User.Id <> viewer.Id))
-      |> Observable.distinctUntilChanged
-      |> Observable.map(fun others ->
-        let rows: Control array = [|
-          for member' in others ->
-            let flipping =
-              match member'.Role with
-              | Some Maintainer
-              | Some(UnknownRole _) -> "make contributor", Contributor
-              | Some Contributor
-              | None -> "make maintainer", Maintainer
-
-            let label, role = flipping
-
-            StackPanel()
-              .Spacing(2.0)
-              .Children(
-                StackPanel()
-                  .Orientation(Orientation.Horizontal)
-                  .Spacing(4.0)
-                  .Children(
-                    TextBlock()
-                      .Classes(Theme.name Theme.Mono)
-                      .FontSize(11.0)
-                      .Text("@" + member'.User.Handle)
-                      .VerticalAlignment(VerticalAlignment.Center),
-                    menuPick(
-                      dispatch,
-                      label,
-                      State.OrgRoleWanted(member'.User.Handle, role)
-                    )
-                  ),
-                menuPick(
-                  dispatch,
-                  "Remove from org",
-                  State.OrgRemoveWanted(member'.User.Handle, false)
-                )
-              )
-              .Margin(0.0, 2.0, 0.0, 0.0)
-        |]
-
-        StackPanel().Children rows)
-      |> _.ToBinding()
-    )
-    |> ignore
-
-    let rows: Control array = [|
-      yield
-        TextBlock().Classes(Theme.name Theme.Mono).FontSize(11.0).Text("rename")
-
-      yield
-        StackPanel()
-          .Orientation(Orientation.Horizontal)
-          .Spacing(4.0)
-          .Children(
-            renameBox,
-            Button()
-              .Classes(Theme.name Theme.GhostButton)
-              .Padding(6.0, 2.0, 6.0, 2.0)
-              .FontSize(11.0)
-              .Content("save")
-              .OnClickHandler(fun _ args ->
-                args.Handled <- true
-                dispatch State.OrgRenameWanted)
-          )
-
-      yield
-        TextBlock()
-          .Classes(Theme.name Theme.Mono)
-          .FontSize(11.0)
-          .Text("add members")
-          .Margin(0.0, 6.0, 0.0, 0.0)
-
-      yield
-        ContentControl()
-          .Content(
-            addCount
-            |> Observable.map(fun count ->
-              TextBlock()
-                .Classes(Theme.name Theme.Mono)
-                .FontSize(11.0)
-                .Text($"{count}/100")
-              :> Control)
-            |> _.ToBinding()
-          )
-
-      yield memberBox
-
-      yield
-        StackPanel()
-          .Orientation(Orientation.Horizontal)
-          .Spacing(4.0)
-          .Children(
-            TextBlock()
-              .Classes(Theme.name Theme.Mono)
-              .FontSize(11.0)
-              .Text(
-                "Share history — they can read everything pushed before they joined"
-              )
-              .TextWrapping(TextWrapping.Wrap)
-              .VerticalAlignment(VerticalAlignment.Center),
-            CheckBox()
-              .IsChecked(
-                model
-                |> Observable.map(fun current -> current.OrgShare)
-                |> _.ToBinding()
-              )
-              .OnIsCheckedChangedHandler(fun box _ ->
-                let shared =
-                  match box.IsChecked with
-                  | v when v.HasValue && v.Value -> true
-                  | _ -> false
-
-                dispatch(State.OrgShareChanged shared))
-          )
-
-      yield memberHost
-
-      yield
-        Button()
-          .Classes(Theme.name Theme.GhostButton)
-          .Padding(6.0, 2.0, 6.0, 2.0)
-          .FontSize(12.0)
-          .HorizontalContentAlignment(HorizontalAlignment.Left)
-          .Content("add")
-          .OnClickHandler(fun _ args ->
-            args.Handled <- true
-            dispatch State.OrgAddWanted)
-
-      yield
-        (let orgName = org.Name |> Option.defaultValue "the org"
-
-         confirmPick(
-           dispatch,
-           $"leave {orgName}",
-           $"Leave {orgName}?",
-           "You stop seeing the org and its history. A maintainer would have to add you back. If you are its only maintainer, the longest-standing member takes over.",
-           "Leave",
-           State.OrgRemoveWanted(viewer.Handle, true)
-         ))
-    |]
-
-    let flyout =
-      Popup()
-        .Child(
-          Border()
-            .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
-            .BorderThickness(1.0)
-            .CornerRadius(6.0)
-            .Padding(6.0)
-            .MaxWidth(280.0)
-            .Child(ScrollViewer().Content(StackPanel().Children(rows)))
-        )
-
-    Panel()
-      .Children(
-        Button()
-          .Classes(Theme.name Theme.GhostButton)
-          .Padding(6.0)
-          .Content("members")
-          .IsVisible(
-            role |> Observable.map(fun current -> current = Some Maintainer)
-          )
-          .OnClickHandler(fun _ args ->
-            args.Handled <- true
-            flyout.IsOpen <- not flyout.IsOpen),
-        flyout
-      )
-      .HorizontalAlignment(HorizontalAlignment.Right)
 
   /// The pane's footer: the composer while the thread takes pushes,
   /// the access bar when a direct thread does not, nothing for a
@@ -2754,7 +1221,14 @@ module Thread =
             | PushClosed
             | UnknownAccess _ as refused ->
               match target with
-              | Partner partner -> accessBar(dispatch, partner, refused)
+              | Partner partner ->
+                ThreadChrome.accessBar {
+                  Partner = partner
+                  Access = refused
+                  OnSettle =
+                    fun (partner, merging) ->
+                      dispatch(State.SettleWanted(partner, merging))
+                }
               | Org _ -> Panel())
         )
         |> _.ToBinding()
@@ -2785,13 +1259,8 @@ module Thread =
       rowsGrid.GetObservable(Visual.BoundsProperty)
       |> Observable.map(fun bounds -> bounds.Width)
 
-    let ctx: RowCtx = {
-      Dispatch = dispatch
-      Model = model
-      Images = props.Env.ImageCache
-      ViewerId = props.Session.Session.User.Id
-      IsOrg = isOrg
-      Nav = props.Nav
+    let media: ThreadMessage.Media = {
+      Cache = props.Env.ImageCache
       Audio = props.Env.Natives.Audio
       Http = props.Env.Http
       Settings = props.Env.Settings
@@ -2799,6 +1268,14 @@ module Thread =
       Log =
         props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.RemotesVoice"
       PaneWidth = paneWidth
+    }
+
+    let ctx: RowCtx = {
+      Dispatch = dispatch
+      Model = model
+      ViewerId = props.Session.Session.User.Id
+      IsOrg = isOrg
+      Media = media
     }
 
     let thread =
@@ -2824,7 +1301,7 @@ module Thread =
                 Url = partner.AvatarUrl
                 Lane = partner.Lane
                 Size = 36.0
-                Cache = ctx.Images
+                Cache = media.Cache
               },
               StackPanel()
                 .VerticalAlignment(VerticalAlignment.Center)
@@ -2852,24 +1329,71 @@ module Thread =
                   PageChrome.rebuildOn(
                     thread,
                     (fun current -> current.Members),
-                    (fun current -> memberStack(ctx, current.Members))
+                    (fun current ->
+                      ThreadMenus.memberStack(media.Cache, current.Members))
                   )
                   |> _.ToBinding()
                 )
             )
           :> Control
 
+      let menuActions: ThreadMenus.MenuActions = {
+        ViewProfile =
+          fun user ->
+            Navigation.go(props.Nav, "/profile/" + user.Handle, ignore)
+        Pin = fun wanted -> dispatch(State.PinWanted wanted)
+        Archive = fun wanted -> dispatch(State.ArchiveWanted wanted)
+        Mute = fun how -> dispatch(State.MuteWanted how)
+        Block = fun partner -> dispatch(State.BlockWanted partner)
+        Leave =
+          fun () ->
+            dispatch(
+              State.OrgRemoveWanted(props.Session.Session.User.Handle, true)
+            )
+      }
+
+      let actions =
+        ThreadMenus.actionsMenu {
+          Target = target
+          Pinned =
+            thread |> Observable.map(fun current -> current.PinnedAt.IsSome)
+          Archived = thread |> Observable.map _.IsArchived
+          Actions = menuActions
+        }
+
       let menu: Control =
         match target with
         | Org org ->
+          let orgActions: ThreadMenus.OrgActions = {
+            RenameChanged = fun name -> dispatch(State.OrgRenameChanged name)
+            Rename = fun () -> dispatch State.OrgRenameWanted
+            MemberChanged = fun name -> dispatch(State.OrgMemberChanged name)
+            Add = fun () -> dispatch State.OrgAddWanted
+            ShareChanged = fun shared -> dispatch(State.OrgShareChanged shared)
+            Role =
+              fun (handle, role) -> dispatch(State.OrgRoleWanted(handle, role))
+            Remove =
+              fun (handle, leaving) ->
+                dispatch(State.OrgRemoveWanted(handle, leaving))
+          }
+
           StackPanel()
             .Orientation(Orientation.Horizontal)
             .Children(
-              orgMenu(props, model, dispatch, org, thread),
-              actionsMenu(props, model, dispatch, target, thread)
+              ThreadMenus.orgMenu {
+                Org = org
+                ViewerId = props.Session.Session.User.Id
+                ViewerHandle = props.Session.Session.User.Handle
+                Thread = thread
+                Rename = model |> Observable.map _.OrgRename
+                Picked = model |> Observable.map _.OrgMembers
+                Shared = model |> Observable.map _.OrgShare
+                Actions = orgActions
+              },
+              actions
             )
           :> Control
-        | Partner _ -> actionsMenu(props, model, dispatch, target, thread)
+        | Partner _ -> actions
 
       DockPanel().LastChildFill(true).Children(menu.Dock(Dock.Right), identity)
 
@@ -2916,16 +1440,28 @@ module Thread =
           list(ctx, key, restore, thread),
           loadingLine,
           presentButton,
-          pinnedPanel(dispatch, thread, pinned)
+          ThreadChrome.pinnedPanel {
+            Thread = thread
+            Shown = pinned
+            OnClose = fun () -> dispatch(State.PinnedPanelWanted false)
+          }
         )
+
+    let banner =
+      ThreadChrome.pinnedBanner {
+        Thread = thread
+        OnOpen = fun () -> dispatch(State.PinnedPanelWanted true)
+      }
+
+    let noticeLine = ThreadChrome.notice(model |> Observable.map _.Notice)
 
     let rows =
       rowsGrid.RowDefinitions <- RowDefinitions("Auto,Auto,Auto,*,Auto")
 
       rowsGrid.Children(
         header.Row(0).Margin(0.0, 0.0, 0.0, 8.0),
-        pinnedBanner(dispatch, thread).Row(1),
-        notice(model).Row(2),
+        banner.Row(1),
+        noticeLine.Row(2),
         listHost.Row(3),
         footer(props, model, dispatch, solo, target, thread).Row(4)
       )
@@ -2949,7 +1485,19 @@ module Thread =
             && current.Pending.IsEmpty)
         )
 
-    Panel().Children(rows, quiet, pinDialog(model, dispatch))
+    Panel()
+      .Children(
+        rows,
+        quiet,
+        ThreadChrome.pinDialog {
+          Open =
+            model
+            |> Observable.map(fun current -> current.PinAsk.IsSome)
+            |> Observable.distinctUntilChanged
+          OnConfirm = fun keep -> dispatch(State.PinConfirmed keep)
+          OnCancel = fun () -> dispatch State.PinAskCancelled
+        }
+      )
 
   /// The detail column: the pane of the checked-out target — rebuilt
   /// only when the target moves — or the quiet invitation.

@@ -1,6 +1,6 @@
 # Phase 1 handoff — resume here in a fresh session
 
-Last updated: 2026-11-02, after P14 landed. Owner of this file: whoever
+Last updated: 2026-11-02, after P15 landed. Owner of this file: whoever
 continues the dev loop. Read `AGENTS.md` and `audits/phase1-workplan.md`
 first; this file is the state snapshot, the plan is the authority.
 
@@ -9,7 +9,7 @@ first; this file is the state snapshot, the plan is the authority.
 - Branch `phase1/mvuish`, fast-forward-merged into local `main` after every
   approved step. **`origin/main` is behind and unpushed — pushing needs the
   user's explicit go.**
-- Committed: P0-P4, P2b, P5-P14 (see `git log --oneline -20`). The audit
+- Committed: P0-P4, P2b, P5-P15 (see `git log --oneline -20`). The audit
   report at the repo root and the work plan under `audits/` are committed
   with the work.
 - Uncommitted: nothing (each step lands only after the user's verdict).
@@ -72,10 +72,24 @@ work outside Phase 1.
   `Core.RemotesText`; `typingNames` reaches `ThreadComposer` as a
   `Typing: IObservable<string list>` prop. No Components file references
   Views — the fsproj order proves it.
-- **P15** — Composer split with the lane death (contract is in the plan:
-  no `BehaviorSubject<Sub>`, no view-filled subscription holder; the
-  `ImageChip` is shared with the thread composer — but the thread's
-  participants-only `mentionPicker` is NOT the lane and must stay put).
+- **P15** — landed. Composer 1,803 → 969 plus seven elements
+  (`CompletionLane`, `ImageChip` shared with the thread composer,
+  `AttachmentStrip`, `ComposerKeys`, `PollEditor`, `SchedulePicker`,
+  `ComposerToolbar`); the lane mailbox and snapshot read are gone
+  (one element-local `BehaviorSubject<Snapshot>` survives, justified:
+  synchronous key decisions); ThreadComposer 708 → 612; chip text
+  unified at 12px.
+- **P16** — the mechanical sweep, the LAST step: the `Slices` module and
+  its nine adopters (§4.3), the per-update logger hoist (grep gate:
+  `CreateLogger` inside `update` at 0, `replayBuffer`/`refCount` at the
+  nine boundaries), `inline` one-liners, dead opens/messages, the two
+  `private` markers, the `Status` namespace fix, `Translation.fs` →
+  `Views/TranslationModel.fs`, and the option-compare fix list
+  (RemotesState:735, Shell:843, LogChrome:102/218, WhoToFollow:193/229/263,
+  NotificationsView:406, RemotesInbox:507, RemotesModel:991). Justified
+  survivors stay: ThreadPane's timer-callback class flips, Feed's
+  view-scoped ref cells, LogChrome's per-user tab bindings, ThreadPane's
+  two construction-time `CreateLogger` calls.
 - **P16** — mechanical sweep; its parked lists (option compares, per-update
   loggers, `let private` markers, dead opens) are itemized in the plan.
 

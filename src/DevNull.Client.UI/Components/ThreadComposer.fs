@@ -1,20 +1,15 @@
 module DevNull.Client.Components.ThreadComposer
 
 open System
-open System.IO
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
 open Avalonia.Controls.Shapes
-open Avalonia.Input
 open Avalonia.Interactivity
 open Avalonia.Layout
 open Avalonia.Media
-open Avalonia.Media.Imaging
-open Avalonia.Threading
 open NXUI.Extensions
 open FSharp.Control.Reactive
-open IcedTasks
 open DevNull.Client
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Components.Palette
@@ -104,57 +99,6 @@ let pingLabelOf(target: ChatTarget) =
   | Org org ->
     let orgName = org.Name |> Option.defaultValue "the org"
     $"Ping {orgName}"
-
-/// One staged image chip: the bytes decoded small, the file name, and
-/// its remove. The decoded bitmap is native memory, so the preview
-/// disposes it when the strip rebuilds and drops it.
-let imageChip(actions: Actions, image: ImageAttachment, index: int) : Control =
-  let bitmap =
-    use stream = new MemoryStream(image.Bytes)
-    Bitmap.DecodeToWidth(stream, 96)
-
-  let preview =
-    Avalonia.Controls
-      .Image()
-      .Source(bitmap)
-      .Width(48.0)
-      .Height(48.0)
-      .Stretch(Stretch.UniformToFill)
-
-  preview.DetachedFromVisualTree.Add(fun _ -> bitmap.Dispose())
-
-  Border()
-    .Classes(Theme.name Theme.Hairline)
-    .BorderThickness(Thickness(1.0))
-    .CornerRadius(8.0)
-    .Padding(6.0)
-    .Child(
-      StackPanel()
-        .Orientation(Orientation.Horizontal)
-        .Spacing(6.0)
-        .Children(
-          preview,
-          StackPanel()
-            .VerticalAlignment(VerticalAlignment.Center)
-            .Children(
-              TextBlock()
-                .Classes(Theme.name Theme.Mono)
-                .FontSize(12.0)
-                .Text(image.FileName)
-                .MaxWidth(140.0)
-                .TextTrimming(TextTrimming.CharacterEllipsis),
-              Button()
-                .Name($"RemoveImage{index}")
-                .Classes(Theme.name Theme.GhostButton)
-                .Padding(4.0, 0.0, 4.0, 0.0)
-                .FontSize(12.0)
-                .Content("remove")
-                .OnClickHandler(fun _ args ->
-                  args.Handled <- true
-                  actions.ImageRemoved index)
-            )
-        )
-    )
 
 /// The link-card picker: a quiet button whose flyout lists the
 /// draft's links, the first one, or none. The button shows only while
@@ -335,21 +279,18 @@ let replyBar(props: Props) : Control =
       |> _.ToBinding()
     )
 
-/// The staged images: the chips rebuild only when the image list
-/// itself moves, so typing never re-decodes a preview under the caret.
+/// The staged images: the shared strip rebuilds only when the image
+/// list itself moves, so typing never re-decodes a preview under the
+/// caret.
 let stagedImages(props: Props) : Control =
-  ContentControl()
-    .Content(
-      props.Images
-      |> Observable.distinctUntilChanged
-      |> Observable.map(fun staged ->
-        StackPanel().Orientation(Orientation.Horizontal).Spacing(8.0).Children [|
-          for index, image in List.indexed staged ->
-            imageChip(props.Actions, image, index)
-        |])
-      |> _.ToBinding()
-    )
-    .IsVisible(props.Images |> Observable.map(fun staged -> not staged.IsEmpty))
+  AttachmentStrip.view {
+    Images = props.Images
+    OnRemove = props.Actions.ImageRemoved
+    MarkHandled = true
+    Descriptions = ValueNone
+    Spacing = 8.0
+    HideWhenEmpty = true
+  }
 
 /// The staged voice note: the full player over the take just made,
 /// with its discard beside it. The take is keyed by its length and
@@ -541,54 +482,17 @@ let inputBox(props: Props) : TextBox =
   // newline, Esc cancels the reply or discards a live recording, and
   // the platform's paste gesture asks the attachment sources first — a
   // clipboard image stages, clipboard text lands in the box.
-  input.AddHandler(
-    InputElement.KeyDownEvent,
-    (fun _ args ->
-      let pasteMatches(args: KeyEventArgs) =
-        match Application.Current with
-        | null -> false
-        | app ->
-          match app.PlatformSettings with
-          | null -> false
-          | settings ->
-            settings.HotkeyConfiguration.Paste
-            |> Seq.exists(fun gesture -> gesture.Matches args)
-
-      let plainEnter =
-        args.Key = Key.Enter && args.KeyModifiers = KeyModifiers.None
-
-      let controlEnter =
-        args.Key = Key.Enter && args.KeyModifiers.HasFlag(KeyModifiers.Control)
-
-      if plainEnter || controlEnter then
-        args.Handled <- true
-        props.Actions.Send()
-      elif args.Key = Key.Escape then
-        args.Handled <- true
+  ComposerKeys.attach {
+    Body = input
+    Attachments = props.Services.Attachments
+    Commit = ComposerKeys.PlainOrControl
+    OnCommit = props.Actions.Send
+    OnStaged = fun staged -> props.Actions.Picked [ staged ]
+    OnEscape =
+      ValueSome(fun () ->
         props.Actions.ReplyCancelled()
-        props.Actions.RecordCancelled()
-      elif pasteMatches args then
-        args.Handled <- true
-
-        asyncEx {
-          let! image = props.Services.Attachments.ReadClipboardImage()
-
-          match image with
-          | Some staged ->
-            Dispatcher.UIThread.Post(fun () -> props.Actions.Picked [ staged ])
-          | None ->
-            let! text = props.Services.Attachments.ReadClipboardText()
-
-            match text with
-            | Some pasted ->
-              Dispatcher.UIThread.Post(fun () -> input.SelectedText <- pasted)
-            | None -> ()
-        }
-        |> Async.StartImmediate
-      else
-        ()),
-    RoutingStrategies.Tunnel
-  )
+        props.Actions.RecordCancelled())
+  }
 
   input
 

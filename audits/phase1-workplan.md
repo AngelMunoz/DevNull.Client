@@ -186,7 +186,7 @@ Steps may swap when their dependencies allow.
   — move `stageVoice` beside the WAV work or hand the lane a stage callback
   so Components stops depending on the page model. Verify: suites green; the pure row shaping is callable without an
   env.
-- [ ] **P15 — Composer split.** `CompletionLane`, `AttachmentStrip`
+- [x] **P15 — Composer split.** `CompletionLane`, `AttachmentStrip`
   (with `ImageChip`, now shared with the thread composer), `PollEditor`,
   `SchedulePicker`, `ComposerToolbar`. Depends on: P4, P9. The lane
   handoff dies here: `CompletionLane` becomes an element that OWNS the
@@ -229,3 +229,4 @@ Steps may swap when their dependencies allow.
 | P12 | committed 2026-11-01 | pane 2,981 → ~1,530; seams broken (action records); idiom pass per user review: decomposition, fluent chains, yield!/implicit comprehensions, Option combinators |
 | P13 | committed 2026-11-01 | `RemotesThread.fs` deleted; ThreadPane + ThreadComposer out; Feed gains `ScrollTo`/`Ride`; gates battery `audits/gates.ps1` adopted; scroll-restore limitation user-accepted |
 | P14 | committed 2026-11-02 | model 1,885 → 1,176 (+Types 195 +Rows 434, env-free); WAV `stageVoice` → `Core.Commit.Voices`; draft helpers → `Core.RemotesText`; `typingNames` handed to ThreadComposer as a `Typing` prop; zero Components→Views references (fsproj order proves it) |
+| P15 | committed 2026-11-02 | Composer 1,803 → 969 + seven elements (CompletionLane/ImageChip/AttachmentStrip/ComposerKeys/PollEditor/SchedulePicker/ComposerToolbar); lane death done — `BehaviorSubject<Sub>`/`lane.Value` at 0, element-local Snapshot subject justified; ThreadComposer 708 → 612 on the shared chip and keys; picked debug logs kept (Composer.fs:374/378); chip filename unified at 12px |

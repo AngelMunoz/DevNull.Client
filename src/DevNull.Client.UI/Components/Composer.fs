@@ -1,24 +1,14 @@
 module DevNull.Client.Components.Composer
 
 open System
-open System.IO
 open System.Runtime
-open System
-open System.Reactive.Subjects
 open Avalonia
 open Avalonia.Controls
-open Avalonia.Controls.Primitives
-open Avalonia.Input
-open Avalonia.Layout
 open Avalonia.Media
-open Avalonia.Media.Imaging
-open Avalonia.Interactivity
 open Avalonia.Threading
 open NXUI.Extensions
 open FSharp.Control.Reactive
-open IcedTasks
 open MVUish.Avalonia
-open DevNull.Client
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
@@ -26,16 +16,12 @@ open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Commit
 open DevNull.Client.Core.Completion
 open DevNull.Client.Core.Http
-open DevNull.Client.Core.Types
 open DevNull.Client.Errors
 open DevNull.Client.Env
 open DevNull.Client.ImageCache
 open Microsoft.Extensions.Logging
-open DevNull.Client.Icons
 open DevNull.Client.Search
-open DevNull.Client.SshKeys
 open DevNull.Client.Stores
-open DevNull.Client.Theme
 
 module Flyout = DevNull.Client.Components.Completion
 
@@ -45,13 +31,6 @@ type Target =
   | Fresh
   | ReplyTo of parentId: string
   | Quoting of quotedId: string
-
-/// One poll being built: two to four options and the time it stays
-/// open. A poll rides a fresh commit only, never beside images.
-type PollDraft = {
-  Options: string list
-  Duration: PollDuration
-}
 
 /// Where a host whose row recycles keeps the draft alive: the text the
 /// composer starts from, and the sink every change reaches.
@@ -79,11 +58,6 @@ type Props<'env
 
 /// The composer's state logic: model, messages, and update.
 module State =
-
-  /// The moment the person picked, as the panel takes it: a day offset
-  /// from today, an hour, and a five-minute step.
-  [<Struct>]
-  type Pick = { Day: int; Hour: int; Minute: int }
 
   /// The completion lane over the body: the trigger the caret sits
   /// in, the rows the newest answer settled into, and the row the keys
@@ -177,12 +151,12 @@ module State =
     /// One description per staged image, empty where undescribed; kept
     /// parallel to the attachments by index.
     Descriptions: string list
-    Poll: PollDraft option
+    Poll: PollEditor.Draft option
     /// The schedule mode: on when the next submit queues instead of
     /// posting.
     Scheduling: bool
     /// The picked moment; none until a day is chosen.
-    Picked: Pick voption
+    Picked: SchedulePicker.Pick voption
     /// The completion lane over the body.
     Completion: CompletionState
   }
@@ -211,6 +185,7 @@ module State =
     | CompletionStepped of step: int
     | CompletionHovered of index: int
     | CompletionClosed
+    | CompletionPicked of CompletionLane.Choice
 
   let initial = {
     Busy = false
@@ -262,7 +237,9 @@ module State =
   /// The picked moment in local time: the day offset lands on the
   /// calendar date, the hour and minute set the time, and the offset is
   /// today's.
-  let pickedMoment(now: DateTimeOffset, pick: Pick) : DateTimeOffset =
+  let pickedMoment
+    (now: DateTimeOffset, pick: SchedulePicker.Pick)
+    : DateTimeOffset =
     let date = now.DateTime.AddDays(float pick.Day)
 
     let withTime =
@@ -389,6 +366,16 @@ module State =
             }
       },
       Cmd.none
+    | CompletionPicked(CompletionLane.PersonChosen handle) ->
+      // The lane carried the handle into the box; the log keeps the
+      // success beside the failures.
+      model,
+      Cmd.ofAction(fun () ->
+        log.LogDebug("The mention completion picked {Handle}.", handle))
+    | CompletionPicked(CompletionLane.IssueChosen number) ->
+      model,
+      Cmd.ofAction(fun () ->
+        log.LogDebug("The issue completion picked {Number}.", number))
     | AttachRequested ->
       // The picker is modal; the answer arrives as one message.
       model, Cmd.OfAsync.perform props.Env.Attachments.PickFiles () ImagesAdded
@@ -447,7 +434,7 @@ module State =
     | PollToggled ->
       // A poll rides a fresh commit with no images; opening one puts
       // the staged images back.
-      let poll =
+      let poll: PollEditor.Draft option =
         match model.Poll with
         | Some _ -> None
         | None ->
@@ -692,12 +679,8 @@ module State =
           ))
 
   /// The completion session's answers enter the program through the
-  /// engine's subscription set, and the session itself retires with
-  /// it. The view fills the lane holder with its own subscription.
-  let subscribe
-    (session: CompletionSession, lane: BehaviorSubject<Sub<Msg>>)
-    (_: Model)
-    : Sub<Msg> =
+  /// engine's subscription set, and the session itself retires with it.
+  let subscribe (session: CompletionSession) (_: Model) : Sub<Msg> =
     Sub.batch [
       Sub.fromObservable
         "completion-mentions"
@@ -708,25 +691,10 @@ module State =
         (session.Issues |> Observable.map IssueArrived)
 
       Sub.ofId "completion-session" (fun _ -> session :> IDisposable)
-
-      Sub.ofId "completion-lane-holder" (fun _ -> {
-        new IDisposable with
-          member _.Dispose() =
-            lane.OnCompleted()
-            lane.Dispose()
-      })
-
-      lane.Value
     ]
 
 /// The composer's semantic regions; the view only composes these.
 module Parts =
-
-  /// Sets one control's tooltip and returns it, so the composition stays
-  /// one expression.
-  let withTip (text: string) (control: Control) : Control =
-    ToolTip.SetTip(control, text)
-    control
 
   /// The input: one line to start, the site's textarea rhythm; the
   /// inner presenter takes over past the cap. The text rides the
@@ -777,93 +745,6 @@ module Parts =
 
           dispatch(State.CompletionTracked(text, caret))))
 
-  /// The box's key lane. The platform's paste gesture asks the
-  /// attachment sources first — a clipboard image stages, clipboard
-  /// text lands in the box — and the platform's commit pair
-  /// (Ctrl/Cmd+Enter) posts the body, the way the site's composer
-  /// does. Both are always handled, so the box's own text handling
-  /// never races them.
-  let keyLane
-    (props: Props<'env>, dispatch: Dispatch<State.Msg>, body: TextBox)
-    : unit =
-    let pasteMatches(args: KeyEventArgs) =
-      match Application.Current with
-      | null -> false
-      | app ->
-        match app.PlatformSettings with
-        | null -> false
-        | settings ->
-          settings.HotkeyConfiguration.Paste
-          |> Seq.exists(fun gesture -> gesture.Matches args)
-
-    let commitPair(args: KeyEventArgs) =
-      args.Key = Key.Enter
-      && args.KeyModifiers &&& (KeyModifiers.Control ||| KeyModifiers.Meta)
-         <> KeyModifiers.None
-
-    body.AddHandler(
-      InputElement.KeyDownEvent,
-      (fun _ args ->
-        if commitPair args then
-          args.Handled <- true
-
-          let text = body.Text |> Option.ofObj |> Option.defaultValue ""
-
-          dispatch(State.Submitted text)
-        elif pasteMatches args then
-          args.Handled <- true
-
-          asyncEx {
-            let! image = props.Env.Attachments.ReadClipboardImage()
-
-            match image with
-            | Some staged ->
-              Dispatcher.UIThread.Post(fun () ->
-                dispatch(State.ImagesAdded [ staged ]))
-            | None ->
-              let! text = props.Env.Attachments.ReadClipboardText()
-
-              match text with
-              | Some pasted ->
-                Dispatcher.UIThread.Post(fun () -> body.SelectedText <- pasted)
-              | None -> ()
-          }
-          |> Async.StartImmediate),
-      RoutingStrategies.Tunnel
-    )
-
-  /// Everything the completion lane reads: the props it calls through,
-  /// the model it draws from, the dispatch it speaks to, and the body
-  /// box it completes into.
-  type CompletionCtx<'env
-    when 'env :> IProvideClock
-    and 'env :> IProvideNonceSource
-    and 'env :> IProvideSigner
-    and 'env :> IProvideHttp
-    and 'env :> IProvideImageCache
-    and 'env :> IProvideAttachmentSources
-    and 'env :> IProvideLogging> = {
-    Props: Props<'env>
-    Model: IObservable<State.Model>
-    Dispatch: Dispatch<State.Msg>
-    Body: TextBox
-  }
-
-  /// The props, the session, and the lane subscription one composer
-  /// view reads and fills.
-  type ViewCtx<'env
-    when 'env :> IProvideClock
-    and 'env :> IProvideNonceSource
-    and 'env :> IProvideSigner
-    and 'env :> IProvideHttp
-    and 'env :> IProvideImageCache
-    and 'env :> IProvideAttachmentSources
-    and 'env :> IProvideLogging> = {
-    Props: Props<'env>
-    Session: CompletionSession
-    Lane: BehaviorSubject<Sub<State.Msg>>
-  }
-
   /// The composer's own completion session: the site's suggestions,
   /// gated by the composer's own reply or quote context. A reply's
   /// participants change, so its composer answers every query fresh;
@@ -908,866 +789,156 @@ module Parts =
       log
     )
 
-  /// The completion lane over the body: the site's own suggestions,
-  /// on the same gated pipes the search palette runs. The lane feeds
-  /// the session from the model's trigger, arms the flyout, walks the
-  /// keys through the armed row, and carries the completion into the
-  /// box. Its view-side feeds ride one keyed subscription set ended
-  /// by the body's own detach; the session's answers ride the
-  /// program's subscription instead.
-  let completionLane
-    (
-      ctx: CompletionCtx<'env>,
-      session: CompletionSession,
-      lane: BehaviorSubject<Sub<State.Msg>>
-    ) : Popup =
-    let props = ctx.Props
-
-    let log =
-      props.Env.LoggerFactory.CreateLogger "DevNull.Client.Components.Composer"
-
-    // The keys decide against the completion state as it stands, so
-    // the model's stream rides a behavior subject one lookup reads.
-    let latest =
-      new BehaviorSubject<State.CompletionState>(State.closedCompletion)
-
-    // The completion lands in the box itself, so the change rides the
-    // same text-changed path typing does, and the caret the surgery
-    // computed follows it in the same beat.
-    let applied(next: string, caret: int) =
-      ctx.Body.Text <- next
-      ctx.Body.CaretIndex <- caret
-
-    let completeMention(handle: string) =
-      match latest.Value.Trigger with
-      | ValueSome(Mention _ as trigger) ->
-        let text = ctx.Body.Text |> Option.ofObj |> Option.defaultValue ""
-
-        let next, caret = mentionCompleted(text, trigger, handle)
-
-        applied(next, caret)
-
-        log.LogDebug("The mention completion picked {Handle}.", handle)
-      // The caret already left the mention behind.
-      | ValueSome(IssueRef _)
-      | ValueNone -> ()
-
-    let completeIssue(issue: Issue) =
-      match latest.Value.Trigger with
-      | ValueSome(IssueRef _ as trigger) ->
-        let text = ctx.Body.Text |> Option.ofObj |> Option.defaultValue ""
-
-        let next, caret = issueCompleted(text, trigger, issue.Url)
-
-        applied(next, caret)
-
-        log.LogDebug("The issue completion picked {Number}.", issue.Number)
-      // The caret already left the reference behind.
-      | ValueSome(Mention _)
-      | ValueNone -> ()
-
-    // The pick the keys answer: the armed row, clamped into the rows
-    // the newest state holds.
-    let picked() =
-      let completion = latest.Value
-      let count = State.completionCount completion
-      let active = min completion.Active (count - 1)
-
-      match completion.Trigger, active with
-      | ValueSome(IssueRef _), _ when completion.Issue.IsSome ->
-        completion.Issue |> Option.iter completeIssue
-      | ValueSome(Mention _), at when at >= 0 ->
-        match List.tryItem at completion.Users with
-        | Some user -> completeMention user.Handle
-        | None ->
-          completion.Organizations
-          |> List.tryItem(at - List.length completion.Users)
-          |> Option.iter(fun organization ->
-            completeMention organization.Handle)
-      // Nothing stands at the armed place.
-      | ValueSome(IssueRef _), _
-      | ValueSome(Mention _), _
-      | ValueNone, _ -> ()
-
-    // The keys the open completion owns: the arrows walk the rows and
-    // wrap, a plain Enter or Tab picks, and Escape closes — an issue
-    // card closed by hand stays closed until the text moves past it.
-    // The platform's commit pair keeps its modifier, so it never meets
-    // the completion's plain Enter.
-    let plain(args: KeyEventArgs) = args.KeyModifiers = KeyModifiers.None
-
-    ctx.Body.AddHandler(
-      InputElement.KeyDownEvent,
-      (fun _ args ->
-        if not args.Handled && State.completionOpen latest.Value then
-          match args.Key with
-          | Key.Down
-          | Key.Up when State.completionCount latest.Value > 0 ->
-            args.Handled <- true
-
-            ctx.Dispatch(
-              State.CompletionStepped(if args.Key = Key.Down then 1 else -1)
-            )
-          | Key.Enter
-          | Key.Tab when plain args ->
-            args.Handled <- true
-            picked()
-          | Key.Escape ->
-            args.Handled <- true
-            ctx.Dispatch State.CompletionClosed
-          | _ -> ()),
-      RoutingStrategies.Tunnel
-    )
-
-    // Focus leaving the box closes the flyout, the site's own blur.
-    ctx.Body.LostFocus.Add(fun _ -> ctx.Dispatch State.CompletionClosed)
-
-    // The flyout under the box: the site's list, armed by the model's
-    // completion state.
-    let viewState =
-      ctx.Model
-      |> Observable.map(fun current ->
-        let count = State.completionCount current.Completion
-
-        let state: Flyout.View = {
-          Query = State.queryOf current.Completion
-          Caption =
-            match props.Target with
-            | Fresh -> State.queryOf current.Completion = ""
-            | ReplyTo _
-            | Quoting _ -> false
-          Users = current.Completion.Users
-          Organizations = current.Completion.Organizations
-          Issue = current.Completion.Issue
-          Searching = current.Completion.Searching
-          Throttled = current.Completion.Throttled
-          Active =
-            if count = 0 then
-              0
-            else
-              min current.Completion.Active (count - 1)
-        }
-
-        state)
-      |> Observable.distinctUntilChanged
-
-    let flyout =
-      Flyout.view(
-        viewState,
-        {
-          PickPerson = fun user -> completeMention user.Handle
-          PickOrganization =
-            fun organization -> completeMention organization.Handle
-          PickIssue = completeIssue
-          Hovered = State.CompletionHovered >> ctx.Dispatch
-        },
-        props.Env.ImageCache
-      )
-
-    let popup =
-      Popup()
-        .Name("CompletionFlyout")
-        .PlacementTarget(ctx.Body)
-        .Placement(PlacementMode.Bottom)
-        .Child(
-          Border()
-            .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
-            .BorderThickness(1.0)
-            .CornerRadius(8.0)
-            .Padding(4.0)
-            .MaxWidth(288.0)
-            .Child(flyout)
-        )
-
-    // The lane's view-side feeds ride one keyed subscription set
-    // ended by the body's own detach, the pattern the feed's scroll
-    // listener uses: the queries the session asks — from the model's
-    // own trigger, so the two can never drift apart — the armed state
-    // the keys read, and the flyout's open state (the house sets a
-    // popup's open by hand, an observable binding never opens it).
-    let laneSub =
-      Sub.ofId "completion-lane" (fun _ ->
-        let queries =
-          ctx.Model
-          |> Observable.map(fun current ->
-            match current.Completion.Trigger with
-            | ValueSome(Mention(_, query)) -> ValueSome query
-            | ValueSome(IssueRef _)
-            | ValueNone -> ValueNone)
-          |> Observable.distinctUntilChanged
-          |> Observable.subscribe session.Set
-
-        let digits =
-          ctx.Model
-          |> Observable.map(fun current ->
-            match current.Completion.Trigger with
-            | ValueSome(IssueRef(_, digits)) ->
-              ValueSome(IssueNumber.value digits)
-            | ValueSome(Mention _)
-            | ValueNone -> ValueNone)
-          |> Observable.distinctUntilChanged
-          |> Observable.subscribe session.SetIssue
-
-        let armed =
-          ctx.Model
-          |> Observable.map _.Completion
-          |> Observable.subscribe latest.OnNext
-
-        let opened =
-          ctx.Model
-          |> Observable.map(fun current ->
-            State.completionOpen current.Completion)
-          |> Observable.distinctUntilChanged
-          |> Observable.subscribe(fun isOpen -> popup.IsOpen <- isOpen)
-
-        {
-          new IDisposable with
-            member _.Dispose() =
-              for feed in [ queries; digits; armed; opened ] do
-                feed.Dispose()
-
-              latest.OnCompleted()
-        })
-      |> Sub.untilDetached ctx.Body
-
-    lane.OnNext laneSub
-
-    popup
-
-  /// Every landed commit leaves the box empty for the next one: the
-  /// model resets its body, and the box's one-way text binding follows.
-  /// The error line under the input.
-  let errorLine(model: IObservable<State.Model>) : Control =
-    TextBlock()
-      .TextWrapping(TextWrapping.Wrap)
-      .Classes(Theme.name Theme.FgDanger)
-      .Text(
-        model
-        |> Observable.map(fun current ->
-          current.Error |> Option.map describe |> Option.defaultValue "")
-      )
-      .IsVisible(model |> Observable.map _.Error.IsSome)
-
-  /// One staged image chip: the bytes decoded small, the file name,
-  /// its remove button, and the optional description the post carries
-  /// for screen readers, with the server's own bound counted live.
-  let chip
-    (
-      model: IObservable<State.Model>,
-      dispatch: Dispatch<State.Msg>,
-      index: int,
-      staged: ImageAttachment
-    ) : Control =
-    // The preview decodes to the chip's own width: staged photos run
-    // phone-camera resolutions, and one full decode costs tens of
-    // megabytes of native pixels for 48 on-screen ones. The decoded
-    // bitmap is native memory, so the chip image disposes it when the
-    // strip rebuilds and drops it.
-    let bitmap =
-      use stream = new MemoryStream(staged.Bytes)
-      Bitmap.DecodeToWidth(stream, 96)
-
-    let preview =
-      Avalonia.Controls
-        .Image()
-        .Source(bitmap)
-        .Width(48.0)
-        .Height(48.0)
-        .Stretch(Stretch.UniformToFill)
-
-    preview.DetachedFromVisualTree.Add(fun _ -> bitmap.Dispose())
-
-    let descriptionText(current: State.Model) =
-      current.Descriptions |> List.tryItem index |> Option.defaultValue ""
-
-    let described =
-      TextBox()
-        .Name($"ImageDescription{index}")
-        .Width(190.0)
-        .PlaceholderText("Describe this image")
-        .Text(
-          model
-          |> Observable.map descriptionText
-          |> Observable.distinctUntilChanged
-          |> _.ToBinding()
-        )
-        .OnTextChangedHandler(fun box _ ->
-          let text = box.Text |> Option.ofObj |> Option.defaultValue ""
-
-          dispatch(State.DescriptionChanged(index, text)))
-
-    let counter =
-      TextBlock()
-        .Classes(Theme.name Theme.Mono, Theme.name Theme.Muted)
-        .FontSize(11.0)
-        .HorizontalAlignment(HorizontalAlignment.Right)
-        .Text(
-          model
-          |> Observable.map(fun current ->
-            let length = (descriptionText current).Length
-
-            if length = 0 then "" else $"{length}/1000")
-          |> Observable.distinctUntilChanged
-        )
-
-    Border()
-      .Classes(Theme.name Theme.Hairline)
-      .BorderThickness(Thickness(1.0))
-      .CornerRadius(8.0)
-      .Padding(6.0)
-      .Child(
-        StackPanel()
-          .Orientation(Orientation.Horizontal)
-          .Spacing(6.0)
-          .Children(
-            preview,
-            StackPanel()
-              .VerticalAlignment(VerticalAlignment.Center)
-              .Children(
-                TextBlock()
-                  .Classes(Theme.name Theme.Mono)
-                  .Text(staged.FileName)
-                  .MaxWidth(140.0)
-                  .TextTrimming(TextTrimming.CharacterEllipsis),
-                Button()
-                  .Name($"RemoveImage{index}")
-                  .Classes(Theme.name Theme.GhostButton)
-                  .Padding(4.0, 0.0, 4.0, 0.0)
-                  .Content("remove")
-                  .OnClickHandler(fun _ _ -> dispatch(State.ImageRemoved index)),
-                described,
-                counter
-              )
-          )
-      )
-
-  /// The staged strip above the action row. It rebuilds only when the
-  /// attachment list itself moves: every keystroke changes the model,
-  /// and re-decoding every chip per keystroke was tens of megabytes of
-  /// native churn per key.
-  let attachmentStrip
-    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
-    : Control =
-    ContentControl()
-      .Content(
-        model
-        |> Observable.map _.Attachments
-        |> Observable.distinctUntilChanged
-        |> Observable.map(function
-          | [] -> Panel() :> Control
-          | staged ->
-            StackPanel()
-              .Orientation(Orientation.Horizontal)
-              .Spacing(6.0)
-              .Children(
-                [|
-                  for index, image in List.indexed staged ->
-                    chip(model, dispatch, index, image)
-                |]
-              )
-            :> Control)
-        |> _.ToBinding()
-      )
-
-  /// The attach button: the image glyph, a live count, disabled past
-  /// three staged files and while a poll is open — the server takes a
-  /// poll or images, never both. A quote target hides it.
-  let attachButton
-    (
-      props: Props<'env>,
-      model: IObservable<State.Model>,
-      dispatch: Dispatch<State.Msg>
-    ) : Control =
-    let count =
-      model |> Observable.map(fun current -> $"{current.Attachments.Length}/3")
-
-    match props.Target with
-    | Quoting _ -> Panel() :> Control
-    | _ ->
-      Button()
-        .Name("AttachButton")
-        .Classes(Theme.name Theme.GhostButton)
-        .Padding(6.0, 2.0, 6.0, 2.0)
-        .Content(
-          StackPanel()
-            .Orientation(Orientation.Horizontal)
-            .Spacing(4.0)
-            .Children(
-              Icons.iconAt(Glyph.Image, 16.0),
-              TextBlock().Classes(Theme.name Theme.Mono).Text(count)
-            )
-        )
-        .IsEnabled(
-          model
-          |> Observable.map(fun current ->
-            current.Attachments.Length < 3 && current.Poll.IsNone)
-        )
-        .OnClickHandler(fun _ _ -> dispatch State.AttachRequested)
-
-  /// The poll button: the site's icon-only entry that opens the builder.
-  /// A poll rides a fresh commit with no images, so images disable it
-  /// and a reply or quote hides it.
-  let pollButton
-    (
-      props: Props<'env>,
-      model: IObservable<State.Model>,
-      dispatch: Dispatch<State.Msg>
-    ) : Control =
-    let offered =
-      match props.Target with
-      | Fresh -> true
-      | _ -> false
-
-    Button()
-      .Name("PollButton")
-      .Classes(Theme.name Theme.GhostButton)
-      .Width(32.0)
-      .Height(32.0)
-      .Padding(Thickness(0.0))
-      .Content(Icons.iconAt(Glyph.Poll, 20.0))
-      .IsVisible(offered)
-      .IsEnabled(
-        model
-        |> Observable.map(fun current ->
-          current.Attachments.IsEmpty && current.Poll.IsNone)
-      )
-      .OnClickHandler(fun _ _ -> dispatch State.PollToggled)
-    |> withTip "Add poll"
-
-  /// The schedule button: the clock entry beside the poll button. A
-  /// reply or quote hides it — the server takes a scheduled commit as
-  /// neither.
-  let scheduleButton
-    (
-      props: Props<'env>,
-      model: IObservable<State.Model>,
-      dispatch: Dispatch<State.Msg>
-    ) : Control =
-    let offered =
-      match props.Target with
-      | Fresh -> true
-      | _ -> false
-
-    Button()
-      .Name("ScheduleButton")
-      .Classes(Theme.name Theme.GhostButton)
-      .Width(32.0)
-      .Height(32.0)
-      .Padding(Thickness(0.0))
-      .Content(Icons.iconAt(Glyph.Clock, 20.0))
-      .IsVisible(offered)
-      .IsEnabled(model |> Observable.map(fun current -> not current.Busy))
-      .OnClickHandler(fun _ _ -> dispatch State.ScheduleToggled)
-    |> withTip "Schedule for later"
-
-  /// One option box of the poll builder: the text rides the model the
-  /// way the body does, so the structure rebuilds only when the option
-  /// count moves. The site caps an option at 50 characters.
-  let pollOptionBox
-    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>, index: int)
-    : Control =
-    let optionText(current: State.Model) : string =
-      current.Poll
-      |> Option.bind(fun poll -> List.tryItem index poll.Options)
-      |> Option.defaultValue ""
-
-    TextBox()
-      .Name($"PollOption{index}")
-      .PlaceholderText($"Option {index + 1}")
-      .MinHeight(36.0)
-      .FontSize(15.0)
-      .MaxLength(50)
-      .Text(
-        model
-        |> Observable.map optionText
-        |> Observable.distinctUntilChanged
-        |> _.ToBinding()
-      )
-      .OnTextChangedHandler(fun box _ ->
-        let text = box.Text |> Option.ofObj |> Option.defaultValue ""
-
-        dispatch(State.PollOptionChanged(index, text)))
-
-  /// The row of one poll option: its box and, past the first two, the
-  /// remove button the site draws as an X.
-  let pollOptionRow
-    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>, index: int)
-    : Control =
-    let remove =
-      Button()
-        .Name($"PollOptionRemove{index}")
-        .Classes(Theme.name Theme.GhostButton)
-        .Width(28.0)
-        .Height(28.0)
-        .Padding(Thickness(0.0))
-        .Margin(8.0, 0.0, 0.0, 0.0)
-        .VerticalAlignment(VerticalAlignment.Center)
-        .Content(Icons.iconAt(Glyph.Close, 16.0))
-        .IsVisible(
-          model
-          |> Observable.map(fun current ->
-            current.Poll
-            |> Option.map(fun poll -> List.length poll.Options > 2)
-            |> Option.defaultValue false)
-        )
-        .DockRight()
-        .OnClickHandler(fun _ _ -> dispatch(State.PollOptionRemoved index))
-      |> withTip $"Remove option {index + 1}"
-
-    DockPanel()
-      .LastChildFill(true)
-      .Children(remove, pollOptionBox(model, dispatch, index))
-
-  /// The poll length picker: the site's select, with its four
-  /// durations, and the model's pick as the selected item.
-  let pollLength
-    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
-    : Control =
-    let labels = [| "1 hour"; "1 day"; "3 days"; "7 days" |]
-
-    let indexOf(duration: PollDuration) : int =
-      match duration with
-      | OneHour -> 0
-      | OneDay -> 1
-      | ThreeDays -> 2
-      | SevenDays -> 3
-
-    let durationAt(index: int) : PollDuration =
-      match index with
-      | 0 -> OneHour
-      | 1 -> OneDay
-      | 2 -> ThreeDays
-      | _ -> SevenDays
-
-    ComboBox()
-      .Name("PollLength")
-      .Width(128.0)
-      .MinHeight(32.0)
-      .ItemsSource(labels)
-      .SelectedIndex(
-        model
-        |> Observable.map(fun current ->
-          current.Poll
-          |> Option.map(fun poll -> indexOf poll.Duration)
-          |> Option.defaultValue 1)
-        |> Observable.distinctUntilChanged
-      )
-      .OnSelectionChangedHandler(fun picker _ ->
-        if picker.SelectedIndex >= 0 then
-          dispatch(State.PollDurationPicked(durationAt picker.SelectedIndex)))
-
-  /// The poll builder under the body: the bordered fieldset of the
-  /// site, its option rows, the add button, and the footer with the
-  /// length select and the remove action. The structure rebuilds only
-  /// when the option count moves, so the boxes keep their carets while
-  /// typing.
-  let pollPanel
-    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
-    : Control =
-    let built(count: int) : Control =
-      match count with
-      | 0 -> Panel() :> Control
-      | _ ->
-        let optionRows: Control array = [|
-          for index in 0 .. count - 1 do
-            pollOptionRow(model, dispatch, index)
-        |]
-
-        let add =
-          Button()
-            .Name("PollOptionAdd")
-            .Classes(Theme.name Theme.GhostButton, Theme.name Theme.FgAccent)
-            .Padding(6.0, 2.0, 6.0, 2.0)
-            .HorizontalAlignment(HorizontalAlignment.Left)
-            .Content(
-              StackPanel()
-                .Orientation(Orientation.Horizontal)
-                .Spacing(6.0)
-                .Children(
-                  Icons.iconAt(Glyph.Plus, 16.0),
-                  TextBlock().Text("Add option")
-                )
-            )
-            .IsVisible(
-              model
-              |> Observable.map(fun current ->
-                current.Poll
-                |> Option.map(fun poll -> List.length poll.Options < 4)
-                |> Option.defaultValue false)
-            )
-            .OnClickHandler(fun _ _ -> dispatch State.PollOptionAdded)
-
-        let length =
-          StackPanel()
-            .Orientation(Orientation.Horizontal)
-            .Spacing(8.0)
-            .Children(
-              TextBlock()
-                .Classes(Theme.name Theme.Muted)
-                .Text("Poll length")
-                .VerticalAlignment(VerticalAlignment.Center),
-              pollLength(model, dispatch)
-            )
-
-        let remove =
-          Button()
-            .Name("PollClose")
-            .Classes(Theme.name Theme.GhostButton, Theme.name Theme.PollRemove)
-            .Padding(6.0, 2.0, 6.0, 2.0)
-            .Content("Remove poll")
-            .DockRight()
-            .OnClickHandler(fun _ _ -> dispatch State.PollToggled)
-
-        let footer =
-          Border()
-            .Classes(Theme.name Theme.Hairline)
-            .BorderThickness(Thickness(0.0, 1.0, 0.0, 0.0))
-            .Padding(Thickness(0.0, 12.0, 0.0, 0.0))
-            .Child(DockPanel().LastChildFill(true).Children(remove, length))
-
-        let children: Control array = [| yield! optionRows; add; footer |]
-
-        Border()
-          .Classes(Theme.name Theme.Hairline)
-          .BorderThickness(Thickness(1.0))
-          .CornerRadius(8.0)
-          .Padding(12.0)
-          .Child(StackPanel().Spacing(8.0).Children(children))
-        :> Control
-
-    ContentControl()
-      .Content(
-        model
-        |> Observable.map(fun current ->
-          current.Poll
-          |> Option.map(fun poll -> List.length poll.Options)
-          |> Option.defaultValue 0)
-        |> Observable.distinctUntilChanged
-        |> Observable.map built
-        |> _.ToBinding()
-      )
-
-  /// The labels of the day list: today, tomorrow, then the calendar
-  /// dates of the window the server allows.
-  let dayLabels(now: DateTimeOffset) : string array = [|
-    for day in 0 .. ScheduledMoments.maxDays ->
-      match day with
-      | 0 -> "Today"
-      | 1 -> "Tomorrow"
-      | _ -> now.DateTime.AddDays(float day).ToString("MMM d")
-  |]
-
-  /// The hour labels, two digits, twenty-four hours.
-  let hourLabels: string array = [| for hour in 0..23 -> hour.ToString("00") |]
-
-  /// The minute labels, one per five-minute step.
-  let minuteLabels: string array = [|
-    for step in 0..11 -> (step * 5).ToString("00")
-  |]
-
-  /// The schedule panel under the poll builder: the site's picker as
-  /// three selects — a day of the window, an hour, a five-minute step —
-  /// the window's help line, and the link into the queue. The hour and
-  /// minute stay off until a day is picked, the way the site's picker
-  /// does.
-  let schedulePanel
-    (
-      props: Props<'env>,
-      model: IObservable<State.Model>,
-      dispatch: Dispatch<State.Msg>
-    ) : Control =
-    let now = State.localNow props
-
-    let dayCombo =
-      ComboBox()
-        .Name("ScheduleDay")
-        .MinWidth(128.0)
-        .MinHeight(32.0)
-        .ItemsSource(dayLabels now)
-        .SelectedIndex(
-          model
-          |> Observable.map(fun current ->
-            current.Picked
-            |> ValueOption.map _.Day
-            |> ValueOption.defaultValue -1)
-          |> Observable.distinctUntilChanged
-        )
-        .OnSelectionChangedHandler(fun picker _ ->
-          if picker.SelectedIndex >= 0 then
-            dispatch(State.ScheduleDayPicked picker.SelectedIndex))
-
-    let hourCombo =
-      ComboBox()
-        .Name("ScheduleHour")
-        .MinWidth(72.0)
-        .MinHeight(32.0)
-        .ItemsSource(hourLabels)
-        .IsEnabled(
-          model |> Observable.map(fun current -> current.Picked.IsSome)
-        )
-        .SelectedIndex(
-          model
-          |> Observable.map(fun current ->
-            current.Picked
-            |> ValueOption.map _.Hour
-            |> ValueOption.defaultValue -1)
-          |> Observable.distinctUntilChanged
-        )
-        .OnSelectionChangedHandler(fun picker _ ->
-          if picker.SelectedIndex >= 0 then
-            dispatch(State.ScheduleHourPicked picker.SelectedIndex))
-
-    let minuteCombo =
-      ComboBox()
-        .Name("ScheduleMinute")
-        .MinWidth(72.0)
-        .MinHeight(32.0)
-        .ItemsSource(minuteLabels)
-        .IsEnabled(
-          model |> Observable.map(fun current -> current.Picked.IsSome)
-        )
-        .SelectedIndex(
-          model
-          |> Observable.map(fun current ->
-            current.Picked
-            |> ValueOption.map(fun pick -> pick.Minute / 5)
-            |> ValueOption.defaultValue -1)
-          |> Observable.distinctUntilChanged
-        )
-        .OnSelectionChangedHandler(fun picker _ ->
-          if picker.SelectedIndex >= 0 then
-            dispatch(State.ScheduleMinutePicked(picker.SelectedIndex * 5)))
-
-    let pickerRow =
-      StackPanel()
-        .Orientation(Orientation.Horizontal)
-        .Spacing(8.0)
-        .Children(
-          TextBlock()
-            .Classes(Theme.name Theme.Muted)
-            .Text("Submit at")
-            .VerticalAlignment(VerticalAlignment.Center),
-          dayCombo,
-          hourCombo,
-          TextBlock().Classes(Theme.name Theme.Muted).Text(":"),
-          minuteCombo
-        )
-
-    let help =
-      TextBlock()
-        .Classes(Theme.name Theme.Muted)
-        .FontSize(12.0)
-        .TextWrapping(TextWrapping.Wrap)
-        .Text(
-          $"Within {ScheduledMoments.maxDays} days. Private until submitted; then submitted for review, not published automatically."
-        )
-
-    let queueLink =
-      match props.OnOpenQueue with
-      | ValueSome openQueue ->
-        Button()
-          .Name("ScheduledCommitsLink")
-          .Classes(Theme.name Theme.GhostButton, Theme.name Theme.FgAccent)
-          .Padding(6.0, 2.0, 6.0, 2.0)
-          .HorizontalAlignment(HorizontalAlignment.Left)
-          .Content("Scheduled commits →")
-          .OnClickHandler(fun _ _ -> openQueue())
-        :> Control
-      | ValueNone -> Panel() :> Control
-
-    Border()
-      .Classes(Theme.name Theme.Hairline)
-      .BorderThickness(Thickness(1.0))
-      .CornerRadius(8.0)
-      .Padding(12.0)
-      .Child(StackPanel().Spacing(8.0).Children(pickerRow, help, queueLink))
-      .IsVisible(model |> Observable.map _.Scheduling)
-
-  /// The action row: the attach, poll, and schedule buttons and the
-  /// commit button docked right, the error line filling the rest.
-  let actionRow
-    (
-      props: Props<'env>,
-      model: IObservable<State.Model>,
-      dispatch: Dispatch<State.Msg>,
-      body: TextBox
-    ) : Control =
-    let commitLabel(current: State.Model) =
-      if current.Scheduling then "Schedule commit" else "Commit"
-
-    DockPanel()
-      .LastChildFill(true)
-      .Children(
-        Button()
-          .Classes(Theme.name Theme.AccentButton)
-          .Content(
-            TextBlock()
-              .Text(
-                model
-                |> Observable.map commitLabel
-                |> Observable.distinctUntilChanged
-              )
-          )
-          .IsEnabled(
-            model
-            |> Observable.map(fun current ->
-              not current.Busy
-              && (not current.Scheduling || current.Picked.IsSome))
-          )
-          .OnClickHandler(fun _ _ ->
-            dispatch(
-              State.Submitted(
-                body.Text |> Option.ofObj |> Option.defaultValue ""
-              )
-            ))
-          .DockRight(),
-        attachButton(props, model, dispatch),
-        pollButton(props, model, dispatch),
-        scheduleButton(props, model, dispatch),
-        errorLine model
-      )
-
 let view
-  (ctx: Parts.ViewCtx<'env>)
+  (props: Props<'env>, session: CompletionSession)
   (model: IObservable<State.Model>)
   (dispatch: Dispatch<State.Msg>)
   : Control =
 
-  let props = ctx.Props
-  let session = ctx.Session
-  let lane = ctx.Lane
   let body = Parts.body(props, model, dispatch)
 
-  Parts.keyLane(props, dispatch, body)
+  let submit() =
+    dispatch(
+      State.Submitted(body.Text |> Option.ofObj |> Option.defaultValue "")
+    )
+
+  ComposerKeys.attach {
+    Body = body
+    Attachments = props.Env.Attachments
+    Commit = ComposerKeys.ControlOrMeta
+    OnCommit = submit
+    OnStaged = fun image -> dispatch(State.ImagesAdded [ image ])
+    OnEscape = ValueNone
+  }
 
   let flyout =
-    Parts.completionLane(
-      {
-        Props = props
-        Model = model
-        Dispatch = dispatch
-        Body = body
-      },
-      session,
-      lane
-    )
+    model
+    |> Observable.map(fun current ->
+      let count = State.completionCount current.Completion
+
+      let state: Flyout.View = {
+        Query = State.queryOf current.Completion
+        Caption =
+          match props.Target with
+          | Fresh -> State.queryOf current.Completion = ""
+          | ReplyTo _
+          | Quoting _ -> false
+        Users = current.Completion.Users
+        Organizations = current.Completion.Organizations
+        Issue = current.Completion.Issue
+        Searching = current.Completion.Searching
+        Throttled = current.Completion.Throttled
+        Active =
+          if count = 0 then
+            0
+          else
+            min current.Completion.Active (count - 1)
+      }
+
+      state)
+    |> Observable.distinctUntilChanged
+
+  let completion =
+    CompletionLane.view {
+      Session = session
+      Trigger =
+        model |> Observable.map(fun current -> current.Completion.Trigger)
+      Flyout = flyout
+      Open =
+        model
+        |> Observable.map(fun current ->
+          State.completionOpen current.Completion)
+      Body = body
+      Events =
+        fun event ->
+          match event with
+          | CompletionLane.Stepped step ->
+            dispatch(State.CompletionStepped step)
+          | CompletionLane.Hovered index ->
+            dispatch(State.CompletionHovered index)
+          | CompletionLane.Closed -> dispatch State.CompletionClosed
+          | CompletionLane.Applied(text, caret) ->
+            dispatch(State.CompletionTracked(text, caret))
+          | CompletionLane.Picked choice ->
+            dispatch(State.CompletionPicked choice)
+      Images = props.Env.ImageCache
+    }
+
+  let strip =
+    AttachmentStrip.view {
+      Images = model |> Observable.map _.Attachments
+      OnRemove = fun index -> dispatch(State.ImageRemoved index)
+      MarkHandled = false
+      Descriptions =
+        ValueSome(fun index -> {
+          Text =
+            model
+            |> Observable.map(fun current ->
+              current.Descriptions
+              |> List.tryItem index
+              |> Option.defaultValue "")
+            |> Observable.distinctUntilChanged
+          Changed = fun text -> dispatch(State.DescriptionChanged(index, text))
+        })
+      Spacing = 6.0
+      HideWhenEmpty = false
+    }
+
+  let poll =
+    PollEditor.view {
+      Draft = model |> Observable.map _.Poll
+      OnOptionChanged =
+        fun (index, text) -> dispatch(State.PollOptionChanged(index, text))
+      OnOptionAdded = fun () -> dispatch State.PollOptionAdded
+      OnOptionRemoved = fun index -> dispatch(State.PollOptionRemoved index)
+      OnDurationPicked =
+        fun duration -> dispatch(State.PollDurationPicked duration)
+      OnClosed = fun () -> dispatch State.PollToggled
+    }
+
+  let schedule =
+    SchedulePicker.view {
+      Now = State.localNow props
+      Scheduling = model |> Observable.map _.Scheduling
+      Picked = model |> Observable.map _.Picked
+      OnDayPicked = fun day -> dispatch(State.ScheduleDayPicked day)
+      OnHourPicked = fun hour -> dispatch(State.ScheduleHourPicked hour)
+      OnMinutePicked = fun minute -> dispatch(State.ScheduleMinutePicked minute)
+      OnOpenQueue = props.OnOpenQueue
+    }
+
+  let offersExtras =
+    match props.Target with
+    | Fresh -> true
+    | ReplyTo _
+    | Quoting _ -> false
+
+  let toolbar =
+    ComposerToolbar.view {
+      Attachments = model |> Observable.map _.Attachments
+      Poll = model |> Observable.map _.Poll
+      Busy = model |> Observable.map _.Busy
+      Scheduling = model |> Observable.map _.Scheduling
+      Picked = model |> Observable.map _.Picked
+      Error = model |> Observable.map _.Error
+      OfferAttach =
+        match props.Target with
+        | Quoting _ -> false
+        | Fresh
+        | ReplyTo _ -> true
+      OfferExtras = offersExtras
+      OnAttach = fun () -> dispatch State.AttachRequested
+      OnPoll = fun () -> dispatch State.PollToggled
+      OnSchedule = fun () -> dispatch State.ScheduleToggled
+      OnSubmit = submit
+    }
 
   // No box: the composer rides the rail plain, the way the site's does
   // on the log and the thread; a host that wants a card wraps it.
-  let panel =
-    StackPanel()
-      .Margin(0.0, 0.0, 0.0, 12.0)
-      .Spacing(8.0)
-      .Children(
-        body,
-        flyout,
-        Parts.attachmentStrip(model, dispatch),
-        Parts.pollPanel(model, dispatch),
-        Parts.schedulePanel(props, model, dispatch),
-        Parts.actionRow(props, model, dispatch, body)
-      )
-
-  panel
+  StackPanel()
+    .Margin(0.0, 0.0, 0.0, 12.0)
+    .Spacing(8.0)
+    .Children(body, completion, strip, poll, schedule, toolbar)
 
 type Page<'env
   when 'env :> IProvideClock
@@ -1781,18 +952,13 @@ type Page<'env
 
   do
     let session = Parts.completionSession props
-    let lane = new BehaviorSubject<Sub<State.Msg>>(Sub.none)
 
     let program =
       Program.mkProgram
         (State.init props)
         (State.update props)
-        (view {
-          Props = props
-          Session = session
-          Lane = lane
-        })
-      |> Program.withSubscription(State.subscribe(session, lane))
+        (view(props, session))
+      |> Program.withSubscription(State.subscribe session)
 
     // The composer is replace-only: the first detach ends the program.
     let root, _ = Program.runWithLifetime this () program

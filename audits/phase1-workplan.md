@@ -93,7 +93,7 @@ Steps may swap when their dependencies allow.
   transitional `ActionSlots`/`feedRowWith` dissolve into individual
   `RowProps` fields each view composes for itself. Depends on:
   P1. Verify: suites green; §1 greps drop (`Commits.vote` inside Views 6 → 0 — the one flow lives in CommitActions; `Pasteis.give` inside Views 5 → 0); BUG-4 struck in the audit.
-- [ ] **P2b — The shared row builder.** One builder turns a page's props,
+- [x] **P2b — The shared row builder.** One builder turns a page's props,
   routing, and model into `RowProps` with shared, multicasted slices
   (`replayBuffer 1 >> refCount` at the boundary); the five `commitCtx`
   copies and LogView's per-row ctx collapse onto it (audit §8 pattern 2;
@@ -191,3 +191,4 @@ Steps may swap when their dependencies allow.
 | P2 | committed 2026-11-01 | user review: inner-value option compares, no redundant match, debug logs restored; `PastelResult` payload; BUG-4 struck |
 | P3 | committed 2026-11-01 | `Line` + first `share` multicaster; one pinned header; SignIn fit with no new slots |
 | P4 | committed 2026-11-01 | net −149 lines; dead surface gone; scrim token; `bindClass` disposes at both accumulation sites |
+| P2b | committed 2026-11-01 | one `CommitRows`; five ctx copies gone; LogView's per-row slices dead |

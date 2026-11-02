@@ -543,67 +543,6 @@ module Parts =
         |> _.ToBinding()
       )
 
-  let commitCtx
-    (
-      props: Props<'env>,
-      dispatch: Dispatch<State.Msg>,
-      model: IObservable<State.Model>
-    ) : CommitCard.RowProps =
-    let busy = model |> Observable.map _.Voting
-
-    let slot(command: Commit -> unit) : CommitCard.ActionSlot voption =
-      ValueSome { Command = command; Busy = busy }
-
-    {
-      OnEvent =
-        function
-        | CommitCard.Opened c ->
-          Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
-        | CommitCard.ReplyToggled c ->
-          Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
-        | CommitCard.MoreRepliesRequested c ->
-          Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
-        | CommitCard.QuoteRequested c ->
-          Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
-        | CommitCard.PollChoiceChanged(commit, option, chosen) ->
-          dispatch(State.PollChoiceChanged(commit, option, chosen))
-        | CommitCard.TranslateRequested commit ->
-          dispatch(State.TranslateRequested commit)
-        | CommitCard.OriginalRequested commit ->
-          dispatch(State.OriginalRequested commit)
-      Pasteis = model |> Observable.map _.Pasteis
-      ViewerId = props.Session.Session.User.Id
-      Now = model |> Observable.map _.Now
-      PollChoices = model |> Observable.map _.PollChoices
-      Dense = false
-      Images = props.Env.ImageCache
-      Flyout =
-        ValueSome {
-          UserFlyout.Fetch = props.Env.Profiles.Fetch
-          OnOpen =
-            fun username ->
-              Navigation.go(props.Nav, "/profile/" + username, ignore)
-          OnOpenOrg =
-            fun handle -> Navigation.go(props.Nav, "/org/" + handle, ignore)
-          Cache = props.Env.ImageCache
-        }
-      Pin = ValueNone
-      Star = slot(fun commit -> dispatch(State.StarToggled commit))
-      Vote = slot(fun commit -> dispatch(State.PollVoteRequested commit))
-      Pastel = slot(fun commit -> dispatch(State.PastelGiven commit))
-      Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
-      Translation =
-        model
-        |> Observable.map(fun model ->
-          fun commit ->
-            Translation.view {
-              Automatic = model.Automatic
-              Book = model.Translations
-              Now = model.Now
-              Commit = commit
-            })
-    }
-
 let view
   (props: Props<'env>)
   (model: IObservable<State.Model>)
@@ -613,7 +552,62 @@ let view
   let log =
     props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Organization"
 
-  let ctx = Parts.commitCtx(props, dispatch, model)
+  let ctx =
+    CommitRows.row(
+      {
+        OnEvent =
+          function
+          | CommitCard.Opened c ->
+            Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
+          | CommitCard.ReplyToggled c ->
+            Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
+          | CommitCard.MoreRepliesRequested c ->
+            Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
+          | CommitCard.QuoteRequested c ->
+            Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
+          | CommitCard.PollChoiceChanged(commit, option, chosen) ->
+            dispatch(State.PollChoiceChanged(commit, option, chosen))
+          | CommitCard.TranslateRequested commit ->
+            dispatch(State.TranslateRequested commit)
+          | CommitCard.OriginalRequested commit ->
+            dispatch(State.OriginalRequested commit)
+        ViewerId = props.Session.Session.User.Id
+        Images = props.Env.ImageCache
+        Flyout =
+          ValueSome {
+            UserFlyout.Fetch = props.Env.Profiles.Fetch
+            OnOpen =
+              fun username ->
+                Navigation.go(props.Nav, "/profile/" + username, ignore)
+            OnOpenOrg =
+              fun handle -> Navigation.go(props.Nav, "/org/" + handle, ignore)
+            Cache = props.Env.ImageCache
+          }
+        Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
+        OnPin = ValueNone
+        OnStar = fun commit -> dispatch(State.StarToggled commit)
+        OnVote = fun commit -> dispatch(State.PollVoteRequested commit)
+        OnPastel = fun commit -> dispatch(State.PastelGiven commit)
+        Translation =
+          model
+          |> Observable.map(fun current ->
+            fun commit ->
+              Translation.view {
+                Automatic = current.Automatic
+                Book = current.Translations
+                Now = current.Now
+                Commit = commit
+              })
+      },
+      model,
+      (fun current -> {
+        Pasteis = current.Pasteis
+        Now = current.Now
+        PollChoices = current.PollChoices
+        Voting = current.Voting
+        Pinning = None
+      })
+    )
 
   let endSentence =
     model

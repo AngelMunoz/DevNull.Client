@@ -13,6 +13,10 @@ type Line =
   | Off
   | Words of string
 
+/// One gated slice with one upstream subscription, replayed to a
+/// binding that joins after the last emission.
+val share: source: IObservable<'T> -> IObservable<'T>
+
 /// One line of text in the given foreground class, following an
 /// observable source.
 val messagePanel: text: IObservable<string> * fg: StyleClass -> Control

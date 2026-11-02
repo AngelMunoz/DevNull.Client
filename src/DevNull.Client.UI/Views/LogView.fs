@@ -842,70 +842,37 @@ module Parts =
       Cache = props.Env.ImageCache
     }
 
-  /// The row context every log card shares: navigation for opens and
-  /// quotes, the live flags, and the model slices the card follows.
-  let commitCtx
-    (
-      props: Props<'env>,
-      dispatch: Dispatch<State.Msg>,
-      model: IObservable<State.Model>
-    ) : CommitCard.RowProps =
-    let busy = model |> Observable.map _.Voting
-
-    let slot(command: Commit -> unit) : CommitCard.ActionSlot voption =
-      ValueSome { Command = command; Busy = busy }
-
-    {
-      OnEvent =
-        function
-        | CommitCard.Opened c ->
-          Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
-        | CommitCard.MoreRepliesRequested c ->
-          dispatch(State.PreviewMoreRequested c)
-        | CommitCard.QuoteRequested c ->
-          Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
-        | CommitCard.ReplyToggled c -> dispatch(State.ReplyToggled c)
-        | CommitCard.PollChoiceChanged(commit, option, chosen) ->
-          dispatch(State.PollChoiceChanged(commit, option, chosen))
-        | CommitCard.TranslateRequested commit ->
-          dispatch(State.TranslateRequested commit)
-        | CommitCard.OriginalRequested commit ->
-          dispatch(State.OriginalRequested commit)
-      Pasteis = model |> Observable.map _.Pasteis
-      ViewerId = props.Session.Session.User.Id
-      Now = model |> Observable.map _.Now
-      PollChoices = model |> Observable.map _.PollChoices
-      Dense = false
-      Images = props.Env.ImageCache
-      Flyout = flyoutOf props
-      Pin = ValueNone
-      Star = slot(fun commit -> dispatch(State.StarToggled commit))
-      Vote = slot(fun commit -> dispatch(State.PollVoteRequested commit))
-      Pastel = slot(fun commit -> dispatch(State.PastelGiven commit))
-      Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
-      Translation =
-        model
-        |> Observable.map(fun model ->
-          fun commit ->
-            Translation.view {
-              Automatic = model.Automatic
-              Book = model.Translations
-              Now = model.Now
-              Commit = commit
-            })
-    }
+  /// What one log feed render needs: the page's inlets, its model, and
+  /// the one row context every realized card follows.
+  type FeedArgs<'env
+    when 'env :> IProvideClock
+    and 'env :> IProvideNonceSource
+    and 'env :> IProvideSigner
+    and 'env :> IProvideHttp
+    and 'env :> IProvideSession
+    and 'env :> IProvideUiClock
+    and 'env :> IProvideImageCache
+    and 'env :> IProvideAttachmentSources
+    and 'env :> IProvideLastVisit
+    and 'env :> IProvideProfiles
+    and 'env :> IProvideTimeline
+    and 'env :> IProvideSshKeys
+    and 'env :> IProvideUserSettings
+    and 'env :> IProvideTranslations
+    and 'env :> IProvideLogging> = {
+    Props: Props<'env>
+    Dispatch: Dispatch<State.Msg>
+    Model: IObservable<State.Model>
+    Rows: CommitCard.RowProps
+  }
 
   /// One feed row: a separator, a commit card with its revealed reply
   /// composer, or a deletion marker.
-  let row
-    (
-      props: Props<'env>,
-      dispatch: Dispatch<State.Msg>,
-      model: IObservable<State.Model>
-    )
-    (logRow: LogRow)
-    : Control =
-    let ctx = commitCtx(props, dispatch, model)
+  let row(args: FeedArgs<'env>, logRow: LogRow) : Control =
+    let props = args.Props
+    let dispatch = args.Dispatch
+    let model = args.Model
+    let ctx = args.Rows
 
     match logRow with
     | LogRow.Day label -> FeedParts.dayRow label
@@ -1010,12 +977,9 @@ module Parts =
   /// The shared chrome's return-to-top signal reaches the feed's own
   /// scroller, and the scroller's place parks in the timeline service,
   /// so the next page of this log picks it back up.
-  let feed
-    (
-      props: Props<'env>,
-      dispatch: Dispatch<State.Msg>,
-      model: IObservable<State.Model>
-    ) : Control =
+  let feed(args: FeedArgs<'env>) : Control =
+    let props = args.Props
+    let model = args.Model
     let place = props.Env.Timeline.OffsetOf props.Log
 
     Feed.view {
@@ -1032,12 +996,12 @@ module Parts =
             })
           ))
       KeyOf = State.keyOf
-      Row = row(props, dispatch, model)
+      Row = fun logRow -> row(args, logRow)
       Footer =
         ValueSome(
           PageChrome.loadMore(
             model |> Observable.map _.NextCursor.IsSome,
-            fun () -> dispatch State.MoreRequested
+            fun () -> args.Dispatch State.MoreRequested
           )
         )
       ScrollTop =
@@ -1050,7 +1014,7 @@ module Parts =
       Restore = (if place > 0.0 then ValueSome place else ValueNone)
       OnScroll =
         ValueSome(fun offset -> props.Env.Timeline.Remember(props.Log, offset))
-      OnNeedMore = ValueSome(fun () -> dispatch State.MoreRequested)
+      OnNeedMore = ValueSome(fun () -> args.Dispatch State.MoreRequested)
     }
 
 let view
@@ -1058,6 +1022,60 @@ let view
   (model: IObservable<State.Model>)
   (dispatch: Dispatch<State.Msg>)
   : Control =
+
+  let ctx =
+    CommitRows.row(
+      {
+        OnEvent =
+          function
+          | CommitCard.Opened c ->
+            Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
+          | CommitCard.MoreRepliesRequested c ->
+            dispatch(State.PreviewMoreRequested c)
+          | CommitCard.QuoteRequested c ->
+            Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
+          | CommitCard.ReplyToggled c -> dispatch(State.ReplyToggled c)
+          | CommitCard.PollChoiceChanged(commit, option, chosen) ->
+            dispatch(State.PollChoiceChanged(commit, option, chosen))
+          | CommitCard.TranslateRequested commit ->
+            dispatch(State.TranslateRequested commit)
+          | CommitCard.OriginalRequested commit ->
+            dispatch(State.OriginalRequested commit)
+        ViewerId = props.Session.Session.User.Id
+        Images = props.Env.ImageCache
+        Flyout = Parts.flyoutOf props
+        Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
+        OnPin = ValueNone
+        OnStar = fun commit -> dispatch(State.StarToggled commit)
+        OnVote = fun commit -> dispatch(State.PollVoteRequested commit)
+        OnPastel = fun commit -> dispatch(State.PastelGiven commit)
+        Translation =
+          model
+          |> Observable.map(fun current ->
+            fun commit ->
+              Translation.view {
+                Automatic = current.Automatic
+                Book = current.Translations
+                Now = current.Now
+                Commit = commit
+              })
+      },
+      model,
+      (fun current -> {
+        Pasteis = current.Pasteis
+        Now = current.Now
+        PollChoices = current.PollChoices
+        Voting = current.Voting
+        Pinning = None
+      })
+    )
+
+  let feedArgs: Parts.FeedArgs<'env> = {
+    Props = props
+    Dispatch = dispatch
+    Model = model
+    Rows = ctx
+  }
 
   // The pinned area takes no horizontal inset: the shared chrome above
   // the outlet carries the band and the composer rail, so the page
@@ -1083,7 +1101,7 @@ let view
           else
             PageChrome.Off
       Header = [ Parts.newPill(model, dispatch) ]
-      Body = Parts.feed(props, dispatch, model)
+      Body = Parts.feed feedArgs
     }
 
   // The cached log page reports its tree presence, so the since-poll

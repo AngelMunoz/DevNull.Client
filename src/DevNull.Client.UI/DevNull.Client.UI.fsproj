@@ -107,6 +107,8 @@
     <Compile Include="Components\LogChrome.fs" />
     <Compile Include="Views\CommitActions.fsi" />
     <Compile Include="Views\CommitActions.fs" />
+    <Compile Include="Views\CommitRows.fsi" />
+    <Compile Include="Views\CommitRows.fs" />
     <Compile Include="Views\SignInView.fsi" />
     <Compile Include="Views\SignInView.fs" />
     <Compile Include="Views\LogView.fsi" />

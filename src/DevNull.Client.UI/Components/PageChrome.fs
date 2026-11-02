@@ -18,8 +18,6 @@ type Line =
   | Off
   | Words of string
 
-/// One gated slice with one upstream subscription, replayed to a
-/// binding that joins after the last emission.
 let share(source: IObservable<'T>) : IObservable<'T> =
   source |> Observable.replayBuffer 1 |> Observable.refCount
 

@@ -735,60 +735,13 @@ module Parts =
 
     ValueSome source
 
-  /// What every thread card reads: the page's dispatch, the live
-  /// model, the signed-in viewer, the image cache, and the hover card
-  /// source.
-  [<Struct>]
+  /// The thread page's shared card context: the row props every card
+  /// follows, the page's live model, and its dispatch.
   type Ctx = {
-    Dispatch: Dispatch<State.Msg>
+    Rows: CommitCard.RowProps
     Model: IObservable<State.Model>
-    ViewerId: string
-    Images: ImageCacheService
-    Flyout: HoverSource voption
-    Zone: Zone
+    Dispatch: Dispatch<State.Msg>
   }
-
-  /// The card context every thread card shares: events route into the
-  /// page's card message.
-  let commitCtx(ctx: Ctx, dense: bool) : CommitCard.RowProps =
-    let busy = ctx.Model |> Observable.map _.Voting
-
-    let slot(command: Commit -> unit) : CommitCard.ActionSlot voption =
-      ValueSome { Command = command; Busy = busy }
-
-    {
-      OnEvent = State.CardEvent >> ctx.Dispatch
-      Pasteis = ctx.Model |> Observable.map _.Pasteis
-      ViewerId = ctx.ViewerId
-      Now = ctx.Model |> Observable.map _.Now
-      PollChoices = ctx.Model |> Observable.map _.PollChoices
-      Dense = dense
-      Images = ctx.Images
-      Flyout = ctx.Flyout
-
-      // The card's own gate decides whether the pin arms — the author's
-      // top-level commits — so the focused card and every related card
-      // may carry the affordance.
-      Pin =
-        ValueSome {
-          Command = State.PinToggled >> ctx.Dispatch
-          Busy = ctx.Model |> Observable.map _.Pinning
-        }
-      Star = slot(fun commit -> ctx.Dispatch(State.StarToggled commit))
-      Vote = slot(fun commit -> ctx.Dispatch(State.PollVoteRequested commit))
-      Pastel = slot(fun commit -> ctx.Dispatch(State.PastelGiven commit))
-      Translation =
-        ctx.Model
-        |> Observable.map(fun model ->
-          fun commit ->
-            Translation.view {
-              Automatic = model.Automatic
-              Book = model.Translations
-              Now = model.Now
-              Commit = commit
-            })
-      Zone = ctx.Zone
-    }
 
   /// The "Show N more" walk of one node's replies, the muted dot of
   /// the site's continuation.
@@ -879,7 +832,7 @@ module Parts =
   let threadChain
     (ctx: Ctx, lane: Lane option, handle: string)
     : CommitCard.ChainCtx = {
-    Props = commitCtx(ctx, false)
+    Props = ctx.Rows
     Depth = 0
     ParentLane = lane
     ParentHandle = handle
@@ -945,8 +898,7 @@ module Parts =
       ctx.Model
       |> Observable.map(fun current ->
         match current.Page with
-        | Some page ->
-          CommitCard.feedRow (commitCtx(ctx, false)) (LiveCommit page.Commit)
+        | Some page -> CommitCard.feedRow ctx.Rows (LiveCommit page.Commit)
         | None -> Status.empty "")
 
     ContentControl().Content(content.ToBinding())
@@ -1123,7 +1075,7 @@ module Parts =
       ItemsControl()
         .ItemTemplate(
           FuncDataTemplate<CommitNode>(
-            (fun node _ -> CommitCard.feedRow (commitCtx(ctx, false)) node),
+            (fun node _ -> CommitCard.feedRow ctx.Rows node),
             false
           )
         )
@@ -1150,13 +1102,43 @@ let view
   (dispatch: Dispatch<State.Msg>)
   : Control =
 
+  let rows =
+    CommitRows.row(
+      {
+        OnEvent = State.CardEvent >> dispatch
+        ViewerId = props.Session.Session.User.Id
+        Images = props.Env.ImageCache
+        Flyout = Parts.flyoutOf props
+        Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
+        OnPin = ValueSome(State.PinToggled >> dispatch)
+        OnStar = fun commit -> dispatch(State.StarToggled commit)
+        OnVote = fun commit -> dispatch(State.PollVoteRequested commit)
+        OnPastel = fun commit -> dispatch(State.PastelGiven commit)
+        Translation =
+          model
+          |> Observable.map(fun current ->
+            fun commit ->
+              Translation.view {
+                Automatic = current.Automatic
+                Book = current.Translations
+                Now = current.Now
+                Commit = commit
+              })
+      },
+      model,
+      (fun current -> {
+        Pasteis = current.Pasteis
+        Now = current.Now
+        PollChoices = current.PollChoices
+        Voting = current.Voting
+        Pinning = current.Pinning
+      })
+    )
+
   let ctx: Parts.Ctx = {
-    Dispatch = dispatch
+    Rows = rows
     Model = model
-    ViewerId = props.Session.Session.User.Id
-    Images = props.Env.ImageCache
-    Flyout = Parts.flyoutOf props
-    Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
+    Dispatch = dispatch
   }
 
   let content =

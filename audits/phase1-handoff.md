@@ -1,9 +1,14 @@
 # Phase 1 handoff — COMPLETE
 
-Last updated: 2026-11-02, after P16 landed and the branch was merged
-and pushed. Phase 1 (P0-P16 + P2b) is done: every checkbox in
-`audits/phase1-workplan.md` is ticked and the ledger carries each step.
-The `phase1/mvuish` branch was deleted after the merge.
+Last updated: 2026-11-02, after P16 landed, the branch was merged and
+pushed, and the Phase 1 conformance audit ran. Phase 1 (P0-P16 + P2b)
+is done: every checkbox in `audits/phase1-workplan.md` is ticked and
+the ledger carries each step. The `phase1/mvuish` branch was deleted
+after the merge.
+
+**The follow-up lives in `audits/phase1b-workplan.md`** — the polish,
+module-shape, and bug-ledger steps (P17-P29) sized from the
+conformance audit.
 
 ## Where we are
 

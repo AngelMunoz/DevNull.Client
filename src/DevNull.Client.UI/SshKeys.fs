@@ -10,7 +10,7 @@ type ISshKeys =
 type IProvideSshKeys =
   abstract SshKeys: ISshKeys
 
-module Desktop =
+module SshKeys =
 
   let sshDirectory =
     Path.Combine(
@@ -53,7 +53,7 @@ module Desktop =
     | :? IOException
     | :? UnauthorizedAccessException -> None
 
-  let sources() : ISshKeys = {
+  let create() : ISshKeys = {
     new ISshKeys with
       member _.Candidates() = candidates()
       member _.PrivateKeyOf keyId = privatePathOf keyId

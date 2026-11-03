@@ -6,19 +6,22 @@ open System
 /// shell feeds it once from the router; readers follow it through
 /// their programs' subscriptions, so no view ever binds it directly.
 type RouteStore =
-
-  /// One shared instance for the app.
-  new: unit -> RouteStore
-
   /// Records the route the router landed on.
-  member Land: url: string -> unit
+  abstract Land: url: string -> unit
 
   /// The live route path, starting with the current one.
-  member Path: IObservable<string>
+  abstract Path: IObservable<string>
 
   /// The route the router stands on.
-  member Current: string
+  abstract Current: string
 
 /// Accessor for the route store capability.
 type IProvideRoutes =
   abstract Routes: RouteStore
+
+/// The app's route state over one subject.
+module RouteStore =
+
+  /// Builds a route store with its own subject; the env builds the
+  /// app's one instance.
+  val create: unit -> RouteStore

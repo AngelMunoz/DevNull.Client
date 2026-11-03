@@ -42,17 +42,21 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
   - `Theme.fsi/fs` - the themed resource dictionaries
   - `SettingsStore.fsi/fs` - the local settings (`closeToTray`, the
     theme choice) in a JSON file under `%LOCALAPPDATA%\DevNull`; the
-    store persists through an injected hook, so tests inject their
-    own.
+    `AppSettingsStore` contract and its `create` factory persist
+    through an injected hook, so tests inject their own.
   - `Icons.fsi/fs` - the `Glyph` set as `PathIcon` geometry.
   - `Formatting.fsi/fs` - `timeAgo` and `shortCount`.
-  - `Stores.fsi/fs` - `SessionStore` (`BehaviorSubject` of the sign-in
-    state; emits on the UI thread; the `forget` hook owns the session
-    file) and the `IProvideSession` accessor.
+  - `Stores.fsi/fs` - the `SessionStore` contract and its `create`
+    factory (`BehaviorSubject` of the sign-in state; emits on the UI
+    thread; the `forget` hook owns the session file), and the
+    `IProvideSession` accessor.
+  - `SshKeys.fsi/fs` - the `ISshKeys` contract and its `create`
+    factory: the public keys offered by `~/.ssh` and the private half
+    a signature uses.
   - `Env.fsi/fs` - `IProvideLogging` (the Serilog-bridged
     `ILoggerFactory`), `AppEnv`: the Core capability workers, the
     session store, the native services the platform head passed, and
-    the logging factory; `KeyFiles` discovery in `~/.ssh`.
+    the logging factory.
   - `DeviceAuth.fsi/fs` - the app's Ed25519 key under
     `%LOCALAPPDATA%`, device authorization, callback redemption and
     session storage; generic over the capability interfaces, never over
@@ -64,9 +68,11 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
     consumer hides what is missing.
   - `Navigation.fsi/fs` - `go`: fire-and-forget navigation on the UI
     thread.
-  - `UnreadPoller.fsi/fs` - polls `Me.get` on an interval into the
-    session store; pauses while the inbox is open; survives failures.
-  - `Tray.fsi/fs` - the tray icon: menu, raise on click, unread
+  - `Unread.fsi/fs` - the `UnreadService` contract and its `create`
+    factory: polls `Me.get` on an interval into the session store;
+    pauses while the inbox is open; survives failures.
+  - `Tray.fsi/fs` - the tray icon: `TrayProps` first, the helpers that
+    build its menu, and `install`; menu, raise on click, unread
     tooltip.
   - `Components/`
   - `Views/` - one MVUish page per route over `Program.mkProgram`

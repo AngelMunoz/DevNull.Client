@@ -167,7 +167,7 @@ let start(logging: ILoggerFactory, natives: NativeServices, argv: string[]) =
       None
 
   let store =
-    SessionStore(
+    SessionStore.create(
       restored,
       devicePrivateKeyPath,
       fun () -> clearSession sessionLog

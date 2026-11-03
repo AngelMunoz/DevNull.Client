@@ -27,7 +27,7 @@ open DevNull.Client.UI.Tests.Remotes
 
 /// One signed-in session with the direct messages on.
 let remotesOnStore(requests: bool, unread: int) : SessionStore =
-  SessionStore(
+  SessionStore.create(
     Some(
       {
         sessionOf "octocat" with

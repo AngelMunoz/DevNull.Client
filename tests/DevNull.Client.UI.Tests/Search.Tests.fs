@@ -39,7 +39,7 @@ let tests =
     testCaseAsync
       "the store remembers a first search"
       (async {
-        let store = RecentSearchStore(Map.empty, ignore)
+        let store = RecentSearchStore.createWith(Map.empty, ignore)
 
         store.Remember("user-a", "kai kou")
 

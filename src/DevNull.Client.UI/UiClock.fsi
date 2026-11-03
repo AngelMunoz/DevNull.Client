@@ -6,14 +6,16 @@ open System
 /// env, so pages read time through their models instead of running
 /// timers of their own.
 type UiClockService =
-
-  /// One shared tick; the interval is a parameter so the test env
-  /// runs a fast clock.
-  new: interval: TimeSpan -> UiClockService
-
   /// Every tick, each carrying the moment it fired.
-  member Minute: IObservable<DateTimeOffset>
+  abstract Minute: IObservable<DateTimeOffset>
 
 /// Accessor for the clock capability.
 type IProvideUiClock =
   abstract UiClock: UiClockService
+
+/// The clock over one interval.
+module UiClockService =
+
+  /// One shared tick; the interval is a parameter so the test env
+  /// runs a fast clock.
+  val create: interval: TimeSpan -> UiClockService

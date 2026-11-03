@@ -70,7 +70,7 @@ testing rule 2: a regression test that fails before the fix.
   inside their `Result<_,_>` and `Map<_,_>` annotations fooled the
   counter. Verify: the 4+-parameter scan over the whole tree names zero
   ownerless hits.
-- [ ] **P20 — Module shape, the small services.** Migrate to the
+- [x] **P20 — Module shape, the small services.** Migrate to the
   `fsharp-module-shape` (interfaces first, one Helpers block, one module
   per interface, `create` factory): Stores, SettingsStore, UiClock,
   RouteStore, ImageCache, LastVisitStore, RecentSearchStore, SshKeys,
@@ -150,7 +150,7 @@ testing rule 2: a regression test that fails before the fix.
 | P17 | committed 2026-11-02 | `Tab.Badge: Control voption`; `Host.Actions: bool` (star stays); `Ride` struct + `OnRide` with report-only Tail; RemotesInbox on TabStrip+Feed, SearchView on CommitRows.row, ThreadPane on OnRide; inbox asks through OnRide (no restore path — OnNeedMore serves only the chase); gates zero hits on added lines |
 | P18 | committed 2026-11-03 | refactor: subscriptions get owners, effects ride commands, canceled bitmaps dispose — BUG-15/LEAK-1 dead; OnBodyReady replaces the name lookup; debounce restored on an attach-owned SerialDisposable (architect directive) |
 | P19 | committed 2026-11-03 | refactor: arity records, the receipt union, and honest match shapes |
-| P20 | pending | module shape: 14 small service files + AGENTS notes |
+| P20 | committed 2026-11-03 | refactor: Approved: 11 services now contract + same-name module + create with all state (subjects, dictionaries, gate, timer, cancellation) allocated per factory call and zero module-level mutable state; moved bodies verified line-by-line against HEAD with no drift (emit-on-change/forget order, 500 ms settle, thread-pool timer, 64-entry/5 MB caps under lock, 5 s gate, 7-day TTL + startup scan + sweep, gate inversion + cancellation, one-flight Interlocked, raw-byte clipboard order + bitmap disposal); dead surface deleted (Desktop, desktop, unused AppSettings ctor); Tray kept as the no-contract control case; Env/Startup/AGENTS and the five test files changed only at sanctioned lines with constructor-expression-only test diffs; all three prior directives verified fixed ([<Struct>] PollContext, UiClock upcast, RouteStore/Timeline factory docs); all 16 battery-flagged added lines read and classified as moved pre-existing constructs (/> ignore discards, one Seq.toList, one '= Some' record-field false positive); drift greps re-run read-only: 0 constructor calls, 0 old factory names, 0 'new:' in the 13 touched signatures, 0 private/let mutable/:> on added lines; one undirected but harmless loosening noted: emitOnUi dropped its unneeded 'value: equality constraint in Stores.fsi (strictly generalizing, no caller affected). |
 | P21 | pending | module shape: Env, Remotes, DeviceAuth + Startup pairing |
 | P22 | pending | rule-8 comment migration for the remaining debt |
 | P23 | pending | BUG-5 + BUG-9 |

@@ -8,16 +8,20 @@ open DevNull.Client.Core.Http
 /// entry, and one fetch backs both. Commit images never change under
 /// their URL, so no entry ever invalidates.
 type ImageCacheService =
-  new:
-    directory: string *
-    fetch: (string -> Async<Result<byte array, TransportFailure>>) *
-    log: ILogger ->
-      ImageCacheService
-
   /// The bytes of one URL, or `None` when every tier missed. The
   /// caller keeps its placeholder on `None`.
-  member Get: url: string -> Async<byte array option>
+  abstract Get: url: string -> Async<byte array option>
 
 /// Accessor for the image cache capability.
 type IProvideImageCache =
   abstract ImageCache: ImageCacheService
+
+/// The image cache worker over its own memory and disk tiers.
+module ImageCacheService =
+
+  /// The image cache worker over the given directory, fetch, and log.
+  val create:
+    directory: string *
+    fetch: (string -> Async<Result<byte array, TransportFailure>>) *
+    log: ILogger ->
+      ImageCacheService

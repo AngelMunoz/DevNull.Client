@@ -9,7 +9,7 @@ type ISshKeys =
 type IProvideSshKeys =
   abstract SshKeys: ISshKeys
 
-module Desktop =
+module SshKeys =
 
   /// The ssh key worker over the user's ~/.ssh directory.
-  val sources: unit -> ISshKeys
+  val create: unit -> ISshKeys

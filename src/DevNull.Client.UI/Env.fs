@@ -279,7 +279,7 @@ type AppEnv
     HttpClientTransport(baseAddress, logging.CreateLogger "DevNull.Client.Http")
 
   let imageCache =
-    ImageCacheService(
+    ImageCacheService.create(
       Path.Combine(
         Environment.GetFolderPath(
           Environment.SpecialFolder.LocalApplicationData
@@ -295,7 +295,7 @@ type AppEnv
   // The attachment sources resolve the main window per call: the shell
   // owns the window, the env outlives it.
   let attachments =
-    AttachmentSources.desktop(
+    AttachmentSources.create(
       logging.CreateLogger "DevNull.Client.Attachments",
       fun () ->
         match Avalonia.Application.Current with
@@ -312,7 +312,7 @@ type AppEnv
   let logger = logging.CreateLogger "DevNull.Client.SettingsStore"
 
   let settings =
-    AppSettingsStore(
+    AppSettingsStore.create(
       (match SettingsStore.load() with
        | Ok settings ->
          logger.LogDebug("The settings were read.")
@@ -327,11 +327,11 @@ type AppEnv
           logger.LogError("The settings were not saved: {Error}", message)
     )
 
-  let uiClock = UiClockService(TimeSpan.FromMinutes 1.0)
+  let uiClock = UiClockService.create(TimeSpan.FromMinutes 1.0)
 
-  let lastVisit = LastVisitStore()
+  let lastVisit = LastVisitStore.create()
 
-  let recentSearches = RecentSearchStore()
+  let recentSearches = RecentSearchStore.create()
 
   let profilesLog = logging.CreateLogger "DevNull.Client.Profiles"
 
@@ -367,7 +367,7 @@ type AppEnv
   }
 
   let unread =
-    UnreadService(
+    UnreadService.create(
       session,
       (fun () ->
         match session.SignedIn with
@@ -377,7 +377,7 @@ type AppEnv
     )
 
   let userSettings =
-    UserSettingsStore(
+    UserSettingsStore.create(
       session,
       (fun () ->
         match session.SignedIn with
@@ -387,7 +387,7 @@ type AppEnv
     )
 
   let translations =
-    TranslationCache(
+    TranslationCache.create(
       Path.Combine(
         Environment.GetFolderPath Environment.SpecialFolder.LocalApplicationData,
         "DevNull",
@@ -409,9 +409,9 @@ type AppEnv
       logging.CreateLogger "DevNull.Client.Remotes"
     )
 
-  let timeline = TimelineService()
+  let timeline = TimelineService.create()
 
-  let routes = RouteStore()
+  let routes = RouteStore.create()
 
   interface IProvideClock with
     member _.Clock = upcast clock
@@ -477,4 +477,4 @@ type AppEnv
     member _.Profiles = profiles
 
   interface IProvideSshKeys with
-    member _.SshKeys = Desktop.sources()
+    member _.SshKeys = SshKeys.create()

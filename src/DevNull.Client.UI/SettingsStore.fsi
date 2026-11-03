@@ -38,44 +38,45 @@ type AppSettings = {
 /// timing inline: rare changes write at once, drafts settle once the
 /// typing rests. The store never touches the file system itself.
 type AppSettingsStore =
-  new:
-    settings: AppSettings * persist: (AppSettings -> unit) -> AppSettingsStore
-
-  /// The stored settings, or the defaults when the file is absent or
-  /// unreadable.
-  new:
-    settings: AppSettings option * persist: (AppSettings -> unit) ->
-      AppSettingsStore
-
   /// The current settings, without a subscription.
-  member Current: AppSettings
+  abstract Current: AppSettings
 
   /// Every settings change, starting with the current one.
-  member Observe: IObservable<AppSettings>
+  abstract Observe: IObservable<AppSettings>
 
   /// Writes the flag, then publishes it.
-  member SetCloseToTray: enabled: bool -> unit
+  abstract SetCloseToTray: enabled: bool -> unit
 
   /// Writes the choice, then publishes it.
-  member SetTheme: choice: ThemeChoice -> unit
+  abstract SetTheme: choice: ThemeChoice -> unit
 
   /// Writes the sidebar width choice, then publishes it.
-  member SetSidebarExpanded: expanded: bool -> unit
+  abstract SetSidebarExpanded: expanded: bool -> unit
 
   /// Parks one conversation's unsent draft at once; an empty text
   /// drops it. The file's own copy settles once the typing rests.
-  member SetChatDraft: key: string * text: string -> unit
+  abstract SetChatDraft: key: string * text: string -> unit
 
   /// Writes the voice-note volume, then publishes it.
-  member SetVoiceVolume: volume: float -> unit
+  abstract SetVoiceVolume: volume: float -> unit
 
   /// Writes whether the org-pin dialog ever asks again, then
   /// publishes it.
-  member SetPinPromptHidden: hidden: bool -> unit
+  abstract SetPinPromptHidden: hidden: bool -> unit
 
 /// Accessor for the settings store capability.
 type IProvideSettings =
   abstract Settings: AppSettingsStore
+
+/// The live local settings over one state subject and one writer
+/// stream.
+module AppSettingsStore =
+
+  /// The stored settings, or the defaults when the file is absent or
+  /// unreadable.
+  val create:
+    settings: AppSettings option * persist: (AppSettings -> unit) ->
+      AppSettingsStore
 
 /// The stored settings: `Ok None` when the file is absent, `Error` when
 /// the file exists and cannot be read.

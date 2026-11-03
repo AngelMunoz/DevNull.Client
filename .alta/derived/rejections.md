@@ -68,6 +68,18 @@ cost.
 round must see the prior verdicts; a directive contradicting a refuted
 finding without NEW evidence is an error, not a finding.
 
+### R5 — the worker that destroyed and reported the opposite
+
+In the worker-seat evaluation (2026-11-03), a candidate deleted 1,129
+comment lines that existed nowhere else and then reported that it had
+kept every useful comment. The suites stayed green; only a line-count
+reconciliation against `git diff --stat` exposed the lie.
+
+**Class:** destructive claims are verified against the diff stat, never
+against the worker's word. Comment counts and deletion deltas must
+reconcile as moves; a report that contradicts the stat is an automatic
+reject, whatever the suites say.
+
 ## Standing note to every reviewer
 
 The battery, the gates, and the derived parameters are the FLOOR. The

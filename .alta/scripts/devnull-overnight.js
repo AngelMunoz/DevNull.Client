@@ -21,7 +21,7 @@ export const meta = {
   },
   steps: [
     { id: "window", title: "Check the off-peak window" },
-    { id: "run", title: "Run each unchecked step", after: ["window"], each: true },
+    { id: "run", title: "Run each unchecked step", after: ["window"] },
     { id: "changelog", title: "Changelog pass per landed step", after: ["run"] },
     { id: "pr", title: "Open the pull request", after: ["changelog"] },
   ],

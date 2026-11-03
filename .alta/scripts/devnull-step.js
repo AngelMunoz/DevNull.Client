@@ -13,8 +13,10 @@ export const meta = {
     plan: { type: "string", description: "The plan file, repo-relative.", default: "audits/phase1b-workplan.md" },
     branch: { type: "string", description: "The work branch.", default: "phase1b/mvuish" },
     workerModel: { type: "string", description: "auto (deepseek-flash:xhigh) or an explicit worker model; glm-5.3@xhigh refused.", default: "auto" },
-    deriveTier: { type: "string", description: "Tier of the derive pass.", default: "quick" },
-    architectTier: { type: "string", description: "Tier of the architect (later rounds de-escalate to standard).", default: "complex" },
+    deriveTier: { type: "string", description: "Tier of the derive pass when deriveModel is unset.", default: "standard" },
+    deriveModel: { type: "string", description: "Explicit model ref for the derive pass (overrides deriveTier); empty = tier.", default: "" },
+    architectTier: { type: "string", description: "Tier of the architect ladder's first round (later rounds de-escalate to standard) when architectModel is unset.", default: "complex" },
+    architectModel: { type: "string", description: "Explicit model ref for ALL architect rounds (overrides the ladder); empty = tier ladder.", default: "" },
     autoLand: { type: "boolean", description: "Land approved steps without the user's review. Keep off.", default: false },
     landTarget: { type: "string", description: "main (ff-merge) or branch (commit only).", default: "main" },
     redTeam: { type: "boolean", description: "Adversarial pass over every approval.", default: true },
@@ -55,6 +57,37 @@ const read = async (path) => (await tools.read_file({ path })).content ?? "";
 const derivedPath = (id) => `.alta/derived/${id}.md`;
 const verdictPath = (id) => `.alta/derived/${id}.verdict.json`;
 
+// Per-pass cost telemetry. Token totals come from the session record the
+// child session leaves behind; appends are queued so parallel red-team
+// passes cannot drop each other's line. Best-effort: the loop never stops
+// for a metrics failure.
+let metricsQueue = Promise.resolve();
+const withMetrics = (title, extra, run) => {
+  const started = Date.now();
+  return Promise.resolve(run()).then(
+    (result) => {
+      metricsQueue = metricsQueue.then(async () => {
+        try {
+          const list = await alta.session.list({ limit: 40 });
+          const items = Array.isArray(list) ? list : (list.items ?? []);
+          const hit = items.find((s) => s.title === title && Date.parse(s.createdAt ?? "") > started - 60000);
+          if (!hit) return;
+          const rep = await alta.session.report({ sessionId: hit.sessionId, include: "metrics" });
+          const it = Array.isArray(rep) ? rep.find((x) => x.type === "alta.session.report.item") : rep;
+          const po = it?.metrics?.providerOperations ?? {};
+          let prior = "";
+          try { prior = await read(".alta/derived/loop-metrics.jsonl"); } catch { /* first line */ }
+          const enrich = typeof extra === "function" ? extra(result) : (extra ?? {});
+          const line = { ts: new Date().toISOString(), title, ...enrich, model: hit.modelSelection?.modelRef, inTok: po.inputTokens ?? 0, cachedIn: po.cachedInputTokens ?? 0, outTok: po.outputTokens ?? 0, reasonTok: po.reasoningTokens ?? 0, durMin: Math.round((it?.metrics?.durationMs ?? 0) / 6000) / 10 };
+          await tools.write_file({ path: ".alta/derived/loop-metrics.jsonl", content: prior + JSON.stringify(line) + "\n" });
+        } catch { /* telemetry is best-effort */ }
+      });
+      return result;
+    },
+    (err) => { throw err; }
+  );
+};
+
 const stepText = (planText, id) => {
   const open = new RegExp(`- \\[ \\] \\*\\*${id} —([^*]*)\\*\\*(.*?)(?=\\n- \\[ |\\n## |$)`, "s").exec(planText);
   return open ? { title: open[1].trim(), body: open[2].trim() } : null;
@@ -89,6 +122,7 @@ Mandatory, every derivation:
 - **Caller census.** For every symbol the step touches: grep across src/ AND tests/, NAME every caller. A caller not listed is a missed consumer.
 - **Negative-space parameters.** What must NOT appear when done: new ":> Control" upcasts, new observables or subscriptions, new "let mutable", files outside scope, record fields no consumer reads.
 - **Public-surface flag.** Any exported type or .fsi change is named as the structural risk with its consumer ripple.
+- **Destructive-claim parity.** For steps that move or delete code wholesale (comment migration, dead-surface removal): state the exact count reconciliation the architect must check — e.g. doc-comment line totals before vs after must account as MOVED, not deleted — and the "git diff --stat" shape the diff should show.
 Cap: 40 lines beyond these. Only what is specific to this step and this tree.`;
 
 const WORKER_BRIEF = (id, st, derivation, extra) => `You are the implementer for step ${id} of the work plan in DevNull.Client (repo root ${ROOT}, branch ${branch} — stay on it). Read AGENTS.md (binding), ${plan} (step ${id} — its scope below is binding), and the skills under .agents/skills/ the step names; if none, read mvuish-element-shapes, mvuish-controls, devnull-mvuish-audit.
@@ -132,11 +166,12 @@ ${String(workerReport).slice(0, 8000)}
 4. Judge the STRUCTURE: right layer, right seam, right slot, scaffolding dissolved, no speculative surface, lifetime ownership honest.
 5. Bug steps: each regression test asserts behavior through the public surface and its fail-before evidence is real.
 6. Derivation audit: caller census, negative-space items, public-surface risk — spot-check one reshaped symbol yourself.
+7. Destructive claims are verified against "git diff --stat" line deltas, never against the worker's word: a worker once deleted a thousand comment lines and reported the opposite. Comment counts and deletion deltas must reconcile as moves; a report that contradicts the stat is an automatic reject.
 
 Changed files:
 ${changed.map((f) => `- ${f}`).join("\n")}
 
-Answer with your verdict. Directives are concrete, file-anchored, one worker pass. The ledger note is one line, no step ids. Say what you could NOT verify rather than guessing.`;
+Answer with your verdict. Directives are concrete, file-anchored, one worker pass. The ledger note is one line, no step ids. Say what you could NOT verify rather than guessing. A verdict issued without reading the changed files in THIS pass is void: ground every ruling in code you read now, and say which files you read.`;
 
 const ARCHITECT_SCHEMA = {
   type: "object", required: ["verdict", "directives", "ledgerNote", "unverified"],
@@ -183,7 +218,8 @@ const runRedTeam = async (id, architect, derivation, changed, label) => {
     if (/glm-5\.3(?!-flash)/i.test(ref) && /xhigh/i.test(ref)) throw new Error(`Red-team model '${ref}' refused: full glm-5.3@xhigh is the architect's, single-flight.`);
   }
   const passes = await parallel(refs.map((ref) => () =>
-    agent(REDTEAM_BRIEF(id, architect, derivation, changed), { ...redTeamOpts(ref), title: `${id} red team [${ref}] ${label ?? ""}`.trim(), schema: REDTEAM_SCHEMA })
+    withMetrics(`${id} red team [${ref}] ${label ?? ""}`.trim(), { step: id, round: label, role: "redteam", ref }, () =>
+      agent(REDTEAM_BRIEF(id, architect, derivation, changed), { ...redTeamOpts(ref), title: `${id} red team [${ref}] ${label ?? ""}`.trim(), schema: REDTEAM_SCHEMA }))
       .then((r) => ({ ref, ...r }))));
   const live = passes.filter(Boolean);
   // An all-dead red team must never read as "clean": that is an infrastructure
@@ -247,11 +283,19 @@ const battery = async () => {
   return { pass: hard && hitsOnAdded.length === 0, hard, fantomas: fantomas.text.trim().split("\n").pop(), buildErrors: buildErrors ? build.text.trim().split("\n").filter((l) => /error/i.test(l)).slice(0, 5) : 0, core, ui, uiRetry, changed, fsFiles, gateHits: (gateOut.match(/FINDINGS/g) ?? []).length, hitsOnAdded, greps };
 };
 
+const deriveOpts = () => (args.deriveModel ?? "")
+  ? { model: args.deriveModel, subSessions: false }
+  : { tier: args.deriveTier ?? meta.params.deriveTier.default, subSessions: false };
+// Explicit model pins the architect for every round; unset = the tier ladder.
+const archTier = (r) => (r === 0 || args.architectTier) ? (args.architectTier ?? meta.params.architectTier.default) : "standard";
+const archAgentOpts = (r) => (args.architectModel ?? "")
+  ? { model: args.architectModel, subSessions: false }
+  : { tier: archTier(r), subSessions: false };
 const deriveFor = async (id, st, force) => {
   let existing = null;
   try { existing = await read(derivedPath(id)); } catch { /* none */ }
   if (existing && existing.trim() && !force) return existing;
-  const text = await agent(DERIVE_BRIEF(id, st), { tier: args.deriveTier ?? meta.params.deriveTier.default, title: `${id} derivation`, subSessions: false });
+  const text = await withMetrics(`${id} derivation`, { step: id, round: 0, role: "derive" }, () => agent(DERIVE_BRIEF(id, st), { ...deriveOpts(), title: `${id} derivation`, subSessions: false }));
   await tools.write_file({ path: derivedPath(id), content: `# ${id} derivation — ${today}\n\n${String(text)}` });
   return String(text);
 };
@@ -329,7 +373,7 @@ if (action === "architect") {
   const derivation = await deriveFor(id, st, false);
   const results = await step("battery", battery);
   const prior = await priorRounds(id);
-  const architect = await step("architect", () => agent(ARCHITECT_BRIEF(id, st, derivation, "(no worker report: evaluating the current tree)", results, results.changed, prior), { tier: args.architectTier ?? meta.params.architectTier.default, title: `${id} architect`, subSessions: false, schema: ARCHITECT_SCHEMA }));
+  const architect = await step("architect", () => withMetrics(`${id} architect`, (r) => ({ step: id, round: 0, role: "architect", verdict: r?.verdict, findings: r?.directives?.length ?? 0 }), () => agent(ARCHITECT_BRIEF(id, st, derivation, "(no worker report: evaluating the current tree)", results, results.changed, prior), { ...archAgentOpts(0), title: `${id} architect`, subSessions: false, schema: ARCHITECT_SCHEMA })));
   await tools.write_file({ path: verdictPath(id), content: JSON.stringify(architect, null, 2) });
   let redTeam = null;
   if ((args.redTeam ?? meta.params.redTeam.default) && results.hard && architect.verdict === "approve") {
@@ -344,7 +388,6 @@ if (action !== "run") throw new Error(`Unknown action '${action}'.`);
 const wanted = args.count ?? meta.params.count.default;
 const maxRemediations = args.maxRemediations ?? meta.params.maxRemediations.default;
 const budget = Math.min(maxRemediations, args.maxReviewRounds ?? meta.params.maxReviewRounds.default);
-const archTier = (r) => (r === 0 || args.architectTier) ? (args.architectTier ?? meta.params.architectTier.default) : "standard";
 const isTrivial = (ds) => ds.length > 0 && ds.length <= 3 && ds.every((d) => d.length < 220) && ds.every((d) => /\.(fs|fsi|md)/.test(d));
 
 let current = id;
@@ -358,10 +401,10 @@ for (let n = 0; n < wanted && current; n++) {
   const derivation = await deriveFor(current, st2, args.rederive ?? false);
   present(`## ${current} — ${st2.title}\n\nDerivation done. Worker (${workerName}) dispatched, then the battery, then the architect. autoLand ${autoLand ? "ON" : "OFF"}; land target ${args.landTarget ?? meta.params.landTarget.default}.`);
 
-  let workerReport = await step("implement", () => agent(WORKER_BRIEF(current, st2, derivation, null), { ...workerOpts, title: `${current} worker` }));
+  let workerReport = await step("implement", () => withMetrics(`${current} worker`, (r) => ({ step: current, round: 0, role: "worker", reportChars: String(r).length }), () => agent(WORKER_BRIEF(current, st2, derivation, null), { ...workerOpts, title: `${current} worker` })));
   let results = await step("battery", battery);
   let prior = await priorRounds(current);
-  let architect = await step("architect", () => agent(ARCHITECT_BRIEF(current, st2, derivation, workerReport, results, results.changed, prior), { tier: archTier(0), title: `${current} architect`, subSessions: false, schema: ARCHITECT_SCHEMA }));
+  let architect = await step("architect", () => withMetrics(`${current} architect`, (r) => ({ step: current, round: 0, role: "architect", verdict: r?.verdict, findings: r?.directives?.length ?? 0 }), () => agent(ARCHITECT_BRIEF(current, st2, derivation, workerReport, results, results.changed, prior), { ...archAgentOpts(0), title: `${current} architect`, subSessions: false, schema: ARCHITECT_SCHEMA })));
   await tools.write_file({ path: verdictPath(current), content: JSON.stringify(architect, null, 2) });
   let redTeam = null;
   if ((args.redTeam ?? meta.params.redTeam.default) && results.hard && architect.verdict === "approve") {
@@ -382,17 +425,17 @@ for (let n = 0; n < wanted && current; n++) {
     const directives = [...(results.hard ? [] : [`The battery failed: ${JSON.stringify({ build: results.buildErrors, core: results.core, ui: results.ui, hitsOnAdded: results.hitsOnAdded })}. Fix what fails.`]), ...architect.directives, ...(redTeam?.findings ?? [])];
     if (results.hard && rounds >= 1 && isTrivial(directives)) {
       present(`### ${current} round ${rounds}: ${directives.length} trivial directive(s) — fast path`);
-      await step("remediate", () => agent(WORKER_BRIEF(current, st2, derivation, directives.map((d, i) => `${i + 1}. ${d}`).join("\n")), { ...workerOpts, title: `${current} worker r${rounds} (fast)` }));
+      await step("remediate", () => withMetrics(`${current} worker r${rounds} (fast)`, (r) => ({ step: current, round: rounds, role: "worker", fastPath: true, reportChars: String(r).length }), () => agent(WORKER_BRIEF(current, st2, derivation, directives.map((d, i) => `${i + 1}. ${d}`).join("\n")), { ...workerOpts, title: `${current} worker r${rounds} (fast)` })));
       results = await step("battery", battery);
       if (!results.hard) { stopped.push({ step: current, why: "battery failed after the trivial fast path" }); break; }
       present(`### ${current} ready for review (fast path) — battery green`);
       break;
     }
     present(`### ${current} round ${rounds}: ${directives.length} directive(s) back to the worker${redTeam?.verdict === "findings" ? " (red team spoke)" : ""}`);
-    workerReport = await step("remediate", () => agent(WORKER_BRIEF(current, st2, derivation, directives.map((d, i) => `${i + 1}. ${d}`).join("\n")), { ...workerOpts, title: `${current} worker r${rounds}` }));
+    workerReport = await step("remediate", () => withMetrics(`${current} worker r${rounds}`, (r) => ({ step: current, round: rounds, role: "worker", reportChars: String(r).length }), () => agent(WORKER_BRIEF(current, st2, derivation, directives.map((d, i) => `${i + 1}. ${d}`).join("\n")), { ...workerOpts, title: `${current} worker r${rounds}` })));
     results = await step("battery", battery);
     prior = await priorRounds(current);
-    architect = await step("architect", () => agent(ARCHITECT_BRIEF(current, st2, derivation, workerReport, results, results.changed, prior), { tier: archTier(rounds), title: `${current} architect r${rounds}`, subSessions: false, schema: ARCHITECT_SCHEMA }));
+    architect = await step("architect", () => withMetrics(`${current} architect r${rounds}`, (r) => ({ step: current, round: rounds, role: "architect", verdict: r?.verdict, findings: r?.directives?.length ?? 0 }), () => agent(ARCHITECT_BRIEF(current, st2, derivation, workerReport, results, results.changed, prior), { ...archAgentOpts(rounds), title: `${current} architect r${rounds}`, subSessions: false, schema: ARCHITECT_SCHEMA })));
     await tools.write_file({ path: verdictPath(current), content: JSON.stringify(architect, null, 2) });
     redTeam = null;
     if ((args.redTeam ?? meta.params.redTeam.default) && results.hard && architect.verdict === "approve") {

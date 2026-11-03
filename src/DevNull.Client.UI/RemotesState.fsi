@@ -190,6 +190,14 @@ type RequestSettle = {
   Merging: bool
 }
 
+/// One message's link card that landed: the thread's key, the
+/// message, and the preview the server answered.
+type LinkPreviewLanding = {
+  Key: string
+  MessageId: int
+  Preview: LinkPreview
+}
+
 /// One push's whole landing: the thread takes the message, the open
 /// list takes the row at its top, and the thread unarchives.
 type PushLanding = {
@@ -356,5 +364,4 @@ val restageSend:
 /// takes the message's slot. A still-pending answer changes nothing,
 /// so the reader keeps asking until the card arrives.
 val landLinkPreview:
-  state: RemotesState * key: string * messageId: int * preview: LinkPreview ->
-    RemotesState
+  state: RemotesState * landing: LinkPreviewLanding -> RemotesState

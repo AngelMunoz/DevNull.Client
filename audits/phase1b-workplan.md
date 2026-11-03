@@ -53,7 +53,7 @@ testing rule 2: a regression test that fails before the fix.
   (AsyncImage.fs:38, ThreadVoice.fs:566); CommitCard's two bare yields
   (:1755, :1777). Verify: 4+-parameter grep at zero unexplained, gates
   clean, suites green.
-- [ ] **P19b — The arity stragglers the sweep surfaced.** The complete
+- [x] **P19b — The arity stragglers the sweep surfaced.** The complete
   4+-parameter census: eleven real hits. The five already owned are
   `CommitCard.iconAction`, `CommitCard.railCell`, `ThreadMessage.ghost`,
   `ThreadMessage.hoverActions`, and `RemotesState.landLinkPreview`. The

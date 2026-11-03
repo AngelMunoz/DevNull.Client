@@ -24,8 +24,17 @@ val pinnedRow: unit -> Control
 /// to row; every row draws its own segment.
 val laneSpineAt: lane: Lane option * x: float -> Line
 
+/// One reply's branch elbow: the lane it takes, its offset from the
+/// host's left edge, and the width and height it spans.
+[<Struct>]
+type Elbow = {
+  Lane: Lane option
+  X: float
+  Width: float
+  Height: float
+}
+
 /// The dashed quarter-circle that branches one reply off its parent's
 /// rail, at the given offset: down from the parent's spine, then
 /// right onto the reply's avatar column.
-val laneElbowAt:
-  lane: Lane option * x: float * width: float * height: float -> Path
+val laneElbowAt: elbow: Elbow -> Path

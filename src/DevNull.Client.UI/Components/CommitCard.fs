@@ -886,21 +886,27 @@ module Parts =
         args.Handled <- true
         DeviceAuth.startBrowser preview.Url |> ignore)
 
+  [<Struct>]
+  type IconAction = {
+    Name: string
+    Glyph: Glyph
+    Label: string voption
+    OnClick: Button -> unit
+  }
+
   /// One quiet action of the row: an icon, an optional mono count, no
   /// border. A handled click never opens the thread as a side effect.
-  let iconAction
-    (name: string, glyph: Glyph, label: string voption, onClick: Button -> unit)
-    : Button =
+  let iconAction(action: IconAction) : Button =
     let children: Control array = [|
-      Icons.iconAt(glyph, 16.0)
-      match label with
+      Icons.iconAt(action.Glyph, 16.0)
+      match action.Label with
       | ValueNone -> ()
       | ValueSome count ->
         TextBlock().Classes(Theme.name Theme.Mono).Text(count)
     |]
 
     Button()
-      .Name(name)
+      .Name(action.Name)
       .Classes(Theme.name Theme.GhostButton)
       .Padding(6.0, 2.0, 6.0, 2.0)
       .Content(
@@ -911,7 +917,7 @@ module Parts =
       )
       .OnClickHandler(fun sender args ->
         args.Handled <- true
-        onClick sender)
+        action.OnClick sender)
 
   /// Puts the commit's web URL on the clipboard.
   let copyLink(source: Control, url: string) : unit =
@@ -979,34 +985,40 @@ module Parts =
       )
     | None -> None
 
+  [<Struct>]
+  type RailCell = {
+    Avatar: Control
+    Lane: Lane option
+    Dense: bool
+    Continues: bool
+  }
+
   /// The rail cell: the author's avatar sitting on a short lane-colored
   /// tail. The full card ends the tail in a dot; a card whose reply
   /// chain shows below runs the tail to its bottom edge instead, so
   /// the chain elbows straight off it. Dense rows shrink the node.
-  let railCell
-    (avatar: Control, lane: Lane option, dense: bool, continues: bool)
-    : Panel =
-    let nodeSize = if dense then 28.0 else 40.0
+  let railCell(cell: RailCell) : Panel =
+    let nodeSize = if cell.Dense then 28.0 else 40.0
 
-    let railWidth = if dense then 48.0 else 64.0
+    let railWidth = if cell.Dense then 48.0 else 64.0
 
-    let nodeTop = if dense then 20.0 else 32.0
+    let nodeTop = if cell.Dense then 20.0 else 32.0
 
-    let dotZone = if dense then 12.0 else 20.0
+    let dotZone = if cell.Dense then 12.0 else 20.0
 
     let tail =
       Border()
         .Width(2.0)
         .HorizontalAlignment(HorizontalAlignment.Center)
         .VerticalAlignment(VerticalAlignment.Stretch)
-        .Margin(0.0, nodeTop, 0.0, if continues then 0.0 else dotZone)
+        .Margin(0.0, nodeTop, 0.0, if cell.Continues then 0.0 else dotZone)
 
-    Theme.laneBack(tail, lane)
+    Theme.laneBack(tail, cell.Lane)
 
     // The dot: a lane core inside a card gap inside a lane ring.
     let dotCore = Ellipse().Width(18.0).Height(18.0)
 
-    Theme.laneFill(dotCore, lane)
+    Theme.laneFill(dotCore, cell.Lane)
 
     let dotGap =
       Ellipse()
@@ -1015,7 +1027,7 @@ module Parts =
         .StrokeThickness(3.0)
         .Classes(Theme.name Theme.CardEdge)
 
-    Theme.laneFill(dotGap, lane)
+    Theme.laneFill(dotGap, cell.Lane)
 
     let dot =
       Grid()
@@ -1035,20 +1047,20 @@ module Parts =
         .HorizontalAlignment(HorizontalAlignment.Center)
         .VerticalAlignment(VerticalAlignment.Top)
         .Margin(0.0, nodeTop - (nodeSize + 6.0) / 2.0, 0.0, 0.0)
-        .Child(avatar)
+        .Child(cell.Avatar)
 
-    Theme.laneBorder(ring, lane)
+    Theme.laneBorder(ring, cell.Lane)
 
     let pieces: Control array = [|
       tail
-      if not continues then
+      if not cell.Continues then
         dot
       ring
     |]
 
     Panel()
       .Width(railWidth)
-      .MinHeight(if dense then 48.0 else 64.0)
+      .MinHeight(if cell.Dense then 48.0 else 64.0)
       .Children(pieces)
 
   /// The ringed avatar alone: the rail node of a reply row. A reply is
@@ -1106,12 +1118,12 @@ module Parts =
       |> ValueOption.ofOption
 
     let reply =
-      iconAction(
-        "ReplyButton",
-        Glyph.Reply,
-        replyLabel,
-        fun _ -> onEvent(ReplyToggled commit)
-      )
+      iconAction {
+        Name = "ReplyButton"
+        Glyph = Glyph.Reply
+        Label = replyLabel
+        OnClick = fun _ -> onEvent(ReplyToggled commit)
+      }
 
     let starLabel =
       commit.StarsCount
@@ -1126,16 +1138,21 @@ module Parts =
       match props.Star with
       | ValueNone -> Panel()
       | ValueSome _ when commit.Author.Id = props.ViewerId ->
-        iconAction("StarCount", Glyph.Star, starLabel, fun _ -> ())
+        (iconAction {
+          Name = "StarCount"
+          Glyph = Glyph.Star
+          Label = starLabel
+          OnClick = fun _ -> ()
+        })
           .IsEnabled(false)
           .Classes(Theme.name Theme.FgMuted)
       | ValueSome slot ->
-        iconAction(
-          "StarButton",
-          Glyph.Star,
-          starLabel,
-          fun _ -> slot.Command commit
-        )
+        (iconAction {
+          Name = "StarButton"
+          Glyph = Glyph.Star
+          Label = starLabel
+          OnClick = fun _ -> slot.Command commit
+        })
           .IsEnabled(
             slot.Busy
             |> Observable.map(fun busy -> inFlight(commit, busy) |> not)
@@ -1154,12 +1171,12 @@ module Parts =
             ValueNone
 
         let button =
-          iconAction(
-            "PastelButton",
-            Glyph.Pastel,
-            count,
-            fun _ -> slot.Command commit
-          )
+          (iconAction {
+            Name = "PastelButton"
+            Glyph = Glyph.Pastel
+            Label = count
+            OnClick = fun _ -> slot.Command commit
+          })
             .IsEnabled(
               slot.Busy
               |> Observable.map(fun busy -> inFlight(commit, busy) |> not)
@@ -1180,12 +1197,12 @@ module Parts =
       | ValueNone -> Panel()
 
     let quote =
-      iconAction(
-        "QuoteButton",
-        Glyph.Quote,
-        ValueNone,
-        fun _ -> onEvent(QuoteRequested commit)
-      )
+      iconAction {
+        Name = "QuoteButton"
+        Glyph = Glyph.Quote
+        Label = ValueNone
+        OnClick = fun _ -> onEvent(QuoteRequested commit)
+      }
 
     // The profile pin: the author's own top-level commits only — the
     // server refuses anything else — and only where the host offers
@@ -1201,12 +1218,12 @@ module Parts =
         let word = if pinned then "Unpin" else "Pin"
 
         let button =
-          iconAction(
-            "PinButton",
-            glyph,
-            ValueSome word,
-            fun _ -> toggle.Command commit
-          )
+          iconAction {
+            Name = "PinButton"
+            Glyph = glyph
+            Label = ValueSome word
+            OnClick = fun _ -> toggle.Command commit
+          }
 
         ToolTip.SetTip(
           button,
@@ -1220,12 +1237,12 @@ module Parts =
       | _ -> Panel()
 
     let link =
-      iconAction(
-        "LinkButton",
-        Glyph.Link,
-        ValueNone,
-        fun button -> copyLink(button, commit.HtmlUrl)
-      )
+      iconAction {
+        Name = "LinkButton"
+        Glyph = Glyph.Link
+        Label = ValueNone
+        OnClick = fun button -> copyLink(button, commit.HtmlUrl)
+      }
 
     // The translate action: the site's Translate, below the body. It
     // shows while the site may translate the commit, and disables while
@@ -1249,12 +1266,12 @@ module Parts =
 
       let button =
         let built =
-          iconAction(
-            "TranslateButton",
-            Glyph.Translate,
-            ValueNone,
-            fun _ -> onEvent(TranslateRequested commit)
-          )
+          iconAction {
+            Name = "TranslateButton"
+            Glyph = Glyph.Translate
+            Label = ValueNone
+            OnClick = fun _ -> onEvent(TranslateRequested commit)
+          }
 
         built
           .Content(
@@ -1395,15 +1412,18 @@ let view(props: Props) : Control =
        |> Option.map(fun preview -> not preview.Data.IsEmpty)
        |> Option.defaultValue false
 
+  let rail =
+    Parts.railCell {
+      Avatar = avatar
+      Lane = commit.Author.Lane
+      Dense = dense
+      Continues = continues
+    }
+
   Button()
     .Classes(Theme.name Theme.CommitRow)
     .Focusable(true)
-    .Content(
-      grid.Children(
-        Parts.railCell(avatar, commit.Author.Lane, dense, continues).Column(0),
-        contentColumn.Column(1)
-      )
-    )
+    .Content(grid.Children(rail.Column(0), contentColumn.Column(1)))
     .OnClickHandler(fun _ _ -> props.OnEvent(Opened commit))
     .OnKeyDownHandler(fun sender args ->
       // The focused card answers its own quiet keys: the same events
@@ -1596,7 +1616,12 @@ let rec chainRow(ctx: ChainCtx, spot: ChainSpot, node: CommitNode) : Control =
     // above through a short stub in that row's lane.
     let branch: Control =
       if spot.First then
-        FeedParts.laneElbowAt(ctx.ParentLane, -8.0, 32.0, 20.0)
+        FeedParts.laneElbowAt {
+          Lane = ctx.ParentLane
+          X = -8.0
+          Width = 32.0
+          Height = 20.0
+        }
       else
         Panel()
           .Height(6.0)

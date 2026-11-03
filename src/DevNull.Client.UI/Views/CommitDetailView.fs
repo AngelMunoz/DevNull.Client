@@ -170,16 +170,21 @@ module State =
       }
     )
 
-  let replies
-    (env, session: SignedInSession, commitId: string, cursor: string option)
-    =
+  [<Struct>]
+  type RepliesAsk = {
+    Session: SignedInSession
+    CommitId: string
+    Cursor: string option
+  }
+
+  let replies(env, ask: RepliesAsk) =
     Commits.replies(
       env,
       {
-        KeyFile = session.KeyFile
-        CommitId = commitId
+        KeyFile = ask.Session.KeyFile
+        CommitId = ask.CommitId
         Newest = false
-        Cursor = cursor
+        Cursor = ask.Cursor
       }
     )
 
@@ -202,7 +207,12 @@ module State =
 
       Cmd.OfAsync.perform
         replies
-        (props.Env, props.Session, props.CommitId, None)
+        (props.Env,
+         {
+           Session = props.Session
+           CommitId = props.CommitId
+           Cursor = None
+         })
         RepliesFetched
 
       // The related commits read beside the thread itself, the moment
@@ -313,14 +323,24 @@ module State =
 
         Cmd.OfAsync.perform
           replies
-          (props.Env, props.Session, props.CommitId, None)
+          (props.Env,
+           {
+             Session = props.Session
+             CommitId = props.CommitId
+             Cursor = None
+           })
           RepliesFetched
       ]
     | MoreReplies ->
       model,
       Cmd.OfAsync.perform
         replies
-        (props.Env, props.Session, props.CommitId, model.RepliesCursor)
+        (props.Env,
+         {
+           Session = props.Session
+           CommitId = props.CommitId
+           Cursor = model.RepliesCursor
+         })
         RepliesFetched
     | StarToggled commit ->
       { model with Error = None },

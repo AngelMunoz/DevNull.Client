@@ -390,17 +390,24 @@ module Engine =
         return Error(AudioFailed($"the microphone could not open: {other}"))
   }
 
+  [<Struct>]
+  type NotePlay = {
+    Media: byte array
+    Speed: float
+    Volume: float
+  }
+
   let openPlayback
-    (log: ILogger, media: byte array, speed: float, volume: float)
+    (log: ILogger, note: NotePlay)
     : Async<Result<IAudioPlayback, AudioFailure>> = asyncEx {
     let player = new Windows.Media.Playback.MediaPlayer()
 
-    player.Volume <- volume
+    player.Volume <- note.Volume
 
     let stream = new Windows.Storage.Streams.InMemoryRandomAccessStream()
     let writer = new Windows.Storage.Streams.DataWriter(stream)
 
-    writer.WriteBytes media
+    writer.WriteBytes note.Media
 
     let! _ = writer.StoreAsync().AsTask()
     writer.DetachStream() |> ignore
@@ -409,19 +416,19 @@ module Engine =
     let source =
       Windows.Media.Core.MediaSource.CreateFromStream(
         stream,
-        VoiceMedia.contentType media
+        VoiceMedia.contentType note.Media
       )
 
     log.LogDebug(
       "The note hands to the OS player ({Bytes} bytes, {Type}).",
-      media.Length,
-      VoiceMedia.contentType media
+      note.Media.Length,
+      VoiceMedia.contentType note.Media
     )
 
     player.Source <- source
     player.Play()
 
-    return Ok(Playback(player, source, speed, log) :> IAudioPlayback)
+    return Ok(Playback(player, source, note.Speed, log) :> IAudioPlayback)
   }
 
 type WinRtEngine(logging: ILoggerFactory) =
@@ -433,7 +440,14 @@ type WinRtEngine(logging: ILoggerFactory) =
     member _.StartCapture() = Engine.openCapture log
 
     member _.Play(media, speed, volume) =
-      Engine.openPlayback(log, media, speed, volume)
+      Engine.openPlayback(
+        log,
+        {
+          Media = media
+          Speed = speed
+          Volume = volume
+        }
+      )
 
 /// The sound Windows itself plays for a system notification, from its
 /// own media folder.

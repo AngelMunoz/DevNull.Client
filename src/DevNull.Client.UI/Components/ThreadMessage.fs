@@ -165,9 +165,7 @@ let summaryOfReply(reply: MessageParent) : BodySummary =
 
 /// The reply ghost: the message a bubble answers, peeking out above
 /// it. A click walks the thread to the original.
-let ghost
-  (walk: int -> unit, reply: MessageParent, mine: bool, author: string)
-  : Control =
+let ghost(props: BubbleProps, reply: MessageParent, author: string) : Control =
   let snippet =
     match summaryOfReply reply with
     | Text words -> words
@@ -181,7 +179,7 @@ let ghost
     .FontSize(12.0)
     .Opacity(0.9)
     .HorizontalAlignment(
-      if mine then
+      if props.Mine then
         HorizontalAlignment.Right
       else
         HorizontalAlignment.Left
@@ -201,7 +199,7 @@ let ghost
     )
     .OnClickHandler(fun _ args ->
       args.Handled <- true
-      walk reply.Id)
+      props.Actions.Walk reply.Id)
 
 /// The images of one message: fixed boxes on the signed URLs, the
 /// click opening the gallery through the host.
@@ -530,9 +528,10 @@ let reactionTray
 /// 28px icons outside the bubble edge, vertically centered. They
 /// take no room in the thread; the pointer over the message row is
 /// what shows them, the site's group-hover rule.
-let hoverActions
-  (message: Message, mine: bool, tray: Popup, actions: BubbleActions)
-  : Control =
+let hoverActions(props: BubbleProps, tray: Popup) : Control =
+  let message = props.Message
+  let actions = props.Actions
+
   let react =
     Button()
       .Classes(Theme.name Theme.GhostButton)
@@ -565,7 +564,12 @@ let hoverActions
     .VerticalAlignment(VerticalAlignment.Center)
     .Classes(Theme.name Theme.HoverActions)
     .Children(reply, react)
-    .Name((if mine then "BubbleActionsMine" else "BubbleActionsTheirs"))
+    .Name(
+      (if props.Mine then
+         "BubbleActionsMine"
+       else
+         "BubbleActionsTheirs")
+    )
 
 /// One bubble: the message body in a rounded fill, mine on the
 /// accent, theirs on the card surface. A voice note rides in a box
@@ -664,7 +668,7 @@ let bubble(props: BubbleProps) : Control =
     args.Handled <- true
     actions.React "❤️"
 
-  let hover = hoverActions(who, mine, tray, actions)
+  let hover = hoverActions(props, tray)
 
   let ghostRows: Control array =
     who.ReplyTo
@@ -676,7 +680,7 @@ let bubble(props: BubbleProps) : Control =
           reply.UserId
         )
 
-      [| ghost(actions.Walk, reply, mine, ghostAuthor) |])
+      [| ghost(props, reply, ghostAuthor) |])
     |> Option.defaultValue [||]
 
   let bodyRows: Control array =

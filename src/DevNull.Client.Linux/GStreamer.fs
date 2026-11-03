@@ -377,11 +377,18 @@ let stage(media: byte[]) : Result<int, AudioFailure> =
   with :? DllNotFoundException ->
     Error(AudioFailed "this desktop cannot stage a note in memory")
 
+[<Struct>]
+type NotePlay = {
+  Media: byte[]
+  Speed: float
+  Volume: float
+}
+
 /// Stages the note in memory, hands its descriptor to the desktop's
 /// player, and starts it at the asked speed. The note's bytes leave
 /// only when the player reads them through the descriptor path.
-let play(log: ILogger, media: byte[], speed: float, volume: float) =
-  match stage media with
+let play(log: ILogger, note: NotePlay) =
+  match stage note.Media with
   | Error failure -> Error failure
   | Ok descriptor ->
     let element = Gst.gst_element_factory_make("playbin", "voice-note")
@@ -392,7 +399,7 @@ let play(log: ILogger, media: byte[], speed: float, volume: float) =
       Error(AudioFailed "the desktop's player did not open")
     else
       setUri(element, $"file:///proc/self/fd/{descriptor}")
-      setVolume(element, volume)
+      setVolume(element, note.Volume)
       Gst.gst_element_set_state(element, Gst.StatePlaying) |> ignore
 
       // The player takes the rate on a seek, and a seek lands only
@@ -405,10 +412,10 @@ let play(log: ILogger, media: byte[], speed: float, volume: float) =
       Gst.gst_element_get_state(element, &state, &pending, 1_000_000_000L)
       |> ignore
 
-      if speed <> 1.0 then
+      if note.Speed <> 1.0 then
         Gst.gst_element_seek(
           element,
-          speed,
+          note.Speed,
           Gst.FormatTime,
           Gst.SeekFlush,
           Gst.SeekSet,
@@ -421,6 +428,14 @@ let play(log: ILogger, media: byte[], speed: float, volume: float) =
       let bus = Gst.gst_element_get_bus element
 
       Ok(
-        Player(element, bus, descriptor, media, speed, volume, log)
+        Player(
+          element,
+          bus,
+          descriptor,
+          note.Media,
+          note.Speed,
+          note.Volume,
+          log
+        )
         :> IAudioPlayback
       )

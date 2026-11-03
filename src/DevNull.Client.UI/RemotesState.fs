@@ -181,6 +181,12 @@ type RequestSettle = {
 /// One landed push: the thread's key and the message.
 type MessageLanding = { Key: string; Message: Message }
 
+type LinkPreviewLanding = {
+  Key: string
+  MessageId: int
+  Preview: LinkPreview
+}
+
 /// One landed message's row seed: who it went to, what the lists
 /// already knew, and the message itself.
 type LandedRow = {
@@ -1274,19 +1280,19 @@ let restageSend
 /// One message's link card landed: the preview the server answered
 /// takes the message's slot.
 let landLinkPreview
-  (state: RemotesState, key: string, messageId: int, preview: LinkPreview)
+  (state: RemotesState, landing: LinkPreviewLanding)
   : RemotesState =
   updateThread
-    key
+    landing.Key
     (fun thread -> {
       thread with
           Messages =
             thread.Messages
             |> List.map(fun message ->
-              if message.Id = messageId then
+              if message.Id = landing.MessageId then
                 {
                   message with
-                      LinkPreview = Some preview
+                      LinkPreview = Some landing.Preview
                 }
               else
                 message)

@@ -319,6 +319,14 @@ module Inboxes =
     Last: Conversation
   }
 
+  [<Struct>]
+  type WalkState = {
+    Before: string option
+    Rows: Conversation list
+    Pages: int
+    Pins: string option
+  }
+
   /// Rebuilds one tab's loaded depth as one continuous prefix. A pin
   /// that moves mid-rebuild restarts the walk from the first page.
   let rec refreshPages
@@ -340,28 +348,29 @@ module Inboxes =
 
     // One step of the walk: a page, plus how many pages came before
     // it in this rebuild.
-    let rec walk
-      (
-        before: string option,
-        accumulated: Conversation list,
-        pages: int,
-        pins: string option
-      ) : Async<WalkStep> = asyncEx {
-      match! fetchPage(driver, tab, before) with
-      | Error _ -> return { Rows = None; Pages = pages }
+    let rec walk(step: WalkState) : Async<WalkStep> = asyncEx {
+      match! fetchPage(driver, tab, step.Before) with
+      | Error _ -> return { Rows = None; Pages = step.Pages }
       | Ok read ->
         let! current = driver.Read()
 
         if current.InboxRevision <> revision then
-          return { Rows = None; Pages = pages }
+          return { Rows = None; Pages = step.Pages }
         else
           let snapshot =
             read.Page.Pins |> Map.toList |> List.sortBy fst |> string
 
-          match pins with
-          | Some prior when prior <> snapshot -> return! walk(None, [], 0, None)
+          match step.Pins with
+          | Some prior when prior <> snapshot ->
+            return!
+              walk {
+                Before = None
+                Rows = []
+                Pages = 0
+                Pins = None
+              }
           | _ ->
-            let items = accumulated @ read.Page.Conversations
+            let items = step.Rows @ read.Page.Conversations
 
             let lastId =
               read.Page.Conversations |> List.tryLast |> Option.map _.Id
@@ -373,12 +382,28 @@ module Inboxes =
               || not more && List.length items = depth
 
             if doneWalking then
-              return { Rows = Some items; Pages = pages + 1 }
+              return {
+                Rows = Some items
+                Pages = step.Pages + 1
+              }
             else
-              return! walk(lastId, items, pages + 1, Some snapshot)
+              return!
+                walk {
+                  Before = lastId
+                  Rows = items
+                  Pages = step.Pages + 1
+                  Pins = Some snapshot
+                }
     }
 
-    let! step = walk(None, [], 0, None)
+    let! step =
+      walk {
+        Before = None
+        Rows = []
+        Pages = 0
+        Pins = None
+      }
+
     let! current = driver.Read()
 
     if current.InboxRevision = revision then
@@ -702,8 +727,10 @@ module Threads =
   /// One message the server took: the thread takes it and the inbox
   /// row moves to the top.
   let landed
-    (driver: Driver, target: ChatTarget, key: string, message: Message)
+    (driver: Driver, target: ChatTarget, message: Message)
     : Async<unit> = asyncEx {
+    let key = ChatTargets.key target
+
     let! state = driver.Read()
 
     let wasEmpty =
@@ -752,7 +779,7 @@ module Threads =
           driver,
           fun state -> refuseSend(state, key, pending.ClientId)
         )
-      | Ok message -> do! landed(driver, target, key, message)
+      | Ok message -> do! landed(driver, target, message)
   }
 
 /// One org left: its rows and its thread leave the state.
@@ -1862,7 +1889,15 @@ type RemotesStore(workers: RemotesWorkers, session: SessionStore, log: ILogger) 
 
           match answer with
           | Ok(Some preview) ->
-            apply(fun state -> landLinkPreview(state, key, messageId, preview))
+            apply(fun state ->
+              landLinkPreview(
+                state,
+                {
+                  Key = key
+                  MessageId = messageId
+                  Preview = preview
+                }
+              ))
           | _ -> return ()
       }
     )

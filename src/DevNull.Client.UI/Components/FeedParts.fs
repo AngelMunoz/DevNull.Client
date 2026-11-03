@@ -118,30 +118,36 @@ let laneSpineAt(lane: Lane option, x: float) : Line =
   Theme.laneStroke(spine, lane)
   spine
 
+[<Struct>]
+type Elbow = {
+  Lane: Lane option
+  X: float
+  Width: float
+  Height: float
+}
+
 /// The dashed quarter-circle that branches one reply off its parent's
 /// rail, at the given offset: down from the parent's spine, then
 /// right onto the reply's avatar column.
-let laneElbowAt
-  (lane: Lane option, x: float, width: float, height: float)
-  : Path =
-  let bend = min (width / 2.0) height
+let laneElbowAt(elbow: Elbow) : Path =
+  let bend = min (elbow.Width / 2.0) elbow.Height
 
   let path =
     System.FormattableString.Invariant(
-      $"M 0,0 L 0,{height - bend} Q 0,{height} {bend},{height} L {width},{height}"
+      $"M 0,0 L 0,{elbow.Height - bend} Q 0,{elbow.Height} {bend},{elbow.Height} L {elbow.Width},{elbow.Height}"
     )
 
-  let elbow =
+  let curve =
     Path()
       .Name("ThreadElbow")
-      .Margin(x, 0.0, 0.0, 0.0)
-      .Width(width)
-      .Height(height)
+      .Margin(elbow.X, 0.0, 0.0, 0.0)
+      .Width(elbow.Width)
+      .Height(elbow.Height)
       .HorizontalAlignment(HorizontalAlignment.Left)
       .VerticalAlignment(VerticalAlignment.Top)
       .StrokeThickness(1.5)
       .StrokeDashArray(Avalonia.Collections.AvaloniaList<double>(2.0, 2.0))
       .Data(Geometry.Parse path)
 
-  Theme.laneStroke(elbow, lane)
-  elbow
+  Theme.laneStroke(curve, elbow.Lane)
+  curve

@@ -376,19 +376,23 @@ type TestEnv
   ) as this =
 
   let settingsStore =
-    settings |> Option.defaultWith(fun () -> AppSettingsStore(None, ignore))
+    settings
+    |> Option.defaultWith(fun () -> AppSettingsStore.create(None, ignore))
 
   let attachmentSources =
     attachments |> Option.defaultWith(fun () -> FakeAttachments())
 
   // The in-memory marker store: no test touches the marker file.
   let lastVisitStore =
-    lastVisit |> Option.defaultWith(fun () -> LastVisitStore(Map.empty, ignore))
+    lastVisit
+    |> Option.defaultWith(fun () ->
+      LastVisitStore.createWith(Map.empty, ignore))
 
   // The in-memory recent searches: no test touches the recents file.
   let recentSearchStore =
     recentSearches
-    |> Option.defaultWith(fun () -> RecentSearchStore(Map.empty, ignore))
+    |> Option.defaultWith(fun () ->
+      RecentSearchStore.createWith(Map.empty, ignore))
 
   let profileWorker = profiles |> Option.defaultWith(fun () -> FakeProfiles())
 
@@ -413,12 +417,12 @@ type TestEnv
     FixedPkceSource("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")
 
   /// A fast clock, so time-driven assertions tick in milliseconds.
-  let uiClock = UiClockService(TimeSpan.FromSeconds 1.0)
+  let uiClock = UiClockService.create(TimeSpan.FromSeconds 1.0)
 
   // A throw-away folder per suite run, so the disk tier never shares
   // state between tests.
   let imageCache =
-    ImageCacheService(
+    ImageCacheService.create(
       Path.Combine(
         Path.GetTempPath(),
         "devnull-imagecache-" + Guid.NewGuid().ToString("N")
@@ -428,7 +432,7 @@ type TestEnv
     )
 
   let unread =
-    UnreadService(
+    UnreadService.create(
       store,
       (fun () ->
         match store.SignedIn with
@@ -437,22 +441,22 @@ type TestEnv
       NullLogger.Instance
     )
 
-  let timeline = TimelineService()
+  let timeline = TimelineService.create()
 
-  let routes = RouteStore()
+  let routes = RouteStore.create()
 
   // The in-memory file tier: no test touches a disk.
   let translationCache =
     translations
     |> Option.defaultWith(fun () ->
-      TranslationCache(
+      TranslationCache.createWith(
         "translations",
         MemoryFiles().Files,
         NullLogger.Instance
       ))
 
   let userSettings =
-    UserSettingsStore(
+    UserSettingsStore.create(
       store,
       (fun () ->
         match store.SignedIn with
@@ -462,7 +466,7 @@ type TestEnv
     )
 
   let remotes =
-    RemotesStore(
+    RemotesStore.create(
       {
         Clock = clock
         NonceSource = nonceSource
@@ -578,12 +582,12 @@ let sessionOf(username: string) : DeviceSession = {
 }
 
 let signedInStore() =
-  SessionStore(Some(sessionOf "octocat"), devicePrivateKeyPath, ignore)
+  SessionStore.create(Some(sessionOf "octocat"), devicePrivateKeyPath, ignore)
 
 /// A signed-in store whose viewer has pastéis mode off, so the pastel
 /// controls must stay hidden everywhere.
 let signedInStoreWithoutPasteis() =
-  SessionStore(
+  SessionStore.create(
     Some(
       {
         sessionOf "octocat" with
@@ -597,7 +601,7 @@ let signedInStoreWithoutPasteis() =
 /// A signed-in store with a custom unread notification count, so the
 /// badge assertions can use a count no canned commit carries.
 let signedInStoreWithUnread(unread: int) =
-  SessionStore(
+  SessionStore.create(
     Some(
       {
         sessionOf "octocat" with
@@ -609,12 +613,12 @@ let signedInStoreWithUnread(unread: int) =
   )
 
 let signedOutStore() =
-  SessionStore(None, devicePrivateKeyPath, ignore)
+  SessionStore.create(None, devicePrivateKeyPath, ignore)
 
 /// A signed-in store whose account has not accepted the terms, so the
 /// gate dialog stands over the app.
 let signedInStoreWithoutTerms() =
-  SessionStore(
+  SessionStore.create(
     Some(
       {
         sessionOf "octocat" with
@@ -628,7 +632,7 @@ let signedInStoreWithoutTerms() =
 /// A signed-in store whose stored session predates the terms state, so
 /// nothing knows the answer yet and the gate must stay down.
 let signedInStoreWithUnknownTerms() =
-  SessionStore(
+  SessionStore.create(
     Some(
       {
         sessionOf "octocat" with

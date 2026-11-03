@@ -5,95 +5,106 @@ open System.Collections.Generic
 open System.Reactive.Subjects
 open DevNull.Client.Core.ApiTypes
 
-/// What the shared log chrome asks the open timeline to do.
 type Request =
   | Reload
   | ScrollToTop
   | CommitLanded
 
-/// How long one accepted reload silences the next one.
-let gate = TimeSpan.FromSeconds 5.0
+type TimelineService =
+  abstract ForceReload: unit -> unit
+  abstract ScrollToTop: unit -> unit
+  abstract CommitLanded: unit -> unit
+  abstract AnnounceDeletion: commitId: string -> unit
+  abstract Requests: IObservable<Request>
+  abstract Deletions: IObservable<string>
+  abstract Remember: log: LogKind * offset: float -> unit
+  abstract OffsetOf: log: LogKind -> float
+  abstract RememberDraft: commitId: string * text: string -> unit
+  abstract ForgetDraft: commitId: string -> unit
+  abstract DraftOf: commitId: string -> string
 
-/// The app's timeline service: the channel the shared log chrome — the
-/// tab strip and the composer — talks to the open log page through, and
-/// the per-log memory a page parks here before it ends: its scroll
-/// place and its reply drafts. Every member runs on the UI thread.
-type TimelineService() =
+type IProvideTimeline =
+  abstract Timeline: TimelineService
 
-  let requests = new Subject<Request>()
+module TimelineService =
 
-  let deletions = new Subject<string>()
+  let gate = TimeSpan.FromSeconds 5.0
 
-  // The timestamp cell the gate reads; a subject stands in for a
-  // mutable field, the way the shell's layout cell does.
-  let lastAccepted =
-    new BehaviorSubject<DateTimeOffset>(DateTimeOffset.MinValue)
+  type State = {
+    Requests: Subject<Request>
+    Deletions: Subject<string>
+    LastAccepted: BehaviorSubject<DateTimeOffset>
+    Scrolls: Dictionary<LogKind, float>
+    Drafts: Dictionary<string, string>
+  }
 
-  // The parked state: one scroll place per log kind, one draft per
-  // commit. Plain maps on the UI thread, the way the last-visit store
-  // holds its markers.
-  let scrolls = Dictionary<LogKind, float>()
-  let drafts = Dictionary<string, string>()
+  let forceReload(state: State) =
+    state.Requests.OnNext ScrollToTop
 
-  /// Serves the scroll, and one gated reload: at least `gate` must
-  /// have passed since the last accepted reload. Gated-out clicks
-  /// still scroll.
-  member _.ForceReload() =
-    requests.OnNext ScrollToTop
+    if DateTimeOffset.UtcNow - state.LastAccepted.Value >= gate then
+      state.LastAccepted.OnNext(DateTimeOffset.UtcNow)
+      state.Requests.OnNext Reload
 
-    if DateTimeOffset.UtcNow - lastAccepted.Value >= gate then
-      lastAccepted.OnNext(DateTimeOffset.UtcNow)
-      requests.OnNext Reload
+  let scrollToTop(state: State) = state.Requests.OnNext ScrollToTop
 
-  /// Scrolls the open timeline to its top, without reloading it: the
-  /// answer a fresh first page gives its reader.
-  member _.ScrollToTop() = requests.OnNext ScrollToTop
+  let commitLanded(state: State) = state.Requests.OnNext CommitLanded
 
-  /// Announces a landed commit; the open page reloads ungated, the way
-  /// its own composer's post reloads it.
-  member _.CommitLanded() = requests.OnNext CommitLanded
+  let announceDeletion(state: State, commitId: string) =
+    state.Deletions.OnNext commitId
 
-  /// Announces one deleted commit; the shell answers with its undo
-  /// toast. The open log page is not told: its next reload omits the
-  /// commit on its own.
-  member _.AnnounceDeletion(commitId: string) = deletions.OnNext commitId
+  let requests(state: State) : IObservable<Request> = state.Requests
 
-  /// The request stream. Emits on the UI thread.
-  member _.Requests: IObservable<Request> = requests
+  let deletions(state: State) : IObservable<string> = state.Deletions
 
-  /// The deleted commits worth an undo toast, newest last.
-  member _.Deletions: IObservable<string> = deletions
-
-  /// Parks one log's scroll place, so the next page of that log
-  /// picks it up.
-  member _.Remember(log: LogKind, offset: float) =
+  let remember(state: State, log: LogKind, offset: float) =
     if offset > 0.0 then
-      scrolls[log] <- offset
+      state.Scrolls[log] <- offset
     else
-      scrolls.Remove log |> ignore
+      state.Scrolls.Remove log |> ignore
 
-  /// The scroll place a log left, or its top.
-  member _.OffsetOf(log: LogKind) : float =
-    match scrolls.TryGetValue log with
+  let offsetOf(state: State, log: LogKind) : float =
+    match state.Scrolls.TryGetValue log with
     | true, offset -> offset
     | false, _ -> 0.0
 
-  /// Parks one reply draft. An emptied text leaves no entry behind.
-  member _.RememberDraft(commitId: string, text: string) =
+  let rememberDraft(state: State, commitId: string, text: string) =
     if text = "" then
-      drafts.Remove commitId |> ignore
+      state.Drafts.Remove commitId |> ignore
     else
-      drafts[commitId] <- text
+      state.Drafts[commitId] <- text
 
-  /// Spends one reply draft: the landed reply consumed it.
-  member _.ForgetDraft(commitId: string) = drafts.Remove commitId |> ignore
+  let forgetDraft(state: State, commitId: string) =
+    state.Drafts.Remove commitId |> ignore
 
-  /// The draft a recycled row's composer seeds from.
-  member _.DraftOf(commitId: string) : string =
-    match drafts.TryGetValue commitId with
+  let draftOf(state: State, commitId: string) : string =
+    match state.Drafts.TryGetValue commitId with
     | true, text -> text
     | false, _ -> ""
 
-/// Accessor for the timeline service capability.
-type IProvideTimeline =
-  abstract Timeline: TimelineService
+  let create() =
+    let state: State = {
+      Requests = new Subject<Request>()
+      Deletions = new Subject<string>()
+      LastAccepted =
+        new BehaviorSubject<DateTimeOffset>(DateTimeOffset.MinValue)
+      Scrolls = Dictionary<LogKind, float>()
+      Drafts = Dictionary<string, string>()
+    }
+
+    {
+      new TimelineService with
+        member _.ForceReload() = forceReload state
+        member _.ScrollToTop() = scrollToTop state
+        member _.CommitLanded() = commitLanded state
+        member _.AnnounceDeletion(commitId) = announceDeletion(state, commitId)
+        member _.Requests = requests state
+        member _.Deletions = deletions state
+        member _.Remember(log, offset) = remember(state, log, offset)
+        member _.OffsetOf(log) = offsetOf(state, log)
+
+        member _.RememberDraft(commitId, text) =
+          rememberDraft(state, commitId, text)
+
+        member _.ForgetDraft(commitId) = forgetDraft(state, commitId)
+        member _.DraftOf(commitId) = draftOf(state, commitId)
+    }

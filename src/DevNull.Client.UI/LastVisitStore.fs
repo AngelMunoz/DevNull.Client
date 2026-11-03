@@ -6,84 +6,115 @@ open System.IO
 open System.Text.Json
 open System.Text.Json.Nodes
 
-let directory =
-  Path.Combine(
-    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-    "DevNull"
-  )
+type LastVisitStore =
+  abstract LastVisit: user: string * log: string -> DateTimeOffset option
+  abstract Mark: user: string * log: string * newest: DateTimeOffset -> unit
 
-let markersPath = Path.Combine(directory, "last-visit.json")
+type IProvideLastVisit =
+  abstract LastVisit: LastVisitStore
 
-let filePersist(markers: Map<string, DateTimeOffset>) =
-  try
-    Directory.CreateDirectory directory |> ignore
+module LastVisitStore =
 
-    let json = JsonObject()
+  let directory =
+    Path.Combine(
+      Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+      "DevNull"
+    )
 
-    for key, value in Map.toSeq markers do
-      json[key] <- JsonValue.Create(value.ToString "O")
+  let markersPath = Path.Combine(directory, "last-visit.json")
 
-    File.WriteAllText(markersPath, json.ToJsonString())
-  with
-  | :? UnauthorizedAccessException
-  | :? IOException -> ()
+  let filePersist(markers: Map<string, DateTimeOffset>) =
+    try
+      Directory.CreateDirectory directory |> ignore
 
-/// The stored markers; an absent or unreadable file answers none.
-let fileStored() : Map<string, DateTimeOffset> =
-  try
-    use document = JsonDocument.Parse(File.ReadAllText markersPath)
+      let json = JsonObject()
 
-    [|
-      for pair in document.RootElement.EnumerateObject() do
-        match pair.Value.ValueKind with
-        | JsonValueKind.String ->
-          let parsed = DateTimeOffset.TryParse(pair.Value.GetString())
+      for key, value in Map.toSeq markers do
+        json[key] <- JsonValue.Create(value.ToString "O")
 
-          match parsed with
-          | true, newest -> pair.Name, newest
-          | false, _ -> ()
-        | _ -> ()
-    |]
-    |> Map.ofArray
-  with
-  | :? FileNotFoundException
-  | :? DirectoryNotFoundException
-  | :? JsonException
-  | :? IOException -> Map.empty
+      File.WriteAllText(markersPath, json.ToJsonString())
+    with
+    | :? UnauthorizedAccessException
+    | :? IOException -> ()
 
-/// The per-user, per-log marker of the newest commit the last visit
-/// saw.
-type LastVisitStore
-  (
-    stored: Map<string, DateTimeOffset>,
-    persist: Map<string, DateTimeOffset> -> unit
-  ) =
+  let fileStored() : Map<string, DateTimeOffset> =
+    try
+      use document = JsonDocument.Parse(File.ReadAllText markersPath)
 
-  // The marker is feed chrome: a missing or unreadable file only
-  // means no marker shows, so every read and write is best effort.
-  let entries: Dictionary<string, DateTimeOffset> = Dictionary()
+      [|
+        for pair in document.RootElement.EnumerateObject() do
+          match pair.Value.ValueKind with
+          | JsonValueKind.String ->
+            let parsed = DateTimeOffset.TryParse(pair.Value.GetString())
 
-  do
-    for key, value in Map.toSeq stored do
-      entries[key] <- value
+            match parsed with
+            | true, newest -> pair.Name, newest
+            | false, _ -> ()
+          | _ -> ()
+      |]
+      |> Map.ofArray
+    with
+    | :? FileNotFoundException
+    | :? DirectoryNotFoundException
+    | :? JsonException
+    | :? IOException -> Map.empty
+
+  type State = {
+    Entries: Dictionary<string, DateTimeOffset>
+    Persist: Map<string, DateTimeOffset> -> unit
+  }
+
+  [<Struct>]
+  type Marker = {
+    User: string
+    Log: string
+    Newest: DateTimeOffset
+  }
 
   let keyOf(user: string, log: string) = user + "|" + log
 
-  new() = LastVisitStore(fileStored(), filePersist)
-
-  member _.LastVisit(user: string, log: string) : DateTimeOffset option =
-    match entries.TryGetValue(keyOf(user, log)) with
+  let lastVisit
+    (state: State, user: string, log: string)
+    : DateTimeOffset option =
+    match state.Entries.TryGetValue(keyOf(user, log)) with
     | true, newest -> Some newest
     | false, _ -> None
 
-  member _.Mark(user: string, log: string, newest: DateTimeOffset) =
-    entries[keyOf(user, log)] <- newest
+  let mark(state: State, marker: Marker) =
+    // The marker is feed chrome: a missing or unreadable file only
+    // means no marker shows, so every write is best effort.
+    state.Entries[keyOf(marker.User, marker.Log)] <- marker.Newest
 
-    let asMap =
-      entries |> Seq.map(fun pair -> pair.Key, pair.Value) |> Map.ofSeq
+    state.Entries
+    |> Seq.map(fun pair -> pair.Key, pair.Value)
+    |> Map.ofSeq
+    |> state.Persist
 
-    persist asMap
+  let createWith
+    (
+      stored: Map<string, DateTimeOffset>,
+      persist: Map<string, DateTimeOffset> -> unit
+    ) =
+    let entries: Dictionary<string, DateTimeOffset> = Dictionary()
 
-/// Accessor for the last-visit capability.
-type IProvideLastVisit =
-  abstract LastVisit: LastVisitStore
+    for key, value in Map.toSeq stored do
+      entries[key] <- value
+
+    let state: State = { Entries = entries; Persist = persist }
+
+    {
+      new LastVisitStore with
+        member _.LastVisit(user, log) = lastVisit(state, user, log)
+
+        member _.Mark(user, log, newest) =
+          mark(
+            state,
+            {
+              User = user
+              Log = log
+              Newest = newest
+            }
+          )
+    }
+
+  let create() = createWith(fileStored(), filePersist)

@@ -426,7 +426,14 @@ type PulseEngine(log: ILogger) =
               Error(AudioFailed "the note's WAV could not be read")
           | _ ->
             if mediaFramework then
-              GStreamer.play(log, media, speed, volume)
+              GStreamer.play(
+                log,
+                {
+                  Media = media
+                  Speed = speed
+                  Volume = volume
+                }
+              )
             else
               log.LogWarning(
                 "The web note cannot play: the desktop's media framework is missing."

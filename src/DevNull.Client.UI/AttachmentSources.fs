@@ -10,50 +10,38 @@ open IcedTasks
 open Microsoft.Extensions.Logging
 open DevNull.Client.Core.Commit
 
-/// Worker: the two ways images enter the composer — the file picker
-/// and the clipboard.
 type IAttachmentSources =
   abstract PickFiles: unit -> Async<ImageAttachment list>
-
   abstract ReadClipboardImage: unit -> Async<ImageAttachment option>
-
   abstract ReadClipboardText: unit -> Async<string option>
 
-/// Accessor for the attachment sources capability.
 type IProvideAttachmentSources =
   abstract Attachments: IAttachmentSources
 
-/// The image types the picker offers, the three the server accepts.
-let imageTypes =
-  FilePickerFileType(
-    "Images",
-    Patterns = [ "*.jpg"; "*.jpeg"; "*.png"; "*.webp" ]
-  )
+module AttachmentSources =
 
-/// One picked file read to bytes. An unreadable file is skipped, so one
-/// bad pick never blocks the rest. The bytes stage as picked: the
-/// service re-encodes every post itself, and the commit parse caps what
-/// leaves the client, so staging never decodes or re-encodes a photo.
-let readOf(file: IStorageFile) : Async<ImageAttachment option> = asyncEx {
-  try
-    use! stream = file.OpenReadAsync()
-    use buffer = new MemoryStream()
-    do! stream.CopyToAsync buffer
+  let imageTypes =
+    FilePickerFileType(
+      "Images",
+      Patterns = [ "*.jpg"; "*.jpeg"; "*.png"; "*.webp" ]
+    )
 
-    return
-      Some {
-        FileName = file.Name
-        Bytes = buffer.ToArray()
-      }
-  with :? IOException ->
-    return None
-}
+  let readOf(file: IStorageFile) : Async<ImageAttachment option> = asyncEx {
+    try
+      use! stream = file.OpenReadAsync()
+      use buffer = new MemoryStream()
+      do! stream.CopyToAsync buffer
 
-/// The desktop sources over the window the resolver finds.
-let desktop
-  (log: ILogger, resolve: unit -> TopLevel voption)
-  : IAttachmentSources =
-  let pick(top: TopLevel) = asyncEx {
+      return
+        Some {
+          FileName = file.Name
+          Bytes = buffer.ToArray()
+        }
+    with :? IOException ->
+      return None
+  }
+
+  let pick(log: ILogger, top: TopLevel) = asyncEx {
     let options = FilePickerOpenOptions(AllowMultiple = true)
 
     options.FileTypeFilter <- [ imageTypes ]
@@ -94,7 +82,6 @@ let desktop
       })
   }
 
-  /// The first image format the clipboard offers, in preference order.
   let rec firstRawImage
     (clipboard: IClipboard, formats: (string * string) list)
     : Async<ImageAttachment option> = asyncEx {
@@ -121,7 +108,7 @@ let desktop
 
   // A platform that exposes no image bytes falls back to the decoded
   // bitmap; the bitmap owns its native pixels, so it disposes here.
-  let clipboardImage(top: TopLevel) = asyncEx {
+  let clipboardImage(log: ILogger, top: TopLevel) = asyncEx {
     match top.Clipboard with
     | null -> return None
     | clipboard ->
@@ -157,23 +144,30 @@ let desktop
       return Option.ofObj text
   }
 
-  {
+  let pickFiles(log: ILogger, resolve: unit -> TopLevel voption) = asyncEx {
+    match resolve() with
+    | ValueNone -> return []
+    | ValueSome top -> return! pick(log, top)
+  }
+
+  let readClipboardImage(log: ILogger, resolve: unit -> TopLevel voption) =
+    asyncEx {
+      match resolve() with
+      | ValueNone -> return None
+      | ValueSome top -> return! clipboardImage(log, top)
+    }
+
+  let readClipboardText(resolve: unit -> TopLevel voption) = asyncEx {
+    match resolve() with
+    | ValueNone -> return None
+    | ValueSome top -> return! clipboardText top
+  }
+
+  let create(log: ILogger, resolve: unit -> TopLevel voption) = {
     new IAttachmentSources with
-      member _.PickFiles() = asyncEx {
-        match resolve() with
-        | ValueNone -> return []
-        | ValueSome top -> return! pick top
-      }
+      member _.PickFiles() = pickFiles(log, resolve)
 
-      member _.ReadClipboardImage() = asyncEx {
-        match resolve() with
-        | ValueNone -> return None
-        | ValueSome top -> return! clipboardImage top
-      }
+      member _.ReadClipboardImage() = readClipboardImage(log, resolve)
 
-      member _.ReadClipboardText() = asyncEx {
-        match resolve() with
-        | ValueNone -> return None
-        | ValueSome top -> return! clipboardText top
-      }
+      member _.ReadClipboardText() = readClipboardText resolve
   }

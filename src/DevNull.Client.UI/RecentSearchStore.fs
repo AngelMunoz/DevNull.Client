@@ -9,97 +9,83 @@ open System.Text.Json.Nodes
 open FSharp.Control.Reactive
 open JDeck
 
-let directory =
-  Path.Combine(
-    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-    "DevNull"
-  )
+type RecentSearchStore =
+  abstract Recent: user: string -> string list
+  abstract Remember: user: string * term: string -> unit
+  abstract Clear: user: string -> unit
 
-let recentPath = Path.Combine(directory, "recent-searches.json")
+type IProvideRecentSearches =
+  abstract RecentSearches: RecentSearchStore
 
-/// The file's one entry: whose searches, and which.
-let entryDecoder(element: JsonElement) = decode {
-  let! user = Required.Property.get ("user", Required.string) element
-  let! terms = Required.Property.list ("terms", Required.string) element
-  return user, terms
-}
+module RecentSearchStore =
 
-let recentsDecoder(element: JsonElement) = decode {
-  let! entries = Required.Property.list ("recents", entryDecoder) element
-  return Map.ofList entries
-}
+  let directory =
+    Path.Combine(
+      Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+      "DevNull"
+    )
 
-let filePersist(recents: Map<string, string list>) =
-  try
-    Directory.CreateDirectory directory |> ignore
+  let recentPath = Path.Combine(directory, "recent-searches.json")
 
-    let entryOf(user: string, terms: string list) : JsonNode =
-      Json.object [
-        "user", Encode.string user
-        "terms", Encode.sequence (terms, Encode.string) (JsonArray())
-      ]
+  let entryDecoder(element: JsonElement) = decode {
+    let! user = Required.Property.get ("user", Required.string) element
+    let! terms = Required.Property.list ("terms", Required.string) element
+    return user, terms
+  }
 
-    let root =
-      Json.object(
-        List.singleton(
-          "recents",
-          Encode.sequence (Map.toList recents, entryOf) (JsonArray())
+  let recentsDecoder(element: JsonElement) = decode {
+    let! entries = Required.Property.list ("recents", entryDecoder) element
+    return Map.ofList entries
+  }
+
+  let filePersist(recents: Map<string, string list>) =
+    try
+      Directory.CreateDirectory directory |> ignore
+
+      let entryOf(user: string, terms: string list) : JsonNode =
+        Json.object [
+          "user", Encode.string user
+          "terms", Encode.sequence (terms, Encode.string) (JsonArray())
+        ]
+
+      let root =
+        Json.object(
+          List.singleton(
+            "recents",
+            Encode.sequence (Map.toList recents, entryOf) (JsonArray())
+          )
         )
-      )
 
-    File.WriteAllText(recentPath, root.ToJsonString())
-  with
-  | :? UnauthorizedAccessException
-  | :? IOException -> ()
-
-/// The stored searches; an absent or unreadable file answers none.
-/// One synchronous read at startup, the way the settings and last-visit
-/// files read theirs.
-let fileStored() : Map<string, string list> =
-  try
-    match
-      JDeck.Decoding.fromString(File.ReadAllText recentPath, recentsDecoder)
+      File.WriteAllText(recentPath, root.ToJsonString())
     with
-    | Ok recents -> recents
-    | Error _ -> Map.empty
-  with
-  | :? FileNotFoundException
-  | :? DirectoryNotFoundException
-  | :? JsonException
-  | :? InvalidOperationException
-  | :? IOException -> Map.empty
+    | :? UnauthorizedAccessException
+    | :? IOException -> ()
 
-/// The per-user list of the searches the person settled on.
-type RecentSearchStore
-  (stored: Map<string, string list>, persist: Map<string, string list> -> unit)
-  =
+  let fileStored() : Map<string, string list> =
+    try
+      match
+        JDeck.Decoding.fromString(File.ReadAllText recentPath, recentsDecoder)
+      with
+      | Ok recents -> recents
+      | Error _ -> Map.empty
+    with
+    | :? FileNotFoundException
+    | :? DirectoryNotFoundException
+    | :? JsonException
+    | :? InvalidOperationException
+    | :? IOException -> Map.empty
 
-  // The list is dialog chrome: a missing or unreadable file only means
-  // no recents show, so every write is best effort.
-  let entries: Dictionary<string, string list> = Dictionary()
+  type State = {
+    Entries: Dictionary<string, string list>
+    Publish: Map<string, string list> -> unit
+  }
 
-  do
-    for user, terms in Map.toSeq stored do
-      entries[user] <- terms
-
-  // Each write leaves the calling thread once, serialized in order on
-  // the thread pool, so a settled search never costs the interface a
-  // disk write and two quick ones never cross.
-  let disk = Subject.broadcast
-
-  do
-    disk
-    |> Observable.observeOn ThreadPoolScheduler.Instance
-    |> Observable.add persist
-
-  new() = RecentSearchStore(fileStored(), filePersist)
-
-  member _.Recent(user: string) : string list =
-    match entries.TryGetValue user with
+  let recent(state: State, user: string) : string list =
+    match state.Entries.TryGetValue user with
     | true, terms -> terms
     | false, _ -> []
 
-  member _.Remember(user: string, term: string) =
+  let remember(state: State, user: string, term: string) =
     let trimmed = term.Trim()
 
     if trimmed = "" || String.length trimmed > 100 then
@@ -108,7 +94,7 @@ type RecentSearchStore
       // A user's first search has no list yet: the missing key is an
       // empty list, never a null one.
       let known =
-        match entries.TryGetValue user with
+        match state.Entries.TryGetValue user with
         | true, terms -> terms
         | false, _ -> []
 
@@ -126,19 +112,47 @@ type RecentSearchStore
           known
         |> List.truncate 3
 
-      entries[user] <- kept
+      state.Entries[user] <- kept
 
-      disk.OnNext(
-        entries |> Seq.map(fun pair -> pair.Key, pair.Value) |> Map.ofSeq
-      )
+      state.Entries
+      |> Seq.map(fun pair -> pair.Key, pair.Value)
+      |> Map.ofSeq
+      |> state.Publish
 
-  member _.Clear(user: string) =
-    entries[user] <- []
+  let clear(state: State, user: string) =
+    state.Entries[user] <- []
 
-    disk.OnNext(
-      entries |> Seq.map(fun pair -> pair.Key, pair.Value) |> Map.ofSeq
-    )
+    state.Entries
+    |> Seq.map(fun pair -> pair.Key, pair.Value)
+    |> Map.ofSeq
+    |> state.Publish
 
-/// Accessor for the recent-search capability.
-type IProvideRecentSearches =
-  abstract RecentSearches: RecentSearchStore
+  let createWith
+    (stored: Map<string, string list>, persist: Map<string, string list> -> unit) =
+    let entries: Dictionary<string, string list> = Dictionary()
+
+    for user, terms in Map.toSeq stored do
+      entries[user] <- terms
+
+    // Each write leaves the calling thread once, serialized in order on
+    // the thread pool, so a settled search never costs the interface a
+    // disk write and two quick ones never cross.
+    let disk = Subject.broadcast
+
+    disk
+    |> Observable.observeOn ThreadPoolScheduler.Instance
+    |> Observable.add persist
+
+    let state: State = {
+      Entries = entries
+      Publish = disk.OnNext
+    }
+
+    {
+      new RecentSearchStore with
+        member _.Recent(user) = recent(state, user)
+        member _.Remember(user, term) = remember(state, user, term)
+        member _.Clear(user) = clear(state, user)
+    }
+
+  let create() = createWith(fileStored(), filePersist)

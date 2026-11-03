@@ -9,86 +9,90 @@ open DevNull.Client.Errors
 open DevNull.Client.Stores
 open IcedTasks
 
-/// What one settings store carries: the session it follows, the read
-/// leaf, and the logger of a failed read.
-[<Struct>]
-type Context = {
-  Session: SessionStore
-  Fetch: unit -> Async<Result<UserSettings, AppError>>
-  Log: ILogger
-}
+type UserSettingsStore =
+  abstract Current: UserSettings option
+  abstract Observe: IObservable<UserSettings option>
+  abstract Refresh: unit -> unit
+  abstract Apply: settings: UserSettings -> unit
 
-type UserSettingsStore(context: Context) =
-  let subject = new BehaviorSubject<UserSettings option>(None)
-  let reading = ref 0
+type IProvideUserSettings =
+  abstract UserSettings: UserSettingsStore
 
-  /// Posts on the UI thread, so no page re-enters a control off the
-  /// dispatcher.
-  let emit(value: UserSettings option) =
+module UserSettingsStore =
+
+  type State = {
+    Session: SessionStore
+    Fetch: unit -> Async<Result<UserSettings, AppError>>
+    Log: ILogger
+    Subject: BehaviorSubject<UserSettings option>
+    Reading: int ref
+  }
+
+  let emit(state: State, value: UserSettings option) =
     if Avalonia.Threading.Dispatcher.UIThread.CheckAccess() then
-      subject.OnNext value
+      state.Subject.OnNext value
     else
-      emitOnUi(subject, value)
+      emitOnUi(state.Subject, value)
 
-  /// Keeps the settings and follows the automatic translation flag in
-  /// the session store, so every card page reads the same choice.
-  let apply(settings: UserSettings) =
-    emit(Some settings)
+  let apply(state: State, settings: UserSettings) =
+    emit(state, Some settings)
 
-    match context.Session.SignedIn with
+    match state.Session.SignedIn with
     | ValueSome current ->
-      context.Session.Refresh {
+      state.Session.Refresh {
         current.Session with
             AutomaticTranslation = settings.AutomaticTranslation
       }
     | ValueNone -> ()
 
-  /// One read, folded into the store: a failure keeps the last settings
-  /// and reads again on the next ask.
-  let read() = asyncEx {
+  let read(state: State) = asyncEx {
     try
-      match! context.Fetch() with
+      match! state.Fetch() with
       | Ok settings ->
-        context.Log.LogDebug("The user settings arrived.")
-        apply settings
+        state.Log.LogDebug("The user settings arrived.")
+        apply(state, settings)
       | Error error ->
-        context.Log.LogWarning(
+        state.Log.LogWarning(
           "The user settings did not arrive: {Error}",
           bounded 300 (describe error)
         )
     with ex ->
-      context.Log.LogWarning(ex, "The user settings did not arrive.")
+      state.Log.LogWarning(ex, "The user settings did not arrive.")
   }
 
-  /// One read at a time: the claim keeps a page's ask and the window's ask
-  /// from doubling up, and clears when the read settles.
-  let refresh() =
-    if Interlocked.CompareExchange(reading, 1, 0) = 0 then
+  let refresh(state: State) =
+    if Interlocked.CompareExchange(state.Reading, 1, 0) = 0 then
       Async.Start(
         asyncEx {
           try
-            do! read()
+            do! read state
           finally
-            reading.Value <- 0
+            state.Reading.Value <- 0
         }
       )
 
-  /// The state at boot: nothing read yet.
-  new(session: SessionStore, fetch, log: ILogger) =
-    UserSettingsStore {
+  let current(state: State) : UserSettings option = state.Subject.Value
+
+  let observe(state: State) : IObservable<UserSettings option> = state.Subject
+
+  let create
+    (
+      session: SessionStore,
+      fetch: unit -> Async<Result<UserSettings, AppError>>,
+      log: ILogger
+    ) =
+    let state: State = {
       Session = session
       Fetch = fetch
       Log = log
+      Subject = new BehaviorSubject<UserSettings option>(None)
+      Reading = ref 0
     }
 
-  member _.Current: UserSettings option = subject.Value
-
-  member _.Observe: IObservable<UserSettings option> = subject
-
-  member _.Refresh() = refresh()
-
-  member _.Apply(settings: UserSettings) = apply settings
-
-/// Accessor for the user settings capability.
-type IProvideUserSettings =
-  abstract UserSettings: UserSettingsStore
+    {
+      new UserSettingsStore with
+        member _.Current = current state
+        member _.Observe = observe state
+        member _.Refresh() = refresh state
+        member _.Apply(settings) = apply(state, settings)
+    }

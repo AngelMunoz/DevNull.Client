@@ -9,177 +9,214 @@ open DevNull.Client.Errors
 open IcedTasks
 open Microsoft.Extensions.Logging
 
-/// One translation as the server keeps it for a week.
-let ttl = TimeSpan.FromSeconds 604800.0
+type TranslationCache =
+  abstract TryGet: commitId: string -> Async<CommitTranslation option>
+  abstract Set: commitId: string * payload: TranslationPayload -> Async<unit>
+  abstract Forget: commitId: string -> Async<unit>
+  abstract Snapshot: unit -> Map<string, CommitTranslation>
 
-[<Struct>]
-type Files = {
-  Read: string -> Async<(string * DateTime) option>
-  Keep: string * string -> Async<unit>
-  Drop: string -> unit
-  List: unit -> string list
-}
+type IProvideTranslations =
+  abstract Translations: TranslationCache
 
-// The app's own file tier: one directory, with every failure a cache
-// survives turned into a quiet answer — a read that cannot happen reads
-// as nothing, and a write or drop that cannot happen never happened.
-let filesOf(directory: string) : Files = {
-  Read =
-    fun path -> asyncEx {
-      try
-        let! token = Async.CancellationToken
-        let! json = File.ReadAllTextAsync(path, token)
-        return Some(json, File.GetLastWriteTimeUtc path)
-      with
-      | :? FileNotFoundException
-      | :? DirectoryNotFoundException -> return None
-      | :? IOException
-      | :? UnauthorizedAccessException -> return None
-    }
-  Keep =
-    fun (path, json) -> asyncEx {
-      try
-        let! token = Async.CancellationToken
-        Directory.CreateDirectory directory |> ignore
+module TranslationCache =
 
-        do! File.WriteAllTextAsync(path, json, token)
-      with
-      | :? IOException
-      | :? UnauthorizedAccessException -> ()
-    }
-  Drop =
-    fun path ->
-      try
-        File.Delete path
-      with
-      | :? FileNotFoundException
-      | :? DirectoryNotFoundException -> ()
-      | :? IOException
-      | :? UnauthorizedAccessException -> ()
-  List =
-    fun () ->
-      try
-        Directory.EnumerateFiles(directory, "*.json") |> Seq.toList
-      with
-      | :? DirectoryNotFoundException -> []
-      | :? IOException
-      | :? UnauthorizedAccessException -> []
-}
+  let ttl = TimeSpan.FromSeconds 604800.0
 
-type TranslationCache(directory: string, files: Files, log: ILogger) =
-  let held = ConcurrentDictionary<string, DateTime * CommitTranslation>()
+  [<Struct>]
+  type Files = {
+    Read: string -> Async<(string * DateTime) option>
+    Keep: string * string -> Async<unit>
+    Drop: string -> unit
+    List: unit -> string list
+  }
 
-  let tryDisk(commitId: string) : Async<(DateTime * CommitTranslation) option> =
-    asyncEx {
-      let path = Path.Combine(directory, commitId + ".json")
+  type State = {
+    Directory: string
+    Files: Files
+    Log: ILogger
+    Held: ConcurrentDictionary<string, DateTime * CommitTranslation>
+  }
 
-      match! files.Read path with
-      | Some(json, writtenAt) ->
-        if DateTime.UtcNow - writtenAt <= ttl then
-          match CommitTranslation.decode json with
-          | Ok(Some translation) -> return Some(writtenAt, translation)
-          // A file the decoder refuses is noise: drop it like an expired
-          // one, so it never fails twice.
-          | _ ->
-            files.Drop path
-            return None
-        else
-          files.Drop path
+  // The app's own file tier: one directory, with every failure a cache
+  // survives turned into a quiet answer — a read that cannot happen reads
+  // as nothing, and a write or drop that cannot happen never happened.
+  let filesOf(directory: string) : Files = {
+    Read =
+      fun path -> asyncEx {
+        try
+          let! token = Async.CancellationToken
+          let! json = File.ReadAllTextAsync(path, token)
+          return Some(json, File.GetLastWriteTimeUtc path)
+        with
+        | :? FileNotFoundException
+        | :? DirectoryNotFoundException -> return None
+        | :? IOException
+        | :? UnauthorizedAccessException -> return None
+      }
+    Keep =
+      fun (path, json) -> asyncEx {
+        try
+          let! token = Async.CancellationToken
+          Directory.CreateDirectory directory |> ignore
+
+          do! File.WriteAllTextAsync(path, json, token)
+        with
+        | :? IOException
+        | :? UnauthorizedAccessException -> ()
+      }
+    Drop =
+      fun path ->
+        try
+          File.Delete path
+        with
+        | :? FileNotFoundException
+        | :? DirectoryNotFoundException -> ()
+        | :? IOException
+        | :? UnauthorizedAccessException -> ()
+    List =
+      fun () ->
+        try
+          Directory.EnumerateFiles(directory, "*.json") |> Seq.toList
+        with
+        | :? DirectoryNotFoundException -> []
+        | :? IOException
+        | :? UnauthorizedAccessException -> []
+  }
+
+  let pathOf(state: State, commitId: string) =
+    Path.Combine(state.Directory, commitId + ".json")
+
+  let tryDisk
+    (state: State, commitId: string)
+    : Async<(DateTime * CommitTranslation) option> = asyncEx {
+    let path = pathOf(state, commitId)
+
+    match! state.Files.Read path with
+    | Some(json, writtenAt) ->
+      if DateTime.UtcNow - writtenAt <= ttl then
+        match CommitTranslation.decode json with
+        | Ok(Some translation) -> return Some(writtenAt, translation)
+        // A file the decoder refuses is noise: drop it like an expired
+        // one, so it never fails twice.
+        | _ ->
+          state.Files.Drop path
           return None
-      | None -> return None
-    }
+      else
+        state.Files.Drop path
+        return None
+    | None -> return None
+  }
 
-  let forgetDisk(commitId: string) : Async<unit> = asyncEx {
-    files.Drop(Path.Combine(directory, commitId + ".json"))
+  let forgetDisk(state: State, commitId: string) : Async<unit> = asyncEx {
+    state.Files.Drop(pathOf(state, commitId))
 
     // Foreign files — names no commit id can carry — leave beside the
     // drop, off the caller's path: the sweep never delays the work.
     Async.Start(
       asyncEx {
-        for path in files.List() do
+        for path in state.Files.List() do
           match Path.GetFileNameWithoutExtension path |> Option.ofObj with
           | Some stem when CommitIds.parse<AppError> stem |> Result.isError ->
-            files.Drop path
+            state.Files.Drop path
           | _ -> ()
       }
     )
   }
 
-  let recallDisk(commitId: string) : Async<CommitTranslation option> = asyncEx {
-    match! tryDisk commitId with
+  let recallDisk
+    (state: State, commitId: string)
+    : Async<CommitTranslation option> = asyncEx {
+    match! tryDisk(state, commitId) with
     | Some(writtenAt, translation) ->
-      held[commitId] <- (writtenAt, translation)
+      state.Held[commitId] <- (writtenAt, translation)
       return Some translation
     | None ->
-      held.TryRemove commitId |> ignore
+      state.Held.TryRemove commitId |> ignore
       return None
   }
 
   // A restart starts with the disk tier in memory: the scan starts with
   // the cache and runs beside the window. A page that mounts before it
   // settles reads what it needs through TryGet.
-  do
+  let startScan(state: State) =
     Async.Start(
       asyncEx {
-        for path in files.List() do
+        for path in state.Files.List() do
           match Option.ofObj(Path.GetFileNameWithoutExtension path) with
-          | Some commitId -> do! recallDisk commitId |> Async.Ignore
+          | Some commitId -> do! recallDisk(state, commitId) |> Async.Ignore
           | None -> ()
       }
     )
 
-  /// The app's own cache: the directory under the local app data.
-  new(directory: string, log: ILogger) =
-    TranslationCache(directory, filesOf directory, log)
-
-  member _.TryGet(commitId: string) : Async<CommitTranslation option> = asyncEx {
-    match held.TryGetValue commitId with
-    | true, (writtenAt, translation) when DateTime.UtcNow - writtenAt <= ttl ->
-      log.LogDebug("The translation of {Commit} came from memory.", commitId)
-
-      return Some translation
-    | _ ->
-      match! recallDisk commitId with
-      | Some translation ->
-        log.LogInformation(
-          "The translation of {Commit} came from the disk.",
+  let tryGet(state: State, commitId: string) : Async<CommitTranslation option> =
+    asyncEx {
+      match state.Held.TryGetValue commitId with
+      | true, (writtenAt, translation) when DateTime.UtcNow - writtenAt <= ttl ->
+        state.Log.LogDebug(
+          "The translation of {Commit} came from memory.",
           commitId
         )
 
         return Some translation
-      | None ->
-        log.LogInformation(
-          "The disk holds no translation of {Commit}; the page asks the server.",
-          commitId
-        )
+      | _ ->
+        match! recallDisk(state, commitId) with
+        | Some translation ->
+          state.Log.LogInformation(
+            "The translation of {Commit} came from the disk.",
+            commitId
+          )
 
-        return None
-  }
+          return Some translation
+        | None ->
+          state.Log.LogInformation(
+            "The disk holds no translation of {Commit}; the page asks the server.",
+            commitId
+          )
 
-  member _.Set(commitId: string, payload: TranslationPayload) : Async<unit> =
-    asyncEx {
-      match payload.Translation with
-      | Some translation ->
-        held[commitId] <- (DateTime.UtcNow, translation)
-
-        do!
-          files.Keep(Path.Combine(directory, commitId + ".json"), payload.Json)
-      | None ->
-        held.TryRemove commitId |> ignore
-        do! forgetDisk commitId
+          return None
     }
 
-  member _.Forget(commitId: string) : Async<unit> = asyncEx {
-    held.TryRemove commitId |> ignore
-    do! forgetDisk commitId
+  let set
+    (state: State, commitId: string, payload: TranslationPayload)
+    : Async<unit> = asyncEx {
+    match payload.Translation with
+    | Some translation ->
+      state.Held[commitId] <- (DateTime.UtcNow, translation)
+
+      do! state.Files.Keep(pathOf(state, commitId), payload.Json)
+    | None ->
+      state.Held.TryRemove commitId |> ignore
+      do! forgetDisk(state, commitId)
   }
 
-  member _.Snapshot() : Map<string, CommitTranslation> =
-    held
+  let forget(state: State, commitId: string) : Async<unit> = asyncEx {
+    state.Held.TryRemove commitId |> ignore
+    do! forgetDisk(state, commitId)
+  }
+
+  let snapshot(state: State) : Map<string, CommitTranslation> =
+    state.Held
     |> Seq.filter(fun pair -> DateTime.UtcNow - fst pair.Value <= ttl)
     |> Seq.map(fun pair -> pair.Key, snd pair.Value)
     |> Map.ofSeq
 
-/// Accessor for the translation cache capability.
-type IProvideTranslations =
-  abstract Translations: TranslationCache
+  let createWith(directory: string, files: Files, log: ILogger) =
+    let state: State = {
+      Directory = directory
+      Files = files
+      Log = log
+      Held = ConcurrentDictionary<string, DateTime * CommitTranslation>()
+    }
+
+    startScan state
+
+    {
+      new TranslationCache with
+        member _.TryGet(commitId) = tryGet(state, commitId)
+        member _.Set(commitId, payload) = set(state, commitId, payload)
+        member _.Forget(commitId) = forget(state, commitId)
+        member _.Snapshot() = snapshot state
+    }
+
+  let create(directory: string, log: ILogger) =
+    createWith(directory, filesOf directory, log)

@@ -16,8 +16,6 @@ open DevNull.Client.SettingsStore
 open DevNull.Client.Shell
 open DevNull.Client.Stores
 
-/// The application root: the Fluent theme first, then the app styles.
-/// Parameterless: the headless test harness starts the same type.
 type App() =
   inherit Application()
 
@@ -90,13 +88,6 @@ let configureLogging() =
 
   minimum
 
-/// The app log and the factory every logger comes from: the console
-/// plus one file per day under the app's data directory,
-/// debug-verbose in development builds. A `DEVNULL_LOG_LEVEL` value
-/// overrides the build's default, so a release install can trace. The
-/// heads call this before they build their native services, so every
-/// native worker logs through the same sink, then hand the factory to
-/// `start`.
 let createLogging() : ILoggerFactory =
   let minimum = configureLogging()
 
@@ -140,9 +131,6 @@ let completeCallback
   : unit =
   DeviceAuth.finish(env, uri, log) |> Async.Ignore |> Async.RunSynchronously
 
-/// Boots the shared client with the native services one platform head
-/// built. The head's entry point is everything platform-specific; this
-/// is everything else. The factory comes from `createLogging`.
 let start(logging: ILoggerFactory, natives: NativeServices, argv: string[]) =
   let log = logging.CreateLogger "DevNull.Client.Startup"
 
@@ -167,7 +155,7 @@ let start(logging: ILoggerFactory, natives: NativeServices, argv: string[]) =
       None
 
   let store =
-    SessionStore(
+    SessionStore.create(
       restored,
       devicePrivateKeyPath,
       fun () -> clearSession sessionLog

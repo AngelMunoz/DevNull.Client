@@ -5,75 +5,83 @@ open System.Reactive.Subjects
 open Avalonia.Threading
 open DevNull.Client.Core.ApiTypes
 
-/// Posts one subject value on the UI thread, so a producer on any
-/// thread never re-enters a control off the dispatcher.
 let emitOnUi<'value>(subject: BehaviorSubject<'value>, value: 'value) : unit =
   Dispatcher.UIThread.Post(fun () -> subject.OnNext value)
 
-/// One sign-in worth of state: the server session plus the device key
-/// file every signed request needs.
 type SignedInSession = {
   Session: DeviceSession
   KeyFile: string
 }
 
-/// The sign-in state the whole app reads.
 type SessionState =
   | SignedOut
   | SignedIn of SignedInSession
 
-/// The live sign-in state: one subject, emits on the UI thread. The
-/// `forget` hook owns the stored-session file, so the store never
-/// touches the file system itself.
-type SessionStore(state: SessionState, forget: unit -> unit) =
+type SessionStore =
+  abstract Current: SessionState
+  abstract Observe: IObservable<SessionState>
+  abstract SignedIn: SignedInSession voption
+  abstract Enter: session: SignedInSession -> unit
+  abstract Leave: unit -> unit
+  abstract Refresh: session: DeviceSession -> unit
 
-  let subject = new BehaviorSubject<SessionState>(state)
+type IProvideSession =
+  abstract Session: SessionStore
 
-  let emit value =
+module SessionStore =
+
+  let emit(subject: BehaviorSubject<SessionState>, value: SessionState) =
     if subject.Value <> value then
       if Dispatcher.UIThread.CheckAccess() then
         subject.OnNext value
       else
         emitOnUi(subject, value)
 
-  /// The state at boot, from the stored session file.
-  new(initial: DeviceSession option, keyFile: string, forget: unit -> unit) =
-    SessionStore(
-      initial
-      |> Option.map(fun session ->
-        SignedIn { Session = session; KeyFile = keyFile })
-      |> Option.defaultValue SignedOut,
-      forget
-    )
+  let current(subject: BehaviorSubject<SessionState>) : SessionState =
+    subject.Value
 
-  /// The current state, without a subscription.
-  member _.Current: SessionState = subject.Value
+  let observe
+    (subject: BehaviorSubject<SessionState>)
+    : IObservable<SessionState> =
+    subject
 
-  /// Every state change, starting with the current one.
-  member _.Observe: IObservable<SessionState> =
-    subject :> IObservable<SessionState>
-
-  /// The signed-in session, when one exists.
-  member _.SignedIn: SignedInSession voption =
+  let signedIn
+    (subject: BehaviorSubject<SessionState>)
+    : SignedInSession voption =
     match subject.Value with
     | SignedIn session -> ValueSome session
     | SignedOut -> ValueNone
 
-  /// Records a completed sign-in.
-  member _.Enter(session: SignedInSession) : unit = emit(SignedIn session)
+  let enter(subject: BehaviorSubject<SessionState>, session: SignedInSession) =
+    emit(subject, SignedIn session)
 
-  /// Records a sign-out and drops the stored session through `forget`.
-  member _.Leave() : unit =
+  let leave(subject: BehaviorSubject<SessionState>, forget: unit -> unit) =
     forget()
-    emit SignedOut
+    emit(subject, SignedOut)
 
-  /// Refreshes the server view of the signed-in session.
-  member _.Refresh(session: DeviceSession) : unit =
+  let refresh(subject: BehaviorSubject<SessionState>, session: DeviceSession) =
     match subject.Value with
     | SignedIn current when current.Session.User.Id = session.User.Id ->
-      emit(SignedIn { current with Session = session })
+      emit(subject, SignedIn { current with Session = session })
     | _ -> ()
 
-/// Accessor for the session store capability.
-type IProvideSession =
-  abstract Session: SessionStore
+  let create
+    (initial: DeviceSession option, keyFile: string, forget: unit -> unit)
+    =
+    let state =
+      initial
+      |> Option.map(fun session ->
+        SignedIn { Session = session; KeyFile = keyFile })
+      |> Option.defaultValue SignedOut
+
+    let subject = new BehaviorSubject<SessionState>(state)
+
+    {
+      new SessionStore with
+        member _.Current = current subject
+        member _.Observe = observe subject
+        member _.SignedIn = signedIn subject
+        member _.Enter(session) = enter(subject, session)
+        member _.Leave() = leave(subject, forget)
+        member _.Refresh(session) = refresh(subject, session)
+    }

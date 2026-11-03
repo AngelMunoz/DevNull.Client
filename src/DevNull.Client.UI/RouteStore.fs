@@ -3,24 +3,28 @@ module DevNull.Client.RouteStore
 open System
 open System.Reactive.Subjects
 
-/// The app's route state: the live path the router stands on. The
-/// shell feeds it once from the router; readers follow it through
-/// their programs' subscriptions, so no view ever binds it directly.
-type RouteStore() =
+type RouteStore =
+  abstract Land: url: string -> unit
+  abstract Path: IObservable<string>
+  abstract Current: string
 
-  let path = new BehaviorSubject<string>("")
-
-  /// Records the route the router landed on.
-  member _.Land(url: string) =
-    if path.Value <> url then
-      path.OnNext url
-
-  /// The live route path, starting with the current one.
-  member _.Path: IObservable<string> = path
-
-  /// The route the router stands on.
-  member _.Current: string = path.Value
-
-/// Accessor for the route store capability.
 type IProvideRoutes =
   abstract Routes: RouteStore
+
+module RouteStore =
+
+  let land(subject: BehaviorSubject<string>, url: string) =
+    if subject.Value <> url then
+      subject.OnNext url
+
+  let path(subject: BehaviorSubject<string>) : IObservable<string> = subject
+
+  let create() =
+    let subject = new BehaviorSubject<string>("")
+
+    {
+      new RouteStore with
+        member _.Land(url) = land(subject, url)
+        member _.Path = path subject
+        member _.Current = subject.Value
+    }

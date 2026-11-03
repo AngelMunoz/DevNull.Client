@@ -16,50 +16,53 @@ type Request =
 /// most once per window; the scroll is local and always served. Every
 /// member runs on the UI thread.
 type TimelineService =
-
-  /// One shared instance for the app.
-  new: unit -> TimelineService
-
   /// Serves the scroll, and one gated reload: at least `gate` must
   /// have passed since the last accepted reload. Gated-out clicks
   /// still scroll.
-  member ForceReload: unit -> unit
+  abstract ForceReload: unit -> unit
 
   /// Scrolls the open timeline to its top, without reloading it: the
   /// answer a fresh first page gives its reader.
-  member ScrollToTop: unit -> unit
+  abstract ScrollToTop: unit -> unit
 
   /// Announces a landed commit; the open page reloads ungated, the way
   /// its own composer's post reloads it.
-  member CommitLanded: unit -> unit
+  abstract CommitLanded: unit -> unit
 
   /// Announces one deleted commit; the shell answers with its undo
   /// toast. The open log page is not told: its next reload omits the
   /// commit on its own.
-  member AnnounceDeletion: commitId: string -> unit
+  abstract AnnounceDeletion: commitId: string -> unit
 
   /// The request stream. Emits on the UI thread.
-  member Requests: IObservable<Request>
+  abstract Requests: IObservable<Request>
 
   /// The deleted commits worth an undo toast, newest last.
-  member Deletions: IObservable<string>
+  abstract Deletions: IObservable<string>
 
   /// Parks one log's scroll place, so the next page of that log
   /// picks it up.
-  member Remember: log: LogKind * offset: float -> unit
+  abstract Remember: log: LogKind * offset: float -> unit
 
   /// The scroll place a log left, or its top.
-  member OffsetOf: log: LogKind -> float
+  abstract OffsetOf: log: LogKind -> float
 
   /// Parks one reply draft. An emptied text leaves no entry behind.
-  member RememberDraft: commitId: string * text: string -> unit
+  abstract RememberDraft: commitId: string * text: string -> unit
 
   /// Spends one reply draft: the landed reply consumed it.
-  member ForgetDraft: commitId: string -> unit
+  abstract ForgetDraft: commitId: string -> unit
 
   /// The draft a recycled row's composer seeds from.
-  member DraftOf: commitId: string -> string
+  abstract DraftOf: commitId: string -> string
 
 /// Accessor for the timeline service capability.
 type IProvideTimeline =
   abstract Timeline: TimelineService
+
+/// The app's timeline service over the subjects and maps it owns.
+module TimelineService =
+
+  /// Builds a timeline service with its own subjects and maps; the
+  /// env builds the app's one instance.
+  val create: unit -> TimelineService

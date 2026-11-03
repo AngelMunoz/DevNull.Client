@@ -518,7 +518,9 @@ let tests =
           Json = translationJson
         }
 
-        let first = TranslationCache("cache", tier.Files, NullLogger.Instance)
+        let first =
+          TranslationCache.createWith("cache", tier.Files, NullLogger.Instance)
+
         do! first.Set(commit.Id, payload)
 
         let paths = tier.Files.List()
@@ -531,7 +533,8 @@ let tests =
           (stored |> Option.map fst)
           "file contents"
 
-        let second = TranslationCache("cache", tier.Files, NullLogger.Instance)
+        let second =
+          TranslationCache.createWith("cache", tier.Files, NullLogger.Instance)
 
         let! fromDisk = second.TryGet commit.Id
         Expect.equal (Some german) fromDisk "file read"
@@ -567,7 +570,11 @@ let tests =
         | None -> failtest "the cache never recalled the translation"
 
         let empty =
-          TranslationCache("empty", MemoryFiles().Files, NullLogger.Instance)
+          TranslationCache.createWith(
+            "empty",
+            MemoryFiles().Files,
+            NullLogger.Instance
+          )
 
         let! missed = recall(empty, initial, commit.Id)
         Expect.isNone missed "cache miss"
@@ -577,7 +584,9 @@ let tests =
       (async {
         let tier = MemoryFiles()
         let commit = commitOf None
-        let cache = TranslationCache("cache", tier.Files, NullLogger.Instance)
+
+        let cache =
+          TranslationCache.createWith("cache", tier.Files, NullLogger.Instance)
 
         do!
           cache.Set(
@@ -607,7 +616,9 @@ let tests =
       (async {
         let tier = MemoryFiles()
         let commit = commitOf None
-        let first = TranslationCache("cache", tier.Files, NullLogger.Instance)
+
+        let first =
+          TranslationCache.createWith("cache", tier.Files, NullLogger.Instance)
 
         do!
           first.Set(
@@ -622,7 +633,8 @@ let tests =
 
         tier.Age(path, DateTime.UtcNow.AddDays(-8.0))
 
-        let second = TranslationCache("cache", tier.Files, NullLogger.Instance)
+        let second =
+          TranslationCache.createWith("cache", tier.Files, NullLogger.Instance)
 
         let! expired = second.TryGet commit.Id
         Expect.isNone expired "expired translation"
@@ -635,7 +647,9 @@ let tests =
       (async {
         let tier = MemoryFiles()
         let firstApi = translatedApi()
-        let first = TranslationCache("cache", tier.Files, NullLogger.Instance)
+
+        let first =
+          TranslationCache.createWith("cache", tier.Files, NullLogger.Instance)
 
         let! window =
           startShellWithTranslations(signedInStore(), firstApi :> IHttp, first)
@@ -669,7 +683,9 @@ let tests =
         Expect.isTrue written "the file was never written"
 
         let secondApi = automaticApi()
-        let second = TranslationCache("cache", tier.Files, NullLogger.Instance)
+
+        let second =
+          TranslationCache.createWith("cache", tier.Files, NullLogger.Instance)
 
         let! loaded =
           waitForAsync(

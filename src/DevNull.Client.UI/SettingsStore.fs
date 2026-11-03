@@ -8,7 +8,6 @@ open System.Text.Json.Nodes
 open FSharp.Control.Reactive
 open IcedTasks
 
-/// The theme variants the app follows: the system, or one pinned.
 type ThemeChoice =
   | System
   | Light
@@ -31,38 +30,132 @@ type AppSettings = {
   CloseToTray: bool
   Theme: ThemeChoice
   SidebarExpanded: bool
-  /// Unsent chat drafts by conversation key, emptied as they go out.
   ChatDrafts: Map<string, string>
-  /// The voice-note player's volume, 0.0 to 1.0.
   VoiceVolume: float
-  /// Whether the org-pin dialog keeps its "Don't show this again"
-  /// choice and never asks again on this device.
   PinPromptHidden: bool
 }
 
-/// The live local settings: one state stream for readers, one writer
-/// stream for the file. Every write — immediate or settled — funnels
-/// through the writer stream, which hands each to the `persist` hook
-/// serialized, so no two writes ever cross and no member decides
-/// timing inline. The store never touches the file system itself.
-type AppSettingsStore(settings: AppSettings, persist: AppSettings -> unit) =
+type AppSettingsStore =
+  abstract Current: AppSettings
+  abstract Observe: IObservable<AppSettings>
+  abstract SetCloseToTray: enabled: bool -> unit
+  abstract SetTheme: choice: ThemeChoice -> unit
+  abstract SetSidebarExpanded: expanded: bool -> unit
+  abstract SetChatDraft: key: string * text: string -> unit
+  abstract SetVoiceVolume: volume: float -> unit
+  abstract SetPinPromptHidden: hidden: bool -> unit
 
-  let state = new BehaviorSubject<AppSettings>(settings)
+type IProvideSettings =
+  abstract Settings: AppSettingsStore
 
-  // The file's own stream: one writer at the end of it, and the
-  // subject's serialized hand-off means the thread a change came from
-  // stops mattering.
-  let disk = new System.Reactive.Subjects.Subject<AppSettings>()
+module AppSettingsStore =
 
-  do disk |> Observable.add persist
+  type State = {
+    Settings: BehaviorSubject<AppSettings>
+    Disk: IObserver<AppSettings>
+    Parks: IObserver<unit>
+  }
 
-  // The drafts arrive at typing speed, so their writes settle once
-  // the typing rests: each park starts a settle, a newer park
-  // cancels it, and the surviving settle writes the settings as they
-  // stand then.
-  let parks = new System.Reactive.Subjects.Subject<unit>()
+  let defaults: AppSettings = {
+    CloseToTray = false
+    Theme = System
+    SidebarExpanded = true
+    ChatDrafts = Map.empty
+    VoiceVolume = 1.0
+    PinPromptHidden = false
+  }
 
-  do
+  let publish(state: State, value: AppSettings) =
+    if state.Settings.Value <> value then
+      state.Settings.OnNext value
+
+  let change(state: State, value: AppSettings) =
+    state.Disk.OnNext value
+    publish(state, value)
+
+  let current(state: State) : AppSettings = state.Settings.Value
+
+  let observe(state: State) : IObservable<AppSettings> = state.Settings
+
+  let setCloseToTray(state: State, enabled: bool) =
+    change(
+      state,
+      {
+        state.Settings.Value with
+            CloseToTray = enabled
+      }
+    )
+
+  let setTheme(state: State, choice: ThemeChoice) =
+    change(
+      state,
+      {
+        state.Settings.Value with
+            Theme = choice
+      }
+    )
+
+  let setSidebarExpanded(state: State, expanded: bool) =
+    change(
+      state,
+      {
+        state.Settings.Value with
+            SidebarExpanded = expanded
+      }
+    )
+
+  let setChatDraft(state: State, key: string, text: string) =
+    let drafts =
+      if String.IsNullOrWhiteSpace text then
+        Map.remove key state.Settings.Value.ChatDrafts
+      else
+        Map.add key text state.Settings.Value.ChatDrafts
+
+    publish(
+      state,
+      {
+        state.Settings.Value with
+            ChatDrafts = drafts
+      }
+    )
+
+    state.Parks.OnNext()
+
+  let setVoiceVolume(state: State, volume: float) =
+    change(
+      state,
+      {
+        state.Settings.Value with
+            VoiceVolume = volume
+      }
+    )
+
+  let setPinPromptHidden(state: State, hidden: bool) =
+    change(
+      state,
+      {
+        state.Settings.Value with
+            PinPromptHidden = hidden
+      }
+    )
+
+  let create(settings: AppSettings option, persist: AppSettings -> unit) =
+    let state =
+      new BehaviorSubject<AppSettings>(settings |> Option.defaultValue defaults)
+
+    // The file's own stream: one writer at the end of it, and the
+    // subject's serialized hand-off means the thread a change came from
+    // stops mattering.
+    let disk = new System.Reactive.Subjects.Subject<AppSettings>()
+
+    disk |> Observable.add persist
+
+    // The drafts arrive at typing speed, so their writes settle once
+    // the typing rests: each park starts a settle, a newer park
+    // cancels it, and the surviving settle writes the settings as they
+    // stand then.
+    let parks = new System.Reactive.Subjects.Subject<unit>()
+
     parks
     |> Observable.map(fun () -> asyncEx {
       do! Async.Sleep 500
@@ -71,79 +164,28 @@ type AppSettingsStore(settings: AppSettings, persist: AppSettings -> unit) =
     |> Observable.switchAsync
     |> Observable.add disk.OnNext
 
-  let publish(value: AppSettings) =
-    if state.Value <> value then
-      state.OnNext value
-
-  let change(value: AppSettings) =
-    disk.OnNext value
-    publish value
-
-  new(settings: AppSettings option, persist: AppSettings -> unit) =
-    AppSettingsStore(
-      settings
-      |> Option.defaultValue {
-        CloseToTray = false
-        Theme = System
-        SidebarExpanded = true
-        ChatDrafts = Map.empty
-        VoiceVolume = 1.0
-        PinPromptHidden = false
-      },
-      persist
-    )
-
-  member _.Current: AppSettings = state.Value
-
-  member _.Observe: IObservable<AppSettings> = state :> IObservable<AppSettings>
-
-  member _.SetCloseToTray(enabled: bool) : unit =
-    change(
-      {
-        state.Value with
-            CloseToTray = enabled
-      }
-    )
-
-  member _.SetTheme(choice: ThemeChoice) : unit =
-    change({ state.Value with Theme = choice })
-
-  member _.SetSidebarExpanded(expanded: bool) : unit =
-    change(
-      {
-        state.Value with
-            SidebarExpanded = expanded
-      }
-    )
-
-  /// Parks one conversation's unsent draft at once; an empty text
-  /// drops it. The file's own copy settles once the typing rests.
-  member _.SetChatDraft(key: string, text: string) : unit =
-    let drafts =
-      if String.IsNullOrWhiteSpace text then
-        Map.remove key state.Value.ChatDrafts
-      else
-        Map.add key text state.Value.ChatDrafts
-
-    publish({ state.Value with ChatDrafts = drafts })
-    parks.OnNext()
-
-  member _.SetVoiceVolume(volume: float) : unit =
-    change(
-      {
-        state.Value with
-            VoiceVolume = volume
-      }
-    )
-
-  member _.SetPinPromptHidden(hidden: bool) : unit =
-    change {
-      state.Value with
-          PinPromptHidden = hidden
+    let context: State = {
+      Settings = state
+      Disk = disk
+      Parks = parks
     }
 
-type IProvideSettings =
-  abstract Settings: AppSettingsStore
+    {
+      new AppSettingsStore with
+        member _.Current = current context
+        member _.Observe = observe context
+        member _.SetCloseToTray(enabled) = setCloseToTray(context, enabled)
+        member _.SetTheme(choice) = setTheme(context, choice)
+
+        member _.SetSidebarExpanded(expanded) =
+          setSidebarExpanded(context, expanded)
+
+        member _.SetChatDraft(key, text) = setChatDraft(context, key, text)
+        member _.SetVoiceVolume(volume) = setVoiceVolume(context, volume)
+
+        member _.SetPinPromptHidden(hidden) =
+          setPinPromptHidden(context, hidden)
+    }
 
 let directory =
   Path.Combine(
@@ -174,8 +216,6 @@ let save(settings: AppSettings) : Result<unit, string> =
   with ex ->
     Error ex.Message
 
-/// The stored settings: `Ok None` when the file is absent, `Error` when
-/// the file exists and cannot be read.
 let load() : Result<AppSettings option, string> =
   try
     use document = JsonDocument.Parse(File.ReadAllText settingsPath)

@@ -1,6 +1,7 @@
 module DevNull.Client.AttachmentSources
 
 open Avalonia.Controls
+open Microsoft.Extensions.Logging
 open DevNull.Client.Core.Commit
 
 /// Worker: the two ways images enter the composer — the file picker
@@ -25,7 +26,8 @@ type IProvideAttachmentSources =
 /// storage provider's picker and the clipboard's formats. A clipboard
 /// image stages its original PNG, JPEG, or WebP bytes; only a platform
 /// that exposes no image bytes falls back to a decoded bitmap.
-val desktop:
-  log: Microsoft.Extensions.Logging.ILogger *
-  resolve: (unit -> TopLevel voption) ->
-    IAttachmentSources
+module AttachmentSources =
+
+  /// The desktop sources over the window the resolver finds.
+  val create:
+    log: ILogger * resolve: (unit -> TopLevel voption) -> IAttachmentSources

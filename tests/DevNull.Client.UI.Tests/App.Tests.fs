@@ -1987,7 +1987,7 @@ let tests =
         // The visit sits between the stranger's newer commit and the
         // viewer's older one, under the viewer's own key.
         let seeded =
-          LastVisitStore(
+          LastVisitStore.createWith(
             Map [
               "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d|latest",
               DateTimeOffset(2020, 4, 2, 0, 0, 0, TimeSpan.Zero)
@@ -2010,7 +2010,7 @@ let tests =
         // The visit sits after every canned commit, so nothing counts
         // as already seen and no marker can land.
         let seeded =
-          LastVisitStore(
+          LastVisitStore.createWith(
             Map [
               "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d|latest",
               DateTimeOffset(2020, 4, 5, 0, 0, 0, TimeSpan.Zero)
@@ -3825,7 +3825,7 @@ let tests =
     testCaseAsync
       "a settled search becomes a recent"
       (async {
-        let recents = RecentSearchStore(Map.empty, ignore)
+        let recents = RecentSearchStore.createWith(Map.empty, ignore)
 
         let! window =
           startShellWithRecents(
@@ -4525,7 +4525,7 @@ let tests =
     testCaseAsync
       "closing with close-to-tray hides the window and Quit closes it"
       (async {
-        let settings = AppSettingsStore(None, ignore)
+        let settings = AppSettingsStore.create(None, ignore)
         settings.SetCloseToTray true
 
         let env = TestEnv(signedInStore(), logApi() :> IHttp, settings)
@@ -4586,7 +4586,8 @@ let tests =
       (async {
         let saves = ResizeArray<AppSettings>()
 
-        let settings = AppSettingsStore(None, fun value -> saves.Add value)
+        let settings =
+          AppSettingsStore.create(None, fun value -> saves.Add value)
 
         let env = TestEnv(signedInStore(), logApi() :> IHttp, settings)
         let! window = probeUiAsync(fun () -> Shell(env, None) :> Window)
@@ -4648,7 +4649,7 @@ let tests =
       "the settings store publishes theme changes"
       (async {
         let saves = ResizeArray<AppSettings>()
-        let store = AppSettingsStore(None, fun value -> saves.Add value)
+        let store = AppSettingsStore.create(None, fun value -> saves.Add value)
 
         store.SetTheme Light
 
@@ -4669,7 +4670,7 @@ let tests =
       "the settings store publishes the sidebar choice"
       (async {
         let saves = ResizeArray<AppSettings>()
-        let store = AppSettingsStore(None, fun value -> saves.Add value)
+        let store = AppSettingsStore.create(None, fun value -> saves.Add value)
 
         store.SetSidebarExpanded false
 
@@ -5134,7 +5135,7 @@ let tests =
         "a wide handle trims inside its row"
         (async {
           let images =
-            ImageCacheService(
+            ImageCacheService.create(
               System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(),
                 "devnull-searchidentity-" + Guid.NewGuid().ToString("N")

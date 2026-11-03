@@ -9,10 +9,6 @@ open Microsoft.Win32
 
 open DevNull.Client.Natives
 
-/// The devnull:// scheme handler for Windows: a per-user registry
-/// entry under Software\Classes that points at this executable. The
-/// outcome returns to the caller, which logs the refused registration;
-/// the steps land in the head's own log.
 let registrar(logging: ILoggerFactory) = {
   new ISchemeRegistrar with
     member _.Register() =

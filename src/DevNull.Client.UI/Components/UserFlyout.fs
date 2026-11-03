@@ -14,7 +14,6 @@ open DevNull.Client.Components
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.ImageCache
 
-/// What one hover card needs from its host.
 [<Struct>]
 type Source = {
   Fetch: string -> Async<ProfileDetails option>
@@ -29,15 +28,15 @@ module Parts =
 
   let closeDelay = TimeSpan.FromMilliseconds 200.0
 
-  /// One relation badge, when the relation says so.
+  // One relation badge, when the relation says so.
   let mark(text: string, shown: bool) : Control =
     TextBlock().Classes(Theme.name Theme.Chip).Text(text).IsVisible(shown)
 
-  /// The identity card: the in-page user renders at once, and the
-  /// fetched details fill the badges, the bio, and the counts in. The
-  /// card is a button: its host arms the click. The opaque surface is
-  /// the child border: the theme's hover wash repaints a button's own
-  /// presenter translucent, and the border paints over the wash.
+  // The identity card: the in-page user renders at once, and the
+  // fetched details fill the badges, the bio, and the counts in. The
+  // card is a button: its host arms the click. The opaque surface is
+  // the child border: the theme's hover wash repaints a button's own
+  // presenter translucent, and the border paints over the wash.
   let card
     (source: Source, user: User, identity: ProfileDetails option)
     : Button =
@@ -111,17 +110,6 @@ module Parts =
           .Child(StackPanel().Spacing(8.0).Children(children))
       )
 
-/// Wraps one child (the avatar). After a 450 ms hover a card with the
-/// user's identity opens beside it; it closes 200 ms after the pointer
-/// leaves the trigger or the card, and a click on either opens the
-/// profile. Follow and mute stay on the profile page.
-///
-/// The flyout rides a TextBlock inline, and a TextBlock clears and
-/// rebuilds its inline children on every arrange pass, so the flyout
-/// detaches and re-attaches with layout: no lifecycle logic may key on
-/// the detach. The timers own the lifetime instead — every tick and
-/// every pointer path stops them — and a recycled row's popup closes
-/// with its tree.
 let attach(source: Source, user: User, child: Control) : Control =
   let card = ContentControl().Name("UserFlyout")
 

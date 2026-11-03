@@ -19,9 +19,6 @@ open DevNull.Client.Natives
 open DevNull.Client.SettingsStore
 open Microsoft.Extensions.Logging
 
-/// Only one note sounds at a time, the site's own rule: each claim
-/// stops the playback that held the stage before it. One stage,
-/// swapped whole under a lock — no fields to mutate, one record.
 type Solo() =
   let gate = obj()
   let mutable stage: IAudioPlayback option = None
@@ -35,16 +32,10 @@ type Solo() =
 
       stage <- Some playback)
 
-/// Where one player's note comes from: a received clip the signed
-/// URL downloads, or the staged take the recorder already holds.
 type VoiceSource =
   | Remote of clip: VoiceClip
   | Staged of media: byte array * waveform: Waveform
 
-/// Everything the voice player reads: the engine the platform head
-/// passed, the transport the bytes download through, the settings
-/// the volume lives in, the one-note stage, the note itself, and the
-/// logger of its failures.
 [<Struct>]
 type VoiceCtx = {
   Audio: IAudioEngine voption
@@ -55,7 +46,7 @@ type VoiceCtx = {
   Source: VoiceSource
 }
 
-/// The voice player's speeds, in the order the button cycles them.
+// The voice player's speeds, in the order the button cycles them.
 let voiceSpeeds = [| 1.0; 1.5; 2.0 |]
 let voiceSpeedLabels = [| "1×"; "1.5×"; "2×" |]
 
@@ -65,13 +56,13 @@ let waveHeight = 24.0
 let barHeight(value: int) =
   max (waveHeight * 0.1) (float value / 100.0 * waveHeight)
 
-/// How long one source's note runs, in the note's own milliseconds.
+// How long one source's note runs, in the note's own milliseconds.
 let durationOf(source: VoiceSource) =
   match source with
   | Remote clip -> clip.DurationMs
   | Staged(media, _) -> (media.Length - 44) * 1000 / 32000
 
-/// The clock word one position reads as, `m:ss`.
+// The clock word one position reads as, `m:ss`.
 let clockWord (durationMs: int) (position: TimeSpan) =
   let playedMs = min durationMs (int position.TotalMilliseconds) |> max 0
 
@@ -80,21 +71,21 @@ let clockWord (durationMs: int) (position: TimeSpan) =
 
   $"{minutes}:{seconds:D2}"
 
-/// The played share of one note, 0 to 1.
+// The played share of one note, 0 to 1.
 let playedFraction (durationMs: int) (position: TimeSpan) =
   let playedMs = min durationMs (int position.TotalMilliseconds) |> max 0
 
   min 1.0 (float playedMs / float(max 1 durationMs))
 
-/// The voice player's own MVU program: the phase, the bytes, the
-/// position, and the volume ride the model; the engine and the
-/// transport ride commands; the end, the clock, and the control's
-/// own detach ride subscriptions.
+// The voice player's own MVU program: the phase, the bytes, the
+// position, and the volume ride the model; the engine and the
+// transport ride commands; the end, the clock, and the control's
+// own detach ride subscriptions.
 module Player =
 
-  /// Where one play stands: resting, waiting for the bytes or the
-  /// engine while the button says pause (carrying where a restart
-  /// picks the note back up), sounding, or failed.
+  // Where one play stands: resting, waiting for the bytes or the
+  // engine while the button says pause (carrying where a restart
+  // picks the note back up), sounding, or failed.
   type Phase =
     | Idle
     | Wanting of resume: TimeSpan option
@@ -138,8 +129,8 @@ module Player =
     | Sounding playback -> playback.Stop()
     | _ -> ()
 
-  /// Asks the engine to sound whatever bytes the model holds, at
-  /// the model's own speed and volume.
+  // Asks the engine to sound whatever bytes the model holds, at
+  // the model's own speed and volume.
   let ask (voice: VoiceCtx) (model: Model) : Cmd<Msg> =
     match voice.Audio, model.Media with
     | ValueSome head, Some bytes ->
@@ -298,8 +289,8 @@ module Player =
       stop model
       model, Cmd.none
 
-  /// The inlets: the sounding pipeline's own end and clock, and the
-  /// control's detach, which stops the note and ends the program.
+  // The inlets: the sounding pipeline's own end and clock, and the
+  // control's detach, which stops the note and ends the program.
   let subscribe (host: Control) (model: Model) : Sub<Msg> =
     let riding =
       match model.Phase with
@@ -322,12 +313,12 @@ module Player =
       ]
     )
 
-/// One played voice note, the site's own chrome: an icon play
-/// square, the two-layer waveform that scrubs under the pointer, a
-/// clock that counts the note's own time, then the volume and the
-/// speed cycle. An MVU control of its own: the view builds once and
-/// binds only its model stream, and the program ends when the
-/// control detaches.
+// One played voice note, the site's own chrome: an icon play
+// square, the two-layer waveform that scrubs under the pointer, a
+// clock that counts the note's own time, then the volume and the
+// speed cycle. An MVU control of its own: the view builds once and
+// binds only its model stream, and the program ends when the
+// control detaches.
 type VoicePlayer(voice: VoiceCtx) as this =
   inherit UserControl()
 
@@ -562,5 +553,4 @@ type VoicePlayer(voice: VoiceCtx) as this =
 
     this.Content <- root
 
-/// One message's voice note: the waveform player.
 let voiceChip(voice: VoiceCtx) : Control = VoicePlayer(voice)

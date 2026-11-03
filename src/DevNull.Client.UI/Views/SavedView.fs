@@ -41,8 +41,8 @@ type Props<'env
   Context: RouteContext
 }
 
-/// The page's state logic: model, messages, update, and the
-/// subscriptions that feed it from outside.
+// The page's state logic: model, messages, update, and the
+// subscriptions that feed it from outside.
 module State =
 
   type Model = {
@@ -54,9 +54,9 @@ module State =
     Pasteis: bool
     Voting: string option
     PollChoices: Map<string, string>
-    /// Whether translations show by themselves.
+    // Whether translations show by themselves.
     Automatic: bool
-    /// Every commit's translation on this page.
+    // Every commit's translation on this page.
     Translations: TranslationModel.Book
   }
 
@@ -112,8 +112,8 @@ module State =
     },
     Cmd.OfAsync.perform fetch (props.Env, props.Session, None) Fetched
 
-  /// Runs one commit's translate call: the language its own translation or
-  /// the settings pick, and the 503 retries.
+  // Runs one commit's translate call: the language its own translation or
+  // the settings pick, and the 503 retries.
   let translate(props: Props<'env>, commit: Commit) =
     let language =
       TranslationModel.languageFor(
@@ -355,8 +355,8 @@ module State =
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
-  /// The page's inlets from outside: the shared clock and the session
-  /// store.
+  // The page's inlets from outside: the shared clock and the session
+  // store.
   let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
     [
       Sub.fromObservable
@@ -369,10 +369,10 @@ module State =
     ]
     |> Sub.batch
 
-/// The page's semantic regions; the view only composes these.
+// The page's semantic regions; the view only composes these.
 module Parts =
 
-  /// The saved list itself: the virtualized feed over the rows.
+  // The saved list itself: the virtualized feed over the rows.
   let feed
     (
       dispatch: Dispatch<State.Msg>,

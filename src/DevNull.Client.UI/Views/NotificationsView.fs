@@ -43,12 +43,12 @@ type Props<'env
   Context: RouteContext
 }
 
-/// The page's state logic: model, messages, update, the row shaping,
-/// and the subscriptions that feed it from outside.
+// The page's state logic: model, messages, update, the row shaping,
+// and the subscriptions that feed it from outside.
 module State =
 
-  /// One notification group's expansion: the toggle, the events the
-  /// group endpoint returned, and whether that read failed.
+  // One notification group's expansion: the toggle, the events the
+  // group endpoint returned, and whether that read failed.
   type GroupVm = {
     Open: bool
     Items: Notification list
@@ -68,9 +68,9 @@ module State =
     Items: Notification list
     NextCursor: string option
     Groups: Map<string, GroupVm>
-    /// The unread count of the signed-in session, live from the store.
+    // The unread count of the signed-in session, live from the store.
     Unread: int
-    /// The shared clock's last tick, for the relative times.
+    // The shared clock's last tick, for the relative times.
     Now: DateTimeOffset
   }
 
@@ -95,7 +95,7 @@ module State =
     Now = DateTimeOffset.UtcNow
   }
 
-  /// One inbox read: the filter in play and the pager cursor.
+  // One inbox read: the filter in play and the pager cursor.
   [<Struct>]
   type Query = {
     Session: SignedInSession
@@ -129,8 +129,8 @@ module State =
        })
       Fetched
 
-  /// Reads one group's events: the first event carries the id the group
-  /// endpoint takes.
+  // Reads one group's events: the first event carries the id the group
+  // endpoint takes.
   let loadGroup
     (env, session: SignedInSession, notification: Notification)
     : Async<Result<Page<Notification>, AppError>> =
@@ -149,7 +149,7 @@ module State =
     |> Map.tryFind notification.GroupId
     |> Option.defaultValue closedGroup
 
-  /// The inbox title: the unread count when one exists.
+  // The inbox title: the unread count when one exists.
   let unreadTitle(model: Model) : string =
     if model.Unread > 0 then
       $"Notifications · {model.Unread} unread"
@@ -319,8 +319,8 @@ module State =
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
-  /// The page's inlets from outside: the shared clock and the session
-  /// store.
+  // The page's inlets from outside: the shared clock and the session
+  // store.
   let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
     [
       Sub.fromObservable
@@ -333,14 +333,14 @@ module State =
     ]
     |> Sub.batch
 
-  /// One inbox row of the feed: a day separator or a notification
-  /// group.
+  // One inbox row of the feed: a day separator or a notification
+  // group.
   type InboxRow =
     | Day of string
     | Entry of Notification
 
-  /// Interleaves day separators between the groups of different days,
-  /// keeping the first row of every group.
+  // Interleaves day separators between the groups of different days,
+  // keeping the first row of every group.
   let toRows(items: Notification list) : InboxRow list =
     let now = DateTimeOffset.UtcNow
 
@@ -365,10 +365,10 @@ module State =
     | InboxRow.Day label -> "day:" + label
     | InboxRow.Entry notification -> notification.GroupId
 
-/// The page's semantic regions; the view only composes these.
+// The page's semantic regions; the view only composes these.
 module Parts =
 
-  /// One filter pill: the wire type it requests and the label it wears.
+  // One filter pill: the wire type it requests and the label it wears.
   let filters: (string * string) list = [
     "replies", "Replies"
     "quotes", "Quotes"
@@ -378,9 +378,9 @@ module Parts =
     "moderation", "Moderation"
   ]
 
-  /// The pill row of the pinned header; the active pill carries the
-  /// primary-soft wash. The toggle lives in `update`: clicking the pill
-  /// in play clears the filter.
+  // The pill row of the pinned header; the active pill carries the
+  // primary-soft wash. The toggle lives in `update`: clicking the pill
+  // in play clears the filter.
   let filterPill
     (
       active: IObservable<string option>,
@@ -404,7 +404,7 @@ module Parts =
 
     pill
 
-  /// The pill row of filters over the inbox.
+  // The pill row of filters over the inbox.
   let pillRow
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =
@@ -418,7 +418,7 @@ module Parts =
         filterPill(model |> Observable.map _.Filter, dispatch, pair)
     |]
 
-  /// The icon one notification type wears.
+  // The icon one notification type wears.
   let glyphOf(kind: string) : Glyph =
     match kind with
     | "followed" -> Glyph.UserPlus
@@ -431,7 +431,7 @@ module Parts =
     | "rejected" -> Glyph.Close
     | _ -> Glyph.Notifications
 
-  /// The sentence one notification type says after the actor.
+  // The sentence one notification type says after the actor.
   let actionOf(kind: string) : string =
     match kind with
     | "followed" -> "followed you"
@@ -443,22 +443,22 @@ module Parts =
     | "rejected" -> "Your commit was rejected"
     | _ -> "sent an update"
 
-  /// The noun a grouped row counts.
+  // The noun a grouped row counts.
   let nounOf(kind: string) : string =
     match kind with
     | "followed" -> "followers"
     | "starred" -> "stars"
     | _ -> "updates"
 
-  /// The commit the notification points at, when it points at one.
+  // The commit the notification points at, when it points at one.
   let commitOf(notification: Notification) : Commit option =
     match notification.Commit with
     | Some(LiveCommit commit) -> Some commit
     | _ -> None
 
-  /// The rail cell of one notification: the neutral rail with the
-  /// actor's avatar (the types about their commit) or the type's icon in
-  /// a ring. The avatar carries the hover card.
+  // The rail cell of one notification: the neutral rail with the
+  // actor's avatar (the types about their commit) or the type's icon in
+  // a ring. The avatar carries the hover card.
   let railCell
     (
       cache: ImageCacheService,
@@ -529,8 +529,8 @@ module Parts =
 
     rail.Children(line, node)
 
-  /// The excerpt of the commit the notification points at: boxed for
-  /// the viewer's own commits, inline for the actor's.
+  // The excerpt of the commit the notification points at: boxed for
+  // the viewer's own commits, inline for the actor's.
   let excerptBox(notification: Notification) : Control option =
     match notification.Type with
     | "starred"
@@ -562,8 +562,8 @@ module Parts =
           .MaxLines(2)
           .TextTrimming(TextTrimming.CharacterEllipsis))
 
-  /// One expanded event inside a group: the actor, the action, and the
-  /// excerpt, off a short spine.
+  // One expanded event inside a group: the actor, the action, and the
+  // excerpt, off a short spine.
   let eventRow
     (
       cache: ImageCacheService,
@@ -623,7 +623,7 @@ module Parts =
           .Children(children)
       )
 
-  /// What one row's parts read: the router, the dispatch, the model.
+  // What one row's parts read: the router, the dispatch, the model.
   type RowCtx = {
     Nav: INavigable
     Dispatch: Dispatch<State.Msg>
@@ -632,9 +632,9 @@ module Parts =
     Flyout: Source voption
   }
 
-  /// One group's expansion host: the toggle line and, while open, the
-  /// events the group endpoint returned. Every piece binds the group's
-  /// model entry, so a recycled row never keeps stale state.
+  // One group's expansion host: the toggle line and, while open, the
+  // events the group endpoint returned. Every piece binds the group's
+  // model entry, so a recycled row never keeps stale state.
   let groupHost(ctx: RowCtx, notification: Notification) : Control =
     let count = notification.EventCount
 
@@ -689,8 +689,8 @@ module Parts =
 
     StackPanel().Children(toggle, events, failed)
 
-  /// One inbox row: the rail, the identity line, the action, the
-  /// excerpt, and the group host.
+  // One inbox row: the rail, the identity line, the action, the
+  // excerpt, and the group host.
   let row (ctx: RowCtx) (notification: Notification) : Control =
     let where =
       commitOf notification |> Option.map(fun commit -> "/commit/" + commit.Id)
@@ -758,7 +758,7 @@ module Parts =
       .OnClickHandler(fun _ _ ->
         where |> Option.iter(fun url -> Navigation.go(ctx.Nav, url, ignore)))
 
-  /// The inbox itself: the virtualized feed over the page's rows.
+  // The inbox itself: the virtualized feed over the page's rows.
   let feed
     (
       props: Props<'env>,

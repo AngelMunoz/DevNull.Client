@@ -5,7 +5,9 @@ open DevNull.Client.Natives
 
 /// The microphone and the speaker through the PulseAudio simple API,
 /// which every PipeWire and PulseAudio desktop serves. Streams stay at
-/// the voice-note format: 16 kHz mono PCM, 16-bit little-endian.
+/// the voice-note format: 16 kHz mono PCM, 16-bit little-endian. A
+/// note in a compressed container rides the desktop's media framework
+/// instead, the way the Windows head hands its notes to the OS player.
 type PulseEngine =
   new: log: ILogger -> PulseEngine
   interface IAudioEngine

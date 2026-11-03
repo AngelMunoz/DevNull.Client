@@ -76,8 +76,7 @@ type IssueFound = {
 
 /// Everything one composer's completions read: the two calls with
 /// their host's own context closed in, and whether repeat queries
-/// answer from the session's own memory — a reply's participants
-/// change, so its composer answers fresh.
+/// answer from the session's own memory.
 [<Struct>]
 type CompletionCalls = {
   Mentions: string -> Async<Result<MentionResults, AppError>>
@@ -85,19 +84,21 @@ type CompletionCalls = {
   Remember: bool
 }
 
-/// One composer's completions: the people and organizations an `@`
-/// suggests and the issue a number names, on the same gated pipes the
-/// search session runs. `Set` takes the query the caret sits in —
-/// empty for a bare `@`; `SetIssue` takes the digits. Both wait out
-/// the site's own pause and answer for the newest query only, so a
-/// slower answer for an older one never shows, and a repeat query
-/// answers from memory when the composer allows it.
+/// One composer's completions, on the same gated pipes the search
+/// session runs: both channels wait out the site's own pause — the
+/// same one hundred and twenty milliseconds the people search waits —
+/// answer for the newest query only, and settle a refusal to slow
+/// down as the throttled answer. A remembered query answers from
+/// memory without a call, the way the site's composer caches its
+/// suggestions; a reply's composer asks every time, because its
+/// participants change.
 type CompletionSession =
   new:
     calls: CompletionCalls * log: Microsoft.Extensions.Logging.ILogger ->
       CompletionSession
 
-  /// The mention query as typed; the same query again asks nothing.
+  /// The mention query as typed; the same query again asks nothing, and
+  /// a bare `@` asks without the pause.
   member Set: query: string voption -> unit
 
   /// The issue digits as typed; the same digits again ask nothing.

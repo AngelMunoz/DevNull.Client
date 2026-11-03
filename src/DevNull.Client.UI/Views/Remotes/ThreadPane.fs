@@ -18,14 +18,11 @@ open DevNull.Client.Natives
 open DevNull.Client.RemotesState
 open DevNull.Client.Stores
 
-/// The open thread: the detail column's reading pane. The pane itself
-/// rebuilds only when the checked-out target moves; everything inside
-/// follows the model stream, so a poll refresh never rebuilds a row.
 module ThreadPane =
 
-  /// What the page's remaining thread code shares with the message
-  /// rows it composes: the dispatch and model it still owns, the
-  /// viewer, whether the thread is an org's, and the message media.
+  // What the page's remaining thread code shares with the message
+  // rows it composes: the dispatch and model it still owns, the
+  // viewer, whether the thread is an org's, and the message media.
   type RowCtx = {
     Dispatch: Dispatch<State.Msg>
     Model: IObservable<State.Model>
@@ -34,8 +31,8 @@ module ThreadPane =
     Media: ThreadMessage.Media
   }
 
-  /// One bubble's page-side ask: the row context, the live thread,
-  /// the reaction usage, the run's side and author, and the message.
+  // One bubble's page-side ask: the row context, the live thread,
+  // the reaction usage, the run's side and author, and the message.
   [<Struct>]
   type BubbleAsk = {
     Ctx: RowCtx
@@ -46,8 +43,8 @@ module ThreadPane =
     Message: Message
   }
 
-  /// One run's page-side ask: the row context, the live thread, the
-  /// reaction usage, and the run itself.
+  // One run's page-side ask: the row context, the live thread, the
+  // reaction usage, and the run itself.
   [<Struct>]
   type RunAsk = {
     Ctx: RowCtx
@@ -56,7 +53,7 @@ module ThreadPane =
     Run: State.Run
   }
 
-  /// The reaction tray's two lists from the page's usage history.
+  // The reaction tray's two lists from the page's usage history.
   let reactionChoices(usage: ReactionUse list) : ThreadMessage.ReactionChoices =
     let quick = RemotesRows.quickReactions usage
 
@@ -69,8 +66,8 @@ module ThreadPane =
         |> List.distinct
     }
 
-  /// The gallery the images report up to, opened over the clicked
-  /// control's own window.
+  // The gallery the images report up to, opened over the clicked
+  // control's own window.
   let openGallery(ctx: RowCtx, message: Message, source: Control) =
     match TopLevel.GetTopLevel(source) with
     | :? Window as owner ->
@@ -82,8 +79,8 @@ module ThreadPane =
       }
     | _ -> ()
 
-  /// One bubble's props: the message and its side, the run's author,
-  /// the media, and the live slices the page derives from the thread.
+  // One bubble's props: the message and its side, the run's author,
+  // the media, and the live slices the page derives from the thread.
   let bubbleProps(ask: BubbleAsk) : ThreadMessage.BubbleProps =
     let ctx = ask.Ctx
     let message = ask.Message
@@ -180,8 +177,8 @@ module ThreadPane =
       }
     }
 
-  /// One run's props: the run mapped to the message element's own
-  /// shape, the live status message, and the per-bubble factory.
+  // One run's props: the run mapped to the message element's own
+  // shape, the live status message, and the per-bubble factory.
   let runProps(ask: RunAsk) : ThreadMessage.RunProps =
     let ctx = ask.Ctx
     let ofRun = ask.Run
@@ -220,8 +217,8 @@ module ThreadPane =
       OnRetry = fun pending -> ctx.Dispatch(State.RetryWanted pending.ClientId)
     }
 
-  /// What one thread feed needs: the page context, the thread's key,
-  /// the remembered place, and the live thread.
+  // What one thread feed needs: the page context, the thread's key,
+  // the remembered place, and the live thread.
   [<Struct>]
   type FeedAsk = {
     Ctx: RowCtx
@@ -230,8 +227,8 @@ module ThreadPane =
     Thread: IObservable<ThreadState>
   }
 
-  /// The message list: the shared feed, riding the bottom edge, with
-  /// the landing token and the feed's tail report.
+  // The message list: the shared feed, riding the bottom edge, with
+  // the landing token and the feed's tail report.
   let feed(ask: FeedAsk) : ScrollViewer =
     let ctx = ask.Ctx
     let key = ask.Key
@@ -352,8 +349,8 @@ module ThreadPane =
     land ignore |> ignore
     scroller
 
-  /// The floating return to the thread's present edge; while messages
-  /// arrived unseen, it doubles as the "N new" pill.
+  // The floating return to the thread's present edge; while messages
+  // arrived unseen, it doubles as the "N new" pill.
   let present
     (
       dispatch: Dispatch<State.Msg>,
@@ -372,16 +369,16 @@ module ThreadPane =
         args.Handled <- true
         dispatch State.PresentWanted)
 
-  /// The page pieces every pane build shares: the model stream and
-  /// the dispatch.
+  // The page pieces every pane build shares: the model stream and
+  // the dispatch.
   [<Struct>]
   type PaneCore = {
     Model: IObservable<State.Model>
     Dispatch: Dispatch<State.Msg>
   }
 
-  /// What one pane build picks up: the note stage, the target, and its
-  /// key.
+  // What one pane build picks up: the note stage, the target, and its
+  // key.
   [<Struct>]
   type PaneView = {
     Solo: Solo
@@ -389,8 +386,8 @@ module ThreadPane =
     Key: string
   }
 
-  /// The thread pane for one target: the identity header, the message
-  /// list over its overlays, and the typing line.
+  // The thread pane for one target: the identity header, the message
+  // list over its overlays, and the typing line.
   let pane(props: Props<'env>, core: PaneCore, view: PaneView) : Control =
     let model = core.Model
     let dispatch = core.Dispatch
@@ -728,8 +725,6 @@ module ThreadPane =
         }
       )
 
-  /// The detail column: the pane of the checked-out target — rebuilt
-  /// only when the target moves — or the quiet invitation.
   let column
     (
       props: Props<'env>,

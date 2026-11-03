@@ -11,20 +11,20 @@ open NXUI.Extensions
 open MVUish.Avalonia.Collections
 open DevNull.Client
 
-/// One remembered place coming back: lands once when the loaded extent
-/// reaches it, asks for more pages while it does not and the host holds
-/// one, then stays out of the way of the user's own scrolling.
+// One remembered place coming back: lands once when the loaded extent
+// reaches it, asks for more pages while it does not and the host holds
+// one, then stays out of the way of the user's own scrolling.
 type Restore
   (target: float, needMore: (unit -> unit) voption, hasMore: IObservable<bool>) as this
   =
   let latest = new SerialDisposable()
 
-  /// Starts the has-more watch with the feed's attachment.
+  // Starts the has-more watch with the feed's attachment.
   member _.Start() =
     latest.Disposable <- hasMore.Subscribe(fun more -> this.More <- more)
 
-  /// Ends the watch with the feed's detach; a re-attached feed starts it
-  /// again against the latest value.
+  // Ends the watch with the feed's detach; a re-attached feed starts it
+  // again against the latest value.
   member _.Stop() = latest.Disposable <- Disposable.Empty
 
   member _.Target = target
@@ -33,9 +33,9 @@ type Restore
 
   member val More = false with get, set
 
-  /// Whether the feed itself may move the scroller past the target
-  /// while the chase runs. A riding feed does; its own bottom edge
-  /// must not count as the reader's choice.
+  // Whether the feed itself may move the scroller past the target
+  // while the chase runs. A riding feed does; its own bottom edge
+  // must not count as the reader's choice.
   member val LandWhenBeyond = false with get, set
 
   member this.Chase(scroller: ScrollViewer) =
@@ -56,10 +56,6 @@ type Restore
       elif this.More then
         needMore |> ValueOption.iter(fun ask -> ask())
 
-/// One scroll pass's reading place: whether the reader rides the
-/// bottom edge, the scroller's vertical offset, the height the rows
-/// exceed the viewport by, the distance from the bottom edge, and the
-/// viewport's height.
 [<Struct>]
 type Ride = {
   Riding: bool
@@ -69,14 +65,14 @@ type Ride = {
   Viewport: float
 }
 
-/// Where the reading stands at the feed's bottom edge: whether it
-/// rides that edge, and the extent the last scroll saw.
+// Where the reading stands at the feed's bottom edge: whether it
+// rides that edge, and the extent the last scroll saw.
 type TailPlace = { Riding: bool; Extent: float }
 
-/// Keeps a riding reader at the bottom: each pass measures the scroll,
-/// sticks to the end while the extent grows under a riding reader, and
-/// stops once the reader scrolls away. A report-only tail computes the
-/// same place without moving the scroller.
+// Keeps a riding reader at the bottom: each pass measures the scroll,
+// sticks to the end while the extent grows under a riding reader, and
+// stops once the reader scrolls away. A report-only tail computes the
+// same place without moving the scroller.
 type Tail(stick: bool) =
   member val Place = { Riding = true; Extent = 0.0 } with get, set
 
@@ -113,27 +109,12 @@ type Props<'T when 'T: equality> = {
   KeyOf: 'T -> string
   Row: 'T -> Control
   Footer: Control voption
-  /// Whether the host holds another page of rows. The restore chase
-  /// asks for more only while this holds.
   HasMore: IObservable<bool>
-  /// Emits the offset the scroller takes. The page hands over a slice
-  /// of its own model that emits only on a real change, with the
-  /// initial replay skipped, so a restored offset survives the attach.
   ScrollTo: IObservable<float> voption
-  /// Whether the feed sticks to its bottom edge while the reader sits
-  /// there. An items change that grows the extent scrolls back to the
-  /// end until the reader scrolls away.
   Ride: bool
-  /// The scroll place this feed picks up, or none for a fresh feed.
   Restore: float voption
-  /// Reports every settled scroll place, so the host can park it.
   OnScroll: (float -> unit) voption
-  /// Reports the reading place every settled scroll pass, so the host
-  /// can follow the bottom edge. A feed that sets this tracks the tail
-  /// even when `Ride` is off; it never sticks to the edge.
   OnRide: (Ride -> unit) voption
-  /// Asks the host for the next page while a remembered place sits
-  /// beyond the loaded extent.
   OnNeedMore: (unit -> unit) voption
 }
 

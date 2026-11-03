@@ -15,7 +15,6 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.ImageCache
 open DevNull.Client.RemotesState
 
-/// What the conversation menu reports up.
 [<Struct>]
 type MenuActions = {
   ViewProfile: User -> unit
@@ -26,8 +25,6 @@ type MenuActions = {
   Leave: unit -> unit
 }
 
-/// The conversation menu's inputs: the target it describes, the live
-/// pin and archive state, and the actions it reports.
 [<Struct>]
 type ActionsMenuProps = {
   Target: ChatTarget
@@ -36,7 +33,6 @@ type ActionsMenuProps = {
   Actions: MenuActions
 }
 
-/// What the org menu reports up.
 [<Struct>]
 type OrgActions = {
   RenameChanged: string -> unit
@@ -48,8 +44,6 @@ type OrgActions = {
   Remove: string * bool -> unit
 }
 
-/// The org menu's inputs: the org, the viewer, the live thread, the
-/// three model slices its fields follow, and the actions it reports.
 [<Struct>]
 type OrgMenuProps = {
   Org: OrgRef
@@ -62,13 +56,13 @@ type OrgMenuProps = {
   Actions: OrgActions
 }
 
-/// The target's own name as the menu title.
+// The target's own name as the menu title.
 let menuTitle(target: ChatTarget) : string =
   match target with
   | Partner partner -> partner.Name
   | Org org -> org.Name |> Option.defaultValue "the org"
 
-/// The partner's profile pick.
+// The partner's profile pick.
 let profilePick(partner: User, viewProfile: User -> unit) : Control =
   Button()
     .Classes(Theme.name Theme.GhostButton)
@@ -80,13 +74,13 @@ let profilePick(partner: User, viewProfile: User -> unit) : Control =
       args.Handled <- true
       viewProfile partner)
 
-/// One menu pick that follows a live state slice.
+// One menu pick that follows a live state slice.
 let visiblePick
   (label: string, onPick: unit -> unit, shown: IObservable<bool>)
   : Control =
   menuPick(label, onPick).IsVisible(shown)
 
-/// The mute choices, each one a quiet pick.
+// The mute choices, each one a quiet pick.
 let mutePicks(actions: MenuActions) : Control array = [|
   for label, how in
     [
@@ -98,7 +92,7 @@ let mutePicks(actions: MenuActions) : Control array = [|
     ] -> menuPick(label, fun () -> actions.Mute how)
 |]
 
-/// The partner's block pick.
+// The partner's block pick.
 let blockPick(actions: MenuActions, partner: User) : Control =
   confirmPick {
     Label = $"block @{partner.Handle}"
@@ -110,7 +104,7 @@ let blockPick(actions: MenuActions, partner: User) : Control =
     Busy = Observable.single None
   }
 
-/// The org's leave pick.
+// The org's leave pick.
 let leavePick(actions: MenuActions, title: string) : Control =
   confirmPick {
     Label = $"leave {title}"
@@ -122,7 +116,7 @@ let leavePick(actions: MenuActions, title: string) : Control =
     Busy = Observable.single None
   }
 
-/// The menu's rows in the order the flyout carries them.
+// The menu's rows in the order the flyout carries them.
 let actionRows(props: ActionsMenuProps) : Control array =
   let profileRows: Control array =
     match props.Target with
@@ -156,9 +150,6 @@ let actionRows(props: ActionsMenuProps) : Control array =
     yield! destructiveRows
   |]
 
-/// The conversation's own menu: view profile, pin, stash, mutes,
-/// block or leave. The flyout is control-owned, the way the link
-/// picker's is.
 let actionsMenu(props: ActionsMenuProps) : Control =
   let title = menuTitle props.Target
 
@@ -186,7 +177,7 @@ let actionsMenu(props: ActionsMenuProps) : Control =
 
   Panel().Children(more, flyout).HorizontalAlignment(HorizontalAlignment.Right)
 
-/// One org member's avatar in the stack.
+// One org member's avatar in the stack.
 let memberAvatar(cache: ImageCacheService, member': ThreadMember) : Control =
   (Avatar.view {
     Name = member'.User.Name
@@ -197,8 +188,6 @@ let memberAvatar(cache: ImageCacheService, member': ThreadMember) : Control =
   })
     .Margin(-6.0, 0.0, 0.0, 0.0)
 
-/// The org header's member stack: the org's members, ringed and
-/// overlapped, two rows deep when the org is wide.
 let memberStack
   (cache: ImageCacheService, members: ThreadMember list)
   : Control =
@@ -206,7 +195,7 @@ let memberStack
     for member' in members -> memberAvatar(cache, member')
   |]
 
-/// The rename field: the name bound to the model slice.
+// The rename field: the name bound to the model slice.
 let renameBox
   (rename: IObservable<string>, onChanged: string -> unit)
   : TextBox =
@@ -221,7 +210,7 @@ let renameBox
     .OnTextChangedHandler(fun box _ ->
       box.Text |> Option.ofObj |> Option.defaultValue "" |> onChanged)
 
-/// The rename field's save command.
+// The rename field's save command.
 let saveButton(onSave: unit -> unit) : Control =
   Button()
     .Classes(Theme.name Theme.GhostButton)
@@ -232,7 +221,7 @@ let saveButton(onSave: unit -> unit) : Control =
       args.Handled <- true
       onSave())
 
-/// The rename row: the field and its save command.
+// The rename row: the field and its save command.
 let renameRow
   (rename: IObservable<string>, onChanged: string -> unit, onSave: unit -> unit)
   : Control =
@@ -241,7 +230,7 @@ let renameRow
     .Spacing(4.0)
     .Children(renameBox(rename, onChanged), saveButton onSave)
 
-/// The org member field: Enter reports the trimmed handle.
+// The org member field: Enter reports the trimmed handle.
 let memberBox(onChanged: string -> unit) : TextBox =
   TextBox()
     .Name("OrgMember")
@@ -258,7 +247,7 @@ let memberBox(onChanged: string -> unit) : TextBox =
 
         onChanged typed)
 
-/// The member's next role and the word that offers it.
+// The member's next role and the word that offers it.
 let roleFlip(member': ThreadMember) : string * OrgRole =
   match member'.Role with
   | Some Maintainer
@@ -266,7 +255,7 @@ let roleFlip(member': ThreadMember) : string * OrgRole =
   | Some Contributor
   | None -> "make maintainer", Maintainer
 
-/// One member's role pick and removal.
+// One member's role pick and removal.
 let memberPick(member': ThreadMember, actions: OrgActions) : Control =
   let label, nextRole = roleFlip member'
 
@@ -291,13 +280,13 @@ let memberPick(member': ThreadMember, actions: OrgActions) : Control =
     )
     .Margin(0.0, 2.0, 0.0, 0.0)
 
-/// The rows for every member but the viewer.
+// The rows for every member but the viewer.
 let memberRows(others: ThreadMember list, actions: OrgActions) : Control array = [|
   for member' in others -> memberPick(member', actions)
 |]
 
-/// The add-section's own count: everyone the org would hold once the
-/// picked names land.
+// The add-section's own count: everyone the org would hold once the
+// picked names land.
 let addCount
   (
     members: IObservable<ThreadMember list>,
@@ -312,7 +301,7 @@ let addCount
     List.length others + 1 + List.length picked)
   |> Observable.distinctUntilChanged
 
-/// The count line under "add members".
+// The count line under "add members".
 let addCountLine(count: IObservable<int>) : Control =
   ContentControl()
     .Content(
@@ -326,7 +315,7 @@ let addCountLine(count: IObservable<int>) : Control =
       |> _.ToBinding()
     )
 
-/// The live member rows under the add section.
+// The live member rows under the add section.
 let memberHost
   (
     members: IObservable<ThreadMember list>,
@@ -344,7 +333,7 @@ let memberHost
       |> _.ToBinding()
     )
 
-/// The share-history choice.
+// The share-history choice.
 let shareRow(shared: IObservable<bool>, onChanged: bool -> unit) : Control =
   StackPanel()
     .Orientation(Orientation.Horizontal)
@@ -367,11 +356,11 @@ let shareRow(shared: IObservable<bool>, onChanged: bool -> unit) : Control =
           onChanged shared)
     )
 
-/// One section heading.
+// One section heading.
 let sectionTitle(text: string) : Control =
   TextBlock().Classes(Theme.name Theme.Mono).FontSize(11.0).Text(text)
 
-/// The add command under the member field.
+// The add command under the member field.
 let addButton(onAdd: unit -> unit) : Control =
   Button()
     .Classes(Theme.name Theme.GhostButton)
@@ -383,7 +372,7 @@ let addButton(onAdd: unit -> unit) : Control =
       args.Handled <- true
       onAdd())
 
-/// The viewer's own leave pick.
+// The viewer's own leave pick.
 let orgLeavePick(props: OrgMenuProps) : Control =
   let orgName = props.Org.Name |> Option.defaultValue "the org"
 
@@ -397,7 +386,7 @@ let orgLeavePick(props: OrgMenuProps) : Control =
     Busy = Observable.single None
   }
 
-/// The org menu's rows in the order the flyout carries them.
+// The org menu's rows in the order the flyout carries them.
 let orgRows(props: OrgMenuProps) : Control array =
   let members = props.Thread |> Observable.map _.Members
 
@@ -439,7 +428,7 @@ let orgRows(props: OrgMenuProps) : Control array =
     yield! leaveRows
   |]
 
-/// The org menu's flyout: the scrolling card around the rows.
+// The org menu's flyout: the scrolling card around the rows.
 let orgFlyout(rows: Control array) : Popup =
   Popup()
     .Child(
@@ -452,9 +441,6 @@ let orgFlyout(rows: Control array) : Popup =
         .Child(ScrollViewer().Content(StackPanel().Children(rows)))
     )
 
-/// The maintainer's menu on an org header: rename, add members with
-/// the share-history choice, a role change per member, remove, and
-/// leave. Control-owned flyout, the house pattern.
 let orgMenu(props: OrgMenuProps) : Control =
   let role = props.Thread |> Observable.map _.Role
   let flyout = orgFlyout(orgRows props)

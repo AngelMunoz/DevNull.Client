@@ -64,22 +64,22 @@ let closedSnapshot: Snapshot = {
   Open = false
 }
 
-/// How many rows the keys walk: the people and organizations together,
-/// or the one issue card.
+// How many rows the keys walk: the people and organizations together,
+// or the one issue card.
 let countOf(flyout: Flyout.View) : int =
   match flyout.Issue with
   | Some _ -> 1
   | None -> List.length flyout.Users + List.length flyout.Organizations
 
-/// The armed row, clamped into the rows the newest state holds.
+// The armed row, clamped into the rows the newest state holds.
 let activeOf(flyout: Flyout.View) : int =
   let count = countOf flyout
 
   if count = 0 then 0 else min flyout.Active (count - 1)
 
-/// The completion lands in the box itself, so the change rides the
-/// same text-changed path typing does, and the caret the surgery
-/// computed follows it in the same beat.
+// The completion lands in the box itself, so the change rides the
+// same text-changed path typing does, and the caret the surgery
+// computed follows it in the same beat.
 let applied(props: Props, text: string, caret: int) : unit =
   props.Body.Text <- text
   props.Body.CaretIndex <- caret
@@ -111,7 +111,7 @@ let completeIssue(props: Props, snapshot: Snapshot, issue: Issue) : unit =
   | ValueSome(Mention _)
   | ValueNone -> ()
 
-/// The pick the keys answer: the armed row.
+// The pick the keys answer: the armed row.
 let picked(props: Props, snapshot: Snapshot) : unit =
   let flyout = snapshot.Flyout
   let active = activeOf flyout
@@ -142,10 +142,10 @@ let flyoutActions
   Hovered = fun index -> props.Events(Hovered index)
 }
 
-/// The popup and its feeds. The lane owns both: the session queries
-/// ride the trigger, the keys read one local snapshot, and the popup's
-/// open state follows the model. Nothing is handed back to the
-/// composer's subscription set.
+// The popup and its feeds. The lane owns both: the session queries
+// ride the trigger, the keys read one local snapshot, and the popup's
+// open state follows the model. Nothing is handed back to the
+// composer's subscription set.
 let lane
   (props: Props, standing: BehaviorSubject<Snapshot>)
   : Popup * (unit -> IDisposable) =
@@ -221,7 +221,6 @@ let lane
 
   popup, start
 
-/// The completion lane over the body.
 let view(props: Props) : Control =
   let standing = new BehaviorSubject<Snapshot>(closedSnapshot)
 

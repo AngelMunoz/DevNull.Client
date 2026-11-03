@@ -59,17 +59,15 @@ type Props<'env
   Session: SignedInSession
   Nav: INavigable
   Context: RouteContext
-  /// Whether the page opens with the quote composer armed: the
-  /// /quote/:id route renders this page over the quoted commit.
   Quoting: bool
 }
 
-/// The page's state logic: model, messages, update, and the
-/// subscriptions that feed it from outside.
+// The page's state logic: model, messages, update, and the
+// subscriptions that feed it from outside.
 module State =
 
-  /// One nested reply list the page grew past the payload's preview
-  /// slice: the replies shown and the cursor the next page asks for.
+  // One nested reply list the page grew past the payload's preview
+  // slice: the replies shown and the cursor the next page asks for.
   [<Struct>]
   type PreviewState = {
     Shown: CommitNode list
@@ -82,28 +80,28 @@ module State =
     Page: CommitPage option
     Replies: CommitNode list
     RepliesCursor: string option
-    /// The commits closest in meaning to the focused one, closest
-    /// first; a failed read stays an empty list and shows nothing.
+    // The commits closest in meaning to the focused one, closest
+    // first; a failed read stays an empty list and shows nothing.
     Related: CommitNode list
     Note: string option
     Now: DateTimeOffset
     Pasteis: bool
     Replying: bool
-    /// The commit whose poll vote is in flight, so its buttons disable.
+    // The commit whose poll vote is in flight, so its buttons disable.
     Voting: string option
-    /// The commit whose pin call is in flight, so its button disables.
+    // The commit whose pin call is in flight, so its button disables.
     Pinning: string option
-    /// The option a viewer picked in each open poll, by commit id.
+    // The option a viewer picked in each open poll, by commit id.
     PollChoices: Map<string, string>
-    /// Whether the quote composer is armed: from the route, or from
-    /// the focused card's quote action.
+    // Whether the quote composer is armed: from the route, or from
+    // the focused card's quote action.
     Quoting: bool
-    /// The nested reply lists the page grew past their preview
-    /// slices, by parent id.
+    // The nested reply lists the page grew past their preview
+    // slices, by parent id.
     Expanded: Map<string, PreviewState>
-    /// Whether translations show by themselves.
+    // Whether translations show by themselves.
     Automatic: bool
-    /// Every commit's translation on this page.
+    // Every commit's translation on this page.
     Translations: TranslationModel.Book
   }
 
@@ -224,8 +222,8 @@ module State =
         RelatedFetched
     ]
 
-  /// Runs one commit's translate call: the language its own translation or
-  /// the settings pick, and the 503 retries.
+  // Runs one commit's translate call: the language its own translation or
+  // the settings pick, and the 503 retries.
   let translate(props: Props<'env>, commit: Commit) =
     let language =
       TranslationModel.languageFor(
@@ -709,8 +707,8 @@ module State =
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
-  /// The page's inlets from outside: the shared clock and the session
-  /// store.
+  // The page's inlets from outside: the shared clock and the session
+  // store.
   let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
     [
       Sub.fromObservable
@@ -723,10 +721,10 @@ module State =
     ]
     |> Sub.batch
 
-/// The page's semantic regions; the view only composes these.
+// The page's semantic regions; the view only composes these.
 module Parts =
 
-  /// The hover card source every thread card shares.
+  // The hover card source every thread card shares.
   let flyoutOf<'env
     when 'env :> IProvideClock
     and 'env :> IProvideNonceSource
@@ -755,16 +753,16 @@ module Parts =
 
     ValueSome source
 
-  /// The thread page's shared card context: the row props every card
-  /// follows, the page's live model, and its dispatch.
+  // The thread page's shared card context: the row props every card
+  // follows, the page's live model, and its dispatch.
   type Ctx = {
     Rows: CommitCard.RowProps
     Model: IObservable<State.Model>
     Dispatch: Dispatch<State.Msg>
   }
 
-  /// The "Show N more" walk of one node's replies, the muted dot of
-  /// the site's continuation.
+  // The "Show N more" walk of one node's replies, the muted dot of
+  // the site's continuation.
   let moreNodeReplies
     (dispatch: Dispatch<State.Msg>, commit: Commit, remaining: int)
     : Control =
@@ -799,10 +797,10 @@ module Parts =
         args.Handled <- true
         dispatch(State.NodeMoreRequested commit))
 
-  /// Grows one parent's children on the thread page: the payload's
-  /// preview slice, or the list the page walked through the cursor,
-  /// plus the walk button while replies remain. The host rebuilds
-  /// only when the shown list changed.
+  // Grows one parent's children on the thread page: the payload's
+  // preview slice, or the list the page walked through the cursor,
+  // plus the walk button while replies remain. The host rebuilds
+  // only when the shown list changed.
   let growChildren
     (ctx: Ctx)
     (child: CommitCard.ChainCtx)
@@ -847,8 +845,8 @@ module Parts =
         |> _.ToBinding()
       )
 
-  /// The chain context of the thread page: every parent grows its
-  /// children through the cursor.
+  // The chain context of the thread page: every parent grows its
+  // children through the cursor.
   let threadChain
     (ctx: Ctx, lane: Lane option, handle: string)
     : CommitCard.ChainCtx = {
@@ -859,7 +857,7 @@ module Parts =
     Grow = ValueSome(growChildren ctx)
   }
 
-  /// One ancestor hop above the card: the author and a one-line body.
+  // One ancestor hop above the card: the author and a one-line body.
   let ancestorRow(props: Props<'env>, node: CommitNode) : Control =
     match node with
     | LiveCommit commit ->
@@ -887,7 +885,7 @@ module Parts =
         .Text("deleted")
         .Margin(4.0, 2.0)
 
-  /// The back affordance above the thread.
+  // The back affordance above the thread.
   let backLine(props: Props<'env>) : Control =
     Button()
       .Classes(Theme.name Theme.GhostButton)
@@ -895,7 +893,7 @@ module Parts =
       .OnClickHandler(fun _ _ ->
         Navigation.go(props.Nav, "/log/latest", ignore))
 
-  /// The transient note line (the pastel cycle count after a give).
+  // The transient note line (the pastel cycle count after a give).
   let noteLine(model: IObservable<State.Model>) : Control =
     TextBlock()
       .Classes(Theme.name Theme.Muted)
@@ -905,7 +903,7 @@ module Parts =
       )
       .IsVisible(model |> Observable.map _.Note.IsSome)
 
-  /// The loading line while the thread reads.
+  // The loading line while the thread reads.
   let busy(model: IObservable<State.Model>) : Control =
     Status
       .busy("Loading the commit…")
@@ -926,7 +924,7 @@ module Parts =
 
     ContentControl().Content(content.ToBinding())
 
-  /// The pastel and delete affordances under the card.
+  // The pastel and delete affordances under the card.
   let threadActions
     (
       props: Props<'env>,
@@ -977,7 +975,7 @@ module Parts =
       .Margin(0.0, 8.0, 0.0, 12.0)
       .Children(actionChildren)
 
-  /// The ancestor chain above the card.
+  // The ancestor chain above the card.
   let ancestors(props: Props<'env>, model: IObservable<State.Model>) : Control =
     ItemsControl()
       .ItemTemplate(
@@ -995,10 +993,10 @@ module Parts =
         FeedParts.nodeKey
       )
 
-  /// The reply column under the card: the root replies as the site's
-  /// slim chain. The focused card runs its lane tail to its bottom
-  /// edge while replies show, so the first row's elbow starts exactly
-  /// at that boundary.
+  // The reply column under the card: the root replies as the site's
+  // slim chain. The focused card runs its lane tail to its bottom
+  // edge while replies show, so the first row's elbow starts exactly
+  // at that boundary.
   let replies(ctx: Ctx) : Control =
     ContentControl()
       .Content(
@@ -1025,7 +1023,7 @@ module Parts =
         |> _.ToBinding()
       )
 
-  /// The pager under the replies, while another page exists.
+  // The pager under the replies, while another page exists.
   let moreReplies
     (dispatch: Dispatch<State.Msg>, model: IObservable<State.Model>)
     : Control =
@@ -1037,12 +1035,12 @@ module Parts =
       .IsVisible(model |> Observable.map _.RepliesCursor.IsSome)
       .OnClickHandler(fun _ _ -> dispatch State.MoreReplies)
 
-  /// The answer composers under the thread. The reply composer hides
-  /// until the card's reply button reveals it; a landed reply reloads
-  /// the page. The quote composer arms from the route or the focused
-  /// card's quote action; a landed quote opens the new commit's
-  /// thread. Both mount once: a rebuild on every model change would
-  /// wipe the typed text.
+  // The answer composers under the thread. The reply composer hides
+  // until the card's reply button reveals it; a landed reply reloads
+  // the page. The quote composer arms from the route or the focused
+  // card's quote action; a landed quote opens the new commit's
+  // thread. Both mount once: a rebuild on every model change would
+  // wipe the typed text.
   let answerComposer
     (
       props: Props<'env>,
@@ -1082,10 +1080,10 @@ module Parts =
         quote.IsVisible(model |> Observable.map(fun current -> current.Quoting))
       )
 
-  /// The related-commits section under the thread: the heading over
-  /// the commits closest in meaning to the focused one, drawn as feed
-  /// cards. Nothing close — or a read that failed — renders nothing at
-  /// all, the way the site's section stays absent.
+  // The related-commits section under the thread: the heading over
+  // the commits closest in meaning to the focused one, drawn as feed
+  // cards. Nothing close — or a read that failed — renders nothing at
+  // all, the way the site's section stays absent.
   let related(ctx: Ctx, model: IObservable<State.Model>) : Control =
     let header =
       Border()

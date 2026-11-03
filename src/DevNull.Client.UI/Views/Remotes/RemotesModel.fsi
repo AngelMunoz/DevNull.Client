@@ -16,6 +16,8 @@ module RemotesModel =
     props: Props<'env> ->
       (State.Msg -> State.Model -> State.Model * Cmd<State.Msg>)
 
-  /// The page's inlets from outside: the shared clock, the session,
-  /// the store, and the watcher's readership handles.
+  /// The page's inlets from outside: the shared clock, the session, the
+  /// store, and the watcher's readership handles. The thread watch
+  /// rides the open target: a new target restarts the sub, and the
+  /// page's end releases it.
   val subscribe: props: Props<'env> -> model: State.Model -> Sub<State.Msg>

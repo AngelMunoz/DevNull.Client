@@ -39,12 +39,12 @@ type Props<'env
   Context: RouteContext
 }
 
-/// The page's state logic: model, messages, update, and the
-/// subscription that feeds the due flip from the shared clock.
+// The page's state logic: model, messages, update, and the
+// subscription that feeds the due flip from the shared clock.
 module State =
 
-  /// Which row action is in flight; every row's buttons stay off while
-  /// one is, the way the site's page holds them.
+  // Which row action is in flight; every row's buttons stay off while
+  // one is, the way the site's page holds them.
   type RowAction =
     | CommitNow
     | CancelRow
@@ -55,16 +55,16 @@ module State =
   type Model = {
     Loading: bool
     Error: AppError option
-    /// The server's own conflict line, kept until the person moves on:
-    /// the refresh the message asks for clears the error line before it
-    /// could be read.
+    // The server's own conflict line, kept until the person moves on:
+    // the refresh the message asks for clears the error line before it
+    // could be read.
     Notice: string option
     Items: ScheduledCommit list
     CurrentPage: int
     LastPage: int
     Total: int
     Busy: Busy voption
-    /// The rows the person unfolded past their preview.
+    // The rows the person unfolded past their preview.
     Unfolded: Set<string>
     Now: DateTimeOffset
   }
@@ -305,7 +305,7 @@ module State =
       "clock"
       (props.Env.UiClock.Minute |> Observable.map ClockTicked)
 
-/// The page's pure labels, as the site's page words them.
+// The page's pure labels, as the site's page words them.
 module Labels =
 
   let status(now: DateTimeOffset, entry: ScheduledCommit) : string =
@@ -333,11 +333,11 @@ module Labels =
   let when_(entry: ScheduledCommit) : string =
     entry.ScheduledAt.ToLocalTime().ToString("MMM d, yyyy, h:mm tt")
 
-/// The page's semantic regions; the view only composes these.
+// The page's semantic regions; the view only composes these.
 module Parts =
 
-  /// One segment of a queued body, plain: the queue carries no mention
-  /// positions, so nothing links.
+  // One segment of a queued body, plain: the queue carries no mention
+  // positions, so nothing links.
   let segmentView(segment: Segment) : Control =
     match segment with
     | TextSegment text ->
@@ -372,8 +372,8 @@ module Parts =
       for segment in segments -> segmentView segment
     |]
 
-  /// The queued body, folded to its preview until unfolded, with the
-  /// site's Show more.
+  // The queued body, folded to its preview until unfolded, with the
+  // site's Show more.
   let body
     (
       dispatch: Dispatch<State.Msg>,
@@ -409,7 +409,7 @@ module Parts =
         |> _.ToBinding()
       )
 
-  /// The poll options the queue keeps, one bordered row each.
+  // The poll options the queue keeps, one bordered row each.
   let pollOptions(options: string list) : Control =
     StackPanel().Spacing(4.0).Children [|
       for option in options ->
@@ -422,9 +422,9 @@ module Parts =
         :> Control
     |]
 
-  /// One queue row: the status and its moment, the actions while it
-  /// still waits, the folded body, the poll, the image count, and the
-  /// footnote.
+  // One queue row: the status and its moment, the actions while it
+  // still waits, the folded body, the poll, the image count, and the
+  // footnote.
   let row
     (
       dispatch: Dispatch<State.Msg>,
@@ -555,8 +555,8 @@ module Parts =
       .Padding(0.0, 16.0, 0.0, 16.0)
       .Child(row)
 
-  /// The offset pager: the site's Previous and Next, each only while
-  /// its page exists.
+  // The offset pager: the site's Previous and Next, each only while
+  // its page exists.
   let pager
     (
       props: Props<'env>,
@@ -591,7 +591,7 @@ module Parts =
       .Margin(0.0, 12.0, 0.0, 24.0)
       .Children(previous, next)
 
-  /// The scrolling queue: the rows, then the pager.
+  // The scrolling queue: the rows, then the pager.
   let queue
     (
       props: Props<'env>,

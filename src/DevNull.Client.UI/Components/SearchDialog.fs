@@ -29,11 +29,6 @@ open DevNull.Client.Search
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
 
-/// Everything the search dialog reads: the env it searches through,
-/// the signed account it searches as, the session that owns the
-/// debounced calls, the recents it shows when the box is empty, the
-/// router it opens finds on, and the two things beside finding —
-/// opening the composer and closing itself.
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
@@ -52,11 +47,11 @@ type Props<'env
   Close: unit -> unit
 }
 
-/// The state logic: model, messages, update, and the subscription that
-/// feeds the dialog from its session and the clock.
+// The state logic: model, messages, update, and the subscription that
+// feeds the dialog from its session and the clock.
 module State =
 
-  /// One row of the dialog's list.
+  // One row of the dialog's list.
   type Entry =
     | Compose
     | Person of User
@@ -72,7 +67,7 @@ module State =
     Commits: CommitsFound voption
     Recents: string list
     Now: DateTimeOffset
-    /// The term whose settle was last written to the recents.
+    // The term whose settle was last written to the recents.
     Remembered: string
   }
 
@@ -103,8 +98,8 @@ module State =
 
   let inline trimmed(model: Model) = model.Term.Trim()
 
-  /// The people answer that belongs to the term now typed, when it has
-  /// settled. A channel with nothing to search for counts as settled.
+  // The people answer that belongs to the term now typed, when it has
+  // settled. A channel with nothing to search for counts as settled.
   let peopleOf(model: Model) : PeopleFound =
     match SearchTerms.peopleTerm model.Term, model.People with
     | ValueSome term, ValueSome found when found.Term = term -> found
@@ -114,8 +109,8 @@ module State =
         Throttled = false
       }
 
-  /// The commit answer that belongs to the term now typed, when it has
-  /// settled. A channel with nothing to search for counts as settled.
+  // The commit answer that belongs to the term now typed, when it has
+  // settled. A channel with nothing to search for counts as settled.
   let commitsOf(model: Model) : CommitsFound =
     match SearchTerms.commitTerm model.Term, model.Commits with
     | ValueSome term, ValueSome found when found.Term = term -> found
@@ -125,7 +120,7 @@ module State =
         Throttled = false
       }
 
-  /// True while the term owes an answer from a channel it reaches.
+  // True while the term owes an answer from a channel it reaches.
   let searching(model: Model) : bool =
     let term = trimmed model
 
@@ -142,12 +137,12 @@ module State =
 
       peopleOut || commitsOut
 
-  /// True when the server asked either channel to slow down.
+  // True when the server asked either channel to slow down.
   let throttled(model: Model) : bool =
     (peopleOf model).Throttled || (commitsOf model).Throttled
 
-  /// The compose action answers once the term starts one of its words,
-  /// the site's own three-letter floor.
+  // The compose action answers once the term starts one of its words,
+  // the site's own three-letter floor.
   let composeAnswers(term: string) =
     let typed = Regex.Replace(term.Trim().ToLowerInvariant(), "\s+", " ")
 
@@ -159,7 +154,7 @@ module State =
           keyword.StartsWith(typed, StringComparison.Ordinal))
         [ "commit"; "write a commit"; "new commit"; "compose" ]
 
-  /// The finds the term produced, before the quiet list stands in.
+  // The finds the term produced, before the quiet list stands in.
   let results(model: Model) : Entry list =
     let term = trimmed model
 
@@ -197,16 +192,16 @@ module State =
       else
         action @ people @ found @ seeAll
 
-  /// True when every channel the term reaches has answered and none of
-  /// them found anything.
+  // True when every channel the term reaches has answered and none of
+  // them found anything.
   let foundNothing(model: Model) : bool =
     trimmed model <> ""
     && not(searching model)
     && not(throttled model)
     && results model |> List.isEmpty
 
-  /// The rows the list shows: the term's finds, or — while nothing is
-  /// typed or nothing was found — the recents and the suggestions.
+  // The rows the list shows: the term's finds, or — while nothing is
+  // typed or nothing was found — the recents and the suggestions.
   let entriesOf(model: Model) : Entry list =
     let quiet() =
       [ for known in model.Recents -> Recent known ]
@@ -217,7 +212,7 @@ module State =
     else
       results model
 
-  /// The index clamped into the rows the list shows now.
+  // The index clamped into the rows the list shows now.
   let clamped(model: Model) : int =
     let count = entriesOf model |> List.length
 
@@ -344,7 +339,7 @@ module State =
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
-  /// The dialog's inlets: its session's two channels and the clock.
+  // The dialog's inlets: its session's two channels and the clock.
   let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
     [
       Sub.fromObservable
@@ -361,11 +356,11 @@ module State =
     ]
     |> Sub.batch
 
-/// The dialog's semantic regions.
+// The dialog's semantic regions.
 module Parts =
 
-  /// The status line the state asks for, or nothing: the slow-down
-  /// sentence, the lone-`@` hint, or the fatal line.
+  // The status line the state asks for, or nothing: the slow-down
+  // sentence, the lone-`@` hint, or the fatal line.
   let status(model: IObservable<State.Model>) : Control =
     model
     |> Observable.map(fun current ->
@@ -379,10 +374,10 @@ module Parts =
         "")
     |> SearchParts.statusLineOf
 
-  /// The input row: the loupe, the box, and the esc chip — nothing
-  /// else rides in it, so the box's layout never moves. While a
-  /// channel is still out, a two-pixel indeterminate line runs under
-  /// the whole row, the site's quiet loading mark.
+  // The input row: the loupe, the box, and the esc chip — nothing
+  // else rides in it, so the box's layout never moves. While a
+  // channel is still out, a two-pixel indeterminate line runs under
+  // the whole row, the site's quiet loading mark.
   let inputRow
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =
@@ -442,14 +437,14 @@ module Parts =
 
     StackPanel().Margin(8, 16).Children(row, loadingLine)
 
-  /// One row of the list: the entry it shows, its walk index, and the
-  /// section heading it opens when the entry begins one.
+  // One row of the list: the entry it shows, its walk index, and the
+  // section heading it opens when the entry begins one.
   type Row =
     | Entry of entry: State.Entry * index: int * heading: string option
     | Waiting
 
-  /// The props one option row reads: the model's armed slice, the
-  /// message it opens, and the content it shows.
+  // The props one option row reads: the model's armed slice, the
+  // message it opens, and the content it shows.
   [<Struct>]
   type OptionRow = {
     Model: IObservable<State.Model>
@@ -459,12 +454,12 @@ module Parts =
     Content: Control
   }
 
-  /// One option row: its content, the armed surface and the enter chip
-  /// bound to the armed stream, and the click that opens it. The armed
-  /// state is a binding, so the row never rebuilds for it — a rebuilt
-  /// list is a replaced scroll content, and its place resets. The
-  /// chip's slot stays reserved through opacity, never visibility: a
-  /// row that arms must not re-flow its text.
+  // One option row: its content, the armed surface and the enter chip
+  // bound to the armed stream, and the click that opens it. The armed
+  // state is a binding, so the row never rebuilds for it — a rebuilt
+  // list is a replaced scroll content, and its place resets. The
+  // chip's slot stays reserved through opacity, never visibility: a
+  // row that arms must not re-flow its text.
   let optionRow(row: OptionRow) : Control =
     let armed =
       row.Model
@@ -497,9 +492,9 @@ module Parts =
           )
       )
 
-  /// The list: every entry under its heading, built once for the
-  /// entries it shows — never for the armed row or the clock, so the
-  /// scroll keeps its place while the keys or the pointer move.
+  // The list: every entry under its heading, built once for the
+  // entries it shows — never for the armed row or the clock, so the
+  // scroll keeps its place while the keys or the pointer move.
   let list
     (
       ctx: SearchParts.RowCtx,
@@ -597,7 +592,7 @@ module Parts =
       }
     )
 
-  /// The footer: the keys the dialog answers, as the site lists them.
+  // The footer: the keys the dialog answers, as the site lists them.
   let footer() : Control =
     let pair(key: string, words: string) =
       StackPanel()
@@ -684,7 +679,6 @@ let view
 
   card
 
-/// The search dialog: built on open, torn down on detach.
 type Page<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource

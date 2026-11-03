@@ -15,7 +15,7 @@ export const meta = {
     workerModel: { type: "string", description: "auto (deepseek-flash:xhigh) or an explicit worker model; glm-5.3@xhigh refused.", default: "auto" },
     deriveTier: { type: "string", description: "Tier of the derive pass when deriveModel is unset.", default: "standard" },
     deriveModel: { type: "string", description: "Explicit model ref for the derive pass (overrides deriveTier); empty = tier.", default: "" },
-    architectTier: { type: "string", description: "Tier of the architect ladder's first round (later rounds de-escalate to standard) when architectModel is unset.", default: "complex" },
+    architectTier: { type: "string", description: "Tier of the architect, every round (glm-5.3@high on standard — the eval showed xhigh not significantly better; speed wins). glm-5.3-flash@high is the in-script fallback when the primary errors.", default: "standard" },
     architectModel: { type: "string", description: "Explicit model ref for ALL architect rounds (overrides the ladder); empty = tier ladder.", default: "" },
     autoLand: { type: "boolean", description: "Land approved steps without the user's review. Keep off.", default: false },
     landTarget: { type: "string", description: "main (ff-merge) or branch (commit only).", default: "main" },
@@ -77,9 +77,10 @@ const withMetrics = (title, extra, run) => {
           const po = it?.metrics?.providerOperations ?? {};
           let prior = "";
           try { prior = await read(".alta/derived/loop-metrics.jsonl"); } catch { /* first line */ }
+          const separated = prior === "" || prior.endsWith("\n") ? prior : `${prior}\n`;
           const enrich = typeof extra === "function" ? extra(result) : (extra ?? {});
           const line = { ts: new Date().toISOString(), title, ...enrich, model: hit.modelSelection?.modelRef, inTok: po.inputTokens ?? 0, cachedIn: po.cachedInputTokens ?? 0, outTok: po.outputTokens ?? 0, reasonTok: po.reasoningTokens ?? 0, durMin: Math.round((it?.metrics?.durationMs ?? 0) / 6000) / 10 };
-          await tools.write_file({ path: ".alta/derived/loop-metrics.jsonl", content: prior + JSON.stringify(line) + "\n" });
+          await tools.write_file({ path: ".alta/derived/loop-metrics.jsonl", content: separated + JSON.stringify(line) + "\n" });
         } catch { /* telemetry is best-effort */ }
       });
       return result;
@@ -137,7 +138,7 @@ ${IDIOM}
 
 ## Rules
 
-No git commits, no pushes, no gh. USE THE EDIT TOOLS for every file change — no shell text replacement. If a seam fights, STOP that item and report the evidence. Bug fixes follow the testing rule: a regression test that fails before and passes after.
+No git commits, no pushes, no gh. Edit files with the right tool for the shape of the work: hand-edit code through the edit tools, but MECHANICAL bulk operations (a scripted move, a generated rename, a bulk format) may run as scripts — deterministic tools beat hand-transcription, and a worker may write and run one-off scripts for exactly that. If a seam fights, STOP that item and report the evidence. Bug fixes follow the testing rule: a regression test that fails before and passes after.
 
 ## Done when
 
@@ -291,6 +292,17 @@ const archTier = (r) => (r === 0 || args.architectTier) ? (args.architectTier ??
 const archAgentOpts = (r) => (args.architectModel ?? "")
   ? { model: args.architectModel, subSessions: false }
   : { tier: archTier(r), subSessions: false };
+// Seat-level fallback: when the primary architect errors (provider-level),
+// one retry on glm-5.3-flash@high. Pinned models fall back too — an explicit
+// ref has no pool failover of its own.
+const ARCHITECT_FALLBACK = "zai:glm-5.3-flash@high";
+const architectWithFallback = async (round, title, makeBrief) => {
+  try {
+    return await agent(makeBrief(), { ...archAgentOpts(round), title, subSessions: false, schema: ARCHITECT_SCHEMA });
+  } catch {
+    return await agent(makeBrief(), { model: ARCHITECT_FALLBACK, title: `${title} [fallback]`, subSessions: false, schema: ARCHITECT_SCHEMA });
+  }
+};
 const deriveFor = async (id, st, force) => {
   let existing = null;
   try { existing = await read(derivedPath(id)); } catch { /* none */ }
@@ -373,7 +385,7 @@ if (action === "architect") {
   const derivation = await deriveFor(id, st, false);
   const results = await step("battery", battery);
   const prior = await priorRounds(id);
-  const architect = await step("architect", () => withMetrics(`${id} architect`, (r) => ({ step: id, round: 0, role: "architect", verdict: r?.verdict, findings: r?.directives?.length ?? 0 }), () => agent(ARCHITECT_BRIEF(id, st, derivation, "(no worker report: evaluating the current tree)", results, results.changed, prior), { ...archAgentOpts(0), title: `${id} architect`, subSessions: false, schema: ARCHITECT_SCHEMA })));
+  const architect = await step("architect", () => withMetrics(`${id} architect`, (r) => ({ step: id, round: 0, role: "architect", verdict: r?.verdict, findings: r?.directives?.length ?? 0 }), () => architectWithFallback(0, `${id} architect`, () => ARCHITECT_BRIEF(id, st, derivation, "(no worker report: evaluating the current tree)", results, results.changed, prior))));
   await tools.write_file({ path: verdictPath(id), content: JSON.stringify(architect, null, 2) });
   let redTeam = null;
   if ((args.redTeam ?? meta.params.redTeam.default) && results.hard && architect.verdict === "approve") {
@@ -404,7 +416,7 @@ for (let n = 0; n < wanted && current; n++) {
   let workerReport = await step("implement", () => withMetrics(`${current} worker`, (r) => ({ step: current, round: 0, role: "worker", reportChars: String(r).length }), () => agent(WORKER_BRIEF(current, st2, derivation, null), { ...workerOpts, title: `${current} worker` })));
   let results = await step("battery", battery);
   let prior = await priorRounds(current);
-  let architect = await step("architect", () => withMetrics(`${current} architect`, (r) => ({ step: current, round: 0, role: "architect", verdict: r?.verdict, findings: r?.directives?.length ?? 0 }), () => agent(ARCHITECT_BRIEF(current, st2, derivation, workerReport, results, results.changed, prior), { ...archAgentOpts(0), title: `${current} architect`, subSessions: false, schema: ARCHITECT_SCHEMA })));
+  let architect = await step("architect", () => withMetrics(`${current} architect`, (r) => ({ step: current, round: 0, role: "architect", verdict: r?.verdict, findings: r?.directives?.length ?? 0 }), () => architectWithFallback(0, `${current} architect`, () => ARCHITECT_BRIEF(current, st2, derivation, workerReport, results, results.changed, prior))));
   await tools.write_file({ path: verdictPath(current), content: JSON.stringify(architect, null, 2) });
   let redTeam = null;
   if ((args.redTeam ?? meta.params.redTeam.default) && results.hard && architect.verdict === "approve") {
@@ -435,7 +447,7 @@ for (let n = 0; n < wanted && current; n++) {
     workerReport = await step("remediate", () => withMetrics(`${current} worker r${rounds}`, (r) => ({ step: current, round: rounds, role: "worker", reportChars: String(r).length }), () => agent(WORKER_BRIEF(current, st2, derivation, directives.map((d, i) => `${i + 1}. ${d}`).join("\n")), { ...workerOpts, title: `${current} worker r${rounds}` })));
     results = await step("battery", battery);
     prior = await priorRounds(current);
-    architect = await step("architect", () => withMetrics(`${current} architect r${rounds}`, (r) => ({ step: current, round: rounds, role: "architect", verdict: r?.verdict, findings: r?.directives?.length ?? 0 }), () => agent(ARCHITECT_BRIEF(current, st2, derivation, workerReport, results, results.changed, prior), { ...archAgentOpts(rounds), title: `${current} architect r${rounds}`, subSessions: false, schema: ARCHITECT_SCHEMA })));
+    architect = await step("architect", () => withMetrics(`${current} architect r${rounds}`, (r) => ({ step: current, round: rounds, role: "architect", verdict: r?.verdict, findings: r?.directives?.length ?? 0 }), () => architectWithFallback(rounds, `${current} architect r${rounds}`, () => ARCHITECT_BRIEF(current, st2, derivation, workerReport, results, results.changed, prior))));
     await tools.write_file({ path: verdictPath(current), content: JSON.stringify(architect, null, 2) });
     redTeam = null;
     if ((args.redTeam ?? meta.params.redTeam.default) && results.hard && architect.verdict === "approve") {

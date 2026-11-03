@@ -87,7 +87,7 @@ testing rule 2: a regression test that fails before the fix.
   audit of its exports says so — its `DesktopApp` export decides).
   Verify: suites green, no capability wall restated on functions, zero
   Components→Views references, gates clean.
-- [ ] **P22 — Comments into signatures.** Rule-8 sweep over what P20/P21
+- [x] **P22 — Comments into signatures.** Rule-8 sweep over what P20/P21
   did not already carry: CommitCard (144 vs 64), Shell (61 vs 6),
   CommitDetailView (54 vs 6), and the rest of the debt list. `.fs`
   keeps only implementation-quirk comments. Verify: doc-comment counts
@@ -154,6 +154,7 @@ testing rule 2: a regression test that fails before the fix.
 | P21 | pending | module shape: Env, Remotes, DeviceAuth + Startup pairing |
 | P21 | committed 2026-11-03 | refactor: the remotes god-file takes the wire, store, and watcher split — cycle broken by an internal deps record; Env workers as contract+module+create; Startup/DeviceAuth narrowed; user feedback encoded: recursive async is async/asyncEx only, tail loops carry [<TailCall>] (AGENTS 27/28) |
 | P22 | pending | rule-8 comment migration for the remaining debt |
+| P22 | committed 2026-11-03 | 1,534 comment lines into .fsi, count-exact and verbatim (corrections batch filed as a task); casebook R6 (totals are not proof) + R7 (bulk transcription is tooling work); seat card locked: deepseek worker, glm-5.3@high derive+architect (flash fallback), flash pair red team |
 | P23 | pending | BUG-5 + BUG-9 |
 | P24 | pending | BUG-6 + BUG-7 |
 | P25 | pending | BUG-8 |

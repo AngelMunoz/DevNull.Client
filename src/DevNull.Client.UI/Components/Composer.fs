@@ -25,15 +25,12 @@ open DevNull.Client.Stores
 
 module Flyout = DevNull.Client.Components.Completion
 
-/// What the composer answers to: a fresh commit, a reply, or a quote.
 [<Struct>]
 type Target =
   | Fresh
   | ReplyTo of parentId: string
   | Quoting of quotedId: string
 
-/// Where a host whose row recycles keeps the draft alive: the text the
-/// composer starts from, and the sink every change reaches.
 type DraftSource = {
   Seed: string
   Changed: string -> unit
@@ -57,13 +54,13 @@ type Props<'env
   OnBodyReady: (TextBox -> unit) voption
 }
 
-/// The composer's state logic: model, messages, and update.
+// The composer's state logic: model, messages, and update.
 module State =
 
-  /// The completion lane over the body: the trigger the caret sits
-  /// in, the rows the newest answer settled into, and the row the keys
-  /// hold. The issue reference the person closed by hand stays closed
-  /// until the text moves past it.
+  // The completion lane over the body: the trigger the caret sits
+  // in, the rows the newest answer settled into, and the row the keys
+  // hold. The issue reference the person closed by hand stays closed
+  // until the text moves past it.
   type CompletionState = {
     Trigger: Trigger voption
     Users: User list
@@ -86,15 +83,15 @@ module State =
     Dismissed = ValueNone
   }
 
-  /// The query the trigger holds, empty for a bare `@`.
+  // The query the trigger holds, empty for a bare `@`.
   let inline queryOf(completion: CompletionState) =
     match completion.Trigger with
     | ValueSome(Mention(_, query)) -> query
     | ValueSome(IssueRef(_, digits)) -> IssueNumber.value digits
     | ValueNone -> ""
 
-  /// How many rows the keys walk: the people and organizations
-  /// together, or the one issue card.
+  // How many rows the keys walk: the people and organizations
+  // together, or the one issue card.
   let inline completionCount(completion: CompletionState) =
     match completion.Trigger with
     | ValueSome(IssueRef _) -> if completion.Issue.IsSome then 1 else 0
@@ -102,9 +99,9 @@ module State =
     | ValueNone ->
       List.length completion.Users + List.length completion.Organizations
 
-  /// Whether the flyout stands: a trigger the person did not close,
-  /// with rows to walk, an answer on its way, a slow-down to say, or —
-  /// for a mention — a query whose quiet states belong on screen.
+  // Whether the flyout stands: a trigger the person did not close,
+  // with rows to walk, an answer on its way, a slow-down to say, or —
+  // for a mention — a query whose quiet states belong on screen.
   let inline completionOpen(completion: CompletionState) =
     match completion.Trigger with
     | ValueNone -> false
@@ -115,10 +112,10 @@ module State =
       || completionCount completion > 0
       || queryOf completion <> ""
 
-  /// The completion state the text and caret leave: a new trigger
-  /// resets the rows and the armed row, and the issue reference the
-  /// person closed by hand stays closed while the text still holds
-  /// it.
+  // The completion state the text and caret leave: a new trigger
+  // resets the rows and the armed row, and the issue reference the
+  // person closed by hand stays closed while the text still holds
+  // it.
   let trackCompletion(current: CompletionState, text: string, caret: int) =
 
     let opened(trigger: Trigger) = {
@@ -149,16 +146,16 @@ module State =
     Committed: int
     Body: string
     Attachments: ImageAttachment list
-    /// One description per staged image, empty where undescribed; kept
-    /// parallel to the attachments by index.
+    // One description per staged image, empty where undescribed; kept
+    // parallel to the attachments by index.
     Descriptions: string list
     Poll: PollEditor.Draft option
-    /// The schedule mode: on when the next submit queues instead of
-    /// posting.
+    // The schedule mode: on when the next submit queues instead of
+    // posting.
     Scheduling: bool
-    /// The picked moment; none until a day is chosen.
+    // The picked moment; none until a day is chosen.
     Picked: SchedulePicker.Pick voption
-    /// The completion lane over the body.
+    // The completion lane over the body.
     Completion: CompletionState
   }
 
@@ -201,15 +198,15 @@ module State =
     Completion = closedCompletion
   }
 
-  /// The staging path allocates large-object arrays an idle composer
-  /// never generates enough churn to collect: the picker's transients
-  /// and every staged copy wait for a generation the resting app does
-  /// not run. Each transition below is where that memory dies. The
-  /// collection posts at background priority, after the new model
-  /// published and the bindings dropped the old lists. Aggressive is
-  /// the mode that returns the emptied regions to the OS: a Forced
-  /// compaction reclaims the arrays but leaves their committed regions
-  /// mapped, so the resting app keeps their footprint.
+  // The staging path allocates large-object arrays an idle composer
+  // never generates enough churn to collect: the picker's transients
+  // and every staged copy wait for a generation the resting app does
+  // not run. Each transition below is where that memory dies. The
+  // collection posts at background priority, after the new model
+  // published and the bindings dropped the old lists. Aggressive is
+  // the mode that returns the emptied regions to the OS: a Forced
+  // compaction reclaims the arrays but leaves their committed regions
+  // mapped, so the resting app keeps their footprint.
   let collectStaged() : unit =
     Dispatcher.UIThread.Post(
       (fun () ->
@@ -231,13 +228,13 @@ module State =
     | ReplyTo parentId -> Commits.ReplyTo parentId
     | Quoting quotedId -> Commits.Quote quotedId
 
-  /// The local now, from the env's clock.
+  // The local now, from the env's clock.
   let localNow(props: Props<'env>) : DateTimeOffset =
     DateTimeOffset.FromUnixTimeSeconds(props.Env.Clock.UnixNow()).ToLocalTime()
 
-  /// The picked moment in local time: the day offset lands on the
-  /// calendar date, the hour and minute set the time, and the offset is
-  /// today's.
+  // The picked moment in local time: the day offset lands on the
+  // calendar date, the hour and minute set the time, and the offset is
+  // today's.
   let pickedMoment
     (now: DateTimeOffset, pick: SchedulePicker.Pick)
     : DateTimeOffset =
@@ -681,8 +678,8 @@ module State =
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
-  /// The completion session's answers enter the program through the
-  /// engine's subscription set, and the session itself retires with it.
+  // The completion session's answers enter the program through the
+  // engine's subscription set, and the session itself retires with it.
   let subscribe (session: CompletionSession) (_: Model) : Sub<Msg> =
     Sub.batch [
       Sub.fromObservable
@@ -696,13 +693,13 @@ module State =
       Sub.ofId "completion-session" (fun _ -> session :> IDisposable)
     ]
 
-/// The composer's semantic regions; the view only composes these.
+// The composer's semantic regions; the view only composes these.
 module Parts =
 
-  /// The input: one line to start, the site's textarea rhythm; the
-  /// inner presenter takes over past the cap. The text rides the
-  /// model: the one-way seed answers a recycled row's rebuild, and
-  /// every change reports back, so the draft outlives the box.
+  // The input: one line to start, the site's textarea rhythm; the
+  // inner presenter takes over past the cap. The text rides the
+  // model: the one-way seed answers a recycled row's rebuild, and
+  // every change reports back, so the draft outlives the box.
   let body
     (
       props: Props<'env>,
@@ -748,10 +745,10 @@ module Parts =
 
           dispatch(State.CompletionTracked(text, caret))))
 
-  /// The composer's own completion session: the site's suggestions,
-  /// gated by the composer's own reply or quote context. A reply's
-  /// participants change, so its composer answers every query fresh;
-  /// every other target remembers its answers.
+  // The composer's own completion session: the site's suggestions,
+  // gated by the composer's own reply or quote context. A reply's
+  // participants change, so its composer answers every query fresh;
+  // every other target remembers its answers.
   let completionSession(props: Props<'env>) : CompletionSession =
     let log =
       props.Env.LoggerFactory.CreateLogger "DevNull.Client.Components.Composer"

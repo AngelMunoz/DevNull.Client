@@ -16,9 +16,6 @@ let peopleWindow = TimeSpan.FromMilliseconds 120.0
 
 let commitWindow = TimeSpan.FromMilliseconds 350.0
 
-/// One settled people answer: the term it answers, the people found —
-/// empty when nothing matched or the read failed — and whether the
-/// server asked to slow down.
 [<Struct>]
 type PeopleFound = {
   Term: string
@@ -26,9 +23,6 @@ type PeopleFound = {
   Throttled: bool
 }
 
-/// One settled commit answer: the term it answers, the commits found —
-/// empty when nothing matched, the read failed, or the server left the
-/// irrelevant ones out — and whether the server asked to slow down.
 [<Struct>]
 type CommitsFound = {
   Term: string
@@ -36,26 +30,26 @@ type CommitsFound = {
   Throttled: bool
 }
 
-/// Everything one search channel reads.
+// Everything one search channel reads.
 [<Struct>]
 type Channel<'items, 'found> = {
   Gate: BehaviorSubject<string voption>
   Call: string -> Async<Result<'items, AppError>>
   Found: IObserver<'found>
-  /// The answer that carries the items the call found.
+  // The answer that carries the items the call found.
   Build: string -> 'items -> 'found
-  /// The answer a failed read settles as.
+  // The answer a failed read settles as.
   Empty: string -> 'found
-  /// The answer a slow-down request settles as.
+  // The answer a slow-down request settles as.
   Throttled: string -> 'found
   Log: ILogger
   What: string
 }
 
-/// Runs one gated term: the call, the latest-wins check, and the
-/// publish. A slower answer for an older term never shows, and a
-/// publish on a completed subject — after the host went away — is a
-/// no-op.
+// Runs one gated term: the call, the latest-wins check, and the
+// publish. A slower answer for an older term never shows, and a
+// publish on a completed subject — after the host went away — is a
+// no-op.
 let run(channel: Channel<'items, 'found>, gated: string voption) =
   match gated with
   | ValueNone -> ()
@@ -106,11 +100,10 @@ let run(channel: Channel<'items, 'found>, gated: string voption) =
     }
     |> Async.Start
 
-/// The newest term after its window. The same term again is quiet.
+// The newest term after its window. The same term again is quiet.
 let timed (window: TimeSpan) (source: IObservable<string voption>) =
   source |> Observable.distinctUntilChanged |> Observable.throttle window
 
-/// One surface's searches.
 type Session
   (
     people: string -> Async<Result<User list, AppError>>,
@@ -207,20 +200,15 @@ type Session
 
   let commitPipe = pipeOf(commitChannel, commitWindow)
 
-  /// The term as typed. The same term again asks nothing.
   member _.Set(term: string) =
     peopleGate.OnNext(SearchTerms.peopleTerm term)
     commitGate.OnNext(SearchTerms.commitTerm term)
 
-  /// The term as typed, for the commit channel alone: the results page
-  /// searches commits the way its own submit does.
   member _.SetCommits(term: string) =
     commitGate.OnNext(SearchTerms.commitTerm term)
 
-  /// Every settled people answer, newest term only.
   member _.People: IObservable<PeopleFound> = peopleFound :> _
 
-  /// Every settled commit answer, newest term only.
   member _.Commits: IObservable<CommitsFound> = commitsFound :> _
 
   interface IDisposable with
@@ -230,8 +218,6 @@ type Session
       peopleFound.OnCompleted()
       commitsFound.OnCompleted()
 
-/// One settled mention answer: the query it answers, the people and
-/// organizations found, and whether the server asked to slow down.
 [<Struct>]
 type MentionsFound = {
   Query: string
@@ -239,8 +225,6 @@ type MentionsFound = {
   Throttled: bool
 }
 
-/// One settled issue answer: the digits it answers, the issue when the
-/// site knows one, and whether the server asked to slow down.
 [<Struct>]
 type IssueFound = {
   Digits: string
@@ -248,9 +232,6 @@ type IssueFound = {
   Throttled: bool
 }
 
-/// Everything one composer's completions read: the two calls with
-/// their host's own context closed in, and whether repeat queries
-/// answer from the session's own memory.
 [<Struct>]
 type CompletionCalls = {
   Mentions: string -> Async<Result<MentionResults, AppError>>
@@ -258,14 +239,6 @@ type CompletionCalls = {
   Remember: bool
 }
 
-/// One composer's completions, on the same gated pipes the search
-/// session runs: both channels wait out the site's own pause — the
-/// same one hundred and twenty milliseconds the people search waits —
-/// answer for the newest query only, and settle a refusal to slow
-/// down as the throttled answer. A remembered query answers from
-/// memory without a call, the way the site's composer caches its
-/// suggestions; a reply's composer asks every time, because its
-/// participants change.
 type CompletionSession(calls: CompletionCalls, log: ILogger) =
 
   let mentionGate = new BehaviorSubject<string voption>(ValueNone)
@@ -373,8 +346,6 @@ type CompletionSession(calls: CompletionCalls, log: ILogger) =
     |> timed peopleWindow
     |> Observable.subscribe(fun gated -> run(issueChannel, gated))
 
-  /// The mention query as typed; the same query again asks nothing,
-  /// and a bare `@` asks without the pause.
   member _.Set(query: string voption) =
     if mentionGate.Value <> query then
       mentionGate.OnNext query
@@ -383,13 +354,10 @@ type CompletionSession(calls: CompletionCalls, log: ILogger) =
       | ValueSome "" -> run(mentionChannel, query)
       | _ -> ()
 
-  /// The issue digits as typed; the same digits again ask nothing.
   member _.SetIssue(digits: string voption) = issueGate.OnNext digits
 
-  /// Every settled mention answer, newest query only.
   member _.Mentions: IObservable<MentionsFound> = mentionFound :> _
 
-  /// Every settled issue answer, newest digits only.
   member _.Issues: IObservable<IssueFound> = issueFound :> _
 
   interface IDisposable with

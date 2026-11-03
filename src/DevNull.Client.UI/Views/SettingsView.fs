@@ -34,13 +34,12 @@ type Props<'env
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
-  /// Runs when the user asks to sign out; the caller drops the session.
   OnSignOut: unit -> unit
   Context: RouteContext
 }
 
-/// The page's state logic: model, messages, update, and the settings
-/// subscription that feeds it from outside.
+// The page's state logic: model, messages, update, and the settings
+// subscription that feeds it from outside.
 module State =
 
   type Model = {
@@ -48,22 +47,22 @@ module State =
     Devices: Device list option
     Error: AppError option
     Busy: bool
-    /// The local machine preferences, live from the settings store.
+    // The local machine preferences, live from the settings store.
     Settings: AppSettings
-    /// The server settings: the timezone, the language commits are
-    /// translated into, automatic translation, and the languages.
+    // The server settings: the timezone, the language commits are
+    // translated into, automatic translation, and the languages.
     Prefs: UserSettings option
-    /// The zone the picker holds, or none to follow the device.
+    // The zone the picker holds, or none to follow the device.
     ZonePick: string option
-    /// Whether the profile shows the local time.
+    // Whether the profile shows the local time.
     ZoneShowLocal: bool
-    /// The time zone picker's search text.
+    // The time zone picker's search text.
     ZoneQuery: string
-    /// The language the picker holds, or none to follow the device.
+    // The language the picker holds, or none to follow the device.
     LanguagePick: TranslationLanguage option
-    /// The language picker's search text.
+    // The language picker's search text.
     LanguageQuery: string
-    /// One settings write in flight.
+    // One settings write in flight.
     Saving: bool
   }
 
@@ -120,19 +119,19 @@ module State =
   let fetchDevices(env, session: SignedInSession) =
     Devices.list(env, { KeyFile = session.KeyFile })
 
-  /// The zone a saved setting holds, or none to follow the device.
+  // The zone a saved setting holds, or none to follow the device.
   let zoneOf(prefs: UserSettings) : string option =
     match prefs.Timezone with
     | ZoneOf(id, _) -> Some id
     | FollowDevice -> None
 
-  /// Whether a saved setting shows the local time.
+  // Whether a saved setting shows the local time.
   let showLocalOf(prefs: UserSettings) : bool =
     match prefs.Timezone with
     | ZoneOf(_, show) -> show
     | FollowDevice -> false
 
-  /// Keeps the settings the server just saved, so every page follows.
+  // Keeps the settings the server just saved, so every page follows.
   let applyPrefs(props: Props<'env>, prefs: UserSettings option) : Cmd<Msg> =
     prefs
     |> Option.map(fun prefs ->
@@ -475,7 +474,7 @@ module State =
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
-  /// The page's inlet from outside: the local settings store.
+  // The page's inlet from outside: the local settings store.
   let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
     [
       Sub.fromObservable
@@ -490,10 +489,10 @@ module State =
     ]
     |> Sub.batch
 
-/// The page's semantic regions; the view only composes these.
+// The page's semantic regions; the view only composes these.
 module Parts =
 
-  /// The lane palette row.
+  // The lane palette row.
   let laneRow
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =
@@ -565,9 +564,9 @@ module Parts =
         laneHost
       )
 
-  /// The appearance row. It follows the model: a choice dispatches, the
-  /// update writes the store, and the store's emission returns through
-  /// the settings subscription.
+  // The appearance row. It follows the model: a choice dispatches, the
+  // update writes the store, and the store's emission returns through
+  // the settings subscription.
   let themeRow
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =
@@ -614,17 +613,17 @@ module Parts =
         themeHost
       )
 
-  /// One zone the picker offers: its IANA id and its current offset.
+  // One zone the picker offers: its IANA id and its current offset.
   type Zone = { Id: string; Offset: string }
 
-  /// One zone's current offset, as GMT+2 or GMT-5:30.
+  // One zone's current offset, as GMT+2 or GMT-5:30.
   let offsetOf(zone: TimeZoneInfo) : string =
     let offset = zone.GetUtcOffset DateTimeOffset.UtcNow
     let sign = if offset < TimeSpan.Zero then "-" else "+"
     $"GMT{sign}{abs offset.Hours}:{abs offset.Minutes:D2}"
 
-  /// The IANA id of one zone: Unix machines name it already; Windows ids
-  /// convert through ICU.
+  // The IANA id of one zone: Unix machines name it already; Windows ids
+  // convert through ICU.
   let ianaOf(zone: TimeZoneInfo) : string option =
     if zone.Id.Contains '/' then
       Some zone.Id
@@ -633,8 +632,8 @@ module Parts =
       | true, iana -> Option.ofObj iana
       | false, _ -> None
 
-  /// Every zone this machine knows, by IANA id. The list is built once:
-  /// the offsets are the current ones.
+  // Every zone this machine knows, by IANA id. The list is built once:
+  // the offsets are the current ones.
   let zones: Zone list =
     TimeZoneInfo.GetSystemTimeZones()
     |> Seq.choose(fun zone ->
@@ -651,23 +650,23 @@ module Parts =
     |> Seq.sortBy(fun zone -> zone.Id)
     |> Seq.toList
 
-  /// The device's own zone, when the machine names one.
+  // The device's own zone, when the machine names one.
   let deviceZone: string option = ianaOf TimeZoneInfo.Local
 
-  /// What one searchable list reads and reports.
+  // What one searchable list reads and reports.
   [<Struct>]
   type Picker = {
     Model: IObservable<State.Model>
     Query: State.Model -> string
     Rows: State.Model -> (string * string) list
-    /// The identity of the rows the filter reads.
+    // The identity of the rows the filter reads.
     Key: State.Model -> obj
     Typed: string -> unit
     Picked: string -> unit
   }
 
-  /// One searchable list: the box, the rows it leaves, and the pick each
-  /// row reports.
+  // One searchable list: the box, the rows it leaves, and the pick each
+  // row reports.
   let picker(args: Picker) : Control =
     let box =
       TextBox()
@@ -718,8 +717,8 @@ module Parts =
       .Spacing(4.0)
       .Children(box, ScrollViewer().MaxHeight(150.0).Content(list))
 
-  /// The timezone row: the picker, the device's own zone, the local-time
-  /// choice, and the save.
+  // The timezone row: the picker, the device's own zone, the local-time
+  // choice, and the save.
   let timezoneRow
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =
@@ -844,8 +843,8 @@ module Parts =
         save
       )
 
-  /// The device language's English name, as the settings list it; the
-  /// UI culture's own name when the list is not here yet.
+  // The device language's English name, as the settings list it; the
+  // UI culture's own name when the list is not here yet.
   let deviceLanguageName(prefs: UserSettings option) : string =
     prefs
     |> Option.bind(fun prefs ->
@@ -855,8 +854,8 @@ module Parts =
     |> Option.map(fun language -> language.Name)
     |> Option.defaultWith(fun () -> CultureInfo.CurrentUICulture.DisplayName)
 
-  /// The translation language row: the picker, the device choice, and the
-  /// automatic translation switch.
+  // The translation language row: the picker, the device choice, and the
+  // automatic translation switch.
   let languageRow
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =
@@ -980,7 +979,7 @@ module Parts =
           )
       )
 
-  /// The pastéis mode row: one button for each state.
+  // The pastéis mode row: one button for each state.
   let pasteisRow
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =
@@ -1008,16 +1007,16 @@ module Parts =
       .Spacing(8.0)
       .Children(off, on)
 
-  /// The GitHub sync button.
+  // The GitHub sync button.
   let syncButton(dispatch: Dispatch<State.Msg>) : Control =
     Button()
       .Classes(Theme.name Theme.NavButton)
       .Content("Sync the GitHub profile")
       .OnClickHandler(fun _ _ -> dispatch State.GithubSyncRequested)
 
-  /// The application preferences row. It rides the MVU loop: the
-  /// toggle dispatches, the update writes the store, and the store's
-  /// emission comes back through the settings subscription.
+  // The application preferences row. It rides the MVU loop: the
+  // toggle dispatches, the update writes the store, and the store's
+  // emission comes back through the settings subscription.
   let applicationRow
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =
@@ -1051,9 +1050,9 @@ module Parts =
           )
       )
 
-  /// The devices row: one card per key approved to sign as the user,
-  /// with this device's own row named and its revoke worded as the
-  /// sign-out it is. Rows rebuild when the list changes.
+  // The devices row: one card per key approved to sign as the user,
+  // with this device's own row named and its revoke worded as the
+  // sign-out it is. Rows rebuild when the list changes.
   let devicesRow
     (
       props: Props<'env>,
@@ -1146,7 +1145,7 @@ module Parts =
         ContentControl().Content(rows.ToBinding())
       )
 
-  /// The sign-out button; the caller owns the actual sign-out.
+  // The sign-out button; the caller owns the actual sign-out.
   let signOutButton(props: Props<'env>) : Control =
     Button()
       .Classes(Theme.name Theme.DangerButton)

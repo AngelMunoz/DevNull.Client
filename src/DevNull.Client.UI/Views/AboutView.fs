@@ -12,7 +12,7 @@ open DevNull.Client.Components
 open DevNull.Client.DeviceAuth
 open FSharp.Control.Reactive
 
-/// One line of the stack list: the name and what it does here.
+// One line of the stack list: the name and what it does here.
 let stackLine(name: string, what: string) : Control =
   StackPanel()
     .Orientation(Orientation.Horizontal)
@@ -22,7 +22,7 @@ let stackLine(name: string, what: string) : Control =
       TextBlock().Classes(Theme.name Theme.Muted).Text(what)
     )
 
-/// One outbound link button; the browser owns the page.
+// One outbound link button; the browser owns the page.
 let linkButton(log: ILogger, label: string, url: string) : Control =
   Button()
     .Classes(Theme.name Theme.GhostButton)
@@ -38,10 +38,10 @@ let linkButton(log: ILogger, label: string, url: string) : Control =
 
 module Parts =
 
-  /// The disclaimer card: the one legal line the page must carry. The
-  /// wrapped block keeps a right margin inside the box: real text
-  /// shaping can shape a line a few pixels wider than the measured
-  /// wrap width, and the border would cut the last glyph.
+  // The disclaimer card: the one legal line the page must carry. The
+  // wrapped block keeps a right margin inside the box: real text
+  // shaping can shape a line a few pixels wider than the measured
+  // wrap width, and the border would cut the last glyph.
   let disclaimer() : Control =
     Border()
       .Classes(Theme.name Theme.Hairline)
@@ -60,7 +60,7 @@ module Parts =
           )
       )
 
-  /// The stack list: what the client rides on, one line per piece.
+  // The stack list: what the client rides on, one line per piece.
   let stack() : Control =
     let lines: Control array = [|
       stackLine("F# / .NET", "the language and runtime")
@@ -74,7 +74,7 @@ module Parts =
 
     StackPanel().Spacing(4.0).Children(lines)
 
-  /// The outbound links: the service, its brand rules, its terms.
+  // The outbound links: the service, its brand rules, its terms.
   let links(log: ILogger) : Control =
     StackPanel()
       .Orientation(Orientation.Horizontal)

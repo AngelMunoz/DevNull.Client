@@ -13,24 +13,24 @@ open DevNull.Client.Errors
 open DevNull.Client.Icons
 open DevNull.Client.Natives
 
-/// The recording lane's own bounds, the web's own: a half second
-/// before a recording counts, a minute before it stops itself, and
-/// the warning color through its last ten seconds.
+// The recording lane's own bounds, the web's own: a half second
+// before a recording counts, a minute before it stops itself, and
+// the warning color through its last ten seconds.
 let minRecording = TimeSpan.FromMilliseconds 500.0
 let maxRecording = TimeSpan.FromSeconds 60.0
 let warnRecording = TimeSpan.FromSeconds 50.0
 
-/// The recording lane's own MVU program: the phase, the take's age,
-/// and the rolling 48 levels ride the model; the engine rides
-/// commands; the meter and the control's own attach and detach ride
-/// subscriptions. The lane reports outward through two projections —
-/// one for the staged take, one for a cancelled one — instead of
-/// knowing the page's messages.
+// The recording lane's own MVU program: the phase, the take's age,
+// and the rolling 48 levels ride the model; the engine rides
+// commands; the meter and the control's own attach and detach ride
+// subscriptions. The lane reports outward through two projections —
+// one for the staged take, one for a cancelled one — instead of
+// knowing the page's messages.
 module Recorder =
 
-  /// Where one take stands: waiting for the microphone, recording,
-  /// stopped while the microphone was still opening, encoding the
-  /// take into its staged form, or done.
+  // Where one take stands: waiting for the microphone, recording,
+  // stopped while the microphone was still opening, encoding the
+  // take into its staged form, or done.
   type Phase =
     | Opening
     | Stopping
@@ -49,13 +49,12 @@ module Recorder =
     | Cancelled
     | Detached
 
-  /// What the lane tells the composer around it.
   type Report =
     | Staged of Result<(ImageAttachment * Waveform), AppError>
     | Cancel
 
-  /// The microphone opens with the program itself; a head that
-  /// carries no engine ends the lane at once.
+  // The microphone opens with the program itself; a head that
+  // carries no engine ends the lane at once.
   let init (audio: IAudioEngine voption) () : Model * Cmd<Msg> =
     let opening =
       match audio with
@@ -186,10 +185,6 @@ module Recorder =
       .Spacing(6.0)
       .Children(discard, box')
 
-/// The live recording lane: the Recorder program in a control. The
-/// capture itself lives in the subscription's state — one cell the
-/// meter reads and the stop drains, with Stop as its only teardown —
-/// and the lane talks to its composer through the two reports.
 type RecordLane(audio: IAudioEngine voption, report: Recorder.Report -> unit) as this
   =
   inherit UserControl()

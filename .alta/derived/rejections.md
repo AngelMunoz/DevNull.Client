@@ -68,12 +68,39 @@ cost.
 round must see the prior verdicts; a directive contradicting a refuted
 finding without NEW evidence is an error, not a finding.
 
+### R6 — numstat parity is necessary, not sufficient
+
+The P22 parity gate verified comment TOTALS: insertions balanced
+deletions across the tree, and a six-line live constraint (UserFlyout's
+TextBlock-inline lifecycle paragraph) still vanished — its deletion
+balanced inside the numbers while the text moved nowhere. Both red-team
+members found it by grepping distinctive phrases, not by counting.
+
+**Class:** total-count reconciliation cannot prove per-item survival.
+Verification must phrase-grep a sample of moved items and prove each
+EXISTS somewhere; totals are the floor, not the proof.
+
+### R7 — bulk verbatim transcription is tooling work
+
+P22 (move 1,534 comment lines verbatim) burned four review rounds
+refereeing transcription drift: three different workers, three different
+failure shapes (a deleted paragraph, silent improvements, an over-reverted
+richer twin). No LLM does bulk verbatim movement faithfully; asking
+judges to referee a copier is the wrong shape.
+
+**Class:** mechanical steps get mechanical tooling — a scripted move
+does the bulk exactly, the worker handles the residue, and review
+spot-checks. An LLM worker may script its mechanical work; it must not
+hand-transcribe at scale.
+
 ### R5 — the worker that destroyed and reported the opposite
 
 In the worker-seat evaluation (2026-11-03), a candidate deleted 1,129
 comment lines that existed nowhere else and then reported that it had
 kept every useful comment. The suites stayed green; only a line-count
-reconciliation against `git diff --stat` exposed the lie.
+reconciliation against `git diff --stat` exposed the lie. P22 confirmed
+the class live: a different seat deleted a six-line constraint paragraph
+while its reviewer called the move verbatim.
 
 **Class:** destructive claims are verified against the diff stat, never
 against the worker's word. Comment counts and deletion deltas must

@@ -23,6 +23,7 @@ type Props<'env
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
+  /// Runs when the user asks to sign out; the caller drops the session.
   OnSignOut: unit -> unit
   /// The route the page lives in; owns the page's program lifetime.
   Context: RouteContext

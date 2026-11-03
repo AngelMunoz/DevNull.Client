@@ -24,8 +24,6 @@ open DevNull.Client.ImageCache
 // alias keeps both in reach.
 type ApiImage = DevNull.Client.Core.ApiTypes.Image
 
-/// How a body's mentions read: the accent color over the page surface,
-/// or the plain foreground over an accent fill.
 type MentionTone =
   | Accent
   | OnFill
@@ -37,9 +35,6 @@ type BodyArgs = {
   Mentions: Mention list
 }
 
-/// What one card reports up: open the thread, reveal the reply
-/// composer, walk more replies of a thread preview, start a quote,
-/// choose a poll option, or show the commit translated.
 [<Struct>]
 type Event =
   | Opened of Commit
@@ -50,25 +45,18 @@ type Event =
   | TranslateRequested of Commit
   | OriginalRequested of Commit
 
-/// The pin affordance one host may offer: the command the toggle runs,
-/// and the commit id whose pin call is in flight, so its button
-/// disables while the server answers.
 [<Struct>]
 type PinToggle = {
   Command: Commit -> unit
   Busy: IObservable<string option>
 }
 
-/// One host-run card action: the command its control runs, and the
-/// commit id whose call is in flight, so the control disables while
-/// the server answers.
 [<Struct>]
 type ActionSlot = {
   Command: Commit -> unit
   Busy: IObservable<string option>
 }
 
-/// What one card reads about a commit's translation.
 [<Struct>]
 type TranslationView = {
   Body: TranslatedBody option
@@ -79,16 +67,6 @@ type TranslationView = {
   Error: string option
 }
 
-/// One commit row. `OnEvent` receives the intent events the host does
-/// not run itself. Every card rides the graph rail with its author's
-/// avatar; dense rows (the replies of a thread) shrink the node.
-/// `Now` is the clock the poll's status follows; `PollChoice` is the
-/// option the page model holds for this commit; `Pin` offers the
-/// profile pin on the author's own top-level commits, where the host
-/// decides to show it at all; `Star`, `Vote`, and `Pastel` are the
-/// host-run actions, and a slot left absent leaves its control out of
-/// the card; `Translation` is what the card shows about the commit's
-/// translation.
 [<Struct>]
 type Props = {
   Commit: Commit
@@ -105,11 +83,9 @@ type Props = {
   Vote: ActionSlot voption
   Pastel: ActionSlot voption
   Translation: IObservable<TranslationView voption>
-  /// The zone the header's time tooltip shows.
   Zone: Zone
 }
 
-/// One poll choice change, in the shape the page model stores it.
 [<Struct>]
 type ChoiceChange = {
   Choices: Map<string, string>
@@ -118,9 +94,6 @@ type ChoiceChange = {
   Chosen: bool
 }
 
-/// The choice map after one row reports its checked state. Clearing
-/// removes only the option that was actually chosen, so the model's
-/// uncheck of another row cannot clear the new choice.
 let choose(change: ChoiceChange) : Map<string, string> =
   match change.Chosen, change.Choices |> Map.tryFind change.CommitId with
   | true, _ -> change.Choices |> Map.add change.CommitId change.OptionId
@@ -128,7 +101,6 @@ let choose(change: ChoiceChange) : Map<string, string> =
     change.Choices |> Map.remove change.CommitId
   | false, _ -> change.Choices
 
-/// The option a page still holds for a commit, when the poll carries it.
 let selectedOption
   (choices: Map<string, string>, commit: Commit)
   : PollOption option =
@@ -139,22 +111,22 @@ let selectedOption
     |> Option.bind(fun poll ->
       poll.Options |> List.tryFind(fun candidate -> candidate.Id = optionId)))
 
-/// The card's semantic regions; the view only composes these.
+// The card's semantic regions; the view only composes these.
 module Parts =
 
   let inline inFlight(commit: Commit, busy: string option) : bool =
     Option.contains commit.Id busy
 
-  /// One piece of a text run after the mentions split: plain prose,
-  /// or one interactive handle carrying the mention that names it.
+  // One piece of a text run after the mentions split: plain prose,
+  // or one interactive handle carrying the mention that names it.
   type Piece =
     | Plain of string
     | Handle of Mention
 
-  /// The split's walk: every round re-finds the earliest handle in
-  /// what is left, so a handle named twice wraps both times. The walk
-  /// is a tail call, so a run dense with handles never grows the
-  /// stack.
+  // The split's walk: every round re-finds the earliest handle in
+  // what is left, so a handle named twice wraps both times. The walk
+  // is a tail call, so a run dense with handles never grows the
+  // stack.
   [<TailCall>]
   let rec split
     (rest: string, mentions: Mention list, pieces: Piece list)
@@ -185,13 +157,13 @@ module Parts =
           Plain before :: withHandle
       )
 
-  /// Splits one text run at its mentioned handles: plain prose between
-  /// the @handles the mentions list confirms.
+  // Splits one text run at its mentioned handles: plain prose between
+  // the @handles the mentions list confirms.
   let splitMentions(text: string, mentions: Mention list) : Piece list =
     split(text, mentions, []) |> List.rev
 
-  /// The user a mention names; the payload carries the handle only,
-  /// the card fills the rest.
+  // The user a mention names; the payload carries the handle only,
+  // the card fills the rest.
   let mentioned(username: string) : User = {
     Id = ""
     Handle = username
@@ -207,13 +179,13 @@ module Parts =
     FollowsYou = None
   }
 
-  /// One @handle of the body: the accent color, the hover card, and
-  /// the click that opens the profile. A mention that names an
-  /// organization skips the hover card — its click opens the
-  /// organization page through the host's navigation — and an
-  /// unknown kind stays the accent text alone. Over an accent fill
-  /// the handle keeps the fill's own foreground, so the accent never
-  /// sits on itself.
+  // One @handle of the body: the accent color, the hover card, and
+  // the click that opens the profile. A mention that names an
+  // organization skips the hover card — its click opens the
+  // organization page through the host's navigation — and an
+  // unknown kind stays the accent text alone. Over an accent fill
+  // the handle keeps the fill's own foreground, so the accent never
+  // sits on itself.
   let handleInline
     (flyout: Source voption, tone: MentionTone, mention: Mention)
     : Inline =
@@ -243,8 +215,8 @@ module Parts =
     | _, ValueNone -> InlineUIContainer(handle)
     | UnknownMention _, ValueSome _ -> InlineUIContainer(handle)
 
-  /// The body text with its mentions wrapped, flowing the way the
-  /// site's inline links do.
+  // The body text with its mentions wrapped, flowing the way the
+  // site's inline links do.
   let textWithMentions(args: BodyArgs, text: string) : Control =
     match args.Mentions with
     | [] -> TextBlock().Text(text).TextWrapping(TextWrapping.Wrap)
@@ -290,7 +262,7 @@ module Parts =
             .TextWrapping(TextWrapping.Wrap)
         )
 
-  /// One body from its parts, whatever carries it.
+  // One body from its parts, whatever carries it.
   let bodyGen(args: BodyArgs, text: string, segments: Segment list) : Control =
     match segments with
     | [] -> textWithMentions(args, text)
@@ -299,8 +271,8 @@ module Parts =
         for segment in segments -> segmentView(args, segment)
       |]
 
-  /// The body over any source: the segments with their mentions, the
-  /// plain text when the payload carries no segments.
+  // The body over any source: the segments with their mentions, the
+  // plain text when the payload carries no segments.
   let bodyOf(flyout: Source voption, commit: Commit) : Control =
     bodyGen(
       {
@@ -312,9 +284,9 @@ module Parts =
       commit.BodySegments
     )
 
-  /// The body a card shows: the translated segments while a translation
-  /// shows, the commit's own otherwise. Translated segments carry no
-  /// mention positions, so their handles stay plain text.
+  // The body a card shows: the translated segments while a translation
+  // shows, the commit's own otherwise. Translated segments carry no
+  // mention positions, so their handles stay plain text.
   let bodyView(props: Props, commit: Commit) : Control =
     let original = bodyOf(props.Flyout, commit)
 
@@ -340,9 +312,9 @@ module Parts =
         |> _.ToBinding()
       )
 
-  /// The line under a body: the notice with Show original while a
-  /// translation shows, the Translate button otherwise, and the last
-  /// failure in the server's words.
+  // The line under a body: the notice with Show original while a
+  // translation shows, the Translate button otherwise, and the last
+  // failure in the server's words.
   let translationLine(props: Props, commit: Commit) : Control =
     let line(view: TranslationView voption) : Control =
       match view with
@@ -390,11 +362,11 @@ module Parts =
         PageChrome.rebuildOn(props.Translation, id, line) |> _.ToBinding()
       )
 
-  /// The image block under the body: one image full width, two or
-  /// three in a two-column grid. Each cell is a fixed box with the
-  /// site's rounded corners: the reserved box keeps the feed height
-  /// stable before the bytes land, and the site crops to fixed boxes
-  /// the same way. A handled click opens the commit's gallery.
+  // The image block under the body: one image full width, two or
+  // three in a two-column grid. Each cell is a fixed box with the
+  // site's rounded corners: the reserved box keeps the feed height
+  // stable before the bytes land, and the site crops to fixed boxes
+  // the same way. A handled click opens the commit's gallery.
   let imagesView(cache: ImageCacheService, images: ApiImage list) : Control =
     // The gallery opens over the window the cell lives in; the owner
     // comes from the tree, not the page.
@@ -450,9 +422,9 @@ module Parts =
           cellAt (Stretch.UniformToFill, 150.0) pair
       |]
 
-  /// The quoted commit: its own surface, a click away from the card it
-  /// rides in. The handled click opens the quoted thread and never
-  /// falls through to this commit's.
+  // The quoted commit: its own surface, a click away from the card it
+  // rides in. The handled click opens the quoted thread and never
+  // falls through to this commit's.
   let quotedView(onEvent: Event -> unit, quoted: CommitNode) : Control =
     match quoted with
     | LiveCommit commit ->
@@ -489,9 +461,9 @@ module Parts =
         .Text("quoting a deleted commit")
         .Margin(0.0, 6.0, 0.0, 0.0)
 
-  /// Everything the poll block needs: the commit it rides, its poll,
-  /// the host's event routing, the viewer, the clock, the hover
-  /// source, the parked choice, and the host's vote action.
+  // Everything the poll block needs: the commit it rides, its poll,
+  // the host's event routing, the viewer, the clock, the hover
+  // source, the parked choice, and the host's vote action.
   [<Struct>]
   type PollViewCtx = {
     Commit: Commit
@@ -504,7 +476,7 @@ module Parts =
     Flyout: Source voption
   }
 
-  /// The facts one vote decision reads.
+  // The facts one vote decision reads.
   [<Struct>]
   type VoteGate = {
     Now: DateTimeOffset
@@ -513,17 +485,17 @@ module Parts =
     ViewerId: string
   }
 
-  /// A poll stops taking votes once its author closes it or its clock
-  /// passes the close time the server published.
+  // A poll stops taking votes once its author closes it or its clock
+  // passes the close time the server published.
   let hasExpired(now: DateTimeOffset, poll: Poll) : bool =
     poll.IsClosed
     || (match poll.ClosesAt with
         | Some closesAt -> closesAt <= now
         | None -> false)
 
-  /// The viewer may vote now: the commit is approved, the poll has
-  /// opened, the viewer has not voted, it is not the viewer's poll, and
-  /// the clock has not passed the close time.
+  // The viewer may vote now: the commit is approved, the poll has
+  // opened, the viewer has not voted, it is not the viewer's poll, and
+  // the clock has not passed the close time.
   let canVote(gate: VoteGate) : bool =
     gate.Commit.Status = Approved
     && gate.Poll.ClosesAt.IsSome
@@ -531,8 +503,8 @@ module Parts =
     && not(hasExpired(gate.Now, gate.Poll))
     && gate.Commit.Author.Id <> gate.ViewerId
 
-  /// The site's time-left wording: days, hours, then minutes, never
-  /// below one minute.
+  // The site's time-left wording: days, hours, then minutes, never
+  // below one minute.
   let timeLeft(now: DateTimeOffset, closesAt: DateTimeOffset) : string =
     let minutes = Math.Ceiling((closesAt - now).TotalMinutes)
 
@@ -540,8 +512,8 @@ module Parts =
     elif minutes >= 60.0 then $"{int(minutes / 60.0)}h left"
     else $"{max (int minutes) 1}m left"
 
-  /// The line under the options: why the poll takes no vote, or how
-  /// long it stays open, or what the final result is.
+  // The line under the options: why the poll takes no vote, or how
+  // long it stays open, or what the final result is.
   let pollStatus(now: DateTimeOffset, poll: Poll) : string =
     match poll.ClosesAt with
     | None -> "Voting opens once approved"
@@ -551,13 +523,13 @@ module Parts =
       | None -> "Poll closed"
     | Some closesAt -> timeLeft(now, closesAt)
 
-  /// One count with the site's singular and plural.
+  // One count with the site's singular and plural.
   let votesLabel(count: int) : string =
     let noun = if count = 1 then "vote" else "votes"
     $"{shortCount count} {noun}"
 
-  /// One option label's facts: the text, the mentions the body links,
-  /// whether the viewer's check follows it, and the hover source.
+  // One option label's facts: the text, the mentions the body links,
+  // whether the viewer's check follows it, and the hover source.
   [<Struct>]
   type LabelSpec = {
     Text: string
@@ -566,8 +538,8 @@ module Parts =
     Flyout: Source voption
   }
 
-  /// One option label with the mentions the body links and, once the
-  /// option is the viewer's, the check mark that follows it inline.
+  // One option label with the mentions the body links and, once the
+  // option is the viewer's, the check mark that follows it inline.
   let optionLabel(spec: LabelSpec) : Control =
     if not spec.Marked && spec.Mentions.IsEmpty then
       TextBlock().Text(spec.Text).TextWrapping(TextWrapping.Wrap)
@@ -601,9 +573,9 @@ module Parts =
 
       block
 
-  /// One result row: the bar the server's share fills, the label, and
-  /// the share at the right. The bar sits behind the content, clipped by
-  /// the row's rounded border.
+  // One result row: the bar the server's share fills, the label, and
+  // the share at the right. The bar sits behind the content, clipped by
+  // the row's rounded border.
   let resultOptionRow(ctx: PollViewCtx, option: PollOption) : Control =
     let share = option.Percentage |> Option.defaultValue 0
 
@@ -656,10 +628,10 @@ module Parts =
       .ClipToBounds(true)
       .Child(bar)
 
-  /// One choice row while the poll takes votes: the whole row is the
-  /// toggle, with the ring and the label inside it. The page model owns
-  /// the checked option, so the row reports the change and does not
-  /// keep a second copy.
+  // One choice row while the poll takes votes: the whole row is the
+  // toggle, with the ring and the label inside it. The page model owns
+  // the checked option, so the row reports the change and does not
+  // keep a second copy.
   let choiceRow
     (ctx: PollViewCtx, slot: ActionSlot, option: PollOption)
     : ToggleButton =
@@ -737,9 +709,9 @@ module Parts =
       // opens the thread, and an unhandled click bubbles to it.
       .OnClickHandler(fun _ args -> args.Handled <- true)
 
-  /// The poll block: the results once the server publishes them, the
-  /// choices and the Vote button while the poll takes votes, or a
-  /// read-only list of options when the host offers no vote.
+  // The poll block: the results once the server publishes them, the
+  // choices and the Vote button while the poll takes votes, or a
+  // read-only list of options when the host offers no vote.
   let pollView(ctx: PollViewCtx) : Control =
     let body: Control =
       match ctx.Poll.TotalVotes, ctx.Vote with
@@ -836,9 +808,9 @@ module Parts =
 
     StackPanel().Margin(0.0, 12.0, 0.0, 0.0).Children(body)
 
-  /// The site's own line: the name the page declares, or its host
-  /// without "www.". The site's card never shows the whole URL — the
-  /// URL's natural width would push the card past its column.
+  // The site's own line: the name the page declares, or its host
+  // without "www.". The site's card never shows the whole URL — the
+  // URL's natural width would push the card past its column.
   let siteLine(preview: LinkPreview) : string =
     match preview.SiteName with
     | Some name -> name
@@ -854,9 +826,9 @@ module Parts =
       else
         host
 
-  /// The link preview: its own surface, a click away from the card it
-  /// rides in. The handled click opens the outside resource and never
-  /// falls through to the commit's thread.
+  // The link preview: its own surface, a click away from the card it
+  // rides in. The handled click opens the outside resource and never
+  // falls through to the commit's thread.
   let linkPreviewView(preview: LinkPreview, title: string) : Control =
     Button()
       .Name("LinkPreviewCard")
@@ -894,8 +866,8 @@ module Parts =
     OnClick: Button -> unit
   }
 
-  /// One quiet action of the row: an icon, an optional mono count, no
-  /// border. A handled click never opens the thread as a side effect.
+  // One quiet action of the row: an icon, an optional mono count, no
+  // border. A handled click never opens the thread as a side effect.
   let iconAction(action: IconAction) : Button =
     let children: Control array = [|
       Icons.iconAt(action.Glyph, 16.0)
@@ -919,7 +891,7 @@ module Parts =
         args.Handled <- true
         action.OnClick sender)
 
-  /// Puts the commit's web URL on the clipboard.
+  // Puts the commit's web URL on the clipboard.
   let copyLink(source: Control, url: string) : unit =
     match TopLevel.GetTopLevel source with
     | null -> ()
@@ -932,8 +904,8 @@ module Parts =
 
         asyncEx { do! clipboard.SetDataAsync data } |> Async.StartImmediate
 
-  /// The identity line: name, handle, and time in the site's rhythm,
-  /// the short hash docked to the right edge.
+  // The identity line: name, handle, and time in the site's rhythm,
+  // the short hash docked to the right edge.
   let header
     (commit: Commit, now: IObservable<DateTimeOffset>, zone: Zone)
     : Control =
@@ -965,8 +937,8 @@ module Parts =
 
     DockPanel().Children(hash.DockRight(), identity)
 
-  /// The "replying to" line under the identity, when the commit answers
-  /// one.
+  // The "replying to" line under the identity, when the commit answers
+  // one.
   let replyLine(commit: Commit) : Control option =
     match commit.Parent with
     | Some(LiveCommit parent) ->
@@ -993,10 +965,10 @@ module Parts =
     Continues: bool
   }
 
-  /// The rail cell: the author's avatar sitting on a short lane-colored
-  /// tail. The full card ends the tail in a dot; a card whose reply
-  /// chain shows below runs the tail to its bottom edge instead, so
-  /// the chain elbows straight off it. Dense rows shrink the node.
+  // The rail cell: the author's avatar sitting on a short lane-colored
+  // tail. The full card ends the tail in a dot; a card whose reply
+  // chain shows below runs the tail to its bottom edge instead, so
+  // the chain elbows straight off it. Dense rows shrink the node.
   let railCell(cell: RailCell) : Panel =
     let nodeSize = if cell.Dense then 28.0 else 40.0
 
@@ -1063,8 +1035,8 @@ module Parts =
       .MinHeight(if cell.Dense then 48.0 else 64.0)
       .Children(pieces)
 
-  /// The ringed avatar alone: the rail node of a reply row. A reply is
-  /// a node, not a commit card — no tail, no dot.
+  // The ringed avatar alone: the rail node of a reply row. A reply is
+  // a node, not a commit card — no tail, no dot.
   let ringCell(avatar: Control, lane: Lane option) : Panel =
     let ring =
       Border()
@@ -1082,8 +1054,8 @@ module Parts =
 
     Panel().Width(48.0).Children(ring)
 
-  /// The identity line of a reply row: name, handle, time. The hash
-  /// stays off; the site keeps replies light this way.
+  // The identity line of a reply row: name, handle, time. The hash
+  // stays off; the site keeps replies light this way.
   let replyIdentity
     (commit: Commit, now: IObservable<DateTimeOffset>)
     : Control =
@@ -1489,11 +1461,6 @@ let tombstone() : Control =
 
   grid.Children(Panel().Children(line, node).Column(0), text.Column(1))
 
-/// Everything one card row needs from its host page: where its events
-/// go, the live pastéis flag and clock, the poll choices, the row's
-/// density, the image cache, the profile pin affordance when the host
-/// shows one at all, the host-run star, vote, and pastel actions, and
-/// the translation each commit shows.
 [<Struct>]
 type RowProps = {
   OnEvent: Event -> unit
@@ -1512,9 +1479,6 @@ type RowProps = {
   Zone: Zone
 }
 
-/// One commit row over a feed node: the card with the host's actions
-/// and event routing, or the deletion marker. Every feed page shares
-/// this; only the routing differs.
 let feedRow (props: RowProps) (node: CommitNode) : Control =
   match node with
   | LiveCommit commit ->
@@ -1542,16 +1506,9 @@ let feedRow (props: RowProps) (node: CommitNode) : Control =
     }
   | Tombstone _ -> tombstone()
 
-/// One body from its segments — the text with its mentions wrapped,
-/// the code blocks boxed — whatever carries it: a commit card or a
-/// chat bubble.
 let body(args: BodyArgs, text: string, segments: Segment list) : Control =
   Parts.bodyGen(args, text, segments)
 
-/// The shared context of one reply chain: the row props, the nesting
-/// depth, the lane and handle of the parent the chain hangs from, and
-/// the host's own host for a parent's children (the thread page grows
-/// its nodes through the cursor; the feed reads the payload slice).
 [<Struct>]
 type ChainCtx = {
   Props: RowProps
@@ -1561,8 +1518,8 @@ type ChainCtx = {
   Grow: (ChainCtx -> Commit -> Control) voption
 }
 
-/// One row's place among its siblings: the lane of the row above, and
-/// whether this row opens or closes the run.
+// One row's place among its siblings: the lane of the row above, and
+// whether this row opens or closes the run.
 [<Struct>]
 type ChainSpot = {
   PreviousLane: Lane option
@@ -1570,8 +1527,8 @@ type ChainSpot = {
   Last: bool
 }
 
-/// The content column of one slim reply row: the identity line, the
-/// body, the images. A click opens the reply's own thread.
+// The content column of one slim reply row: the identity line, the
+// body, the images. A click opens the reply's own thread.
 let slimContent(props: RowProps, commit: Commit) : Control =
   let children: Control array = [|
     Parts.replyIdentity(commit, props.Now)
@@ -1590,10 +1547,10 @@ let slimContent(props: RowProps, commit: Commit) : Control =
     )
     .OnClickHandler(fun _ _ -> props.OnEvent(Opened commit))
 
-/// One slim reply row, recursive: the ringed avatar on the rail, the
-/// branch or the sibling stub above it, the lane spine below it while
-/// the chain continues, and its own replies one step deeper. Past the
-/// depth cap the chain flattens with the "replying to" line.
+// One slim reply row, recursive: the ringed avatar on the rail, the
+// branch or the sibling stub above it, the lane spine below it while
+// the chain continues, and its own replies one step deeper. Past the
+// depth cap the chain flattens with the "replying to" line.
 let rec chainRow(ctx: ChainCtx, spot: ChainSpot, node: CommitNode) : Control =
   match node with
   | Tombstone _ ->
@@ -1708,8 +1665,8 @@ let rec chainRow(ctx: ChainCtx, spot: ChainSpot, node: CommitNode) : Control =
 
       grid :> Control
 
-/// One run of sibling replies: every row knows its neighbors, so the
-/// stubs, the spines, and the branches chain into one rail.
+// One run of sibling replies: every row knows its neighbors, so the
+// stubs, the spines, and the branches chain into one rail.
 and chainRows(ctx: ChainCtx, nodes: CommitNode list) : Control =
   let children: Control array = [|
     for index, node in List.indexed nodes ->
@@ -1734,11 +1691,6 @@ and chainRows(ctx: ChainCtx, nodes: CommitNode list) : Control =
 
   StackPanel().Children(children)
 
-/// The thread preview under a feed card: the replies to show (the
-/// payload slice, or the list a host grew) as the site's slim chain —
-/// ringed avatars branched off the parent's lane rail, sibling stubs
-/// between them, nested sub-threads one step deeper — with the link
-/// that walks the rest.
 let replyBlock
   (props: RowProps, commit: Commit, shown: CommitNode list voption)
   : Control =

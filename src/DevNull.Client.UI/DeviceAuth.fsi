@@ -37,9 +37,10 @@ val startAuthorization:
     SignInStart
 
 /// Completes one sign-in callback end to end: prepares the key,
-/// redeems the code, stores the session, and writes the error file for
-/// the waiting sign-in page when any step refuses. The one sequence
-/// both the running window and the headless second instance run.
+/// redeems the code through `complete`, stores the session, and
+/// writes the error file for the waiting sign-in page when any step
+/// refuses. The one sequence both the running window and the headless
+/// second instance run.
 val finish:
   env: #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp *
   uri: string *

@@ -56,27 +56,20 @@ type Props<'env
   Context: RouteContext
 }
 
-/// One row of the log feed: a day separator, a commit on the rail, a
-/// deletion marker, or the last-visit separator.
 type LogRow =
   | Day of string
   | Node of Commit
   | TombstoneRow of Tombstone
   | LastVisitRow
 
-/// The visit the marker reads: when it was and who is reading.
 [<Struct>]
 type VisitMarker = {
   VisitedAt: DateTimeOffset
   ViewerId: string
 }
 
-/// The page's state logic: model, messages, update, and the
-/// subscriptions that feed it from outside.
 module State =
 
-  /// One thread preview the page grew past the payload slice: the
-  /// replies shown and the cursor the next page asks for.
   [<Struct>]
   type PreviewState = {
     Shown: CommitNode list
@@ -96,21 +89,12 @@ module State =
     Now: DateTimeOffset
     Pasteis: bool
     ReplyingTo: string option
-    /// The commit whose poll vote is in flight, so its buttons disable.
     Voting: string option
-    /// The option a viewer picked in each open poll, by commit id.
     PollChoices: Map<string, string>
-    /// The visit captured when the page mounted; the rendered marker
-    /// keeps pointing there for the session even as the store advances.
     Marker: DateTimeOffset option
-    /// The thread previews the page grew past the payload slice, by
-    /// parent id.
     Previews: Map<string, PreviewState>
-    /// Whether translations show by themselves.
     Automatic: bool
-    /// Every commit's translation on this page.
     Translations: TranslationModel.Book
-    /// Whether the page already asked for its automatic translations.
     AutoRan: bool
   }
 
@@ -167,8 +151,8 @@ module State =
     AutoRan = false
   }
 
-  /// The id of the newest commit in a page: the head the since-poll
-  /// checks against.
+  // The id of the newest commit in a page: the head the since-poll
+  // checks against.
   let headOf(items: CommitNode list) : string option =
     items
     |> List.tryPick(function
@@ -218,8 +202,8 @@ module State =
     },
     Cmd.OfAsync.perform fetch (props, None) Fetched
 
-  /// The bare translate call for one commit, in the language the settings
-  /// choose.
+  // The bare translate call for one commit, in the language the settings
+  // choose.
   let translateCall(props: Props<'env>, commit: Commit) =
     let language =
       TranslationModel.languageFor(
@@ -236,16 +220,16 @@ module State =
       }
     )
 
-  /// Runs one commit's translate call: the language its own translation or
-  /// the settings pick, and the 503 retries.
+  // Runs one commit's translate call: the language its own translation or
+  // the settings pick, and the 503 retries.
   let translate(props: Props<'env>, commit: Commit) =
     TranslationModel.execute(
       TranslationModel.retryDelays,
       fun () -> translateCall(props, commit)
     )
 
-  /// Asks for the page's unknown translations, one at a time, up to the
-  /// budget a first screen needs.
+  // Asks for the page's unknown translations, one at a time, up to the
+  // budget a first screen needs.
   let autoTranslations(props: Props<'env>, commits: Commit list) =
     TranslationModel.auto(
       (fun commit -> translateCall(props, commit)),
@@ -253,8 +237,8 @@ module State =
       commits
     )
 
-  /// Records this visit's newest commit as the next marker, once the
-  /// feed has items to take it from.
+  // Records this visit's newest commit as the next marker, once the
+  // feed has items to take it from.
   let markVisit(props: Props<'env>, items: CommitNode list) : Cmd<Msg> =
     match items with
     | [] -> Cmd.none
@@ -277,9 +261,9 @@ module State =
       | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
       | node -> node)
 
-  /// The batch that asks for the page's unknown translations, once the
-  /// settings say translations show by themselves. The batch's commits go
-  /// busy at once, so a click cannot double a running ask.
+  // The batch that asks for the page's unknown translations, once the
+  // settings say translations show by themselves. The batch's commits go
+  // busy at once, so a click cannot double a running ask.
   let autoBatch(props: Props<'env>, model: Model) : Model * Cmd<Msg> =
     let automatic =
       (props.Env :> IProvideUserSettings).UserSettings.Current
@@ -715,10 +699,10 @@ module State =
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
-  /// The page's inlets from outside: the shared clock, the session
-  /// store, and — while the page sits in the tree — the since-poll and
-  /// the shared chrome's requests. The keyed engine stops and starts
-  /// sources as the model moves.
+  // The page's inlets from outside: the shared clock, the session
+  // store, and — while the page sits in the tree — the since-poll and
+  // the shared chrome's requests. The keyed engine stops and starts
+  // sources as the model moves.
   let subscribe (props: Props<'env>) (model: Model) : Sub<Msg> =
     let chromeRequests =
       props.Env.Timeline.Requests
@@ -759,12 +743,6 @@ module State =
     ]
     |> Sub.batch
 
-  /// Interleaves day separators between the commits of different days,
-  /// carrying the day across tombstones. A ranked log is score ordered,
-  /// its days interleave, so it rides without separators the way the
-  /// site's ranked feed does. The last-visit marker rides above the
-  /// first already-seen commit, and only when someone else's newer
-  /// commit sits above it — the site's own rules.
   let toRows
     (items: CommitNode list, ranked: bool, marker: VisitMarker option)
     : LogRow list =
@@ -847,10 +825,10 @@ module State =
     | LogRow.TombstoneRow tombstone -> tombstone.Id
     | LogRow.LastVisitRow -> "last-visit"
 
-/// The page's semantic regions; the view only composes these.
+// The page's semantic regions; the view only composes these.
 module Parts =
 
-  /// The hover card source every log card shares.
+  // The hover card source every log card shares.
   let flyoutOf(props: Props<'env>) : UserFlyout.Source voption =
     ValueSome {
       UserFlyout.Fetch = props.Env.Profiles.Fetch
@@ -861,8 +839,8 @@ module Parts =
       Cache = props.Env.ImageCache
     }
 
-  /// What one log feed render needs: the page's inlets, its model, and
-  /// the one row context every realized card follows.
+  // What one log feed render needs: the page's inlets, its model, and
+  // the one row context every realized card follows.
   type FeedArgs<'env
     when 'env :> IProvideClock
     and 'env :> IProvideNonceSource
@@ -885,8 +863,8 @@ module Parts =
     Rows: CommitCard.RowProps
   }
 
-  /// One feed row: a separator, a commit card with its revealed reply
-  /// composer, or a deletion marker.
+  // One feed row: a separator, a commit card with its revealed reply
+  // composer, or a deletion marker.
   let row(args: FeedArgs<'env>, logRow: LogRow) : Control =
     let props = args.Props
     let dispatch = args.Dispatch
@@ -963,7 +941,7 @@ module Parts =
     | LogRow.TombstoneRow tombstone ->
       CommitCard.feedRow ctx (Tombstone tombstone)
 
-  /// The new-commits pill: a count over the feed, one click to take it.
+  // The new-commits pill: a count over the feed, one click to take it.
   let newPill
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =
@@ -993,8 +971,8 @@ module Parts =
       .IsVisible(model |> Observable.map _.NewCount.IsSome)
       .OnClickHandler(fun _ _ -> dispatch State.NewRequested)
 
-  /// The row inputs the page compares by reference, so a tick that
-  /// left them the same does not reshape the feed.
+  // The row inputs the page compares by reference, so a tick that
+  // left them the same does not reshape the feed.
   let rowInputsComparer = {
     new IEqualityComparer<CommitNode list * bool * DateTimeOffset option> with
       member _.Equals
@@ -1014,10 +992,10 @@ module Parts =
         )
   }
 
-  /// The timeline itself: the virtualized feed over the page's rows.
-  /// The shared chrome's return-to-top signal reaches the page model,
-  /// and the scroller's place parks in the timeline service, so the
-  /// next page of this log picks it back up.
+  // The timeline itself: the virtualized feed over the page's rows.
+  // The shared chrome's return-to-top signal reaches the page model,
+  // and the scroller's place parks in the timeline service, so the
+  // next page of this log picks it back up.
   let feed(args: FeedArgs<'env>) : Control =
     let props = args.Props
     let model = args.Model

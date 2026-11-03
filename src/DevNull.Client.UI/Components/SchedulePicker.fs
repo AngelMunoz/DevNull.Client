@@ -24,8 +24,8 @@ type Props = {
   OnOpenQueue: (unit -> unit) voption
 }
 
-/// The labels of the day list: today, tomorrow, then the calendar
-/// dates of the window the server allows.
+// The labels of the day list: today, tomorrow, then the calendar
+// dates of the window the server allows.
 let dayLabels(now: DateTimeOffset) : string array = [|
   for day in 0 .. ScheduledMoments.maxDays ->
     match day with
@@ -34,15 +34,15 @@ let dayLabels(now: DateTimeOffset) : string array = [|
     | _ -> now.DateTime.AddDays(float day).ToString("MMM d")
 |]
 
-/// The hour labels, two digits, twenty-four hours.
+// The hour labels, two digits, twenty-four hours.
 let hourLabels: string array = [| for hour in 0..23 -> hour.ToString("00") |]
 
-/// The minute labels, one per five-minute step.
+// The minute labels, one per five-minute step.
 let minuteLabels: string array = [|
   for step in 0..11 -> (step * 5).ToString("00")
 |]
 
-/// The day select.
+// The day select.
 let dayCombo(props: Props) : Control =
   ComboBox()
     .Name("ScheduleDay")
@@ -59,7 +59,7 @@ let dayCombo(props: Props) : Control =
       if picker.SelectedIndex >= 0 then
         props.OnDayPicked picker.SelectedIndex)
 
-/// The hour select, off until a day is picked.
+// The hour select, off until a day is picked.
 let hourCombo(props: Props) : Control =
   ComboBox()
     .Name("ScheduleHour")
@@ -77,7 +77,7 @@ let hourCombo(props: Props) : Control =
       if picker.SelectedIndex >= 0 then
         props.OnHourPicked picker.SelectedIndex)
 
-/// The minute select, off until a day is picked.
+// The minute select, off until a day is picked.
 let minuteCombo(props: Props) : Control =
   ComboBox()
     .Name("ScheduleMinute")
@@ -97,7 +97,7 @@ let minuteCombo(props: Props) : Control =
       if picker.SelectedIndex >= 0 then
         props.OnMinutePicked(picker.SelectedIndex * 5))
 
-/// The three selects on one row.
+// The three selects on one row.
 let pickerRow(props: Props) : Control =
   StackPanel()
     .Orientation(Orientation.Horizontal)
@@ -113,7 +113,7 @@ let pickerRow(props: Props) : Control =
       minuteCombo props
     )
 
-/// The link into the scheduled queue, absent when the host has none.
+// The link into the scheduled queue, absent when the host has none.
 let queueLink(props: Props) : Control =
   match props.OnOpenQueue with
   | ValueSome openQueue ->
@@ -126,7 +126,6 @@ let queueLink(props: Props) : Control =
       .OnClickHandler(fun _ _ -> openQueue())
   | ValueNone -> Panel()
 
-/// The schedule panel under the poll builder.
 let view(props: Props) : Control =
   let help =
     TextBlock()

@@ -100,7 +100,9 @@ type ChoiceChange = {
   Chosen: bool
 }
 
-/// The choice map after one row reports its checked state.
+/// The choice map after one row reports its checked state. Clearing
+/// removes only the option that was actually chosen, so the model's
+/// uncheck of another row cannot clear the new choice.
 val choose: change: ChoiceChange -> Map<string, string>
 
 /// The option a page still holds for a commit, when the poll carries it.
@@ -162,9 +164,10 @@ type RowProps = {
 val feedRow: props: RowProps -> node: CommitNode -> Control
 
 /// The thread preview under a feed card: the replies to show (the
-/// payload slice, or the list a host grew), as the site's slim chain
-/// of ringed avatars, with the link that walks the rest of the
-/// thread.
+/// payload slice, or the list a host grew) as the site's slim chain —
+/// ringed avatars branched off the parent's lane rail, sibling stubs
+/// between them, nested sub-threads one step deeper — with the link
+/// that walks the rest.
 val replyBlock:
   props: RowProps * commit: Commit * shown: CommitNode list voption -> Control
 

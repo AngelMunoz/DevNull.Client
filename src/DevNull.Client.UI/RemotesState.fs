@@ -6,16 +6,12 @@ open DevNull.Client.Core
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Types
 
-/// One staged image, as the push API takes it.
 type ImageAttachment = DevNull.Client.Core.Commit.ImageAttachment
 
-/// One voice note's loudness bars: 48 values between 0 and 100.
 type Waveform = DevNull.Client.Core.Commit.Waveform
 
-/// Which link gets the card on one pushed message.
 type LinkCard = DevNull.Client.Core.Api.Remotes.LinkCard
 
-/// Who a conversation is with: one partner, or one org.
 type ChatTarget =
   | Partner of user: User
   | Org of org: OrgRef
@@ -24,9 +20,6 @@ type Receipt =
   | Pulled of string
   | Pushed
 
-/// One message to push: the body, the reply it answers, the staged
-/// images, the link chosen for the card, and a voice note, which
-/// rides alone or with a reply.
 type OutgoingMessage = {
   Body: string option
   ReplyTo: int option
@@ -36,8 +29,6 @@ type OutgoingMessage = {
   Voice: (ImageAttachment * Waveform) option
 }
 
-/// One message on its way in: the staged payload with its client id,
-/// when it was staged, and whether the server refused it.
 type PendingSend = {
   Message: OutgoingMessage
   ClientId: string<ClientId>
@@ -45,16 +36,12 @@ type PendingSend = {
   Rejected: bool
 }
 
-/// One tab of the inbox: its loaded rows, whether more sit behind the
-/// last one, and whether the next page is loading.
 type InboxList = {
   Items: Conversation list option
   HasMore: bool
   LoadingMore: bool
 }
 
-/// One conversation's whole state: the loaded messages, what each
-/// side has read, what is pending, and where the reading stands.
 type ThreadState = {
   Target: ChatTarget
   Messages: Message list
@@ -72,8 +59,6 @@ type ThreadState = {
   Access: PushAccess
   Pending: PendingSend list
   ReactionsVersion: int option
-  /// The org's pinned messages, latest first, once a page or a pin
-  /// answer carried the list; direct threads hold none.
   Pinned: Message list option
   ReplyingTo: MessageParent option
   Head: int
@@ -82,13 +67,8 @@ type ThreadState = {
   IsLoadingOlder: bool
 }
 
-/// One saved value stamped with the version of the request that wrote
-/// it, so a slower, older answer never overwrites a newer one.
 type Versioned<'value> = { Value: 'value; Version: int }
 
-/// The chat's whole state: the three inbox tabs, the open threads,
-/// the versioned pin and mute preferences, the emoji the user reacts
-/// with, and the bookkeeping the polls and guards keep.
 type RemotesState = {
   Open: InboxList
   Fetched: InboxList
@@ -114,15 +94,12 @@ type RemotesState = {
   ScrollPlaces: Map<string, float>
 }
 
-/// One inbox thread page, whichever kind of thread it came from.
 type FreshThread =
   | DirectFresh of thread: Thread
   | OrgFresh of thread: OrgThread
 
-/// The preference versions one request reserved when it left.
 type VersionPair = { Mute: int; Pin: int }
 
-/// One thread page's merge into the loaded state.
 type ThreadMerge = {
   Key: string
   Target: ChatTarget
@@ -131,7 +108,6 @@ type ThreadMerge = {
   Versions: VersionPair
 }
 
-/// One inbox page's merge into the loaded state.
 type InboxMerge = {
   Tab: InboxTab
   Page: Inbox
@@ -139,16 +115,12 @@ type InboxMerge = {
   Versions: VersionPair
 }
 
-/// One preference write: the key, the value, and the version of the
-/// request that carried it.
 type PreferenceWrite<'value> = {
   Key: string
   Value: 'value
   Version: int
 }
 
-/// One reaction toggle: the thread key, the message, the emoji, and
-/// the viewer's id.
 type ReactionToggle = {
   Key: string
   MessageId: int
@@ -156,29 +128,24 @@ type ReactionToggle = {
   UserId: string
 }
 
-/// One settled toggle: the message and the reactions the server
-/// answered.
 type ReactionSettle = {
   MessageId: int
   Reactions: Reaction list
 }
 
-/// One stash move: the row, its key, and the direction.
 type StashMove = {
   Conversation: Conversation
   Key: string
   Archived: bool
 }
 
-/// One settled request: the row's key, its fetched row on a merge,
-/// and whether it merged.
 type RequestSettle = {
   Key: string
   Row: Conversation option
   Merging: bool
 }
 
-/// One landed push: the thread's key and the message.
+// One landed push: the thread's key and the message.
 type MessageLanding = { Key: string; Message: Message }
 
 type LinkPreviewLanding = {
@@ -187,8 +154,8 @@ type LinkPreviewLanding = {
   Preview: LinkPreview
 }
 
-/// One landed message's row seed: who it went to, what the lists
-/// already knew, and the message itself.
+// One landed message's row seed: who it went to, what the lists
+// already knew, and the message itself.
 type LandedRow = {
   Target: ChatTarget
   Existing: Conversation option
@@ -196,23 +163,18 @@ type LandedRow = {
   PinnedAt: DateTimeOffset option
 }
 
-/// One push's whole landing: the message merges, the inbox row moves
-/// to the top, and the thread unarchives.
 type PushLanding = {
   Key: string
   Target: ChatTarget
   Message: Message
 }
 
-/// One page appended to a tab it already holds rows in.
 type PageAppend = {
   Tab: InboxTab
   Page: Inbox
   Known: Conversation list
 }
 
-/// One inbox poll's landing: the page read, the rows with the watched
-/// aheads already zeroed, and whether a rebuild owns the open list.
 type InboxLanding = {
   Page: Inbox
   Rows: Conversation list
@@ -220,8 +182,6 @@ type InboxLanding = {
   ReconcileOpen: bool
 }
 
-/// The rows one poll shows, with the watched aheads zeroed, and how
-/// many the watcher held.
 type WatchedRows = {
   Rows: Conversation list
   Watched: int
@@ -229,29 +189,25 @@ type WatchedRows = {
 
 module ChatTargets =
 
-  /// The store's key of one target: the partner's handle, or the
-  /// org id under the `org:` prefix.
   let key(target: ChatTarget) : string =
     match target with
     | Partner user -> user.Handle
     | Org org -> "org:" + org.Id
 
-  /// The key of one inbox row: the same key its thread carries.
   let summaryKey(summary: Conversation) : string =
     match summary.Kind, summary.Partner with
     | ConversationKind.Org, _ -> "org:" + summary.Id
     | _, Some partner -> partner.Handle
     | _, None -> "org:" + summary.Id
 
-  /// The thread target of one inbox row.
   let targetOf(summary: Conversation) : ChatTarget =
     match summary.Kind, summary.Partner with
     | ConversationKind.Org, _ -> Org { Id = summary.Id; Name = summary.Name }
     | _, Some partner -> Partner partner
     | _, None -> Org { Id = summary.Id; Name = summary.Name }
 
-  /// One row against another: pinned first, then newest message, then
-  /// the newer id. The inbox's sort order.
+  // One row against another: pinned first, then newest message, then
+  // the newer id. The inbox's sort order.
   let order(left: Conversation, right: Conversation) : int =
     let ticks(at: DateTimeOffset option) =
       at |> Option.map(fun moment -> moment.UtcTicks) |> Option.defaultValue 0L
@@ -325,8 +281,6 @@ let listTab(state: RemotesState, tab: InboxTab) : InboxList =
   | TabFetched -> state.Fetched
   | TabStashed -> state.Stashed
 
-/// One thread under a change, when the thread exists. Curried on the
-/// state, so one change pipes into `apply`.
 let updateThread
   (key: string)
   (change: ThreadState -> ThreadState)
@@ -340,8 +294,8 @@ let updateThread
   })
   |> Option.defaultValue state
 
-/// The inbox row a landed message puts at the top of the open list:
-/// the existing row kept what it knew, the message fills the rest.
+// The inbox row a landed message puts at the top of the open list:
+// the existing row kept what it knew, the message fills the rest.
 let landedRow(landing: LandedRow) : Conversation = {
   Id = landing.Existing |> Option.map _.Id |> Option.defaultValue ""
   Kind =
@@ -372,8 +326,6 @@ let landedRow(landing: LandedRow) : Conversation = {
   MutedUntilAt = landing.Existing |> Option.bind _.MutedUntilAt
 }
 
-/// One tab under a change to its list. Curried on the state, so one
-/// change pipes into the next.
 let withTab
   (tab: InboxTab)
   (change: InboxList -> InboxList)
@@ -415,8 +367,6 @@ let readThroughOf(page: FreshThread) : int =
   | DirectFresh thread -> thread.ReadThroughId
   | OrgFresh thread -> thread.ReadThroughId
 
-/// One page's messages fold into the loaded ones, the newer id of
-/// each message winning, in id order.
 let mergeMessages
   (current: Message list, incoming: Message list)
   : Message list =
@@ -429,18 +379,15 @@ let mergeMessages
     |> Map.toList
     |> List.map snd
 
-/// The unread total of one list of rows.
+// The unread total of one list of rows.
 let unreadOf(items: Conversation list) : int = items |> List.sumBy _.Ahead
 
-/// One row list without one key.
 let withoutKey
   (items: Conversation list option, key: string)
   : Conversation list option =
   items
   |> Option.map(List.filter(fun item -> ChatTargets.summaryKey item <> key))
 
-/// One row list under the saved pins, sorted back into the inbox's
-/// order.
 let withConversationPins
   (
     preferences: Map<string, Versioned<DateTimeOffset option>>,
@@ -453,8 +400,8 @@ let withConversationPins
     | None -> item)
   |> List.sortWith(fun left right -> ChatTargets.order(left, right))
 
-/// The first page fresh from the server, followed by the older rows
-/// already scrolled into, without duplicates.
+// The first page fresh from the server, followed by the older rows
+// already scrolled into, without duplicates.
 let withFirstPage
   (
     preferences: Map<string, Versioned<DateTimeOffset option>>,
@@ -475,8 +422,6 @@ let withFirstPage
 
     withConversationPins(preferences, firstPage @ kept)
 
-/// One preference write, kept only when its version is the newest
-/// that ever wrote the key.
 let writePreference
   (preferences: Map<string, Versioned<'value>>, write: PreferenceWrite<'value>)
   : Map<string, Versioned<'value>> =
@@ -491,7 +436,7 @@ let writePreference
       }
       preferences
 
-/// The emoji usage after one toggle lands or reverts.
+// The emoji usage after one toggle lands or reverts.
 let withReactionUse
   (usage: ReactionUse list, emoji: string, change: int)
   : ReactionUse list =
@@ -507,9 +452,9 @@ let withReactionUse
   | None when change > 0 -> usage @ [ { Emoji = emoji; Count = change } ]
   | None -> usage
 
-/// One org page's pinned list against the one held: the wire's null
-/// keeps the list the state already holds, and a page older than the
-/// version a pin answer wrote cannot roll that answer back.
+// One org page's pinned list against the one held: the wire's null
+// keeps the list the state already holds, and a page older than the
+// version a pin answer wrote cannot roll that answer back.
 let keptPins(held: ThreadState, page: OrgThread) : Message list option =
   match page.Pinned with
   | None -> held.Pinned
@@ -523,8 +468,8 @@ let keptPins(held: ThreadState, page: OrgThread) : Message list option =
     else
       Some list
 
-/// One poll's reaction sweep: the loaded messages, the reactions that
-/// changed since the last version, and when the poll left.
+// One poll's reaction sweep: the loaded messages, the reactions that
+// changed since the last version, and when the poll left.
 [<Struct>]
 type ReactionSweep = {
   Messages: Message list
@@ -532,8 +477,8 @@ type ReactionSweep = {
   PolledAt: DateTimeOffset
 }
 
-/// The reactions that changed, except on messages the viewer is
-/// reacting to right now, or reacted to after the poll was sent.
+// The reactions that changed, except on messages the viewer is
+// reacting to right now, or reacted to after the poll was sent.
 let withReactionChanges
   (state: RemotesState, sweep: ReactionSweep)
   : Message list =
@@ -563,9 +508,6 @@ let withReactionChanges
       | Some reactions -> { message with Reactions = reactions }
       | None -> message)
 
-/// One thread page merged into the loaded state: the messages, the
-/// pending sends the page settles, the read baseline, and the pin and
-/// mute preferences, under the versions the poll reserved.
 let mergeThread(state: RemotesState, merge: ThreadMerge) : RemotesState =
   let page = merge.Page
   let freshMessages = messagesOf page
@@ -691,7 +633,6 @@ let mergeThread(state: RemotesState, merge: ThreadMerge) : RemotesState =
             state.Activity
   }
 
-/// One inbox page's preference writes merged into the loaded state.
 let mergeInbox(state: RemotesState, merge: InboxMerge) : RemotesState =
   let write key value version = {
     Key = key
@@ -732,8 +673,6 @@ let mergeInbox(state: RemotesState, merge: InboxMerge) : RemotesState =
         PinPreferences = pins
   }
 
-/// Whether the pin state moved under the loaded depth: a saved pin a
-/// known row lost, or a pinned row no known list holds.
 let pinsMoved
   (state: RemotesState, page: Inbox, known: Conversation list)
   : bool =
@@ -747,8 +686,6 @@ let pinsMoved
        item.PinnedAt.IsSome
        && not(known |> List.exists(fun current -> current.Id = item.Id)))
 
-/// A moved pin makes the last row of every loaded tab unusable as a
-/// cursor; the next scroll rebuilds instead of paging.
 let invalidatePins(state: RemotesState) : RemotesState =
   let tabs =
     [ TabOpen; TabFetched; TabStashed ]
@@ -761,7 +698,7 @@ let invalidatePins(state: RemotesState) : RemotesState =
         InvalidatedTabs = List.distinct(state.InvalidatedTabs @ tabs)
   }
 
-/// One message's reactions under a change.
+// One message's reactions under a change.
 let withMessageReactions
   (
     messages: Message list,
@@ -778,8 +715,6 @@ let withMessageReactions
     else
       message)
 
-/// The optimistic half of one reaction toggle: the viewer's reaction
-/// lands, the usage count moves, and the in-flight guard counts up.
 let reactOptimistically
   (state: RemotesState, toggle: ReactionToggle)
   : RemotesState =
@@ -848,8 +783,6 @@ let reactOptimistically
               }))
     }
 
-/// One toggle settles: the guard counts down; the last one out sets
-/// the reactions the server answered.
 let settleReaction(state: RemotesState, settle: ReactionSettle) : RemotesState =
   let inFlight =
     state.ReactionsInFlight
@@ -890,7 +823,6 @@ let settleReaction(state: RemotesState, settle: ReactionSettle) : RemotesState =
   else
     counted
 
-/// One toggle failed: the optimistic change reverts.
 let revertReaction(state: RemotesState, toggle: ReactionToggle) : RemotesState =
   let isMine(reaction: Reaction) =
     reaction.UserId = toggle.UserId && reaction.Emoji = toggle.Emoji
@@ -950,8 +882,6 @@ let revertReaction(state: RemotesState, toggle: ReactionToggle) : RemotesState =
               }))
     }
 
-/// One thread pulled through its newest message: the read advances,
-/// the row's ahead count clears, and the unread total recounts.
 let markThreadRead(state: RemotesState, key: string) : RemotesState =
   match state.Threads |> Map.tryFind key with
   | None -> state
@@ -984,8 +914,6 @@ let markThreadRead(state: RemotesState, key: string) : RemotesState =
             Unread = items |> Option.map unreadOf
       }
 
-/// One conversation moved between the inbox and the stash, and the
-/// unread total adjusted.
 let stashMove(state: RemotesState, move: StashMove) : RemotesState =
   let moved = {
     move.Conversation with
@@ -1035,8 +963,6 @@ let stashMove(state: RemotesState, move: StashMove) : RemotesState =
           | None -> None
   }
 
-/// One fetched request settled: the row leaves the fetched tab, the
-/// counts fall, and a merge moves it into the open list.
 let settleRequestState
   (state: RemotesState, settle: RequestSettle)
   : RemotesState =
@@ -1063,8 +989,8 @@ let settleRequestState
         Unread = Some(max 0 ((state.Unread |> Option.defaultValue 1) - 1))
   }
 
-/// One landed message's touch on the inbox: the conversation moves to
-/// the top of the open list.
+// One landed message's touch on the inbox: the conversation moves to
+// the top of the open list.
 let touchInboxState
   (state: RemotesState, key: string, summary: Conversation)
   : RemotesState = {
@@ -1083,8 +1009,8 @@ let touchInboxState
       }
 }
 
-/// The thread a pushed message lands in: the message merges, the
-/// staged copy drops, and the read and head advance.
+// The thread a pushed message lands in: the message merges, the
+// staged copy drops, and the read and head advance.
 let landMessage(state: RemotesState, landing: MessageLanding) : RemotesState =
   match state.Threads |> Map.tryFind landing.Key with
   | None -> state
@@ -1106,8 +1032,6 @@ let landMessage(state: RemotesState, landing: MessageLanding) : RemotesState =
           Activity = Map.add landing.Key DateTimeOffset.UtcNow state.Activity
     }
 
-/// One push's whole landing: the thread takes the message, the open
-/// list takes the row at its top, and the thread unarchives.
 let landPush(state: RemotesState, landing: PushLanding) : RemotesState =
   let landed =
     landMessage(
@@ -1139,8 +1063,6 @@ let landPush(state: RemotesState, landing: PushLanding) : RemotesState =
   |> fun state -> touchInboxState(state, landing.Key, row)
   |> updateThread landing.Key (fun thread -> { thread with IsArchived = false })
 
-/// One page appended to one tab, without the rows the tab already
-/// holds.
 let appendInboxPage(state: RemotesState, append: PageAppend) : RemotesState =
   let known = append.Known |> List.map ChatTargets.summaryKey |> Set.ofList
 
@@ -1165,13 +1087,11 @@ let appendInboxPage(state: RemotesState, append: PageAppend) : RemotesState =
         HasMore = append.Page.HasMore
   })
 
-/// Whether one row's thread sits open under the window.
+// Whether one row's thread sits open under the window.
 let isWatched(state: RemotesState, row: Conversation) : bool =
   state.WindowActive
   && state.WatchCounts |> Map.containsKey(ChatTargets.summaryKey row)
 
-/// The rows one poll shows, with the watched aheads zeroed, and the
-/// ahead total the watcher held.
 let zeroWatched(state: RemotesState, rows: Conversation list) : WatchedRows = {
   Rows =
     rows
@@ -1183,8 +1103,6 @@ let zeroWatched(state: RemotesState, rows: Conversation list) : WatchedRows = {
   Watched = rows |> List.filter(fun row -> isWatched(state, row)) |> unreadOf
 }
 
-/// One inbox poll's landing: the open list takes the first page, the
-/// other tabs re-pin, and the counts settle.
 let refreshInbox(state: RemotesState, landing: InboxLanding) : RemotesState = {
   state with
       Open = {
@@ -1220,8 +1138,6 @@ let refreshInbox(state: RemotesState, landing: InboxLanding) : RemotesState = {
       Unread = Some(landing.Page.UnreadCount - landing.Watched)
 }
 
-/// One older thread page merged above the loaded messages, under the
-/// loader's guards.
 let mergeOlderPage
   (state: RemotesState, key: string, page: FreshThread)
   : RemotesState =
@@ -1235,7 +1151,6 @@ let mergeOlderPage
     })
     state
 
-/// One staged send marks refused.
 let refuseSend
   (state: RemotesState, key: string, clientId: string<ClientId>)
   : RemotesState =
@@ -1256,7 +1171,6 @@ let refuseSend
     })
   |> Option.defaultValue state
 
-/// One refused send stages again.
 let restageSend
   (state: RemotesState, key: string, clientId: string<ClientId>)
   : RemotesState =
@@ -1277,8 +1191,6 @@ let restageSend
     })
   |> Option.defaultValue state
 
-/// One message's link card landed: the preview the server answered
-/// takes the message's slot.
 let landLinkPreview
   (state: RemotesState, landing: LinkPreviewLanding)
   : RemotesState =

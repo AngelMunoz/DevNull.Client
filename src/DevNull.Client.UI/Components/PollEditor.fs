@@ -26,15 +26,15 @@ type Props = {
   OnClosed: unit -> unit
 }
 
-/// The option as the draft holds it, empty past the draft's end.
+// The option as the draft holds it, empty past the draft's end.
 let optionText(draft: Draft option, index: int) : string =
   draft
   |> Option.bind(fun poll -> List.tryItem index poll.Options)
   |> Option.defaultValue ""
 
-/// One option box: the text rides the draft the way the body rides
-/// the model, so the structure rebuilds only when the option count
-/// moves. The site caps an option at 50 characters.
+// One option box: the text rides the draft the way the body rides
+// the model, so the structure rebuilds only when the option count
+// moves. The site caps an option at 50 characters.
 let optionBox(props: Props, index: int) : Control =
   TextBox()
     .Name($"PollOption{index}")
@@ -53,8 +53,8 @@ let optionBox(props: Props, index: int) : Control =
 
       props.OnOptionChanged(index, text))
 
-/// The row of one option: its box and, past the first two, the remove
-/// button the site draws as an X.
+// The row of one option: its box and, past the first two, the remove
+// button the site draws as an X.
 let optionRow(props: Props, index: int) : Control =
   let remove =
     Button()
@@ -80,8 +80,8 @@ let optionRow(props: Props, index: int) : Control =
 
   DockPanel().LastChildFill(true).Children(remove, optionBox(props, index))
 
-/// The poll length picker: the site's select, with its four
-/// durations, and the draft's pick as the selected item.
+// The poll length picker: the site's select, with its four
+// durations, and the draft's pick as the selected item.
 let lengthPicker(props: Props) : Control =
   let labels = [| "1 hour"; "1 day"; "3 days"; "7 days" |]
 
@@ -116,8 +116,8 @@ let lengthPicker(props: Props) : Control =
       if picker.SelectedIndex >= 0 then
         props.OnDurationPicked(durationAt picker.SelectedIndex))
 
-/// The builder for the live option count; the boxes keep their carets
-/// while typing because the structure does not rebuild for text.
+// The builder for the live option count; the boxes keep their carets
+// while typing because the structure does not rebuild for text.
 let built(props: Props, count: int) : Control =
   match count with
   | 0 -> Panel() :> Control
@@ -189,7 +189,6 @@ let built(props: Props, count: int) : Control =
       .Child(StackPanel().Spacing(8.0).Children(children))
     :> Control
 
-/// The poll builder under the body.
 let view(props: Props) : Control =
   ContentControl()
     .Content(

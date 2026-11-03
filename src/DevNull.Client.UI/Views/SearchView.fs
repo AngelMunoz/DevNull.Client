@@ -34,9 +34,6 @@ open DevNull.Client.UiClock
 open DevNull.Client.UserSettingsStore
 open DevNull.Client.TranslationCache
 
-/// Everything the search page reads: the env it searches through, the
-/// signed account, the term the route opened with, the recents it
-/// shows beside an empty box, and the router its picks open on.
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
@@ -59,19 +56,19 @@ type Props<'env
   Context: RouteContext
 }
 
-/// The page's state logic.
+// The page's state logic.
 module State =
 
   type Model = {
-    /// The box's text as typed; the results answer the term last
-    /// submitted, not the draft.
+    // The box's text as typed; the results answer the term last
+    // submitted, not the draft.
     Term: string
     Answer: CommitsFound voption
     Now: DateTimeOffset
     Recents: string list
-    /// Whether translations show by themselves.
+    // Whether translations show by themselves.
     Automatic: bool
-    /// Every commit's translation on this page.
+    // Every commit's translation on this page.
     Translations: TranslationModel.Book
   }
 
@@ -113,7 +110,7 @@ module State =
           props.Recents.Remember(props.SignedIn.Session.User.Id, term))
       ]
 
-  /// The answer that belongs to the term last submitted.
+  // The answer that belongs to the term last submitted.
   let answerOf(model: Model) : CommitsFound =
     match SearchTerms.commitTerm model.Term, model.Answer with
     | ValueSome term, ValueSome found when found.Term = term -> found
@@ -123,7 +120,7 @@ module State =
         Throttled = false
       }
 
-  /// True while the submitted term still owes its answer.
+  // True while the submitted term still owes its answer.
   let searching(model: Model) : bool =
     SearchTerms.commitTerm model.Term |> ValueOption.isSome
     && (answerOf model).Term = ""
@@ -134,8 +131,8 @@ module State =
       | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
       | node -> node)
 
-  /// Runs one commit's translate call: the language its own translation or
-  /// the settings pick, and the 503 retries.
+  // Runs one commit's translate call: the language its own translation or
+  // the settings pick, and the 503 retries.
   let translate(props: Props<'env>, commit: Commit) =
     let language =
       TranslationModel.languageFor(
@@ -274,7 +271,7 @@ module State =
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
-  /// The page's inlets: its session's commit channel and the clock.
+  // The page's inlets: its session's commit channel and the clock.
   let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
     [
       Sub.fromObservable
@@ -287,11 +284,11 @@ module State =
     ]
     |> Sub.batch
 
-/// The page's semantic regions.
+// The page's semantic regions.
 module Parts =
 
-  /// The header's box: the loupe, the box, and the clear button the
-  /// draft fills.
+  // The header's box: the loupe, the box, and the clear button the
+  // draft fills.
   let inputRow
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =
@@ -340,8 +337,8 @@ module Parts =
           )
       )
 
-  /// One quiet row the empty state offers: a remembered search or a
-  /// suggestion, bordered, picked by a click.
+  // One quiet row the empty state offers: a remembered search or a
+  // suggestion, bordered, picked by a click.
   let termRow(dispatch: Dispatch<State.Msg>, term: string) : Control =
     Button()
       .Classes(Theme.name Theme.GhostButton, Theme.name Theme.Hairline)
@@ -353,7 +350,7 @@ module Parts =
       .Content(SearchParts.termIdentity term)
       .OnClickHandler(fun _ _ -> dispatch(State.Picked term))
 
-  /// One section of quiet rows under its heading.
+  // One section of quiet rows under its heading.
   let quietSection
     (dispatch: Dispatch<State.Msg>, headingText: string, terms: string list)
     : Control =
@@ -368,7 +365,7 @@ module Parts =
           .Children([| for term in terms -> termRow(dispatch, term) |])
       )
 
-  /// The results header: the section's name and the match count.
+  // The results header: the section's name and the match count.
   let countHeader(count: int) : Control =
     let word = if count = 1 then "match" else "matches"
 
@@ -395,8 +392,8 @@ module Parts =
       .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
       .Child(grid)
 
-  /// The placeholder cards that hold the results' place while the
-  /// answer is out.
+  // The placeholder cards that hold the results' place while the
+  // answer is out.
   let placeholders() : Control =
     let cards: Control array = [|
       for _ in 1..3 ->
@@ -410,7 +407,7 @@ module Parts =
 
     StackPanel().Children(cards) :> _
 
-  /// The fatal line and its hint, the site's own words.
+  // The fatal line and its hint, the site's own words.
   let fatalOf(term: string) : Control =
     StackPanel()
       .Margin(0.0, 48.0, 0.0, 48.0)
@@ -555,7 +552,6 @@ let view
     Body = ScrollViewer().Content(body |> _.ToBinding())
   }
 
-/// The search results page.
 type Page<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource

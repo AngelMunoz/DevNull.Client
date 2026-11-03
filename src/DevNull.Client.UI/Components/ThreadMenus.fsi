@@ -54,7 +54,8 @@ type OrgMenuProps = {
 }
 
 /// The conversation's own menu: view profile, pin, stash, mutes,
-/// block or leave.
+/// block or leave. The flyout is control-owned, the way the link
+/// picker's is.
 val actionsMenu: props: ActionsMenuProps -> Control
 
 /// The org header's member stack: the org's members, ringed and
@@ -64,5 +65,5 @@ val memberStack:
 
 /// The maintainer's menu on an org header: rename, add members with
 /// the share-history choice, a role change per member, remove, and
-/// leave.
+/// leave. Control-owned flyout, the house pattern.
 val orgMenu: props: OrgMenuProps -> Control

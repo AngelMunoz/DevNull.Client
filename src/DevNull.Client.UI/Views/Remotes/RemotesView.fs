@@ -17,8 +17,8 @@ open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
 
-/// The page's own composition: the inbox column and the thread column
-/// through the shared two-pane frame; the program drives them all.
+// The page's own composition: the inbox column and the thread column
+// through the shared two-pane frame; the program drives them all.
 let view
   (props: Props<'env>)
   (model: IObservable<State.Model>)

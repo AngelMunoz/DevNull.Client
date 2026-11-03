@@ -28,15 +28,15 @@ type Props = {
   OnSubmit: unit -> unit
 }
 
-/// Sets one control's tooltip and returns it, so the composition stays
-/// one expression.
+// Sets one control's tooltip and returns it, so the composition stays
+// one expression.
 let withTip(text: string, control: Control) : Control =
   ToolTip.SetTip(control, text)
   control
 
-/// The attach button: the image glyph, a live count, disabled past
-/// three staged files and while a poll is open — the server takes a
-/// poll or images, never both. A quote target hides it.
+// The attach button: the image glyph, a live count, disabled past
+// three staged files and while a poll is open — the server takes a
+// poll or images, never both. A quote target hides it.
 let attachButton(props: Props) : Control =
   match props.OfferAttach with
   | false -> Panel()
@@ -66,9 +66,9 @@ let attachButton(props: Props) : Control =
       .OnClickHandler(fun _ _ -> props.OnAttach())
     :> Control
 
-/// The poll button: the site's icon-only entry that opens the builder.
-/// A poll rides a fresh commit with no images, so images disable it
-/// and a reply or quote hides it.
+// The poll button: the site's icon-only entry that opens the builder.
+// A poll rides a fresh commit with no images, so images disable it
+// and a reply or quote hides it.
 let pollButton(props: Props) : Control =
   let button =
     Button()
@@ -87,9 +87,9 @@ let pollButton(props: Props) : Control =
 
   withTip("Add poll", button)
 
-/// The schedule button: the clock entry beside the poll button. A
-/// reply or quote hides it — the server takes a scheduled commit as
-/// neither.
+// The schedule button: the clock entry beside the poll button. A
+// reply or quote hides it — the server takes a scheduled commit as
+// neither.
 let scheduleButton(props: Props) : Control =
   let button =
     Button()
@@ -105,8 +105,8 @@ let scheduleButton(props: Props) : Control =
 
   withTip("Schedule for later", button)
 
-/// The commit button: its word follows the schedule mode, and it
-/// stays off while a request is out or no moment is picked.
+// The commit button: its word follows the schedule mode, and it
+// stays off while a request is out or no moment is picked.
 let commitButton(props: Props) : Control =
   let label =
     props.Scheduling
@@ -128,7 +128,7 @@ let commitButton(props: Props) : Control =
     .OnClickHandler(fun _ _ -> props.OnSubmit())
     .DockRight()
 
-/// The error line under the input.
+// The error line under the input.
 let errorLine(props: Props) : Control =
   TextBlock()
     .TextWrapping(TextWrapping.Wrap)
@@ -140,7 +140,6 @@ let errorLine(props: Props) : Control =
     )
     .IsVisible(props.Error |> Observable.map Option.isSome)
 
-/// The action row.
 let view(props: Props) : Control =
   DockPanel()
     .LastChildFill(true)

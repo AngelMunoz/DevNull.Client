@@ -21,21 +21,19 @@ open DevNull.Client.Views.State
 
 module CoreRemotes = DevNull.Client.Core.Api.Remotes
 
-/// The page's state logic: the model, the update, the subscriptions
-/// that feed it from outside, and the store calls it runs.
 module RemotesModel =
 
-  /// The search term the raw box text stands for: trimmed, with the
-  /// leading `@` signs taken off.
+  // The search term the raw box text stands for: trimmed, with the
+  // leading `@` signs taken off.
   let inline termOf(query: string) : string = query.Trim().TrimStart('@')
 
-  /// Whether one tab's list never loaded.
+  // Whether one tab's list never loaded.
   let inline isLoading(state: RemotesState, tab: InboxTab) : bool =
     (listTab(state, tab)).Items.IsNone
 
-  /// One debounced search read: the conversations the term matches in
-  /// the tab, and the people a new remote can start with while the
-  /// open tab stands.
+  // One debounced search read: the conversations the term matches in
+  // the tab, and the people a new remote can start with while the
+  // open tab stands.
   [<Struct>]
   type SearchQuery = {
     Session: SignedInSession
@@ -95,54 +93,54 @@ module RemotesModel =
             }
   }
 
-  /// One tab's next page, through the store.
+  // One tab's next page, through the store.
   let inline loadTab(store: RemotesStore, tab: InboxTab) : Async<unit> =
     store.LoadTab tab
 
-  /// One fetched request settled, through the store.
+  // One fetched request settled, through the store.
   let inline settle
     (store: RemotesStore, partner: User, merging: bool)
     : Async<bool> =
     store.SettleRequest(partner, merging)
 
-  /// The page above the loaded messages, through the store.
+  // The page above the loaded messages, through the store.
   let inline loadOlder(store: RemotesStore, target: ChatTarget) : Async<unit> =
     store.LoadOlder target
 
-  /// Older pages until one message sits in the thread, through the
-  /// store.
+  // Older pages until one message sits in the thread, through the
+  // store.
   let inline walkTo
     (store: RemotesStore, target: ChatTarget, messageId: int)
     : Async<bool> =
     store.LoadUntil(target, messageId)
 
-  /// One message's link card read again, through the store.
+  // One message's link card read again, through the store.
   let inline preview
     (store: RemotesStore, target: ChatTarget, messageId: int)
     : Async<unit> =
     store.RefreshLinkPreview(target, messageId)
 
-  /// One thread pulled through its newest message, through the store.
-  /// Nothing goes out while the reading does not ride the bottom edge
-  /// or the window stands inactive.
+  // One thread pulled through its newest message, through the store.
+  // Nothing goes out while the reading does not ride the bottom edge
+  // or the window stands inactive.
   let inline markRead
     (store: RemotesStore, target: ChatTarget, focused: bool)
     : Async<bool> =
     store.MarkRead(target, focused)
 
-  /// The draft one conversation parked, or none.
+  // The draft one conversation parked, or none.
   let stashedDraft(props: Props<'env>, key: string) : string option =
     props.Env.Settings.Current.ChatDrafts
     |> Map.tryFind key
     |> Option.filter(fun text -> text <> "")
 
-  /// One push, through the store.
+  // One push, through the store.
   let inline push
     (store: RemotesStore, target: ChatTarget, message: OutgoingMessage)
     : Async<unit> =
     store.Push(target, message)
 
-  /// One refused send staged again, through the store.
+  // One refused send staged again, through the store.
   let inline retry
     (store: RemotesStore, target: ChatTarget, clientId: string<ClientId>)
     : Async<unit> =
@@ -193,15 +191,15 @@ module RemotesModel =
     },
     Cmd.none
 
-  /// The open thread's state, when one stands and has loaded.
+  // The open thread's state, when one stands and has loaded.
   let openThread(model: Model) : ThreadState option =
     model.State.OpenTarget
     |> Option.map ChatTargets.key
     |> Option.bind(fun key -> model.State.Threads |> Map.tryFind key)
 
-  /// The reading's seen bookkeeping: riding the bottom edge marks
-  /// everything seen; away from it, arrivals past the mark count as
-  /// unseen.
+  // The reading's seen bookkeeping: riding the bottom edge marks
+  // everything seen; away from it, arrivals past the mark count as
+  // unseen.
   let seenOf(viewerId: string, model: Model) : Model =
     match openThread model, model.Riding with
     | Some thread, true ->
@@ -228,8 +226,8 @@ module RemotesModel =
       { model with Unseen = unseen }
     | None, _ -> { model with Unseen = 0 }
 
-  /// The read one riding reader owes the open thread: one pull
-  /// through the newest message per arrival, never per scroll tick.
+  // The read one riding reader owes the open thread: one pull
+  // through the newest message per arrival, never per scroll tick.
   let readCmd(props: Props<'env>, model: Model) : Model * Cmd<Msg> =
     match model.State.OpenTarget with
     | Some target when model.Riding && model.State.WindowActive ->
@@ -254,18 +252,18 @@ module RemotesModel =
       | _ -> model, Cmd.none
     | _ -> model, Cmd.none
 
-  /// The newest ping one thread carries, by its message id.
+  // The newest ping one thread carries, by its message id.
   let inline lastPingOf(thread: ThreadState) =
     thread.Messages
     |> List.tryFindBack(fun message -> message.Event |> Option.contains Ping)
     |> Option.map _.Id
     |> Option.defaultValue 0
 
-  /// A ping that just landed answers with the system's own note: the
-  /// viewer's own ping sounds even muted, a partner's only while the
-  /// thread is not — the site's own rule. A ping sounds only in a
-  /// thread the model already held loaded: pings already there when a
-  /// thread opens stay still.
+  // A ping that just landed answers with the system's own note: the
+  // viewer's own ping sounds even muted, a partner's only while the
+  // thread is not — the site's own rule. A ping sounds only in a
+  // thread the model already held loaded: pings already there when a
+  // thread opens stay still.
   let pingCmd
     (props: Props<'env>, model: Model, next: Model)
     : Model * Cmd<Msg> =
@@ -310,13 +308,13 @@ module RemotesModel =
       | _ -> next, Cmd.none
     | None -> { next with PingHeard = 0 }, Cmd.none
 
-  /// Whether the org's held pinned list already stands at the cap the
-  /// server counts against.
+  // Whether the org's held pinned list already stands at the cap the
+  // server counts against.
   let inline atPinCap(thread: ThreadState) : bool =
     thread.Pinned |> Option.defaultValue [] |> List.length >= CoreRemotes.pinCap
 
-  /// The words one settled pin says: the server's 403 refusal
-  /// verbatim, the quiet line for every other failure.
+  // The words one settled pin says: the server's 403 refusal
+  // verbatim, the quiet line for every other failure.
   let pinWords(pinning: bool, outcome: Result<unit, AppError>) : string option =
     match outcome with
     | Ok() -> None
@@ -329,8 +327,8 @@ module RemotesModel =
           "Could not unpin. Try again."
       )
 
-  /// One pin through the store, once the dialog or the cap let it
-  /// pass.
+  // One pin through the store, once the dialog or the cap let it
+  // pass.
   let startPin
     (props: Props<'env>, model: Model, message: Message)
     : Model * Cmd<Msg> =
@@ -344,7 +342,7 @@ module RemotesModel =
         MessagePinSettled
     | None -> model, Cmd.none
 
-  /// One unpin through the store; it never asks first.
+  // One unpin through the store; it never asks first.
   let startUnpin
     (props: Props<'env>, model: Model, message: Message)
     : Model * Cmd<Msg> =
@@ -1120,10 +1118,6 @@ module RemotesModel =
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
-  /// The page's inlets from outside: the shared clock, the session, the
-  /// store, and the watcher's readership handles. The thread watch
-  /// rides the open target: a new target restarts the sub, and the
-  /// page's end releases it.
   let subscribe (props: Props<'env>) (model: Model) : Sub<Msg> =
     let watcher = props.Env.Remotes.Watcher
 

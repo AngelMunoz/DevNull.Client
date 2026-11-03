@@ -112,7 +112,7 @@ module Canberra =
     nativeint userdata
   )
 
-/// Opens one stream and names the failure the contract expects.
+// Opens one stream and names the failure the contract expects.
 let openStream
   (log: ILogger, direction: int, name: string)
   : Result<nativeint, AudioFailure> =
@@ -151,8 +151,8 @@ let openStream
 
     Error failure
 
-/// The loudest sample in one chunk, 0 to 1, for the recording meter.
-/// The floor sample keeps an empty chunk from throwing.
+// The loudest sample in one chunk, 0 to 1, for the recording meter.
+// The floor sample keeps an empty chunk from throwing.
 let loudestOf(chunk: byte[]) =
   seq { 0..2 .. chunk.Length - 2 }
   |> Seq.map(fun offset ->
@@ -160,8 +160,8 @@ let loudestOf(chunk: byte[]) =
   |> Seq.append(Seq.singleton 0.0)
   |> Seq.max
 
-/// The canonical 44-byte header of a 16 kHz mono S16LE WAV, the format
-/// every capture already carries.
+// The canonical 44-byte header of a 16 kHz mono S16LE WAV, the format
+// every capture already carries.
 let wavHeader(dataBytes: int) : byte[] =
   use bytes = new MemoryStream(44)
   use writer = new BinaryWriter(bytes)
@@ -183,10 +183,10 @@ let wavHeader(dataBytes: int) : byte[] =
 
   bytes.ToArray()
 
-/// One live microphone capture: a background reader that blocks on the
-/// stream, the samples it took, and the meter's peak. A failed read
-/// stops the loop and names itself, so Stop can report it instead of
-/// handing back a truncated take as if it were whole.
+// One live microphone capture: a background reader that blocks on the
+// stream, the samples it took, and the meter's peak. A failed read
+// stops the loop and names itself, so Stop can report it instead of
+// handing back a truncated take as if it were whole.
 type Capture(stream: nativeint, log: ILogger) =
 
   let gate = obj()
@@ -275,9 +275,9 @@ type Capture(stream: nativeint, log: ILogger) =
 
       lock gate (fun () -> taken.Clear()) |> ignore
 
-/// One playback: a background writer the reader can stop early, and the
-/// event that fires when the samples run out. Volume scales each chunk
-/// as it is written, so a move lands on the note while it sounds.
+// One playback: a background writer the reader can stop early, and the
+// event that fires when the samples run out. Volume scales each chunk
+// as it is written, so a move lands on the note while it sounds.
 type Playback(stream: nativeint, data: byte[], volume: float, log: ILogger) =
 
   let running = ref true
@@ -367,9 +367,9 @@ type Playback(stream: nativeint, data: byte[], volume: float, log: ILogger) =
     // plays on from where it stands.
     member _.Seek(_to': TimeSpan) = ()
 
-/// The samples as played: speed applied by nearest-neighbor resampling
-/// in the voice-note format. Volume stays out — the writer scales each
-/// chunk as it goes, so the fader lands while the note sounds.
+// The samples as played: speed applied by nearest-neighbor resampling
+// in the voice-note format. Volume stays out — the writer scales each
+// chunk as it goes, so the fader lands while the note sounds.
 let rendered(samples: int16 array, speed: float) : byte[] =
   let played =
     if speed <= 1.0 then
@@ -383,11 +383,6 @@ let rendered(samples: int16 array, speed: float) : byte[] =
   Buffer.BlockCopy(played, 0, bytes, 0, bytes.Length)
   bytes
 
-/// The microphone and the speaker through the PulseAudio simple API,
-/// which every PipeWire and PulseAudio desktop serves. Streams stay at
-/// the voice-note format: 16 kHz mono PCM, 16-bit little-endian. A
-/// note in a compressed container rides the desktop's media framework
-/// instead, the way the Windows head hands its notes to the OS player.
 type PulseEngine(log: ILogger) =
 
   let mediaFramework = GStreamer.initialize log
@@ -445,9 +440,6 @@ type PulseEngine(log: ILogger) =
               ))
     }
 
-/// The desktop's own sounds through libcanberra: the message event of
-/// the installed XDG sound theme, the same sound the desktop's
-/// notifications play.
 type SystemSounds(log: ILogger) =
 
   // play_full reads the property list after it returns, so the list

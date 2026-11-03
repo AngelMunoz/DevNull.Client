@@ -502,8 +502,8 @@ docs/notas-*.md
 # CodeAlta loop artifacts: the scripts, review record, and task queue travel
 # with the repo (machine-neutral, relative paths); run junk stays local.
 .alta/*
-!.alta/scripts/
-!.alta/derived/
-!.alta/tasks/
+!.alta/scripts/*
+!.alta/derived/*
+!.alta/tasks/*
 .alta/derived/PR-body.md
 .alta/**/*.log

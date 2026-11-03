@@ -14,21 +14,19 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Errors
 open DevNull.Client.SessionFiles
 
-/// The app's own Ed25519 key, the one the device approval binds to.
 type DeviceKey = {
   PrivatePath: string
   PublicPath: string
   Fingerprint: string
 }
 
-/// One started sign-in: what to keep, and where to send the browser.
 type SignInStart = {
   Pending: PendingAuthorization
   Url: string
 }
 
-/// Everything one callback completion carries: the device key, the
-/// callback URI, and the logger for the file moves and the mismatch.
+// Everything one callback completion carries: the device key, the
+// callback URI, and the logger for the file moves and the mismatch.
 [<Struct>]
 type CompleteArgs = {
   Key: DeviceKey
@@ -36,7 +34,6 @@ type CompleteArgs = {
   Log: ILogger
 }
 
-/// The server the app signs in to.
 let baseAddress = "https://dev-null.sh"
 
 module Helpers =
@@ -47,8 +44,8 @@ module Helpers =
 
   let publicKeyPath = devicePrivateKeyPath + ".pub"
 
-  /// The name this install carries on the site's devices page, and the
-  /// comment its key file wears.
+  // The name this install carries on the site's devices page, and the
+  // comment its key file wears.
   let deviceName =
     let platform =
       if OperatingSystem.IsWindows() then "Windows"
@@ -68,7 +65,7 @@ module Helpers =
 
   type Callback = { Code: string; State: string }
 
-  /// Reads and checks one `devnull://` callback URI.
+  // Reads and checks one `devnull://` callback URI.
   let parseCallback(uri: string) : Result<Callback, string> =
     try
       let parsed = Uri(uri)
@@ -90,11 +87,9 @@ module Helpers =
     with ex ->
       Error $"The sign-in callback is invalid: {ex.Message}"
 
-/// The private key file of the app's own key, the one every signed
-/// request after sign-in uses.
 let devicePrivateKeyPath = Helpers.devicePrivateKeyPath
 
-/// The SSH fingerprint of one public key file.
+// The SSH fingerprint of one public key file.
 let fingerprintOf(publicPath: string) : Async<Result<string, string>> =
   asyncResult {
     let! output = SshKeygen.run $"-lf \"{publicPath}\""
@@ -117,8 +112,6 @@ let fingerprintOf(publicPath: string) : Async<Result<string, string>> =
       return! Error $"Unexpected fingerprint: {token}"
   }
 
-/// Creates the app key when it is missing, and returns its SSH
-/// fingerprint.
 let ensureKey(log: ILogger) : Async<Result<DeviceKey, string>> = asyncResult {
   try
     Directory.CreateDirectory(Helpers.keyDirectory) |> ignore
@@ -156,7 +149,6 @@ let ensureKey(log: ILogger) : Async<Result<DeviceKey, string>> = asyncResult {
     return! Error ex.Message
 }
 
-/// Starts one device authorization and returns the browser URL.
 let startAuthorization
   (env: #IProvidePkceSource & #IProvideNonceSource, key: DeviceKey)
   : SignInStart =
@@ -177,8 +169,8 @@ let startAuthorization
     Url = authorization.Url
   }
 
-/// Verifies the callback state, redeems the code, and stores the
-/// session.
+// Verifies the callback state, redeems the code, and stores the
+// session.
 let complete
   (
     env: #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp,
@@ -255,18 +247,11 @@ let complete
         return Error error
 }
 
-/// The devnull callback URI in the process arguments, when one is
-/// present.
 let callbackUri(argv: string array) : string option =
   argv
   |> Array.tryFind(fun argument ->
     argument.StartsWith("devnull://", StringComparison.OrdinalIgnoreCase))
 
-/// Completes one sign-in callback end to end: prepares the key,
-/// redeems the code through `complete`, stores the session, and
-/// writes the error file for the waiting sign-in page when any step
-/// refuses. The one sequence both the running window and the headless
-/// second instance run.
 let finish
   (
     env: #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp,
@@ -309,7 +294,6 @@ let finish
       return outcome
 }
 
-/// Opens the system browser at the authorization URL.
 let startBrowser(url: string) : Result<unit, string> =
   try
     match

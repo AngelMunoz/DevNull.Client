@@ -25,7 +25,7 @@ type Props<'env
   and 'env :> IProvideSession
   and 'env :> IProvideImageCache> = { Env: 'env; Session: SignedInSession }
 
-/// The card's state logic: model, messages, and update.
+// The card's state logic: model, messages, and update.
 module State =
 
   type Model = {
@@ -74,8 +74,6 @@ module State =
         },
         Cmd.none
 
-/// The handle line: a lane dot beside the @handle, the way the site's
-/// aside marks the user's lane.
 let laneHandle(lane: Lane option, username: string) : Control =
   let dot = Ellipse().Width(8.0).Height(8.0)
 
@@ -90,7 +88,7 @@ let laneHandle(lane: Lane option, username: string) : Control =
       TextBlock().Classes(Theme.name Theme.Mono).Text("@" + username)
     )
 
-/// One count-and-label pair of the stats row.
+// One count-and-label pair of the stats row.
 let statRow(count: int, label: string) : Control =
   StackPanel()
     .Orientation(Orientation.Horizontal)
@@ -101,7 +99,7 @@ let statRow(count: int, label: string) : Control =
       TextBlock().Classes(Theme.name Theme.Muted).Text(label)
     )
 
-/// The identity head: the avatar beside the name and the lane handle.
+// The identity head: the avatar beside the name and the lane handle.
 let identityHead(cache: ImageCacheService, profile: Profile) : Control =
   StackPanel()
     .Orientation(Orientation.Horizontal)
@@ -123,7 +121,6 @@ let identityHead(cache: ImageCacheService, profile: Profile) : Control =
         )
     )
 
-/// The counts row: commits, following, followers.
 let stats(profile: Profile) : Control =
   StackPanel()
     .Orientation(Orientation.Horizontal)
@@ -134,7 +131,7 @@ let stats(profile: Profile) : Control =
       statRow(profile.FollowersCount |> Option.defaultValue 0, "followers")
     )
 
-/// The bio line, when the profile carries one.
+// The bio line, when the profile carries one.
 let bioLine(profile: Profile) : Control =
   TextBlock()
     .Classes(Theme.name Theme.Muted)
@@ -142,10 +139,10 @@ let bioLine(profile: Profile) : Control =
     .TextWrapping(TextWrapping.Wrap)
     .Text(profile.Bio |> Option.defaultValue "")
 
-/// The card's semantic regions; the view only composes these.
+// The card's semantic regions; the view only composes these.
 module Parts =
 
-  /// The error line under the card.
+  // The error line under the card.
   let errorText(model: IObservable<State.Model>) : Control =
     TextBlock()
       .Classes(Theme.name Theme.FgDanger)
@@ -157,11 +154,11 @@ module Parts =
       )
       .IsVisible(model |> Observable.map _.Error.IsSome)
 
-  /// The loading line while the profile reads.
+  // The loading line while the profile reads.
   let busy(model: IObservable<State.Model>) : Control =
     Status.busy("Loading your card…").IsVisible(model |> Observable.map _.Busy)
 
-  /// The card itself, rebuilt whenever the profile changes.
+  // The card itself, rebuilt whenever the profile changes.
   let cardHost
     (cache: ImageCacheService, model: IObservable<State.Model>)
     : Control =

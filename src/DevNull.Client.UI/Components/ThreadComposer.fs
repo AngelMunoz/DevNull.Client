@@ -25,9 +25,6 @@ open DevNull.Client.RemotesState
 open DevNull.Client.SettingsStore
 open Microsoft.Extensions.Logging
 
-/// The services one thread composer draws on: the viewer the mention
-/// list leaves out, the attachment sources the paste gesture asks, and
-/// the voice player's dependencies.
 [<Struct>]
 type Services = {
   ViewerId: string
@@ -39,9 +36,6 @@ type Services = {
   Log: ILogger
 }
 
-/// What the composer reports up: the draft and caret, the staged
-/// images, the link choice, the reply and send asks, the picker and
-/// clipboard, the recording lane, and the ping.
 [<Struct>]
 type Actions = {
   DraftChanged: string * int -> unit
@@ -58,9 +52,6 @@ type Actions = {
   Ping: unit -> unit
 }
 
-/// The composer's inputs: its services and target, the live thread
-/// and the model slices its controls follow, and the actions it
-/// reports.
 [<Struct>]
 type Props = {
   Services: Services
@@ -76,13 +67,13 @@ type Props = {
   Actions: Actions
 }
 
-/// Whether the target is an org thread.
+// Whether the target is an org thread.
 let inline isOrg(target: ChatTarget) =
   match target with
   | Org _ -> true
   | Partner _ -> false
 
-/// The word the input box carries while the draft is empty.
+// The word the input box carries while the draft is empty.
 let placeholderOf(target: ChatTarget) =
   match target with
   | Partner partner -> $"Message @{partner.Handle}"
@@ -90,7 +81,7 @@ let placeholderOf(target: ChatTarget) =
     let orgName = org.Name |> Option.defaultValue "the org"
     $"Message {orgName}"
 
-/// The ping tooltip's word for the target.
+// The ping tooltip's word for the target.
 let pingLabelOf(target: ChatTarget) =
   match target with
   | Partner partner -> $"Ping @{partner.Handle}"
@@ -98,9 +89,9 @@ let pingLabelOf(target: ChatTarget) =
     let orgName = org.Name |> Option.defaultValue "the org"
     $"Ping {orgName}"
 
-/// The link-card picker: a quiet button whose flyout lists the
-/// draft's links, the first one, or none. The button shows only while
-/// the draft carries a link.
+// The link-card picker: a quiet button whose flyout lists the
+// draft's links, the first one, or none. The button shows only while
+// the draft carries a link.
 let linkPicker(props: Props) : Control =
   let links = props.Draft |> Observable.map RemotesText.linksOf
 
@@ -173,9 +164,9 @@ let linkPicker(props: Props) : Control =
     .HorizontalAlignment(HorizontalAlignment.Right)
     .IsVisible(links |> Observable.map(fun found -> not found.IsEmpty))
 
-/// The typing line: the meta row's leading word while the partner or
-/// the org types, its three dots chasing each other on the theme's own
-/// beat.
+// The typing line: the meta row's leading word while the partner or
+// the org types, its three dots chasing each other on the theme's own
+// beat.
 let typingLine(props: Props) : Control =
   let names = props.Typing |> Observable.distinctUntilChanged
 
@@ -207,8 +198,8 @@ let typingLine(props: Props) : Control =
     )
     .IsVisible(names |> Observable.map(List.isEmpty >> not))
 
-/// The character counter: quiet until 80%, amber from 95%, danger at
-/// the limit, thousands grouped the way the site reads them.
+// The character counter: quiet until 80%, amber from 95%, danger at
+// the limit, thousands grouped the way the site reads them.
 let counterBlock(draft: IObservable<string>) : Control =
   let counter = draft |> Observable.map(fun text -> text.TrimEnd().Length)
 
@@ -243,7 +234,7 @@ let counterBlock(draft: IObservable<string>) : Control =
 
   block
 
-/// The reply bar: the parent's body and the cancel that drops it.
+// The reply bar: the parent's body and the cancel that drops it.
 let replyBar(props: Props) : Control =
   ContentControl()
     .Content(
@@ -277,9 +268,9 @@ let replyBar(props: Props) : Control =
       |> _.ToBinding()
     )
 
-/// The staged images: the shared strip rebuilds only when the image
-/// list itself moves, so typing never re-decodes a preview under the
-/// caret.
+// The staged images: the shared strip rebuilds only when the image
+// list itself moves, so typing never re-decodes a preview under the
+// caret.
 let stagedImages(props: Props) : Control =
   AttachmentStrip.view {
     Images = props.Images
@@ -290,9 +281,9 @@ let stagedImages(props: Props) : Control =
     HideWhenEmpty = true
   }
 
-/// The staged voice note: the full player over the take just made,
-/// with its discard beside it. The take is keyed by its length and
-/// name, never by comparing the bytes themselves.
+// The staged voice note: the full player over the take just made,
+// with its discard beside it. The take is keyed by its length and
+// name, never by comparing the bytes themselves.
 let stagedVoice(props: Props) : Control =
   ContentControl()
     .Content(
@@ -331,9 +322,9 @@ let stagedVoice(props: Props) : Control =
     )
     .IsVisible(props.Voice |> Observable.map(fun current -> current.IsSome))
 
-/// The recording lane: the bordered box that stands in for the input
-/// row while the take is live. The lane reports through the
-/// composer's actions.
+// The recording lane: the bordered box that stands in for the input
+// row while the take is live. The lane reports through the
+// composer's actions.
 let recordLane(props: Props) : Control =
   let report(outcome: Recorder.Report) =
     match outcome with
@@ -354,8 +345,8 @@ let recordLane(props: Props) : Control =
     )
     .IsVisible(props.Recording)
 
-/// Who a mention can name here: the partner alone, or the org's
-/// members beside the viewer.
+// Who a mention can name here: the partner alone, or the org's
+// members beside the viewer.
 let mentionables(props: Props, current: ThreadState) : User list =
   match props.Target with
   | Partner partner -> [ partner ]
@@ -364,8 +355,8 @@ let mentionables(props: Props, current: ThreadState) : User list =
     |> List.map _.User
     |> List.filter(fun user -> user.Id <> props.Services.ViewerId)
 
-/// The mention offers: the partner or org members whose handle starts
-/// with the typed word, through the shared palette.
+// The mention offers: the partner or org members whose handle starts
+// with the typed word, through the shared palette.
 let mentionPicker(props: Props, input: TextBox) : Control =
   let picks =
     Observable.combineLatest props.Mention props.Thread
@@ -447,8 +438,8 @@ let mentionPicker(props: Props, input: TextBox) : Control =
     .Child(list)
     .IsVisible(picks |> Observable.map(List.isEmpty >> not))
 
-/// The input box: the draft's text and caret, the send and cancel
-/// keys, and the platform's paste gesture.
+// The input box: the draft's text and caret, the send and cancel
+// keys, and the platform's paste gesture.
 let inputBox(props: Props) : TextBox =
   let voiceRides = props.Voice |> Observable.map(fun current -> current.IsSome)
 
@@ -494,7 +485,7 @@ let inputBox(props: Props) : TextBox =
 
   input
 
-/// The attach button: images never ride beside a staged voice note.
+// The attach button: images never ride beside a staged voice note.
 let pickButton(props: Props) : Control =
   let voiceRides = props.Voice |> Observable.map(fun current -> current.IsSome)
 
@@ -511,7 +502,7 @@ let pickButton(props: Props) : Control =
   ToolTip.SetTip(button, "Attach images")
   button
 
-/// The push button.
+// The push button.
 let sendButton(props: Props) : Control =
   Button()
     .Classes(Theme.name Theme.AccentButton)
@@ -521,8 +512,8 @@ let sendButton(props: Props) : Control =
       args.Handled <- true
       props.Actions.Send())
 
-/// The mic button: it stays in place and dims while a draft or images
-/// ride the push, saying why.
+// The mic button: it stays in place and dims while a draft or images
+// ride the push, saying why.
 let micButton(props: Props) : Control =
   let free =
     Observable.combineLatest
@@ -549,7 +540,7 @@ let micButton(props: Props) : Control =
   ToolTip.SetTip(button, "Record a voice note (max. 1 min)")
   button
 
-/// The ping button: a quiet nudge for the partner or the org.
+// The ping button: a quiet nudge for the partner or the org.
 let pingButton(props: Props) : Control =
   let button =
     Button()

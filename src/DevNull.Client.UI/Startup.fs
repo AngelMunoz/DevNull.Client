@@ -23,9 +23,9 @@ type App() =
     this.Styles.Add(FluentTheme())
     Theme.install this
 
-/// The desktop app: the shared theme carrier plus the main window,
-/// wired the way Avalonia intends — the window belongs to the classic
-/// desktop lifetime, set once initialization completes.
+// The desktop app: the shared theme carrier plus the main window,
+// wired the way Avalonia intends — the window belongs to the classic
+// desktop lifetime, set once initialization completes.
 type DesktopApp(env: AppEnv, callback: string option) =
   inherit App()
 
@@ -37,7 +37,7 @@ type DesktopApp(env: AppEnv, callback: string option) =
 
     base.OnFrameworkInitializationCompleted()
 
-/// The level a `DEVNULL_LOG_LEVEL` value names, when it names one.
+// The level a `DEVNULL_LOG_LEVEL` value names, when it names one.
 let requestedLevel() : LogEventLevel option =
   match Environment.GetEnvironmentVariable "DEVNULL_LOG_LEVEL" with
   | null -> None
@@ -52,9 +52,9 @@ let requestedLevel() : LogEventLevel option =
     | "ERROR" -> Some LogEventLevel.Error
     | _ -> None
 
-/// The app log: the console plus one file per day under the app's data
-/// directory, debug-verbose in development builds. A `DEVNULL_LOG_LEVEL`
-/// value overrides the build's default, so a release install can trace.
+// The app log: the console plus one file per day under the app's data
+// directory, debug-verbose in development builds. A `DEVNULL_LOG_LEVEL`
+// value overrides the build's default, so a release install can trace.
 let configureLogging() =
   let folder =
     Path.Combine(
@@ -99,11 +99,11 @@ let createLogging() : ILoggerFactory =
 
   logging
 
-/// The single-instance hold: one exclusive file beside the session and
-/// the settings, in the app's own data directory. The hold lasts the
-/// process lifetime — a crash releases it like the mutex did — and
-/// every instance meets the same directory, host install and flatpak
-/// sandbox alike.
+// The single-instance hold: one exclusive file beside the session and
+// the settings, in the app's own data directory. The hold lasts the
+// process lifetime — a crash releases it like the mutex did — and
+// every instance meets the same directory, host install and flatpak
+// sandbox alike.
 let holdInstance() : FileStream option =
   try
     Directory.CreateDirectory(SessionFiles.dataDirectory) |> ignore
@@ -122,10 +122,10 @@ let holdInstance() : FileStream option =
   | :? IOException
   | :? UnauthorizedAccessException -> None
 
-/// The second instance has no UI: it completes the sign-in callback
-/// headlessly, stores the outcome, and lets the first instance poll for
-/// the session file. The sync wait is the one sanctioned bridge — this
-/// process must finish before it exits.
+// The second instance has no UI: it completes the sign-in callback
+// headlessly, stores the outcome, and lets the first instance poll for
+// the session file. The sync wait is the one sanctioned bridge — this
+// process must finish before it exits.
 let completeCallback
   (env: AppEnv, log: Microsoft.Extensions.Logging.ILogger, uri: string)
   : unit =

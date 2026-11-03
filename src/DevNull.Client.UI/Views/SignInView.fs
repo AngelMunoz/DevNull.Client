@@ -36,7 +36,7 @@ type Props<'env
   Context: RouteContext
 }
 
-/// The page's state logic: the sign-in flow, its messages, and update.
+// The page's state logic: the sign-in flow, its messages, and update.
 module State =
 
   type Status =
@@ -54,8 +54,8 @@ module State =
     | Prepared of Result<SignInStart, string>
     | SessionObserved of Result<DeviceSession, string>
 
-  /// One sign-in start: the app key generation, the pending file, and
-  /// the browser launch.
+  // One sign-in start: the app key generation, the pending file, and
+  // the browser launch.
   let prepare
     (log: ILogger, env, key: DeviceKey)
     : Async<Result<SignInStart, string>> = asyncResult {
@@ -73,11 +73,11 @@ module State =
       return! Error message
   }
 
-  /// Wakes when anything under the app's data folder changes — the
-  /// second instance's session or error file, or its own log lines —
-  /// and on a backstop beat either way: the change makes the common
-  /// case instant, the beat keeps the wait correct when a change
-  /// lands before the watch does.
+  // Wakes when anything under the app's data folder changes — the
+  // second instance's session or error file, or its own log lines —
+  // and on a backstop beat either way: the change makes the common
+  // case instant, the beat keeps the wait correct when a change
+  // lands before the watch does.
   let waitForChange() : Async<unit> = asyncEx {
     let touched =
       TaskCompletionSource<unit>(
@@ -97,8 +97,8 @@ module State =
       |> Async.Ignore
   }
 
-  /// Waits until the session file or the error file shows up, or the
-  /// approval times out, the way the CLI's `devnull auth` does.
+  // Waits until the session file or the error file shows up, or the
+  // approval times out, the way the CLI's `devnull auth` does.
   let awaitSession(log: ILogger) : Async<Result<DeviceSession, string>> =
     let started = DateTimeOffset.UtcNow
 
@@ -126,9 +126,9 @@ module State =
     // touching the disk.
     { Status = Idle }, Cmd.OfAsync.perform loadPending log PendingChecked
 
-  /// The session lands, and the caller navigates away — both effects
-  /// the loop runs after update, the way navigation inside update
-  /// would dispose this program before the model is published.
+  // The session lands, and the caller navigates away — both effects
+  // the loop runs after update, the way navigation inside update
+  // would dispose this program before the model is published.
   let recordSessionCmd
     (props: Props<'env>, log: ILogger, session: DeviceSession)
     : Cmd<Msg> =
@@ -208,10 +208,10 @@ module State =
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
-/// The page's semantic regions; the view only composes these.
+// The page's semantic regions; the view only composes these.
 module Parts =
 
-  /// The status line: what the flow is doing right now.
+  // The status line: what the flow is doing right now.
   let statusLine(model: IObservable<State.Model>) : Control =
     TextBlock()
       .TextWrapping(TextWrapping.Wrap)
@@ -229,8 +229,8 @@ module Parts =
           | State.Failed message -> message)
       )
 
-  /// The primary actions: start, or open the browser again while an
-  /// approval is pending.
+  // The primary actions: start, or open the browser again while an
+  // approval is pending.
   let primaryActions
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control array =
@@ -270,7 +270,7 @@ module Parts =
 
     [| startButton; reopenButton |]
 
-  /// The sign-in card.
+  // The sign-in card.
   let card
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =

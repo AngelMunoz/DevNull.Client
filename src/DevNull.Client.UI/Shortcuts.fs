@@ -13,61 +13,49 @@ open Avalonia.VisualTree
 open NXUI.Extensions
 open DevNull.Client.Theme
 
-/// The actions the key table reaches. Every one outlives the pages:
-/// the shell supplies its own navigation, overlays, and window state.
 [<Struct>]
 type Actions = {
-  /// Opens the compose dialog.
   Compose: unit -> unit
-  /// Opens the search dialog.
   Search: unit -> unit
-  /// Opens the bindings list.
   Help: unit -> unit
-  /// The escape: closes the top overlay, else leaves fullscreen.
   Escape: unit -> unit
-  /// Navigates the router.
   Navigate: string -> unit
-  /// Walks the window in and out of fullscreen.
   ToggleFullScreen: unit -> unit
-  /// Moves keyboard focus between the commit cards: 1 forward, -1 back.
   WalkCards: int -> unit
 }
 
-/// Everything the one window handler needs.
 [<Struct>]
 type Props = {
   Root: Window
   Actions: Actions
-  /// True while a modal overlay holds the window: the compose dialog,
-  /// the bindings list.
   OverlayOpen: unit -> bool
 }
 
-/// How long a pressed `g` arms the go-to pair: the site's one second.
+// How long a pressed `g` arms the go-to pair: the site's one second.
 let goWindow = TimeSpan.FromSeconds 1.0
 
-/// The pending `g` of one go-to pair: the moment its window ends. A
-/// deadline, not a timer — nothing scheduled holds state between
-/// presses, and the window that installed the handler owns this cell.
+// The pending `g` of one go-to pair: the moment its window ends. A
+// deadline, not a timer — nothing scheduled holds state between
+// presses, and the window that installed the handler owns this cell.
 type Pending() =
   member val Deadline: DateTimeOffset voption = ValueNone with get, set
 
-/// True when keyboard focus sits in a text field, where every plain
-/// key belongs to the sentence being typed.
+// True when keyboard focus sits in a text field, where every plain
+// key belongs to the sentence being typed.
 let typing(root: Window) : bool =
   match root.FocusManager.GetFocusedElement() with
   | :? TextBox -> true
   | _ -> false
 
-/// The focused visual under the root, when focus sits on one.
+// The focused visual under the root, when focus sits on one.
 let focusedVisual(root: Window) : Visual option =
   match root.FocusManager.GetFocusedElement() with
   | :? Visual as visual -> Some visual
   | _ -> None
 
-/// True while ctrl, meta, or alt is held: the pair a held key belongs
-/// to the platform or the control, never the table. Shift stays free —
-/// the question mark rides it.
+// True while ctrl, meta, or alt is held: the pair a held key belongs
+// to the platform or the control, never the table. Shift stays free —
+// the question mark rides it.
 let held(args: KeyEventArgs) : bool =
   args.KeyModifiers
   &&& (KeyModifiers.Alt ||| KeyModifiers.Control ||| KeyModifiers.Meta)
@@ -171,7 +159,7 @@ let moveCardFocus(root: Window, step: int) : unit =
     |> Array.tryPick(fun card ->
       card.FindAncestorOfType<ItemsControl>() |> Option.ofObj)
 
-  /// The feed position of a card: the item index of its row container.
+  // The feed position of a card: the item index of its row container.
   let spotOf(items: ItemsControl, card: Button) : int voption =
     match card.FindAncestorOfType<ContentPresenter>() with
     | null -> ValueNone
@@ -194,9 +182,9 @@ let moveCardFocus(root: Window, step: int) : unit =
     card.Focus() |> ignore
     card.BringIntoView()
 
-  /// Lands the nearest realized card beyond a feed position, toward the
-  /// step. From no position, the step's end of the feed. False when no
-  /// realized card sits beyond, so the caller can page and retry.
+  // Lands the nearest realized card beyond a feed position, toward the
+  // step. From no position, the step's end of the feed. False when no
+  // realized card sits beyond, so the caller can page and retry.
   let landNearest(placed: (int * Button) array, from: int voption) : bool =
     let ahead =
       placed
@@ -213,7 +201,7 @@ let moveCardFocus(root: Window, step: int) : unit =
       land'(snd target)
       true
 
-  /// One walk over the realized cards, by feed position.
+  // One walk over the realized cards, by feed position.
   let attempt() : bool =
     let cards = cardsOf()
 
@@ -285,7 +273,7 @@ let moveCardFocus(root: Window, step: int) : unit =
           Dispatcher.UIThread.Post settleLand)
     | None -> ()
 
-/// The bindings the window answers, as the list shows them.
+// The bindings the window answers, as the list shows them.
 let bindings: (string * string array) array = [|
   "Next commit", [| "J" |]
   "Previous commit", [| "K" |]
@@ -303,7 +291,7 @@ let bindings: (string * string array) array = [|
   "Fullscreen", [| "F11" |]
 |]
 
-/// One key chip of a row.
+// One key chip of a row.
 let chip(key: string) : Control =
   Border()
     .Classes(Theme.name Theme.Hairline)
@@ -312,7 +300,7 @@ let chip(key: string) : Control =
     .Padding(6.0, 1.0, 6.0, 1.0)
     .Child(TextBlock().Classes(Theme.name Theme.Mono).FontSize(12.0).Text(key))
 
-/// One row of the list: the action on the left, its keys on the right.
+// One row of the list: the action on the left, its keys on the right.
 let row(label: string, keys: string array) : Control =
   let grid = Grid()
 

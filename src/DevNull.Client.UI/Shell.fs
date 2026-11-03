@@ -52,26 +52,26 @@ open DevNull.Client.TranslationCache
 open DevNull.Client.UiClock
 open DevNull.Client.Views
 
-/// The window width under which the sidebar folds into a drawer, the
-/// site's `md` breakpoint.
+// The window width under which the sidebar folds into a drawer, the
+// site's `md` breakpoint.
 let narrowWidth = 768.0
 
-/// The window width from which the sidebar can show its labels, the
-/// site's `lg` breakpoint.
+// The window width from which the sidebar can show its labels, the
+// site's `lg` breakpoint.
 let toggleWidth = 1024.0
 
-/// The window width from which the aside column opens, the site's
-/// wide breakpoint.
+// The window width from which the aside column opens, the site's
+// wide breakpoint.
 let asideWidth = 1280.0
 
-/// The widest the whole shell strip grows, the site's 1264px app row:
-/// past it the strip centers, so the timeline keeps the window's
-/// middle instead of hugging the sidebar.
+// The widest the whole shell strip grows, the site's 1264px app row:
+// past it the strip centers, so the timeline keeps the window's
+// middle instead of hugging the sidebar.
 let stripWidth = 1264.0
 
-/// The four width bands of the shell: the folded drawer, the forced
-/// icon rail, the collapsible sidebar without the aside, and the full
-/// strip with the aside.
+// The four width bands of the shell: the folded drawer, the forced
+// icon rail, the collapsible sidebar without the aside, and the full
+// strip with the aside.
 type Layout =
   | Narrow
   | Rail
@@ -84,9 +84,9 @@ let layoutOf(width: float) : Layout =
   elif width >= asideWidth then Wide
   else Standard
 
-/// One sidebar destination. `Badge` carries the live unread count the
-/// entry renders, when it renders one; `Visible` carries the live
-/// flag that hides the entry altogether, when it can hide.
+// One sidebar destination. `Badge` carries the live unread count the
+// entry renders, when it renders one; `Visible` carries the live
+// flag that hides the entry altogether, when it can hide.
 [<Struct>]
 type NavEntry = {
   Glyph: Glyph
@@ -101,10 +101,10 @@ type NavEntry = {
 // window paints the themed background to its edges: a transparency hint
 // left the resize border transparent, and the desktop showed through
 // beside the rail.
-/// A page transition that swaps immediately. The outlet's default
-/// cross-fade never finishes under a headless clock, which keeps the
-/// previous page attached — and its buttons steal clicks from the
-/// live one.
+// A page transition that swaps immediately. The outlet's default
+// cross-fade never finishes under a headless clock, which keeps the
+// previous page attached — and its buttons steal clicks from the
+// live one.
 type ImmediatePageTransition() =
 
   interface Animation.IPageTransition with
@@ -127,8 +127,8 @@ let applyWindowChrome(window: Window) : unit =
 
     window.Background(Brushes.themed Keys.background) |> ignore
 
-/// What one sidebar entry reads: where it goes, which section is
-/// active, and whether the labels are hidden.
+// What one sidebar entry reads: where it goes, which section is
+// active, and whether the labels are hidden.
 [<Struct>]
 type NavContext = {
   Navigate: string -> unit
@@ -201,8 +201,8 @@ let navItem(context: NavContext, entry: NavEntry) : Control =
 
   item
 
-/// What the sidebar footer reads: where it goes, the session, the
-/// avatar cache, and whether the labels are hidden.
+// What the sidebar footer reads: where it goes, the session, the
+// avatar cache, and whether the labels are hidden.
 [<Struct>]
 type FooterContext = {
   Navigate: string -> unit
@@ -211,16 +211,16 @@ type FooterContext = {
   Compact: IObservable<bool>
 }
 
-/// The guard key: the signed-in user's id, empty when signed out. A
-/// session refresh with the same id leaves a guarded cell alone.
+// The guard key: the signed-in user's id, empty when signed out. A
+// session refresh with the same id leaves a guarded cell alone.
 let inline userKey(state: SessionState) : string =
   match state with
   | SignedIn entry -> entry.Session.User.Id
   | SignedOut -> ""
 
-/// The sidebar footer: the signed-in user's row, or the sign-in entry.
-/// The account row rebuilds only when the signed-in user changes — an
-/// unread refresh keeps the built one.
+// The sidebar footer: the signed-in user's row, or the sign-in entry.
+// The account row rebuilds only when the signed-in user changes — an
+// unread refresh keeps the built one.
 let footer(context: FooterContext) : Control =
   let signedIn =
     context.Session
@@ -288,8 +288,8 @@ let footer(context: FooterContext) : Control =
 
   StackPanel().Children(account, signIn)
 
-/// Everything the window band needs: the responsive state, the live
-/// window state, and the caption actions the shell answers.
+// Everything the window band needs: the responsive state, the live
+// window state, and the caption actions the shell answers.
 [<Struct>]
 type BandProps = {
   Narrow: IObservable<bool>
@@ -300,7 +300,7 @@ type BandProps = {
   Close: unit -> unit
 }
 
-/// One app-drawn caption button carrying its system element role.
+// One app-drawn caption button carrying its system element role.
 let captionButton
   (role: WindowDecorationsElementRole, glyph: Glyph, onClick: Button -> unit)
   : Button =
@@ -312,10 +312,10 @@ let captionButton
 
   button
 
-/// The window band: a drag surface the window answers, the hamburger
-/// that opens the drawer under the narrow layout, and the caption row.
-/// The band rides above every pane, so the whole top strip drags the
-/// window while the buttons stay clickable.
+// The window band: a drag surface the window answers, the hamburger
+// that opens the drawer under the narrow layout, and the caption row.
+// The band rides above every pane, so the whole top strip drags the
+// window while the buttons stay clickable.
 let band(props: BandProps) : Panel =
   let dragSurface =
     Border()
@@ -403,8 +403,8 @@ let band(props: BandProps) : Panel =
 
   Panel().Children(dragSurface, hamburger, captionRow)
 
-/// The commit dialog the site's Commit button opens: the composer on a
-/// card over a scrim. A commit, a scrim click, or Esc closes it.
+// The commit dialog the site's Commit button opens: the composer on a
+// card over a scrim. A commit, a scrim click, or Esc closes it.
 let composeDialog
   (
     env: #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp,
@@ -442,8 +442,8 @@ let composeDialog
 
   card
 
-/// The log chrome's rail node: the signed-in user's avatar, ring and
-/// all. The chrome keeps the rail line and the 64px column.
+// The log chrome's rail node: the signed-in user's avatar, ring and
+// all. The chrome keeps the rail line and the 64px column.
 let logRailNode(session: SignedInSession, cache: ImageCacheService) : Control =
   let nodeTop = 9.0
 
@@ -471,8 +471,8 @@ let logRailNode(session: SignedInSession, cache: ImageCacheService) : Control =
 
   avatar
 
-/// What the sidebar content reads: its navigation, the layout band, the
-/// account it docks, and the shell actions its buttons raise.
+// What the sidebar content reads: its navigation, the layout band, the
+// account it docks, and the shell actions its buttons raise.
 type SidebarProps = {
   Navigate: string -> unit
   Active: BehaviorSubject<string voption>
@@ -487,8 +487,8 @@ type SidebarProps = {
   FocusComposer: unit -> bool
 }
 
-/// The sidebar content: the wordmark, the entries, the commit and
-/// search rows, the collapse row, and the docked footer.
+// The sidebar content: the wordmark, the entries, the commit and
+// search rows, the collapse row, and the docked footer.
 let sidebar(props: SidebarProps) : Control =
   // The service's name as plain text, the one form the brand asks
   // for: lowercase, both slashes. No retyped wordmark and no copied
@@ -653,9 +653,9 @@ let sidebar(props: SidebarProps) : Control =
 
   DockPanel().LastChildFill(true).Children(sidebarFooter, navList)
 
-/// What the aside composition reads: the env its two cards need, the
-/// session that guards their rebuild, where a suggestion opens, and
-/// whether the wide band shows it.
+// What the aside composition reads: the env its two cards need, the
+// session that guards their rebuild, where a suggestion opens, and
+// whether the wide band shows it.
 type AsideProps<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
@@ -672,8 +672,8 @@ type AsideProps<'env
   Wide: IObservable<bool>
 }
 
-/// The aside composition: the signed-in user's card over who to
-/// follow, rebuilt only when the signed-in user changes.
+// The aside composition: the signed-in user's card over who to
+// follow, rebuilt only when the signed-in user changes.
 let aside(props: AsideProps<'env>) : Control =
   let stack(state: SessionState) : Control =
     match state with
@@ -705,9 +705,9 @@ let aside(props: AsideProps<'env>) : Control =
     .IsVisible(props.Wide)
     .Content(host)
 
-/// What the shared log chrome reads: the env its composer and timeline
-/// calls need, the navigation its tabs follow, and the session that
-/// guards the rebuild.
+// What the shared log chrome reads: the env its composer and timeline
+// calls need, the navigation its tabs follow, and the session that
+// guards the rebuild.
 type ChromeProps<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
@@ -721,14 +721,14 @@ type ChromeProps<'env
   Env: 'env
   Nav: INavigable
   Session: IObservable<SessionState>
-  /// Reports the composer's body for the shell's focus shortcut, or
-  /// none when the chrome has no signed-in composer.
+  // Reports the composer's body for the shell's focus shortcut, or
+  // none when the chrome has no signed-in composer.
   OnComposerBody: TextBox voption -> unit
 }
 
-/// The shared log chrome: the tabs and the composer every log page
-/// posts through. It rebuilds only when the signed-in user changes, so
-/// a poll's session refresh never touches the composer's draft.
+// The shared log chrome: the tabs and the composer every log page
+// posts through. It rebuilds only when the signed-in user changes, so
+// a poll's session refresh never touches the composer's draft.
 let chromeFeed(props: ChromeProps<'env>) : Control =
   let chrome(state: SessionState) : Control =
     match state with
@@ -1553,19 +1553,16 @@ type Shell<'env
       |> Async.StartImmediate
     | None -> ()
 
-  /// Walks the window in and out of fullscreen.
   member this.ToggleFullScreen() : unit =
     match this.WindowState with
     | WindowState.FullScreen -> this.WindowState <- WindowState.Normal
     | _ -> this.WindowState <- WindowState.FullScreen
 
-  /// Leaves fullscreen when it holds; other states stay as they are.
   member this.ExitFullScreen() : unit =
     match this.WindowState with
     | WindowState.FullScreen -> this.WindowState <- WindowState.Normal
     | _ -> ()
 
-  /// Closes for real: the close-to-tray flag never hides this path.
   member this.Quit() : unit =
     quitRequested.OnNext true
     this.Close()

@@ -32,9 +32,9 @@ type Actions = {
   Hovered: int -> unit
 }
 
-/// Everything one button row of the flyout carries: where it sits among
-/// the rows the keys walk, the name a test finds it by, what a pick
-/// answers, and what it shows.
+// Everything one button row of the flyout carries: where it sits among
+// the rows the keys walk, the name a test finds it by, what a pick
+// answers, and what it shows.
 [<Struct>]
 type ButtonRow = {
   Index: int
@@ -43,9 +43,9 @@ type ButtonRow = {
   Content: Control
 }
 
-/// One row of the flyout: the caption, a person or organization to
-/// mention, the issue card, or the quiet state that stands in for
-/// them.
+// One row of the flyout: the caption, a person or organization to
+// mention, the issue card, or the quiet state that stands in for
+// them.
 type Row =
   | Caption
   | Person of index: int * user: User
@@ -53,8 +53,8 @@ type Row =
   | IssueRow of issue: Issue
   | Quiet of text: string
 
-/// The site's issue card label: `owner/repo#number`, read from the
-/// address the answer carries.
+// The site's issue card label: `owner/repo#number`, read from the
+// address the answer carries.
 let issueLabel(issue: Issue) =
   let parts = issue.Url.Split '/'
 
@@ -63,8 +63,8 @@ let issueLabel(issue: Issue) =
   else
     $"#{issue.Number}"
 
-/// One person to mention: the avatar on their lane, the name, and the
-/// handle on the quiet mono line.
+// One person to mention: the avatar on their lane, the name, and the
+// handle on the quiet mono line.
 let personContent(images: ImageCacheService, user: User) : Control =
   StackPanel()
     .Orientation(Orientation.Horizontal)
@@ -94,8 +94,8 @@ let personContent(images: ImageCacheService, user: User) : Control =
         )
     )
 
-/// One organization to mention: the avatar, the name, and the handle
-/// on the quiet mono line.
+// One organization to mention: the avatar, the name, and the handle
+// on the quiet mono line.
 let orgContent
   (images: ImageCacheService, organization: Organization)
   : Control =
@@ -127,7 +127,7 @@ let orgContent
         )
     )
 
-/// The issue card: its title over the repository label.
+// The issue card: its title over the repository label.
 let issueContent(issue: Issue) : Control =
   StackPanel()
     .Spacing(1.0)
@@ -144,7 +144,6 @@ let issueContent(issue: Issue) : Control =
         .TextTrimming(TextTrimming.CharacterEllipsis)
     )
 
-/// The completion flyout's list.
 let view
   (state: IObservable<View>, actions: Actions, images: ImageCacheService)
   : Control =

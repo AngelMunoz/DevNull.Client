@@ -63,8 +63,9 @@ type VisitMarker = {
   ViewerId: string
 }
 
-/// The page's state logic, exported so the update stays testable
-/// without a running page.
+/// The page's state logic — model, messages, update, and the
+/// subscriptions that feed it from outside — exported so the update
+/// stays testable without a running page.
 module State =
 
   /// One thread preview the page grew past the payload slice: the
@@ -102,7 +103,8 @@ module State =
     Voting: string option
     /// The option a viewer picked in each open poll, by commit id.
     PollChoices: Map<string, string>
-    /// The visit captured when the page mounted, for the marker row.
+    /// The visit captured when the page mounted; the rendered marker
+    /// keeps pointing there for the session even as the store advances.
     Marker: DateTimeOffset option
     /// The thread previews the page grew past the payload slice, by
     /// parent id.
@@ -152,8 +154,10 @@ module State =
 
   /// Interleaves day separators between the commits of different days,
   /// carrying the day across tombstones. A ranked log is score ordered,
-  /// its days interleave, so it rides without separators. The
-  /// last-visit marker rides above the first already-seen commit.
+  /// its days interleave, so it rides without separators the way the
+  /// site's ranked feed does. The last-visit marker rides above the
+  /// first already-seen commit, and only when someone else's newer
+  /// commit sits above it — the site's own rules.
   val toRows:
     items: CommitNode list * ranked: bool * marker: VisitMarker option ->
       LogRow list

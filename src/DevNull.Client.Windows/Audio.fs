@@ -16,19 +16,19 @@ open Windows.Foundation
 open DevNull.Client.Errors
 open DevNull.Client.Natives
 
-/// The voice-note format the whole engine stays at: 16 kHz mono PCM,
-/// 16-bit little-endian.
+// The voice-note format the whole engine stays at: 16 kHz mono PCM,
+// 16-bit little-endian.
 [<Literal>]
 let Rate = 16000
 
-/// The one COM surface WinRT's own byte access rides on: classic COM,
-/// not WinRT. NativeAOT ships no built-in COM marshalling — a managed
-/// ComImport cast on it throws under PublishAot — so the calls go
-/// through the IUnknown vtable, whose layout is stable ABI: QueryInterface
-/// at slot 0, Release at slot 2, GetBuffer at slot 3 behind them.
+// The one COM surface WinRT's own byte access rides on: classic COM,
+// not WinRT. NativeAOT ships no built-in COM marshalling — a managed
+// ComImport cast on it throws under PublishAot — so the calls go
+// through the IUnknown vtable, whose layout is stable ABI: QueryInterface
+// at slot 0, Release at slot 2, GetBuffer at slot 3 behind them.
 module ByteAccess =
 
-  /// The interface id of IMemoryBufferByteAccess.
+  // The interface id of IMemoryBufferByteAccess.
   let iid = Guid("5B0D3235-4DBA-4D44-865E-8F1D0E4FD04D")
 
   [<UnmanagedFunctionPointer(CallingConvention.StdCall)>]
@@ -42,17 +42,17 @@ module ByteAccess =
   type GetBuffer =
     delegate of nativeint * byref<nativeint> * byref<uint32> -> int32
 
-  /// One function pointer out of an interface's vtable.
+  // One function pointer out of an interface's vtable.
   let slot(self: nativeint, index: int) : nativeint =
     Marshal.ReadIntPtr(Marshal.ReadIntPtr(self), index * IntPtr.Size)
 
-/// The graph's format: 16 kHz mono 16-bit PCM.
+// The graph's format: 16 kHz mono 16-bit PCM.
 let voiceFormat: AudioEncodingProperties =
   AudioEncodingProperties.CreatePcm(16000u, 1u, 16u)
 
-/// The frames arrive as 32-bit IEEE float whatever the encoding
-/// properties asked for, so the drain converts them to the voice
-/// note's own 16-bit PCM.
+// The frames arrive as 32-bit IEEE float whatever the encoding
+// properties asked for, so the drain converts them to the voice
+// note's own 16-bit PCM.
 let toPcm16(chunk: byte[]) : byte[] =
   let floats =
     Array.init (chunk.Length / 4) (fun at ->
@@ -69,13 +69,13 @@ let toPcm16(chunk: byte[]) : byte[] =
   Buffer.BlockCopy(samples, 0, pcm, 0, pcm.Length)
   pcm
 
-/// Reads one locked audio buffer's whole payload. The buffer reference's
-/// own native pointer is asked for the byte-access interface through the
-/// IUnknown vtable, and the bytes come out through the interface's own
-/// slot — every step a function-pointer call, which the published exe
-/// supports. Only the asking is caught: a reference that carries no byte
-/// access is the one recoverable surprise, and it names itself; anything
-/// else the quantum thread may throw belongs in the log, not in silence.
+// Reads one locked audio buffer's whole payload. The buffer reference's
+// own native pointer is asked for the byte-access interface through the
+// IUnknown vtable, and the bytes come out through the interface's own
+// slot — every step a function-pointer call, which the published exe
+// supports. Only the asking is caught: a reference that carries no byte
+// access is the one recoverable surprise, and it names itself; anything
+// else the quantum thread may throw belongs in the log, not in silence.
 let readBuffer(buffer: Windows.Media.AudioBuffer) : Result<byte[], string> =
   try
     let reference = buffer.CreateReference()
@@ -124,7 +124,7 @@ let readBuffer(buffer: Windows.Media.AudioBuffer) : Result<byte[], string> =
   with ex ->
     Error(ex.Message)
 
-/// The loudest sample in one chunk, 0 to 1, for the recording meter.
+// The loudest sample in one chunk, 0 to 1, for the recording meter.
 let loudestOf(chunk: byte[]) =
   seq { 0..2 .. chunk.Length - 2 }
   |> Seq.map(fun offset ->
@@ -132,8 +132,8 @@ let loudestOf(chunk: byte[]) =
   |> Seq.append(Seq.singleton 0.0)
   |> Seq.max
 
-/// The canonical 44-byte header of a 16 kHz mono S16LE WAV, the
-/// format every capture already carries.
+// The canonical 44-byte header of a 16 kHz mono S16LE WAV, the
+// format every capture already carries.
 let wavHeader(dataBytes: int) : byte[] =
   use bytes = new MemoryStream(44)
   use writer = new BinaryWriter(bytes)
@@ -155,10 +155,10 @@ let wavHeader(dataBytes: int) : byte[] =
 
   bytes.ToArray()
 
-/// One live microphone capture: the graph that feeds it, the frames
-/// the quantum handler drains, and the meter's peak. Audio only flows
-/// along outgoing connections, so the input feeds the frame output;
-/// and the teardown runs exactly once whichever path lands first.
+// One live microphone capture: the graph that feeds it, the frames
+// the quantum handler drains, and the meter's peak. Audio only flows
+// along outgoing connections, so the input feeds the frame output;
+// and the teardown runs exactly once whichever path lands first.
 type Capture(graph: AudioGraph, input: AudioDeviceInputNode, log: ILogger) =
 
   let gate = obj()
@@ -221,8 +221,8 @@ type Capture(graph: AudioGraph, input: AudioDeviceInputNode, log: ILogger) =
         peak <- 0.0
         current)
 
-    /// Drains what the quantum thread gathered, then tears the graph
-    /// down once. The only stop path; a drain that failed says why.
+    // Drains what the quantum thread gathered, then tears the graph
+    // down once. The only stop path; a drain that failed says why.
     member _.Stop() = asyncEx {
       return!
         Task.Run(fun () ->
@@ -247,7 +247,7 @@ type Capture(graph: AudioGraph, input: AudioDeviceInputNode, log: ILogger) =
             Ok(Array.append (wavHeader voice.Length) voice))
     }
 
-    /// Tears the graph down once and keeps nothing.
+    // Tears the graph down once and keeps nothing.
     member _.Cancel() =
       graph.remove_QuantumStarted quantum
       teardown()
@@ -259,10 +259,10 @@ type Capture(graph: AudioGraph, input: AudioDeviceInputNode, log: ILogger) =
 
       lock gate (fun () -> taken.Clear()) |> ignore
 
-/// One playback: the OS media player over the note's own bytes. The
-/// pipeline decodes whatever container the note rides in, the session
-/// reports the real position, and stopping releases the whole chain.
-/// Bytes the pipeline cannot decode end the note at once.
+// One playback: the OS media player over the note's own bytes. The
+// pipeline decodes whatever container the note rides in, the session
+// reports the real position, and stopping releases the whole chain.
+// Bytes the pipeline cannot decode end the note at once.
 type Playback
   (
     player: Windows.Media.Playback.MediaPlayer,
@@ -337,9 +337,9 @@ type Playback
 
     member _.Seek(to': TimeSpan) = player.PlaybackSession.Position <- to'
 
-/// The microphone and the speaker through WinRT's own surfaces: the
-/// audio graph feeds the capture (the meter needs frames), and the
-/// media player sounds the notes (the OS decodes the container).
+// The microphone and the speaker through WinRT's own surfaces: the
+// audio graph feeds the capture (the meter needs frames), and the
+// media player sounds the notes (the OS decodes the container).
 module Engine =
 
   let graphSettings() =
@@ -449,14 +449,14 @@ type WinRtEngine(logging: ILoggerFactory) =
         }
       )
 
-/// The sound Windows itself plays for a system notification, from its
-/// own media folder.
+// The sound Windows itself plays for a system notification, from its
+// own media folder.
 let notifySound = Uri @"C:\Windows\Media\Windows Notify System Generic.wav"
 
-/// The system's sounds, played through WinRT's media player. One
-/// player serves every chime: a player created per note could be
-/// collected while its sound is still playing, and a fresh source on
-/// each call restarts the clip cleanly.
+// The system's sounds, played through WinRT's media player. One
+// player serves every chime: a player created per note could be
+// collected while its sound is still playing, and a fresh source on
+// each call restarts the clip cleanly.
 type SystemSounds(log: ILogger) =
 
   let player =

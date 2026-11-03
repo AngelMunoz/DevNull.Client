@@ -24,8 +24,6 @@ open DevNull.Client.UserSettingsStore
 open DevNull.Client.TranslationCache
 open DevNull.Client.Views
 
-/// Fires one navigation now and reports a failed one through the env's
-/// logger.
 let go(env: #IProvideLogging, nav: INavigable, url: string) : unit =
   env.LoggerFactory
     .CreateLogger("DevNull.Client.Views.Routes")
@@ -40,7 +38,6 @@ let go(env: #IProvideLogging, nav: INavigable, url: string) : unit =
         .LogError("Navigation to {Url} failed: {Error}", url, message)
   )
 
-/// The router and the entry the app boots into.
 [<Struct>]
 type RouterShell = {
   Router: IRouter<Control>
@@ -57,8 +54,8 @@ let requiresSignedOut(env: #IProvideSession) : GuardResult =
   | ValueSome _ -> GuardResult.Redirect "/log/latest"
   | ValueNone -> GuardResult.Continue
 
-/// Builds one guarded page from the signed-in session, or shows the
-/// route's sign-in hint.
+// Builds one guarded page from the signed-in session, or shows the
+// route's sign-in hint.
 let signedIn
   (env: #IProvideSession, message: string, build: SignedInSession -> Control)
   : Control =
@@ -115,9 +112,9 @@ let commitPage
       | ValueNone -> Status.soon "Sign in to read the thread."
   )
 
-/// The quote flow reuses the thread: the page renders over the quoted
-/// commit, the composer below it armed in quote mode. The quoted
-/// commit is the card the reader already sees.
+// The quote flow reuses the thread: the page renders over the quoted
+// commit, the composer below it armed in quote mode. The quoted
+// commit is the card the reader already sees.
 let quotePage
   (
     env:
@@ -175,9 +172,9 @@ let notificationsPage
       }
   )
 
-/// The direct messages: the inbox and the open thread side by side.
-/// The page drives the store's polls itself; the env names only the
-/// workers its search reads need.
+// The direct messages: the inbox and the open thread side by side.
+// The page drives the store's polls itself; the env names only the
+// workers its search reads need.
 let remotesPage
   (
     env:
@@ -216,8 +213,8 @@ let savedPage
       }
   )
 
-/// The scheduled queue: the private list of commits the composer's
-/// Schedule action queued, one offset page at a time.
+// The scheduled queue: the private list of commits the composer's
+// Schedule action queued, one offset page at a time.
 let scheduledPage
   (
     env:
@@ -309,8 +306,8 @@ let settingsPage
       }
   )
 
-/// The term a route hands the page, unescaped: a path segment, not a
-/// query — this router's matchers read only the segments they declare.
+// The term a route hands the page, unescaped: a path segment, not a
+// query — this router's matchers read only the segments they declare.
 let termOf(context: RouteContext) : string =
   context.GetParam "term"
   |> ValueOption.map(fun (raw: string) -> Uri.UnescapeDataString raw)

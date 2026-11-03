@@ -5,18 +5,12 @@ open Microsoft.Extensions.Logging
 open DevNull.Client.Linux.Audio
 open DevNull.Client.Natives
 
-/// A library this machine carries: the probe that decides between a
-/// live service and its `ValueNone`.
+// A library this machine carries: the probe that decides between a
+// live service and its `ValueNone`.
 let present(library: string) =
   let mutable handle = 0n
   NativeLibrary.TryLoad(library, &handle)
 
-/// The native services this head provides: the .desktop scheme
-/// registrar, the audio engine behind the PulseAudio client library
-/// (every PipeWire and PulseAudio desktop serves it), and the desktop's
-/// own sounds through libcanberra. A library this machine lacks hides
-/// its service; the voice UI follows. The factory takes the logging
-/// factory, so every worker logs through the app's own sink.
 let services(logging: ILoggerFactory) : NativeServices =
   let log = logging.CreateLogger "DevNull.Client.Linux"
 

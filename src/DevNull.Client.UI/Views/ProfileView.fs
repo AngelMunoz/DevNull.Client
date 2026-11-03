@@ -49,18 +49,18 @@ type Props<'env
   Context: RouteContext
 }
 
-/// The page's state logic: model, messages, update, and the
-/// subscriptions that feed it from outside.
+// The page's state logic: model, messages, update, and the
+// subscriptions that feed it from outside.
 module State =
 
-  /// The feed tab the page shows: the user's own commits or their
-  /// replies.
+  // The feed tab the page shows: the user's own commits or their
+  // replies.
   type Tab =
     | Commits
     | Replies
 
-  /// One row of the profile feed: the pinned caption, the pinned
-  /// commit it marks, or one commit of the list.
+  // One row of the profile feed: the pinned caption, the pinned
+  // commit it marks, or one commit of the list.
   [<Struct>]
   type FeedRow =
     | PinnedCaption
@@ -80,9 +80,9 @@ module State =
     PollChoices: Map<string, string>
     Pinning: string option
     Note: string option
-    /// Whether translations show by themselves.
+    // Whether translations show by themselves.
     Automatic: bool
-    /// Every commit's translation on this page.
+    // Every commit's translation on this page.
     Translations: TranslationModel.Book
   }
 
@@ -120,18 +120,18 @@ module State =
       | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
       | node -> node)
 
-  /// The key of one feed row: the pinned rows carry their own so the
-  /// pinned commit can appear above while its feed copy stays its own
-  /// row.
+  // The key of one feed row: the pinned rows carry their own so the
+  // pinned commit can appear above while its feed copy stays its own
+  // row.
   let inline rowKey(row: FeedRow) : string =
     match row with
     | PinnedCaption -> "pinned-caption"
     | PinnedNode node -> "pinned:" + FeedParts.nodeKey node
     | FeedNode node -> FeedParts.nodeKey node
 
-  /// The rows one profile render lists: the pinned commit under its
-  /// caption first — the Commits tab only, as the site shows it — then
-  /// the feed.
+  // The rows one profile render lists: the pinned commit under its
+  // caption first — the Commits tab only, as the site shows it — then
+  // the feed.
   let rowsOf(model: Model) : FeedRow list =
     let pinned =
       match model.Tab, model.Details |> Option.bind _.PinnedCommit with
@@ -157,7 +157,7 @@ module State =
     Translations = TranslationModel.initial
   }
 
-  /// One feed read: whose commits, which tab, and the pager cursor.
+  // One feed read: whose commits, which tab, and the pager cursor.
   [<Struct>]
   type FeedQuery = {
     Session: SignedInSession
@@ -209,8 +209,8 @@ module State =
         CommitsFetched
     ]
 
-  /// Runs one commit's translate call: the language its own translation or
-  /// the settings pick, and the 503 retries.
+  // Runs one commit's translate call: the language its own translation or
+  // the settings pick, and the 503 retries.
   let translate(props: Props<'env>, commit: Commit) =
     let language =
       TranslationModel.languageFor(
@@ -690,8 +690,8 @@ module State =
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
-  /// The page's inlets from outside: the shared clock and the session
-  /// store.
+  // The page's inlets from outside: the shared clock and the session
+  // store.
   let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
     [
       Sub.fromObservable
@@ -704,7 +704,7 @@ module State =
     ]
     |> Sub.batch
 
-/// The page's semantic regions; the view only composes these.
+// The page's semantic regions; the view only composes these.
 module Parts =
 
   let followButton
@@ -729,8 +729,8 @@ module Parts =
       .Content("Block")
       .OnClickHandler(fun _ _ -> dispatch State.BlockToggled)
 
-  /// The follow, mute, and block actions; the viewer's own header
-  /// carries none.
+  // The follow, mute, and block actions; the viewer's own header
+  // carries none.
   let actions
     (details: ProfileDetails, isSelf: bool, dispatch: Dispatch<State.Msg>)
     : Control array =
@@ -743,7 +743,7 @@ module Parts =
         blockButton dispatch
       |]
 
-  /// One small label chip, the site's "Follows you" and "Muted" marks.
+  // One small label chip, the site's "Follows you" and "Muted" marks.
   let mark(text: string) : Control =
     Border()
       .Classes(Theme.name Theme.Chip)
@@ -752,7 +752,7 @@ module Parts =
         TextBlock().Classes(Theme.name Theme.Muted).FontSize(11.0).Text(text)
       )
 
-  /// The lane-tinted level chip the profile and the XP shelf carry.
+  // The lane-tinted level chip the profile and the XP shelf carry.
   let levelChip(achievements: Achievements, lane: Lane option) : Control =
     let label =
       TextBlock()
@@ -774,8 +774,8 @@ module Parts =
 
     chip
 
-  /// The joined-and-links line under the bio: company, location, the
-  /// website host, and the join month.
+  // The joined-and-links line under the bio: company, location, the
+  // website host, and the join month.
   let metaLine(profile: Profile) : Control =
     let stripScheme(url: string) =
       url.Replace("https://", "").Replace("http://", "")
@@ -804,8 +804,8 @@ module Parts =
       .TextWrapping(TextWrapping.Wrap)
       .Text(String.Join(" · ", parts))
 
-  /// The activity bars: one lane-colored column per bucket, bottom
-  /// aligned, the height following the count.
+  // The activity bars: one lane-colored column per bucket, bottom
+  // aligned, the height following the count.
   let activityView(activity: Activity, lane: Lane option) : Control =
     let buckets = activity.Buckets |> List.truncate 52
 
@@ -844,7 +844,7 @@ module Parts =
 
       StackPanel().Spacing(6.0).Children(caption, bars)
 
-  /// The streak line under the activity.
+  // The streak line under the activity.
   let streaksView(streaks: Streaks) : Control =
     TextBlock()
       .Classes(Theme.name Theme.Mono)
@@ -852,8 +852,8 @@ module Parts =
         $"longest streak {streaks.Longest} days · current streak {streaks.Current} days"
       )
 
-  /// The XP shelf: the level chip, the progress bar toward the next
-  /// level, and the badge count.
+  // The XP shelf: the level chip, the progress bar toward the next
+  // level, and the badge count.
   let xpView(achievements: Achievements, lane: Lane option) : Control =
     let progress = achievements.LevelProgress |> max 0 |> min 100
 
@@ -905,7 +905,7 @@ module Parts =
         TextBlock().Classes(Theme.name Theme.Muted).Text(badges)
       )
 
-  /// The level chip when achievements exist, nothing when they do not.
+  // The level chip when achievements exist, nothing when they do not.
   let achievementsChip
     (achievements: Achievements option, lane: Lane option)
     : Control =
@@ -913,8 +913,8 @@ module Parts =
     | Some shelf -> levelChip(shelf, lane)
     | None -> Status.empty ""
 
-  /// The sections between the identity header and the tabs: the
-  /// activity bars, the streak line, and the XP shelf.
+  // The sections between the identity header and the tabs: the
+  // activity bars, the streak line, and the XP shelf.
   let profileSections(details: ProfileDetails) : Control array =
     let lane = details.Profile.Lane
 
@@ -932,8 +932,8 @@ module Parts =
       | None -> ()
     |]
 
-  /// What the identity header reads: the profile, the viewer's
-  /// relation to it, the dispatch, and the image cache.
+  // What the identity header reads: the profile, the viewer's
+  // relation to it, the dispatch, and the image cache.
   [<Struct>]
   type IdentityCtx = {
     Images: ImageCacheService
@@ -942,8 +942,8 @@ module Parts =
     Dispatch: Dispatch<State.Msg>
   }
 
-  /// The identity header: the avatar in its lane ring, the actions, the
-  /// name, the handle row, the bio, the meta line, and the stats.
+  // The identity header: the avatar in its lane ring, the actions, the
+  // name, the handle row, the bio, the meta line, and the stats.
   let identity(ctx: IdentityCtx) : Control =
     let details = ctx.Details
     let isSelf = ctx.IsSelf
@@ -1001,9 +1001,9 @@ module Parts =
 
     StackPanel().Spacing(8.0).Children(headerChildren)
 
-  /// The header host, rebuilt when the profile changes: the follow,
-  /// mute, and block states come back from the server after every
-  /// action.
+  // The header host, rebuilt when the profile changes: the follow,
+  // mute, and block states come back from the server after every
+  // action.
   let headerHost
     (
       props: Props<'env>,
@@ -1039,8 +1039,8 @@ module Parts =
 
     ContentControl().Content(content.ToBinding())
 
-/// The row inputs the page compares by reference, so a tick that left
-/// them the same does not reshape the feed.
+// The row inputs the page compares by reference, so a tick that left
+// them the same does not reshape the feed.
 let rowInputsComparer = {
   new IEqualityComparer<ProfileDetails option * CommitNode list * State.Tab> with
     member _.Equals

@@ -21,9 +21,6 @@ open DevNull.Client.SettingsStore
 open DevNull.Client.Components.ThreadVoice
 open Microsoft.Extensions.Logging
 
-/// The services one message row draws on: the image cache for
-/// pictures and avatars, the voice player's dependencies, the logger
-/// of its failures, and the reading pane's live width.
 [<Struct>]
 type Media = {
   Cache: ImageCacheService
@@ -35,8 +32,6 @@ type Media = {
   PaneWidth: IObservable<float>
 }
 
-/// One reaction chip's display data: the emoji, its count, whether the
-/// viewer left one, and the joined names of who did.
 [<Struct>]
 type ReactionChip = {
   Emoji: string
@@ -45,21 +40,15 @@ type ReactionChip = {
   Who: string
 }
 
-/// The reactions one tray offers: the quick picks on top, the ranked
-/// rest under the divider.
 [<Struct>]
 type ReactionChoices = {
   Quick: string list
   Rest: string list
 }
 
-/// One message's pin affordance: whether it is pinned, and whether
-/// the viewer may move the pin.
 [<Struct>]
 type PinState = { Pinned: bool; Maintainer: bool }
 
-/// What one bubble reports up: answer it, react to it, pin or unpin
-/// it, open its gallery, or walk to the message it answers.
 [<Struct>]
 type BubbleActions = {
   Reply: Message -> unit
@@ -69,9 +58,6 @@ type BubbleActions = {
   Walk: int -> unit
 }
 
-/// One message bubble's inputs: the message, its side, the author
-/// payload the reply ghost names, the media services, and the live
-/// slices the row follows.
 [<Struct>]
 type BubbleProps = {
   Message: Message
@@ -88,13 +74,10 @@ type BubbleProps = {
   Actions: BubbleActions
 }
 
-/// One carried bubble: a sent message, or one still on its way in.
 type RunBubble =
   | Sent of Message
   | Staged of PendingSend
 
-/// One author's run of bubbles: consecutive messages by one side that
-/// render as one stacked group.
 [<Struct>]
 type Run = {
   IsMine: bool
@@ -103,10 +86,6 @@ type Run = {
   Bubbles: RunBubble list
 }
 
-/// One run's inputs: the run, whether the thread is an org's, the
-/// viewer, the services its label draws on, the live status message,
-/// the bubble factory for the messages that arrived, and the staged
-/// retry.
 [<Struct>]
 type RunProps = {
   Run: Run
@@ -124,7 +103,7 @@ type BodySummary =
   | Images of count: int
   | Empty
 
-/// One author's name as the receipt and ghost lines know it.
+// One author's name as the receipt and ghost lines know it.
 let authorName(viewerId: string, who: User option, authorId: string) : string =
   who
   |> Option.map _.Name
@@ -159,12 +138,12 @@ let summaryOf(message: Message) : BodySummary =
     message.Images.Length
   )
 
-/// One answered message's body as the reply ghost reads it.
+// One answered message's body as the reply ghost reads it.
 let summaryOfReply(reply: MessageParent) : BodySummary =
   summaryOfParts(wordsOf reply.Body, reply.HasVoice, reply.ImagesCount)
 
-/// The reply ghost: the message a bubble answers, peeking out above
-/// it. A click walks the thread to the original.
+// The reply ghost: the message a bubble answers, peeking out above
+// it. A click walks the thread to the original.
 let ghost(props: BubbleProps, reply: MessageParent, author: string) : Control =
   let snippet =
     match summaryOfReply reply with
@@ -201,8 +180,8 @@ let ghost(props: BubbleProps, reply: MessageParent, author: string) : Control =
       args.Handled <- true
       props.Actions.Walk reply.Id)
 
-/// The images of one message: fixed boxes on the signed URLs, the
-/// click opening the gallery through the host.
+// The images of one message: fixed boxes on the signed URLs, the
+// click opening the gallery through the host.
 let images
   (
     cache: ImageCacheService,
@@ -241,8 +220,8 @@ let images
 
     ValueSome open'
 
-/// One message's link card, live from the thread: the card once the
-/// server read it, the quiet word while it reads.
+// One message's link card, live from the thread: the card once the
+// server read it, the quiet word while it reads.
 let linkCard
   (preview: IObservable<LinkPreview option>, mine: bool)
   : Control voption =
@@ -301,10 +280,10 @@ let linkCard
       .IsVisible(card |> Observable.map Option.isSome)
   )
 
-/// The receipts under one message, the site's own meta line: the
-/// status glyph — a filled dot once pushed, two dots joined by a
-/// rail once pulled — beside the word. Live from the thread, because
-/// the read position moves under a built row.
+// The receipts under one message, the site's own meta line: the
+// status glyph — a filled dot once pushed, two dots joined by a
+// rail once pulled — beside the word. Live from the thread, because
+// the read position moves under a built row.
 let receipts
   (line: IObservable<Receipt option>, message: Message, mine: bool)
   : Control voption =
@@ -373,10 +352,10 @@ let receipts
         .IsVisible(readings |> Observable.map Option.isSome)
     )
 
-/// One reaction chip: the emoji and its count in the site's own
-/// shape — no button chrome, just the bordered count a pointer
-/// press toggles. Worn on the mine wash when the viewer's reaction
-/// is among them; the tip names who left it.
+// One reaction chip: the emoji and its count in the site's own
+// shape — no button chrome, just the bordered count a pointer
+// press toggles. Worn on the mine wash when the viewer's reaction
+// is among them; the tip names who left it.
 let reactionChip(chip: ReactionChip, onReact: string -> unit) : Control =
   let control =
     Border()
@@ -409,9 +388,9 @@ let reactionChip(chip: ReactionChip, onReact: string -> unit) : Control =
 
   control :> Control
 
-/// The chips row under one message: one chip per emoji the message
-/// carries, live from the thread. The message carries none until it
-/// does, and the row hides then.
+// The chips row under one message: one chip per emoji the message
+// carries, live from the thread. The message carries none until it
+// does, and the row hides then.
 let reactionChips
   (chips: IObservable<ReactionChip list>, onReact: string -> unit)
   : Control =
@@ -434,10 +413,10 @@ let reactionChips
     )
     .IsVisible(summaries |> Observable.map(fun rows -> not rows.IsEmpty))
 
-/// The pin control beside one bubble of an org thread: the
-/// maintainer's pin and unpin, the contributor's static glyph on a
-/// pinned message, nothing otherwise. Live from the thread, because
-/// a pin or a poll moves it under a built row.
+// The pin control beside one bubble of an org thread: the
+// maintainer's pin and unpin, the contributor's static glyph on a
+// pinned message, nothing otherwise. Live from the thread, because
+// a pin or a poll moves it under a built row.
 let pinAction
   (state: IObservable<PinState>, message: Message, onPin: bool -> unit)
   : Control =
@@ -467,10 +446,10 @@ let pinAction
       |> _.ToBinding()
     )
 
-/// The reaction tray the hover react button opens: the quick picks
-/// on top, the ranked rest under a divider — the site's toolbar
-/// shape, one flyout, no nested picker. A pick closes it, the site's
-/// own tray rule.
+// The reaction tray the hover react button opens: the quick picks
+// on top, the ranked rest under a divider — the site's toolbar
+// shape, one flyout, no nested picker. A pick closes it, the site's
+// own tray rule.
 let reactionTray
   (choices: IObservable<ReactionChoices>, onReact: string -> unit)
   : Popup =
@@ -524,10 +503,10 @@ let reactionTray
 
   tray
 
-/// The hover-revealed actions beside one bubble: reply and react,
-/// 28px icons outside the bubble edge, vertically centered. They
-/// take no room in the thread; the pointer over the message row is
-/// what shows them, the site's group-hover rule.
+// The hover-revealed actions beside one bubble: reply and react,
+// 28px icons outside the bubble edge, vertically centered. They
+// take no room in the thread; the pointer over the message row is
+// what shows them, the site's group-hover rule.
 let hoverActions(props: BubbleProps, tray: Popup) : Control =
   let message = props.Message
   let actions = props.Actions
@@ -571,10 +550,6 @@ let hoverActions(props: BubbleProps, tray: Popup) : Control =
          "BubbleActionsTheirs")
     )
 
-/// One bubble: the message body in a rounded fill, mine on the
-/// accent, theirs on the card surface. A voice note rides in a box
-/// of its own, the way the site gives it one, and the flash target
-/// is whichever box stands alone at the message's edge.
 let bubble(props: BubbleProps) : Control =
   let {
         Message = who
@@ -755,10 +730,10 @@ let bubble(props: BubbleProps) : Control =
       .Children(row, line.IsVisible(showsStatus))
   | ValueNone -> row
 
-/// One staged bubble: the message on its way in, or one the server
-/// refused — refused once more with its retry. The staged shape is
-/// hollow with a dashed accent edge, the refused one a solid danger
-/// edge.
+// One staged bubble: the message on its way in, or one the server
+// refused — refused once more with its retry. The staged shape is
+// hollow with a dashed accent edge, the refused one a solid danger
+// edge.
 let stagedBubble(onRetry: PendingSend -> unit, pending: PendingSend) : Control =
   let bodyRows: Control array =
     pending.Message.Body
@@ -824,8 +799,8 @@ let stagedBubble(onRetry: PendingSend -> unit, pending: PendingSend) : Control =
 
     Grid().Children(edge, inner).HorizontalAlignment(HorizontalAlignment.Right)
 
-/// One run's org label: the author's avatar and name, or the bare
-/// name when the payload is gone.
+// One run's org label: the author's avatar and name, or the bare
+// name when the payload is gone.
 let runLabel(media: Media, viewerId: string, ofRun: Run) : Control =
   match ofRun.Author with
   | Some user ->
@@ -852,9 +827,6 @@ let runLabel(media: Media, viewerId: string, ofRun: Run) : Control =
       .FontSize(11.0)
       .Text(authorName(viewerId, ofRun.Author, ofRun.AuthorId))
 
-/// One author's run: the org label, the bubbles stacked, and under
-/// the last bubble the clock time the site prints for the other
-/// side's runs.
 let run(props: RunProps) : Control =
   let {
         Run = ofRun
@@ -933,7 +905,6 @@ let run(props: RunProps) : Control =
     )
     .Children([| yield! labelRows; yield! bubbleRows; yield! clockRows |])
 
-/// One quiet org event line.
 let eventRow(text: string) : Control =
   TextBlock()
     .Classes(Theme.name Theme.Mono)
@@ -942,8 +913,6 @@ let eventRow(text: string) : Control =
     .HorizontalAlignment(HorizontalAlignment.Center)
     .Text(text)
 
-/// One calendar-day break: the centered quiet pill with its leading
-/// dot, and no rule.
 let dayRow(label: string) : Control =
   Border()
     .Classes(Theme.name Theme.DayMarker)
@@ -959,9 +928,6 @@ let dayRow(label: string) : Control =
         )
     )
 
-/// The unread divider: the "HEAD · N new" word on the left with the
-/// hairline running off after it, the way the site's head rule
-/// reads.
 let headRow(count: int) : Control =
   DockPanel()
     .Margin(0.0, 10.0, 0.0, 0.0)

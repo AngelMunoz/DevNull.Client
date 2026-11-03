@@ -17,10 +17,8 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Icons
 open DevNull.Client.ImageCache
 
-/// What the term rules say about a search.
 module Intent =
 
-  /// The three readings a term can have.
   type Reading =
     | Developer
     | Either
@@ -34,8 +32,8 @@ module Intent =
 
   let separators = Regex("\s")
 
-  /// True when the words read as a person's name: two or three of
-  /// them, each starting a capital.
+  // True when the words read as a person's name: two or three of
+  // them, each starting a capital.
   let looksLikeFullName(text: string) =
     let words = separators.Split text
 
@@ -45,9 +43,9 @@ module Intent =
     && words.Length <= 3
     && Array.forall (fun (word: string) -> capitalized.IsMatch word) words
 
-  /// A lowercase word made only of letters, long enough to be a topic
-  /// ("caching", "sharding"), is as likely a subject as a username.
-  /// Digits, dashes, or capitals tip it towards a handle.
+  // A lowercase word made only of letters, long enough to be a topic
+  // ("caching", "sharding"), is as likely a subject as a username.
+  // Digits, dashes, or capitals tip it towards a handle.
   let dictionaryShaped(word: string) = Regex("^[a-z]{6,}$").IsMatch word
 
   let looksLikeHandle(word: string) =
@@ -55,7 +53,6 @@ module Intent =
     && String.length word <= longestLikelyHandle
     && not(dictionaryShaped word)
 
-  /// Reads a term as the site's dialog does.
   let ofTerm(term: string) =
     let trimmed = term.Trim()
 
@@ -70,14 +67,10 @@ module Intent =
     else
       Either
 
-  /// True when the reading reaches the commit channel.
   let inline searchesCommits(reading: Reading) = reading <> Developer
 
-  /// True when a lone `@` announces a developer search but has nothing
-  /// to search for yet.
   let inline awaitsDeveloperName(term: string) = term.Trim() = "@"
 
-/// The site's canned suggestions.
 let suggestions: string list = [
   "shipping a side project"
   "debugging in production"
@@ -87,7 +80,6 @@ let suggestions: string list = [
   "working with AI coding tools"
 ]
 
-/// Everything the shared search rows read.
 [<Struct>]
 type RowCtx = {
   Images: ImageCacheService
@@ -95,7 +87,6 @@ type RowCtx = {
   Now: DateTimeOffset
 }
 
-/// One section heading, the site's mono label.
 let heading(text: string) : Control =
   TextBlock()
     .Classes(Theme.name Theme.Mono)
@@ -103,8 +94,8 @@ let heading(text: string) : Control =
     .Margin(12.0, 8.0, 12.0, 4.0)
     .Text(text)
 
-/// The person's avatar, with the hover card when the host gave a
-/// source.
+// The person's avatar, with the hover card when the host gave a
+// source.
 let avatarOf(ctx: RowCtx, user: User, size: float) : Control =
   let plain =
     Avatar.view {
@@ -119,9 +110,9 @@ let avatarOf(ctx: RowCtx, user: User, size: float) : Control =
   | ValueSome source -> UserFlyout.attach(source, user, plain)
   | ValueNone -> plain
 
-/// The lane dot as an inline of the line around it. A side-by-side
-/// panel measures its children without bound and never trims; inline,
-/// the line ellipsizes as one text.
+// The lane dot as an inline of the line around it. A side-by-side
+// panel measures its children without bound and never trims; inline,
+// the line ellipsizes as one text.
 let laneInline(user: User) : Inline =
   let dot = Ellipse().Width(6.0).Height(6.0)
 
@@ -129,8 +120,6 @@ let laneInline(user: User) : Inline =
 
   InlineUIContainer(Child = dot, BaselineAlignment = BaselineAlignment.Center)
 
-/// One person as a row's content: the avatar on its lane, the name,
-/// the handle with its lane dot, and the bio under them.
 let peopleIdentity(ctx: RowCtx, user: User) : Control =
   let identity =
     let block =
@@ -169,8 +158,6 @@ let peopleIdentity(ctx: RowCtx, user: User) : Control =
 
   StackPanel().Spacing(2.0).Children(avatarOf(ctx, user, 36.0), identity, bio)
 
-/// One commit as a row's content: the avatar, the handle with its lane
-/// dot beside its age, and two lines of the body.
 let commitIdentity(ctx: RowCtx, commit: Commit) : Control =
   let meta =
     let block =
@@ -201,8 +188,6 @@ let commitIdentity(ctx: RowCtx, commit: Commit) : Control =
         .Text(commit.Body)
     )
 
-/// One term as a row's content: the words and the arrow that follows
-/// them on hover.
 let termIdentity(term: string) : Control =
   StackPanel()
     .Orientation(Orientation.Horizontal)
@@ -216,7 +201,6 @@ let termIdentity(term: string) : Control =
       Icons.iconAt(Glyph.ArrowRight, 16.0)
     )
 
-/// The see-all row's content: the accent words and their arrow.
 let seeAllIdentity() : Control =
   StackPanel()
     .Orientation(Orientation.Horizontal)
@@ -228,13 +212,11 @@ let seeAllIdentity() : Control =
       Icons.iconAt(Glyph.ArrowRight, 16.0)
     )
 
-/// The two tones the site's keyboard chips wear.
 [<Struct>]
 type KbdTone =
   | Outline
   | Armed
 
-/// One keyboard chip, the site's kbd look.
 let kbdChip(tone: KbdTone, key: string) : Control =
   let label = TextBlock().Classes(Theme.name Theme.Mono).Text(key)
 
@@ -256,10 +238,8 @@ let statusBlock() : TextBlock =
     .Margin(20.0, 14.0, 20.0, 14.0)
     .TextTrimming(TextTrimming.CharacterEllipsis)
 
-/// One status line, the site's quiet mono sentence.
 let statusLine(text: string) : Control = statusBlock().Text(text)
 
-/// The same status line, following the words it says.
 let statusLineOf(text: IObservable<string>) : Control =
   let line = text |> Slices.gate id |> Slices.share
 

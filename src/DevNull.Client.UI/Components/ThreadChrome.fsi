@@ -54,14 +54,17 @@ type ConfirmProps = {
 }
 
 /// The bar that takes the composer's place when the viewer cannot
-/// push: a fetched request to settle, or the word on why.
+/// push: a fetched request to settle, or the word on why. The
+/// server's copy verbatim.
 val accessBar: props: AccessBarProps -> Control
 
-/// One quiet line the menus say when the server refuses.
+/// One quiet line the menus say when the server refuses, shown under
+/// the pane's header.
 val notice: notice: IObservable<string option> -> Control
 
 /// The pinned banner row over an org thread: `pinned · {count}` with
-/// the latest pin's author and a snippet.
+/// the latest pin's author and a snippet. A click opens the pinned
+/// panel — the banner and the panel are the only pin surface.
 val pinnedBanner: props: PinnedBannerProps -> Control
 
 /// The pinned panel over the reading: the org's pinned messages under
@@ -69,12 +72,14 @@ val pinnedBanner: props: PinnedBannerProps -> Control
 val pinnedPanel: props: PinnedPanelProps -> Control
 
 /// The first-pin dialog: the site's own question, the choice that
-/// never asks again, and the two buttons.
+/// never asks again, and the two buttons. It stands over the pane
+/// while one pin waits for its answer.
 val pinDialog: props: PinDialogProps -> Control
 
 /// One menu pick as a button row.
 val menuPick: label: string * onPick: (unit -> unit) -> Control
 
-/// One destructive pick: the site's own word first, so one click never
-/// lands it.
+/// One destructive pick: the site's own word first, so one click
+/// never lands it. The flyout carries the question, the
+/// consequences, and the Cancel and destructive buttons.
 val confirmPick: props: ConfirmProps -> Control

@@ -121,7 +121,11 @@ type BodySummary =
 val summaryOf: message: Message -> BodySummary
 
 /// One message bubble: the body, its voice, images, link card, reply
-/// ghost, reactions, pin, and receipts.
+/// ghost, reactions, pin, and receipts. One bubble: the message body
+/// in a rounded fill, mine on the accent, theirs on the card surface;
+/// a voice note rides in a box of its own, the way the site gives it
+/// one, and the flash target is whichever box stands alone at the
+/// message's edge.
 val bubble: props: BubbleProps -> Control
 
 /// One author's run: the org label, the bubbles stacked, and the
@@ -131,8 +135,11 @@ val run: props: RunProps -> Control
 /// One quiet org event line.
 val eventRow: text: string -> Control
 
-/// One calendar-day break: the centered quiet pill with its dot.
+/// One calendar-day break: the centered quiet pill with its leading
+/// dot, and no rule.
 val dayRow: label: string -> Control
 
-/// The unread divider: the "HEAD · N new" line the head wears.
+/// The unread divider: the "HEAD · N new" word on the left with the
+/// hairline running off after it, the way the site's head rule
+/// reads.
 val headRow: count: int -> Control

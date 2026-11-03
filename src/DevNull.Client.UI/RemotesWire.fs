@@ -19,8 +19,6 @@ module internal Wire =
 
   module CoreRemotes = DevNull.Client.Core.Api.Remotes
 
-  /// The capabilities one signed remotes call needs, as one interface
-  /// the calls' constraints check.
   [<Interface>]
   type SignEnv =
     inherit IProvideClock
@@ -28,7 +26,6 @@ module internal Wire =
     inherit IProvideSigner
     inherit IProvideHttp
 
-  /// The account takes one saved settings answer.
   let takeAccount(me: Me, session: SessionStore) : unit =
     session.SignedIn
     |> ValueOption.iter(fun current ->
@@ -38,8 +35,6 @@ module internal Wire =
             Remotes = me.Remotes
       })
 
-  /// One thread page read: which thread, with which credentials, and
-  /// the window of the poll.
   type ThreadRead = {
     Target: ChatTarget
     KeyFile: string
@@ -48,11 +43,9 @@ module internal Wire =
     ReactionsAfter: int option
   }
 
-  /// One inbox page read, with whether the pin state moved.
+  // One inbox page read, with whether the pin state moved.
   type InboxRead = { Page: Inbox; PinsMoved: bool }
 
-  /// One inbox page request: the credentials and key it signs with,
-  /// the tab, and the cursor before which the page sits.
   [<Struct>]
   type InboxPageRead = {
     SignEnv: SignEnv
@@ -61,28 +54,25 @@ module internal Wire =
     Before: string option
   }
 
-  /// One step of a tab rebuild's walk: the rows it gathered, and how
-  /// many pages it took.
+  // One step of a tab rebuild's walk: the rows it gathered, and how
+  // many pages it took.
   type WalkStep = {
     Rows: Conversation list option
     Pages: int
   }
 
-  /// One thread poll's ask: the messages after the loaded head, and the
-  /// reactions changed since the version.
+  // One thread poll's ask: the messages after the loaded head, and the
+  // reactions changed since the version.
   type ThreadCursor = {
     After: int option
     ReactionsAfter: int option
   }
 
-  /// One optional name as the org keeps it: trimmed, and absent when
-  /// the trim leaves nothing.
   let trimmed(name: string option) : string option =
     name
     |> Option.map _.Trim()
     |> Option.bind(fun trimmed -> if trimmed = "" then None else Some trimmed)
 
-  /// One list with the mute of one key's rows replaced.
   let mutedOnly
     (
       items: Conversation list option,
@@ -98,8 +88,6 @@ module internal Wire =
         else
           item))
 
-  /// The three tab lists under the saved pins, sorted back into the
-  /// inbox's order.
   let repinLists(state: RemotesState) : RemotesState = {
     state with
         Open = {
@@ -125,17 +113,13 @@ module internal Wire =
         }
   }
 
-  /// One chat target as the push API addresses it.
   module ThreadTarget =
 
-    /// The wire form of one target.
     let ofChat(target: ChatTarget) : CoreRemotes.ThreadTarget =
       match target with
       | Partner user -> CoreRemotes.Partner user.Handle
       | Org org -> CoreRemotes.Org org.Id
 
-  /// One thread page read: the call, mapped onto whichever kind of
-  /// thread it came from.
   let readThread
     (signEnv: SignEnv, read: ThreadRead)
     : Async<Result<FreshThread, AppError>> =
@@ -165,7 +149,6 @@ module internal Wire =
       )
       |> AsyncResult.map OrgFresh
 
-  /// One inbox page read, refused when the session holds no key.
   let readInbox(read: InboxPageRead) : Async<Result<Inbox, AppError>> =
     match read.KeyFile with
     | ValueSome keyFile ->
@@ -180,9 +163,6 @@ module internal Wire =
       )
     | ValueNone -> async { return Error(SignInFailed "signed out") }
 
-  /// How one driver reaches its store: post one pure change, read the
-  /// state, the session's key file, whether polling may run, the three
-  /// page callers it drives, and the logger of every failed call.
   type Driver = {
     Post: (RemotesState -> RemotesState) -> unit
     Read: unit -> Async<RemotesState>
@@ -195,17 +175,17 @@ module internal Wire =
     Log: ILogger
   }
 
-  /// One driver's shared moves: posting, version reservation, and
-  /// revision guards.
+  // One driver's shared moves: posting, version reservation, and
+  // revision guards.
   module Guards =
 
-    /// Posts one change.
+    // Posts one change.
     let post(driver: Driver, change: RemotesState -> RemotesState) : unit =
       driver.Post change
 
-    /// Reserves the preference versions one request takes when it
-    /// leaves, so a save that lands while the request is in flight
-    /// still writes a newer one.
+    // Reserves the preference versions one request takes when it
+    // leaves, so a save that lands while the request is in flight
+    // still writes a newer one.
     let reserveVersions(driver: Driver, state: RemotesState) : VersionPair =
       let versions = {
         Mute = state.MuteVersion + 1
@@ -223,7 +203,7 @@ module internal Wire =
 
       versions
 
-    /// The rows every loaded tab held when a request left.
+    // The rows every loaded tab held when a request left.
     let knownRows(state: RemotesState) : Conversation list =
       [
         state.Open.Items |> Option.defaultValue []
@@ -232,8 +212,8 @@ module internal Wire =
       ]
       |> List.concat
 
-    /// Runs one change only while the inbox revision still holds, so a
-    /// rebuild that superseded this answer drops it.
+    // Runs one change only while the inbox revision still holds, so a
+    // rebuild that superseded this answer drops it.
     let postIfFresh
       (driver: Driver, revision: int, change: RemotesState -> RemotesState)
       : Async<unit> = asyncEx {
@@ -243,7 +223,7 @@ module internal Wire =
         post(driver, change)
     }
 
-    /// Clears one tab's loading flag only while the revision holds.
+    // Clears one tab's loading flag only while the revision holds.
     let clearLoading
       (driver: Driver, tab: InboxTab, revision: int)
       : Async<unit> =
@@ -253,11 +233,9 @@ module internal Wire =
         withTab tab (fun list -> { list with LoadingMore = false })
       )
 
-  /// The inbox drivers: one tab's pages, the poll, and the rebuilds a
-  /// moved pin forces.
   module Inboxes =
 
-    /// One tab's page read, with whether the pin state moved.
+    // One tab's page read, with whether the pin state moved.
     let fetchPage
       (driver: Driver, tab: InboxTab, before: string option)
       : Async<Result<InboxRead, AppError>> = asyncEx {
@@ -292,14 +270,14 @@ module internal Wire =
           }
     }
 
-    /// One finished walk's tail: whether more rows may sit behind it.
-    /// The walk carries no page answer of its own, so a failed walk
-    /// conservatively says no.
+    // One finished walk's tail: whether more rows may sit behind it.
+    // The walk carries no page answer of its own, so a failed walk
+    // conservatively says no.
     let walkHasMore(rebuilt: Conversation list option, pages: int) : bool =
       rebuilt.IsSome && pages > 0
 
-    /// One tab's next-page ask: the driver, the tab, the state as the
-    /// load read it, the tab's list, and its last row.
+    // One tab's next-page ask: the driver, the tab, the state as the
+    // load read it, the tab's list, and its last row.
     [<Struct>]
     type PageAsk = {
       Driver: Driver
@@ -317,8 +295,6 @@ module internal Wire =
       Pins: string option
     }
 
-    /// Rebuilds one tab's loaded depth as one continuous prefix. A pin
-    /// that moves mid-rebuild restarts the walk from the first page.
     [<TailCall>]
     let rec refreshPages
       (driver: Driver, tab: InboxTab, more: bool)
@@ -425,8 +401,6 @@ module internal Wire =
         do! Guards.clearLoading(driver, tab, revision)
     }
 
-    /// Loads one tab's first page. A slower answer that races a pin
-    /// move is dropped and the load runs again.
     and loadTab(driver: Driver, tab: InboxTab) : Async<unit> = asyncEx {
       let! state = driver.Read()
       let revision = state.InboxRevision
@@ -471,8 +445,6 @@ module internal Wire =
           )
     }
 
-    /// Loads one tab's next page, once the reader reaches the end of
-    /// the loaded rows.
     and loadMore(driver: Driver, tab: InboxTab) : Async<unit> = asyncEx {
       let! state = driver.Read()
       let list = listTab(state, tab)
@@ -496,8 +468,8 @@ module internal Wire =
       | _ -> ()
     }
 
-    /// One tab's next page: a moved pin rebuilds the depth instead.
-    /// One tab's next page: a moved pin rebuilds the depth instead.
+    // One tab's next page: a moved pin rebuilds the depth instead.
+    // One tab's next page: a moved pin rebuilds the depth instead.
     and pageAfter(ask: PageAsk) : Async<unit> = asyncEx {
       let {
             Driver = driver
@@ -540,7 +512,6 @@ module internal Wire =
       | Error _ -> do! Guards.clearLoading(driver, tab, revision)
     }
 
-    /// Reads the inbox and reconciles every loaded tab.
     and poll(driver: Driver) : Async<unit> = asyncEx {
       let! state = driver.Read()
 
@@ -563,8 +534,8 @@ module internal Wire =
           Guards.post(driver, fun state -> { state with PollingInbox = false })
     }
 
-    /// One read poll's reconciliation: the rebuilds a moved pin forces,
-    /// the watched aheads, and the counts.
+    // One read poll's reconciliation: the rebuilds a moved pin forces,
+    // the watched aheads, and the counts.
     and reconcile(driver: Driver, read: InboxRead) : Async<unit> = asyncEx {
       if read.PinsMoved then
         Guards.post(driver, invalidatePins)
@@ -602,11 +573,10 @@ module internal Wire =
         do! loadTab(driver, TabFetched)
     }
 
-  /// The thread drivers: one thread's polls, older pages, and pushes.
   module Threads =
 
-    /// One thread's poll ask: the messages after the loaded head, and
-    /// the reactions changed since the version.
+    // One thread's poll ask: the messages after the loaded head, and
+    // the reactions changed since the version.
     let cursorOf(state: RemotesState, key: string) : ThreadCursor =
       match state.Threads |> Map.tryFind key with
       | Some thread when thread.IsLoaded ->
@@ -622,8 +592,8 @@ module internal Wire =
         }
       | _ -> { After = None; ReactionsAfter = None }
 
-    /// The page above the loaded messages, under the loader's guards:
-    /// the oldest loaded id, when the guards pass.
+    // The page above the loaded messages, under the loader's guards:
+    // the oldest loaded id, when the guards pass.
     let olderPageAsk(state: RemotesState, key: string) : int option =
       match state.Threads |> Map.tryFind key with
       | Some thread when
@@ -635,8 +605,6 @@ module internal Wire =
         Some(thread.Messages |> List.head |> fun message -> message.Id)
       | _ -> None
 
-    /// Reads one thread: the messages after the loaded head, plus the
-    /// reactions changed since the last version.
     let poll(driver: Driver, target: ChatTarget) : Async<unit> = asyncEx {
       match driver.KeyFile() with
       | ValueNone ->
@@ -681,8 +649,6 @@ module internal Wire =
           )
     }
 
-    /// Loads the page above the loaded messages, under the loader's
-    /// guards.
     let loadOlder(driver: Driver, target: ChatTarget) : Async<unit> = asyncEx {
       match driver.KeyFile() with
       | ValueNone -> ()
@@ -727,8 +693,8 @@ module internal Wire =
             Guards.post(driver, fun state -> mergeOlderPage(state, key, page))
     }
 
-    /// One message the server took: the thread takes it and the inbox
-    /// row moves to the top.
+    // One message the server took: the thread takes it and the inbox
+    // row moves to the top.
     let landed
       (driver: Driver, target: ChatTarget, message: Message)
       : Async<unit> = asyncEx {
@@ -764,8 +730,6 @@ module internal Wire =
       )
     }
 
-    /// One message the server holds: swapped into the thread, the
-    /// staged copy dropped, and the inbox touched.
     let deliver
       (driver: Driver, target: ChatTarget, pending: PendingSend)
       : Async<unit> = asyncEx {
@@ -785,7 +749,6 @@ module internal Wire =
         | Ok message -> do! landed(driver, target, message)
     }
 
-  /// One org left: its rows and its thread leave the state.
   let leaveOrg(state: RemotesState, org: OrgRef) : RemotesState = {
     state with
         Open = {
@@ -799,10 +762,6 @@ module internal Wire =
         Threads = Map.remove ("org:" + org.Id) state.Threads
   }
 
-  /// The one-step landing of a pin or an unpin answer: the whole pinned
-  /// list and its version take the thread in one posted change, so a
-  /// poll that left before the answer carries a version the merge
-  /// already treats as stale.
   let landPins
     (
       post: (RemotesState -> RemotesState) -> unit,

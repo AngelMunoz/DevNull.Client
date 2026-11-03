@@ -18,11 +18,10 @@ open DevNull.Client.ImageCache
 open DevNull.Client.RemotesState
 open DevNull.Client.Stores
 
-/// The page's semantic regions; the view only composes these.
 module Parts =
 
-  /// Everything one row's parts read: the dispatch, the model, the
-  /// image cache, and the signed-in viewer.
+  // Everything one row's parts read: the dispatch, the model, the
+  // image cache, and the signed-in viewer.
   type RowCtx = {
     Dispatch: Dispatch<State.Msg>
     Model: IObservable<State.Model>
@@ -30,7 +29,7 @@ module Parts =
     ViewerId: string
   }
 
-  /// One partner's avatar.
+  // One partner's avatar.
   let partnerAvatar(images: ImageCacheService, partner: User) : Control =
     Avatar.view {
       Name = partner.Name
@@ -40,8 +39,8 @@ module Parts =
       Cache = images
     }
 
-  /// An org's avatar: two of its other members, overlapping, in the
-  /// space of one avatar.
+  // An org's avatar: two of its other members, overlapping, in the
+  // space of one avatar.
   let orgAvatar
     (images: ImageCacheService, viewerId: string, row: Conversation)
     : Control =
@@ -80,8 +79,8 @@ module Parts =
 
     panel
 
-  /// One conversation's title line: the partner's name and handle, or
-  /// the org's title and member count.
+  // One conversation's title line: the partner's name and handle, or
+  // the org's title and member count.
   let titleLine(viewerId: string, row: Conversation) : Control =
     match row.Partner with
     | Some partner ->
@@ -117,8 +116,8 @@ module Parts =
             .Text($"org · {List.length others + 1}")
         )
 
-  /// One conversation's preview line: the sender's prefix and the last
-  /// message's text.
+  // One conversation's preview line: the sender's prefix and the last
+  // message's text.
   let excerptLine(excerpt: State.Excerpt) : Control =
     if excerpt.IsEvent then
       TextBlock()
@@ -131,8 +130,8 @@ module Parts =
         .Text(excerpt.Prefix + excerpt.Text)
         .TextTrimming(TextTrimming.CharacterEllipsis)
 
-  /// One row's right edge: the pin and mute marks, then the ahead pill
-  /// or the relative time.
+  // One row's right edge: the pin and mute marks, then the ahead pill
+  // or the relative time.
   let marksLine(model: IObservable<State.Model>, row: Conversation) : Control =
     let now = model |> Observable.map _.Now
 
@@ -178,8 +177,8 @@ module Parts =
       .HorizontalAlignment(HorizontalAlignment.Right)
       .Children(pinned, muted, ahead, time)
 
-  /// One fetched request's settle row: merge into the open list, or
-  /// drop it for good.
+  // One fetched request's settle row: merge into the open list, or
+  // drop it for good.
   [<Struct>]
   type SettleAsk = {
     Dispatch: Dispatch<State.Msg>
@@ -198,7 +197,7 @@ module Parts =
         args.Handled <- true
         ask.Dispatch(State.SettleWanted(ask.Partner, ask.Merging)))
 
-  /// One conversation row of the inbox column.
+  // One conversation row of the inbox column.
   let conversationRow(ctx: RowCtx, tab: InboxTab, row: Conversation) : Control =
     let active =
       ctx.Model
@@ -278,7 +277,7 @@ module Parts =
     // over the row's middle.
     DockPanel().LastChildFill(true).Children(rail.Dock(Dock.Left), button)
 
-  /// One candidate row: a person a new remote can start with.
+  // One candidate row: a person a new remote can start with.
   let candidateRow(ctx: RowCtx, person: RemoteCandidate) : Control =
     let identity =
       StackPanel()
@@ -333,8 +332,8 @@ module Parts =
       .OnClickHandler(fun _ _ ->
         ctx.Dispatch(State.Opened(Partner person.User)))
 
-  /// The tabs of the inbox, the fetched one only while the account
-  /// takes requests; the fetched tab carries the waiting count.
+  // The tabs of the inbox, the fetched one only while the account
+  // takes requests; the fetched tab carries the waiting count.
   let tabRow
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =
@@ -388,7 +387,7 @@ module Parts =
 
     ContentControl().Content(strip |> _.ToBinding())
 
-  /// The search box of the inbox.
+  // The search box of the inbox.
   let searchBox
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =
@@ -418,9 +417,9 @@ module Parts =
 
     txt
 
-  /// The inbox column's rows: the shared feed, whose riding report acts
-  /// as the scroll-end probe. The update's guards keep it from asking
-  /// twice.
+  // The inbox column's rows: the shared feed, whose riding report acts
+  // as the scroll-end probe. The update's guards keep it from asking
+  // twice.
   let rows
     (
       ctx: RowCtx,
@@ -450,8 +449,8 @@ module Parts =
     })
       .Name("RemotesInbox")
 
-  /// The quiet centered line the column says when its list says
-  /// nothing: loading, empty, or nothing found.
+  // The quiet centered line the column says when its list says
+  // nothing: loading, empty, or nothing found.
   let quietLine(text: IObservable<string>) : Control =
     TextBlock()
       .Classes(Theme.name Theme.Mono)
@@ -460,7 +459,7 @@ module Parts =
       .Margin(12.0, 24.0, 12.0, 12.0)
       .TextWrapping(TextWrapping.Wrap)
 
-  /// How the inbox column's quiet line reads for its inputs.
+  // How the inbox column's quiet line reads for its inputs.
   type Line =
     | NothingFound
     | EmptyTab
@@ -490,10 +489,10 @@ module Parts =
     | Loading -> "loading the inbox…"
     | Quiet -> ""
 
-  /// The line the column says over its rows: nothing while rows show,
-  /// the loading word while the tab's first page is out, the empty
-  /// word once the list holds nothing, and the nothing-found word
-  /// while a search's answer holds nothing.
+  // The line the column says over its rows: nothing while rows show,
+  // the loading word while the tab's first page is out, the empty
+  // word once the list holds nothing, and the nothing-found word
+  // while a search's answer holds nothing.
   let lineOf(model: IObservable<State.Model>) : IObservable<string> =
     model
     |> Observable.map(fun current ->
@@ -501,9 +500,9 @@ module Parts =
 
       lineWords(current.Tab, lineState(current.Found, list.Items)))
 
-  /// The org-create picker: a quiet button whose flyout takes an
-  /// optional 60-char name and the members picked from the search's
-  /// candidate list. Control-owned flyout, the house pattern.
+  // The org-create picker: a quiet button whose flyout takes an
+  // optional 60-char name and the members picked from the search's
+  // candidate list. Control-owned flyout, the house pattern.
   let orgPicker
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =
@@ -635,8 +634,8 @@ module Parts =
         flyout
       )
 
-  /// The inbox's header row: the search box with the org picker beside
-  /// it, and the tabs under them.
+  // The inbox's header row: the search box with the org picker beside
+  // it, and the tabs under them.
   let inboxHead
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =
@@ -688,8 +687,6 @@ module Parts =
     // own the column while no row exists to cover them.
     Panel().Children(column, line)
 
-  /// The thread pane while nothing is checked out: the site's quiet
-  /// invitation.
   let noThread() : Control =
     TextBlock()
       .Classes(Theme.name Theme.Mono)

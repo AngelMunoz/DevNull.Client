@@ -7,7 +7,8 @@ open DevNull.Client.Core.Http
 open DevNull.Client.ImageCache
 open DevNull.Client.Stores
 
-/// The handle line: a lane dot beside the @handle.
+/// The handle line: a lane dot beside the @handle, the way the site's
+/// aside marks the user's lane.
 val laneHandle: lane: Lane option * username: string -> Control
 
 /// The counts row: commits, following, followers.

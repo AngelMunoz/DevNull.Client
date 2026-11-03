@@ -15,8 +15,6 @@ open DevNull.Client.Icons
 open DevNull.Client.RemotesState
 open DevNull.Client.Theme
 
-/// The access bar's inputs: the partner, the access the thread
-/// carries, and how a fetched request settles.
 [<Struct>]
 type AccessBarProps = {
   Partner: User
@@ -24,16 +22,12 @@ type AccessBarProps = {
   OnSettle: User * bool -> unit
 }
 
-/// The pinned banner's inputs: the thread's live state and how the
-/// panel opens.
 [<Struct>]
 type PinnedBannerProps = {
   Thread: IObservable<ThreadState>
   OnOpen: unit -> unit
 }
 
-/// The pinned panel's inputs: the thread's live state, whether it
-/// shows, and how it closes.
 [<Struct>]
 type PinnedPanelProps = {
   Thread: IObservable<ThreadState>
@@ -41,8 +35,6 @@ type PinnedPanelProps = {
   OnClose: unit -> unit
 }
 
-/// The first-pin dialog's inputs: whether it stands open, and the
-/// two answers.
 [<Struct>]
 type PinDialogProps = {
   Open: IObservable<bool>
@@ -50,9 +42,6 @@ type PinDialogProps = {
   OnCancel: unit -> unit
 }
 
-/// One destructive confirm: the pick that opens it, its question and
-/// consequences, the destructive verb and command, and the call in
-/// flight that keeps the verb disabled.
 [<Struct>]
 type ConfirmProps = {
   Label: string
@@ -63,8 +52,8 @@ type ConfirmProps = {
   Busy: IObservable<string option>
 }
 
-/// One pinned summary's display text: the count, the latest author,
-/// and the snippet.
+// One pinned summary's display text: the count, the latest author,
+// and the snippet.
 [<Struct>]
 type BannerInfo = {
   Count: int
@@ -72,7 +61,7 @@ type BannerInfo = {
   Snippet: string
 }
 
-/// One quiet word in the access bar's mono voice.
+// One quiet word in the access bar's mono voice.
 let accessNote(words: string) : Control =
   TextBlock()
     .Classes(Theme.name Theme.Mono)
@@ -80,7 +69,7 @@ let accessNote(words: string) : Control =
     .Text(words)
     .TextWrapping(TextWrapping.Wrap)
 
-/// One settle pick: the drop or merge the request offers.
+// One settle pick: the drop or merge the request offers.
 let settlePick
   (label: string, klass: StyleClass, onSettle: unit -> unit)
   : Control =
@@ -91,9 +80,6 @@ let settlePick
       args.Handled <- true
       onSettle())
 
-/// The bar that takes the composer's place when the viewer cannot
-/// push: a fetched request to settle, or the word on why. The
-/// server's copy verbatim.
 let accessBar(props: AccessBarProps) : Control =
   match props.Access with
   | PushRequest ->
@@ -131,8 +117,6 @@ let accessBar(props: AccessBarProps) : Control =
     accessNote($"@{props.Partner.Handle} isn't taking remotes")
   | PushOpen -> TextBlock()
 
-/// One quiet line the menus say when the server refuses, shown under
-/// the pane's header.
 let notice(notice: IObservable<string option>) : Control =
   TextBlock()
     .Classes(Theme.name Theme.Mono)
@@ -143,8 +127,8 @@ let notice(notice: IObservable<string option>) : Control =
     .TextWrapping(TextWrapping.Wrap)
     .IsVisible(notice |> Observable.map Option.isSome)
 
-/// One pinned message as a snippet: its words without links, or the
-/// word for what a bodyless message carries.
+// One pinned message as a snippet: its words without links, or the
+// word for what a bodyless message carries.
 let snippetOf(message: Message) : string =
   match summaryOf message with
   | Text words -> words
@@ -152,16 +136,16 @@ let snippetOf(message: Message) : string =
   | Images _ -> "image"
   | Empty -> ""
 
-/// One pinned message's author as the banner and panel name them:
-/// the member's own name, the user id only when the member is gone.
+// One pinned message's author as the banner and panel name them:
+// the member's own name, the user id only when the member is gone.
 let authorOf(current: ThreadState, message: Message) : string =
   current.Members
   |> List.tryFind(fun member' -> member'.User.Id = message.UserId)
   |> Option.map(fun member' -> member'.User.Name)
   |> Option.defaultValue message.UserId
 
-/// One pinned summary as the banner draws it: the pin glyph, the
-/// count, the latest author, and the snippet.
+// One pinned summary as the banner draws it: the pin glyph, the
+// count, the latest author, and the snippet.
 let bannerLine(info: BannerInfo) : Control =
   StackPanel()
     .Orientation(Orientation.Horizontal)
@@ -177,8 +161,8 @@ let bannerLine(info: BannerInfo) : Control =
         .MaxWidth(320.0)
     )
 
-/// The banner's one button: the summary row, and the click that
-/// opens the panel.
+// The banner's one button: the summary row, and the click that
+// opens the panel.
 let bannerButton(onOpen: unit -> unit, info: BannerInfo) : Control =
   Button()
     .Name("RemotesPinnedBanner")
@@ -191,9 +175,6 @@ let bannerButton(onOpen: unit -> unit, info: BannerInfo) : Control =
       args.Handled <- true
       onOpen())
 
-/// The pinned banner row over an org thread: `pinned · {count}` with
-/// the latest pin's author and a snippet. A click opens the pinned
-/// panel — the banner and the panel are the only pin surface.
 let pinnedBanner(props: PinnedBannerProps) : Control =
   let info =
     props.Thread
@@ -218,7 +199,7 @@ let pinnedBanner(props: PinnedBannerProps) : Control =
       |> _.ToBinding()
     )
 
-/// One pinned message in the panel: its author over its snippet.
+// One pinned message in the panel: its author over its snippet.
 let pinRow(author: string, snippet: string) : Control =
   StackPanel()
     .Spacing(1.0)
@@ -231,8 +212,8 @@ let pinRow(author: string, snippet: string) : Control =
         .TextWrapping(TextWrapping.Wrap)
     )
 
-/// The panel's card: the count under the title, the pinned rows in
-/// their own scroll, and the close control.
+// The panel's card: the count under the title, the pinned rows in
+// their own scroll, and the close control.
 let pinnedCard
   (count: int, rows: (string * string) list, onClose: unit -> unit)
   : Control =
@@ -278,8 +259,6 @@ let pinnedCard
         )
     )
 
-/// The pinned panel over the reading: the org's pinned messages
-/// under their count, with the close control.
 let pinnedPanel(props: PinnedPanelProps) : Control =
   let rows =
     props.Thread
@@ -301,16 +280,16 @@ let pinnedPanel(props: PinnedPanelProps) : Control =
       |> _.ToBinding()
     )
 
-/// The first-pin choice: the site's never-ask-again box.
+// The first-pin choice: the site's never-ask-again box.
 let pinChoice() : CheckBox =
   CheckBox().Content("Don't show this again").FontSize(12.0)
 
-/// The choice's current answer.
+// The choice's current answer.
 let pinChoiceValue(keep: CheckBox) : bool =
   keep.IsChecked |> Option.ofNullable |> Option.defaultValue false
 
-/// The dialog's two answers: cancel, and the pin that carries the
-/// choice.
+// The dialog's two answers: cancel, and the pin that carries the
+// choice.
 let pinButtons(props: PinDialogProps, keep: CheckBox) : Control =
   StackPanel()
     .Orientation(Orientation.Horizontal)
@@ -336,8 +315,8 @@ let pinButtons(props: PinDialogProps, keep: CheckBox) : Control =
           props.OnConfirm(pinChoiceValue keep))
     )
 
-/// The dialog's card: the site's question, the choice, and the two
-/// answers.
+// The dialog's card: the site's question, the choice, and the two
+// answers.
 let pinCard(props: PinDialogProps) : Control =
   let keep = pinChoice()
 
@@ -369,13 +348,10 @@ let pinCard(props: PinDialogProps) : Control =
         )
     )
 
-/// The scrim under the dialog's card.
+// The scrim under the dialog's card.
 let pinScrim(card: Control) : Control =
   Grid().Children(Border().Background(Brushes.Black).Opacity(0.35), card)
 
-/// The first-pin dialog: the site's own question, the choice that
-/// never asks again, and the two buttons. It stands over the pane
-/// while one pin waits for its answer.
 let pinDialog(props: PinDialogProps) : Control =
   ContentControl()
     .Content(
@@ -387,7 +363,6 @@ let pinDialog(props: PinDialogProps) : Control =
     )
     .IsVisible(props.Open)
 
-/// One menu pick as a button row.
 let menuPick(label: string, onPick: unit -> unit) : Control =
   Button()
     .Classes(Theme.name Theme.GhostButton)
@@ -400,8 +375,8 @@ let menuPick(label: string, onPick: unit -> unit) : Control =
       args.Handled <- true
       onPick())
 
-/// The destructive card the flyout carries: the site's question,
-/// the consequences, and the two answers.
+// The destructive card the flyout carries: the site's question,
+// the consequences, and the two answers.
 let confirmCard(props: ConfirmProps, close: unit -> unit) : Control =
   Border()
     .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
@@ -449,7 +424,7 @@ let confirmCard(props: ConfirmProps, close: unit -> unit) : Control =
         )
     )
 
-/// The pick that opens the destructive card.
+// The pick that opens the destructive card.
 let confirmTrigger(label: string, onOpen: unit -> unit) : Control =
   Button()
     .Classes(Theme.name Theme.GhostButton)
@@ -462,9 +437,6 @@ let confirmTrigger(label: string, onOpen: unit -> unit) : Control =
       args.Handled <- true
       onOpen())
 
-/// One destructive pick: the site's own word first, so one click
-/// never lands it. The flyout carries the question, the
-/// consequences, and the Cancel and destructive buttons.
 let confirmPick(props: ConfirmProps) : Control =
   let flyout = Popup()
   let close() = flyout.IsOpen <- false

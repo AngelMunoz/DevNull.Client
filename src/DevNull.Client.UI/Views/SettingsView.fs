@@ -133,10 +133,12 @@ module State =
     | FollowDevice -> false
 
   /// Keeps the settings the server just saved, so every page follows.
-  let applyPrefs(props: Props<'env>, prefs: UserSettings option) =
+  let applyPrefs(props: Props<'env>, prefs: UserSettings option) : Cmd<Msg> =
     prefs
-    |> Option.iter(fun prefs ->
-      (props.Env :> IProvideUserSettings).UserSettings.Apply prefs)
+    |> Option.map(fun prefs ->
+      Cmd.ofAction(fun () ->
+        (props.Env :> IProvideUserSettings).UserSettings.Apply prefs))
+    |> Option.defaultValue Cmd.none
 
   let init (props: Props<'env>) () =
     let store = (props.Env :> IProvideUserSettings).UserSettings
@@ -340,14 +342,12 @@ module State =
           model.Prefs
           |> Option.map(fun prefs -> { prefs with Timezone = timezone })
 
-        applyPrefs(props, prefs)
-
         {
           model with
               Prefs = prefs
               Saving = false
         },
-        Cmd.ofMsg(MeDone result)
+        Cmd.batch [ applyPrefs(props, prefs); Cmd.ofMsg(MeDone result) ]
       | Error error ->
         {
           model with
@@ -382,14 +382,12 @@ module State =
                 TranslationLanguage = language
           })
 
-        applyPrefs(props, prefs)
-
         {
           model with
               Prefs = prefs
               Saving = false
         },
-        Cmd.ofMsg(MeDone result)
+        Cmd.batch [ applyPrefs(props, prefs); Cmd.ofMsg(MeDone result) ]
       | Error error ->
         {
           model with
@@ -427,14 +425,12 @@ module State =
                 AutomaticTranslation = enabled
           })
 
-        applyPrefs(props, prefs)
-
         {
           model with
               Prefs = prefs
               Saving = false
         },
-        Cmd.ofMsg(MeDone result)
+        Cmd.batch [ applyPrefs(props, prefs); Cmd.ofMsg(MeDone result) ]
       | Error error ->
         {
           model with

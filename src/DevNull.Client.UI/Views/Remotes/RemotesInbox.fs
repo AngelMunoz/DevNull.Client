@@ -1,6 +1,7 @@
 namespace DevNull.Client.Views
 
 open System
+open System.Reactive.Disposables
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
@@ -397,13 +398,23 @@ module Parts =
         .PlaceholderText("search")
         .Text(model |> Observable.map _.Query |> _.ToBinding())
 
-    txt.TextChanged
-    |> Observable.map(fun _ ->
-      txt.Text |> Option.ofObj |> Option.defaultValue "")
-    |> Observable.filter(String.IsNullOrWhiteSpace >> not)
-    |> Observable.distinctUntilChanged
-    |> Observable.throttle(TimeSpan.FromMilliseconds(300.))
-    |> Observable.add(State.Searched >> dispatch)
+    // The quiet window belongs to the box's own attachment: a settled,
+    // distinct term asks for its search, and a detach stops the watch a
+    // re-attached box starts again.
+    let typed = new SerialDisposable()
+
+    txt.AttachedToVisualTree.Add(fun _ ->
+      typed.Disposable <-
+        txt.TextChanged
+        |> Observable.map(fun _ ->
+          txt.Text |> Option.ofObj |> Option.defaultValue "")
+        |> Observable.filter(String.IsNullOrWhiteSpace >> not)
+        |> Observable.distinctUntilChanged
+        |> Observable.throttle(TimeSpan.FromMilliseconds(300.))
+        |> Observable.subscribe(State.Searched >> dispatch))
+
+    txt.DetachedFromVisualTree.Add(fun _ ->
+      typed.Disposable <- Disposable.Empty)
 
     txt
 

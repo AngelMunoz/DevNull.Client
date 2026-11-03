@@ -49,6 +49,9 @@ type Props<'env
   /// The draft contract for hosts whose row recycles: the seed the
   /// composer starts from, and the sink every change reaches.
   Draft: DraftSource voption
+  /// Reports the body box once it exists, so a host can focus it
+  /// without searching the visual tree for a name.
+  OnBodyReady: (TextBox -> unit) voption
 }
 
 /// One composer, self-contained: mounts the MVUish program. It is

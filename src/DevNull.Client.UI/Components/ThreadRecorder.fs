@@ -216,10 +216,10 @@ type RecordLane(audio: IAudioEngine voption, report: Recorder.Report -> unit) as
       // take is off before it ever records, instead of resurrecting a
       // live meter the stopped reader must click away again.
       | Ok live, (Recorder.Done | Recorder.Stopping | Recorder.Encoding) ->
-        live.Cancel()
-        report Recorder.Cancel
-
-        { model with Phase = Recorder.Done }, Cmd.none
+        { model with Phase = Recorder.Done },
+        Cmd.ofAction(fun () ->
+          live.Cancel()
+          report Recorder.Cancel)
       // The open may beat the lane's own first layout pass; the take
       // records anyway — the arms above and the detach's own release
       // cover every teardown path.
@@ -232,9 +232,9 @@ type RecordLane(audio: IAudioEngine voption, report: Recorder.Report -> unit) as
         },
         Cmd.none
       | Error failure, _ ->
-        report(Recorder.Staged(Error(CaptureFailed failure)))
-
-        { model with Phase = Recorder.Done }, Cmd.none
+        { model with Phase = Recorder.Done },
+        Cmd.ofAction(fun () ->
+          report(Recorder.Staged(Error(CaptureFailed failure))))
     | Recorder.Ticked(level, at) ->
       let levels = List.truncate 47 model.Levels @ [ level ]
 
@@ -250,15 +250,14 @@ type RecordLane(audio: IAudioEngine voption, report: Recorder.Report -> unit) as
         capture <- None
 
         if taken < minRecording then
-          held.Cancel()
-          report Recorder.Cancel
-
           {
             model with
                 Phase = Recorder.Done
                 Levels = List.replicate 48 0.0
           },
-          Cmd.none
+          Cmd.ofAction(fun () ->
+            held.Cancel()
+            report Recorder.Cancel)
         else
           let draining =
             Cmd.OfAsync.perform
@@ -273,23 +272,21 @@ type RecordLane(audio: IAudioEngine voption, report: Recorder.Report -> unit) as
         { model with Phase = Recorder.Stopping }, Cmd.none
       | _ -> { model with Phase = Recorder.Done }, Cmd.none
     | Recorder.DiscardPressed ->
-      release()
-      report Recorder.Cancel
-
-      { model with Phase = Recorder.Done }, Cmd.none
+      { model with Phase = Recorder.Done },
+      Cmd.ofAction(fun () ->
+        release()
+        report Recorder.Cancel)
     | Recorder.TakeReady taken ->
       let staged =
         taken |> Result.mapError CaptureFailed |> Result.bind Voices.stageVoice
 
-      report(Recorder.Staged staged)
-
-      { model with Phase = Recorder.Done }, Cmd.none
+      { model with Phase = Recorder.Done },
+      Cmd.ofAction(fun () -> report(Recorder.Staged staged))
     | Recorder.Cancelled ->
-      report Recorder.Cancel
-      { model with Phase = Recorder.Done }, Cmd.none
+      { model with Phase = Recorder.Done },
+      Cmd.ofAction(fun () -> report Recorder.Cancel)
     | Recorder.Detached ->
-      release()
-      { model with Phase = Recorder.Done }, Cmd.none
+      { model with Phase = Recorder.Done }, Cmd.ofAction(fun () -> release())
 
   let subscribe (host: Control) (model: Recorder.Model) : Sub<Recorder.Msg> =
     match model.Phase with

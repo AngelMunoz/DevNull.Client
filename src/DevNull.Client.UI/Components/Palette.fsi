@@ -32,7 +32,9 @@ type Scroll = { Name: string; MaxHeight: float }
 /// One palette list over the host's rows: the scroller, the gated row
 /// build, and the active row's follow. The host keeps the keys and the
 /// model; a key updates the host model, and the palette only consumes
-/// the active index. The row controls stay private to the palette, and
-/// its follow subscription ends when the palette detaches, so it must
-/// not be hosted inline.
+/// the active index. The row controls stay inside the palette, and
+/// its follow subscription lives only while the palette is attached: a
+/// palette built inside a popup that never opens never subscribes. The
+/// follow still must not be hosted inline, where layout detaches and
+/// re-attaches it on every pass.
 val view: scroll: Scroll * props: Props<'row, 'key> -> Control

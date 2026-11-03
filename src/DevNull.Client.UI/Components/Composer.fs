@@ -54,6 +54,7 @@ type Props<'env
   OnScheduled: (ScheduledCommit -> unit) voption
   OnOpenQueue: (unit -> unit) voption
   Draft: DraftSource voption
+  OnBodyReady: (TextBox -> unit) voption
 }
 
 /// The composer's state logic: model, messages, and update.
@@ -798,6 +799,8 @@ let view
   : Control =
 
   let body = Parts.body(props, model, dispatch)
+
+  props.OnBodyReady |> ValueOption.iter(fun ready -> ready body)
 
   let submit() =
     dispatch(

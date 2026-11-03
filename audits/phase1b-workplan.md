@@ -23,7 +23,7 @@ testing rule 2: a regression test that fails before the fix.
   re-derivation of the tail rule (ThreadPane.fs:315-360). Verify: the
   three forks are gone, suites green, gates clean; person rows stay
   separate (intentional).
-- [ ] **P18 — Ownership and effects discipline** (kills BUG-15, LEAK-1).
+- [x] **P18 — Ownership and effects discipline** (kills BUG-15, LEAK-1).
   Sub-own or dispose every subscription: Feed.fs:19 (Restore ctor,
   discarded disposable), DialogChrome.fs:56 (naked add on shell
   subjects), Palette.fs:40 (never-opened popup never detaches),
@@ -131,7 +131,7 @@ testing rule 2: a regression test that fails before the fix.
 |---|---|---|
 | P17 | pending | slots: TabStrip badge, CommitRows actions-off, Feed riding report |
 | P17 | committed 2026-11-02 | `Tab.Badge: Control voption`; `Host.Actions: bool` (star stays); `Ride` struct + `OnRide` with report-only Tail; RemotesInbox on TabStrip+Feed, SearchView on CommitRows.row, ThreadPane on OnRide; inbox asks through OnRide (no restore path — OnNeedMore serves only the chase); gates zero hits on added lines |
-| P18 | pending | rule-9 five sites, compute callbacks, BUG-15, LEAK-1, two projections |
+| P18 | committed 2026-11-03 | refactor: refactor: subscriptions get owners, effects ride commands, canceled bitmaps dispose (P18) (P18) |
 | P19 | pending | arity records, receipt DU, shaping, de-inline, upcasts, yields |
 | P20 | pending | module shape: 14 small service files + AGENTS notes |
 | P21 | pending | module shape: Env, Remotes, DeviceAuth + Startup pairing |

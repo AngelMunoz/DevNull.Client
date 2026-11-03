@@ -7,10 +7,13 @@ module DevNull.Client.UI.Tests.Leaks
 // the fix.
 
 open System
+open System.IO
+open System.Reflection
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Input
 open Avalonia.Interactivity
+open Avalonia.Media.Imaging
 open Avalonia.VisualTree
 
 open Expecto
@@ -83,6 +86,20 @@ let shrinkAsync(window: Window) : Async<unit> =
     window.Width <- 420.0
     window.Height <- 480.0)
 
+/// Whether the framework still holds the bitmap's platform image
+/// alive; disposal is the drop path a canceled load owes it.
+let bitmapAlive(bitmap: Bitmap) : bool =
+  let flags = BindingFlags.Instance ||| BindingFlags.NonPublic
+
+  typeof<Bitmap>.GetProperty("PlatformImpl", flags)
+  |> Option.ofObj
+  |> Option.bind(fun platform -> platform.GetValue bitmap |> Option.ofObj)
+  |> Option.bind(fun impl ->
+    impl.GetType().GetProperty("IsAlive")
+    |> Option.ofObj
+    |> Option.map(fun alive -> alive.GetValue impl :?> bool))
+  |> Option.defaultValue false
+
 /// Presses one bare key through the routed event.
 let pressKey(source: Interactive, key: Key) : unit =
   source.RaiseEvent(
@@ -91,6 +108,29 @@ let pressKey(source: Interactive, key: Key) : unit =
 
 let tests =
   testList "memory leaks" [
+    testCaseAsync
+      "a canceled image load disposes its decoded bitmap"
+      (async {
+        // The loader decodes before it posts; a cancel between the two
+        // leaves the bitmap with no control to show it.
+        let! bitmap =
+          probeUiAsync(fun () ->
+            use stream = new MemoryStream(imageBytes)
+            Bitmap.DecodeToWidth(stream, 16))
+
+        let! aliveBefore = probeUiAsync(fun () -> bitmapAlive bitmap)
+
+        Expect.isTrue aliveBefore "the bitmap probe saw a dead image"
+
+        let! disposed =
+          probeUiAsync(fun () ->
+            DevNull.Client.Components.AsyncImage.handOver (true, ignore) bitmap
+
+            not(bitmapAlive bitmap))
+
+        Expect.isTrue disposed "the canceled load kept its bitmap"
+      })
+
     testCaseAsync
       "a themed control releases with its tree"
       (async {

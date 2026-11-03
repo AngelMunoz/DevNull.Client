@@ -1,6 +1,7 @@
 module DevNull.Client.Components.DialogChrome
 
 open System
+open System.Reactive.Disposables
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Layout
@@ -52,11 +53,21 @@ let layer(props: Props) : Control =
   let open' = props.Open |> Observable.distinctUntilChanged
   let layer = Panel().IsVisible(open').Children(scrim, host)
 
-  open'
-  |> Observable.add(fun isOpen ->
+  let render(isOpen: bool) =
     if isOpen then
       host.Content <- props.Content()
     else
-      host.Content <- null)
+      host.Content <- null
+
+  // The layer owns the build subscription: it starts with the layer's
+  // attachment and stops when the layer leaves. A re-attached layer
+  // reads the open signal again.
+  let opens = new SerialDisposable()
+
+  layer.AttachedToVisualTree.Add(fun _ ->
+    opens.Disposable <- open' |> Observable.subscribe render)
+
+  layer.DetachedFromVisualTree.Add(fun _ ->
+    opens.Disposable <- Disposable.Empty)
 
   layer

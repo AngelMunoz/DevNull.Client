@@ -25,6 +25,9 @@ type Props = {
   ToolTip: string voption
 }
 
+let internal handOver (cancelled: bool, show: Bitmap -> unit) (bitmap: Bitmap) =
+  if cancelled then bitmap.Dispose() else show bitmap
+
 // The loader is the one custom control of the app: a plain `Image`
 // needs a ready bitmap, and the feed recycles rows, so the load needs
 // a control-owned lifetime. The URL is fixed at construction because
@@ -71,35 +74,41 @@ type Loader(props: Props) as this =
     let work = asyncEx {
       match! props.Cache.Get props.Url with
       | None -> ()
+      | Some _ when source.IsCancellationRequested -> ()
       | Some bytes ->
         // Decode off the UI thread: Skia results are immutable and
         // carry no thread affinity, so the bitmap crosses threads and
         // lands on the UI thread below.
-        let! decoded =
+        let! _ =
           Task.Run(fun () ->
-            try
-              use stream = new MemoryStream(bytes)
+            let decoded =
+              try
+                use stream = new MemoryStream(bytes)
 
-              let bitmap =
-                match props.DecodeHeight with
-                | ValueSome height -> Bitmap.DecodeToHeight(stream, height)
-                | ValueNone -> Bitmap.DecodeToWidth(stream, props.DecodeWidth)
+                let bitmap =
+                  match props.DecodeHeight with
+                  | ValueSome height -> Bitmap.DecodeToHeight(stream, height)
+                  | ValueNone ->
+                    Bitmap.DecodeToWidth(stream, props.DecodeWidth)
 
-              Ok bitmap
-            with ex ->
-              Error ex.Message)
+                Ok bitmap
+              with ex ->
+                Error ex.Message
 
-        match decoded with
-        | Ok bitmap ->
-          Dispatcher.UIThread.Post(fun () ->
-            // A detach between the decode and this post already dropped
-            // and disposed; the token keeps the late bitmap out, and
-            // the control owns the one it takes.
-            if not source.IsCancellationRequested then
-              show bitmap)
-        | Error _ -> ()
+            match decoded with
+            | Ok bitmap ->
+              Dispatcher.UIThread.Post(fun () ->
+                // A detach between the decode and this post cancels the
+                // load; the bitmap decoded for it still needs a drop path.
+                handOver (source.IsCancellationRequested, show) bitmap)
+            | Error _ -> ())
+
+        return ()
     }
 
+    // The fetch follows the token; the decode task does not, so a cancel
+    // during the decode still reaches the hand-off and disposes the
+    // bitmap.
     Async.Start(work, source.Token)
 
   do this.Content <- placeholder

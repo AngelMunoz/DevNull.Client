@@ -12,6 +12,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The leak regression observes the decoded-bitmap hand-off, an
+         internal ownership decision. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>DevNull.Client.UI.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="Natives.fsi" />
     <Compile Include="Natives.fs" />
     <Compile Include="Errors.fs" />

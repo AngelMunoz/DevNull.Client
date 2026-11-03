@@ -337,8 +337,9 @@ module State =
         { model with Term = term; Active = 0 },
         Cmd.ofAction(fun () -> props.Searches.Set term)
     | RecentsCleared ->
-      props.Recents.Clear(props.SignedIn.Session.User.Id)
-      { model with Recents = [] }, Cmd.none
+      { model with Recents = [] },
+      Cmd.ofAction(fun () ->
+        props.Recents.Clear(props.SignedIn.Session.User.Id))
     | ClockTicked moment -> { model with Now = moment }, Cmd.none
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
@@ -395,6 +396,8 @@ module Parts =
         .VerticalAlignment(VerticalAlignment.Center)
         .FontSize(15.0)
         .Text(model |> Observable.map(fun current -> current.Term))
+        .OnTextChangedHandler(fun box _ ->
+          box.Text |> Option.ofObj |> Option.iter(State.Typed >> dispatch))
 
     let moved(step: int) = dispatch(State.Stepped step)
 
@@ -410,12 +413,6 @@ module Parts =
         args.Handled <- true
         dispatch State.PressedEnter
       | _ -> ())
-
-    box.TextChanged
-    |> Observable.add(fun _ ->
-      match box.Text with
-      | null -> ()
-      | value -> dispatch(State.Typed value))
 
     let esc: Control =
       let chip = SearchParts.kbdChip(KbdTone.Outline, "esc")

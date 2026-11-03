@@ -929,6 +929,7 @@ module Parts =
                         fun text ->
                           props.Env.Timeline.RememberDraft(commit.Id, text)
                     }
+                  OnBodyReady = ValueNone
                 }
                 :> Control
               else

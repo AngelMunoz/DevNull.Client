@@ -526,11 +526,10 @@ module RemotesModel =
           (props.Env.Remotes, model.Tab)
           (fun () -> MoreWanted)
     | Opened target ->
-      props.Env.Remotes.SetOpenTarget(Some target)
-      model, Cmd.none
+      model,
+      Cmd.ofAction(fun () -> props.Env.Remotes.SetOpenTarget(Some target))
     | Closed ->
-      props.Env.Remotes.SetOpenTarget None
-      model, Cmd.none
+      model, Cmd.ofAction(fun () -> props.Env.Remotes.SetOpenTarget None)
     | SettleWanted(partner, merging) ->
       model,
       Cmd.OfAsync.perform
@@ -567,11 +566,12 @@ module RemotesModel =
         )
       )
     | ThreadScrolled offset ->
-      model.State.OpenTarget
-      |> Option.iter(fun target ->
-        props.Env.Remotes.RememberScroll(ChatTargets.key target, offset))
-
-      model, Cmd.none
+      model,
+      (model.State.OpenTarget
+       |> Option.map(fun target ->
+         Cmd.ofAction(fun () ->
+           props.Env.Remotes.RememberScroll(ChatTargets.key target, offset)))
+       |> Option.defaultValue Cmd.none)
     | GhostWanted messageId ->
       match model.State.OpenTarget with
       | Some target ->
@@ -655,9 +655,11 @@ module RemotesModel =
       // The stash parks with the change itself: the file's own copy
       // rests inside the store, so a fast section switch — or a page
       // that ends mid-word — never loses what was typed.
-      props.Env.Settings.SetChatDraft(model.DraftKey, text)
+      let stash =
+        Cmd.ofAction(fun () ->
+          props.Env.Settings.SetChatDraft(model.DraftKey, text))
 
-      next, typing
+      next, Cmd.batch [ stash; typing ]
     | ImageRemoved index ->
       if index >= 0 && index < List.length model.Images then
         {
@@ -677,17 +679,18 @@ module RemotesModel =
         HasVoice = message.Voice.IsSome
       }
 
+      model,
       model.State.OpenTarget
-      |> Option.iter(fun target ->
-        props.Env.Remotes.SetReplyingTo(target, Some parent))
-
-      model, Cmd.none
+      |> Option.map(fun target ->
+        Cmd.ofAction(fun () ->
+          props.Env.Remotes.SetReplyingTo(target, Some parent)))
+      |> Option.defaultValue Cmd.none
     | ReplyCancelled ->
+      model,
       model.State.OpenTarget
-      |> Option.iter(fun target ->
-        props.Env.Remotes.SetReplyingTo(target, None))
-
-      model, Cmd.none
+      |> Option.map(fun target ->
+        Cmd.ofAction(fun () -> props.Env.Remotes.SetReplyingTo(target, None)))
+      |> Option.defaultValue Cmd.none
     | SendWanted ->
       let body = model.Draft.Trim()
 
@@ -716,9 +719,6 @@ module RemotesModel =
           Voice = model.Voice
         }
 
-        props.Env.Remotes.SetReplyingTo(target, None)
-        props.Env.Settings.SetChatDraft(model.DraftKey, "")
-
         {
           model with
               Draft = ""
@@ -728,6 +728,10 @@ module RemotesModel =
               Voice = None
         },
         Cmd.batch [
+          Cmd.ofAction(fun () ->
+            props.Env.Remotes.SetReplyingTo(target, None)
+            props.Env.Settings.SetChatDraft(model.DraftKey, ""))
+
           Cmd.OfAsync.perform
             push
             (props.Env.Remotes, target, message)
@@ -835,12 +839,18 @@ module RemotesModel =
         startPin(props, model, message)
       | _ -> { model with PinAsk = Some message }, Cmd.none
     | PinConfirmed keep ->
-      if keep then
-        props.Env.Settings.SetPinPromptHidden true
+      let remember =
+        if keep then
+          Cmd.ofAction(fun () -> props.Env.Settings.SetPinPromptHidden true)
+        else
+          Cmd.none
 
-      match model.PinAsk with
-      | Some message -> startPin(props, { model with PinAsk = None }, message)
-      | None -> { model with PinAsk = None }, Cmd.none
+      let next, pin =
+        match model.PinAsk with
+        | Some message -> startPin(props, { model with PinAsk = None }, message)
+        | None -> { model with PinAsk = None }, Cmd.none
+
+      next, Cmd.batch [ remember; pin ]
     | PinAskCancelled -> { model with PinAsk = None }, Cmd.none
     | MessageUnpinWanted message -> startUnpin(props, model, message)
     | PinnedPanelWanted shown -> { model with PinnedPanel = shown }, Cmd.none
@@ -880,10 +890,11 @@ module RemotesModel =
     | Blocked outcome ->
       match outcome with
       | Ok _ ->
-        props.Env.Remotes.SetOpenTarget None
-
         { model with Notice = None },
-        Cmd.ofAction(fun () -> log.LogInformation("The block changed."))
+        Cmd.batch [
+          Cmd.ofAction(fun () -> props.Env.Remotes.SetOpenTarget None)
+          Cmd.ofAction(fun () -> log.LogInformation("The block changed."))
+        ]
       | Error error ->
         {
           model with
@@ -905,16 +916,18 @@ module RemotesModel =
     | OrgCreated outcome ->
       match outcome with
       | Ok org ->
-        props.Env.Remotes.SetOpenTarget(Some(Org org))
-
         {
           model with
               OrgName = ""
               OrgMembers = []
               Notice = None
         },
-        Cmd.ofAction(fun () ->
-          log.LogInformation("The org {Org} was created.", org.Id))
+        Cmd.batch [
+          Cmd.ofAction(fun () -> props.Env.Remotes.SetOpenTarget(Some(Org org)))
+
+          Cmd.ofAction(fun () ->
+            log.LogInformation("The org {Org} was created.", org.Id))
+        ]
       | Error error ->
         {
           model with
@@ -1022,10 +1035,11 @@ module RemotesModel =
       | Ok() ->
         // Leaving takes the org out of the state; the pane steps back
         // to the quiet invitation.
-        if left then
-          props.Env.Remotes.SetOpenTarget None
-
-        { model with Notice = None }, Cmd.none
+        { model with Notice = None },
+        (if left then
+           Cmd.ofAction(fun () -> props.Env.Remotes.SetOpenTarget None)
+         else
+           Cmd.none)
       | Error error ->
         {
           model with

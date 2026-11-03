@@ -1038,6 +1038,7 @@ module Parts =
         OnScheduled = ValueNone
         OnOpenQueue = ValueNone
         Draft = ValueNone
+        OnBodyReady = ValueNone
       }
 
     let quote =
@@ -1050,6 +1051,7 @@ module Parts =
         OnScheduled = ValueNone
         OnOpenQueue = ValueNone
         Draft = ValueNone
+        OnBodyReady = ValueNone
       }
 
     StackPanel()

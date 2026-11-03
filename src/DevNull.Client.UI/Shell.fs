@@ -428,47 +428,19 @@ let composeDialog
               OnScheduled = ValueSome(fun _ -> close())
               OnOpenQueue = ValueNone
               Draft = ValueNone
+              OnBodyReady =
+                ValueSome(fun box ->
+                  // The box attaches with the dialog; the focus lands
+                  // after that layout pass.
+                  box.AttachedToVisualTree.Add(fun _ ->
+                    Dispatcher.UIThread.Post(fun () -> ignore(box.Focus()))))
             }
           )
       )
 
   card.Name <- "ComposeDialog"
 
-  card.AttachedToVisualTree.Add(fun _ ->
-    // The program builds the box a layout pass later; the focus lands
-    // once it exists.
-    Dispatcher.UIThread.Post(fun () ->
-      card.GetVisualDescendants()
-      |> Seq.tryFind(fun visual -> visual.Name = "ComposerBody")
-      |> Option.iter(fun visual -> (visual :?> TextBox).Focus() |> ignore)))
-
   card
-
-/// Focuses the composer on screen, when one is. The site's Commit
-/// button focuses the log's inline composer instead of opening the
-/// dialog over it. A hidden composer — the shared chrome off the log —
-/// never takes the focus.
-let focusInlineComposer(window: Window) : bool =
-  let onScreen(visual: Visual) =
-    match visual with
-    | :? Control as control ->
-      control.IsVisible
-      && (control.GetVisualAncestors()
-          |> Seq.forall(fun ancestor ->
-            match ancestor with
-            | :? Control as parent -> parent.IsVisible
-            | _ -> true))
-    | _ -> false
-
-  match
-    window.GetVisualDescendants()
-    |> Seq.tryFind(fun visual ->
-      visual.Name = "ComposerBody" && onScreen visual)
-  with
-  | Some(:? TextBox as box) ->
-    box.Focus() |> ignore
-    true
-  | _ -> false
 
 /// The log chrome's rail node: the signed-in user's avatar, ring and
 /// all. The chrome keeps the rail line and the 64px column.
@@ -749,6 +721,9 @@ type ChromeProps<'env
   Env: 'env
   Nav: INavigable
   Session: IObservable<SessionState>
+  /// Reports the composer's body for the shell's focus shortcut, or
+  /// none when the chrome has no signed-in composer.
+  OnComposerBody: TextBox voption -> unit
 }
 
 /// The shared log chrome: the tabs and the composer every log page
@@ -773,12 +748,16 @@ let chromeFeed(props: ChromeProps<'env>) : Control =
                 ValueSome(fun () ->
                   Navigation.go(props.Nav, "/scheduled", ignore))
               Draft = ValueNone
+              OnBodyReady =
+                ValueSome(fun box -> props.OnComposerBody(ValueSome box))
             }
         RailNode = fun () -> logRailNode(entry, props.Env.ImageCache)
         Header = ValueNone
         OnReload = fun () -> props.Env.Timeline.ForceReload()
       }
-    | SignedOut -> Panel()
+    | SignedOut ->
+      props.OnComposerBody ValueNone
+      Panel()
 
   ContentControl()
     .Content(
@@ -1207,6 +1186,17 @@ type Shell<'env
       }
     ]
 
+    // The inline composer's body, reported by the shared chrome. The
+    // sidebar's focus shortcut asks the box itself, so no visual-tree
+    // name search is needed; the chrome's own visibility decides.
+    let inlineComposerBody = new BehaviorSubject<TextBox voption>(ValueNone)
+
+    let focusInlineComposer() =
+      inlineComposerBody.Value
+      |> ValueOption.filter(fun box -> box.IsEffectivelyVisible)
+      |> ValueOption.map(fun box -> box.Focus())
+      |> ValueOption.defaultValue false
+
     // The sidebar: one tree for both modes, so no control lands in two
     // parents.
     let sidebarContent =
@@ -1221,7 +1211,7 @@ type Shell<'env
         OpenCompose = fun () -> composeOpen.OnNext true
         OpenSearch = fun () -> searchOpen.OnNext true
         ToggleSidebar = toggleSidebar
-        FocusComposer = fun () -> focusInlineComposer this
+        FocusComposer = focusInlineComposer
       }
 
     // The pane keeps one look per mode: the drawer fills with the
@@ -1299,16 +1289,21 @@ type Shell<'env
         Env = env
         Nav = router
         Session = session.Observe
+        OnComposerBody = inlineComposerBody.OnNext
       }
 
     // The reading column: the site's main — a card surface between two
     // hairlines, 620px wide while the labels show, 796px once the rail
-    // collapses. The log chrome rides above the outlet inside it; where
-    // the window leaves room, the column centers in it.
+    // collapses.
     let mainColumn = Grid()
 
     mainColumn.RowDefinitions <- RowDefinitions("Auto,*")
 
+    // The shared chrome stays above the outlet rather than inside the
+    // log page: a log tab click changes only the route, so the outlet
+    // swaps its page while the chrome — and the composer program with
+    // the draft it holds — survives /log/following, /log/latest, and
+    // /log/trending. Off those routes the chrome hides itself.
     mainColumn.Children(chromeHost.Row(0), outlet.Row(1)) |> ignore
 
     // The site's reading column: 620px while the sidebar shows its

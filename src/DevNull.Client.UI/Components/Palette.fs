@@ -1,6 +1,7 @@
 module DevNull.Client.Components.Palette
 
 open System
+open System.Reactive.Disposables
 open Avalonia
 open Avalonia.Controls
 open NXUI.Extensions
@@ -80,7 +81,7 @@ let view(scroll: Scroll, props: Props<'row, 'key>) : Control =
     |> Observable.map build
     |> Slices.share
 
-  let follow = followRows(props.Active, built |> Observable.map _.Targets)
+  let follow = new SerialDisposable()
 
   let scroller =
     ScrollViewer()
@@ -91,6 +92,14 @@ let view(scroll: Scroll, props: Props<'row, 'key>) : Control =
           .Content(built |> Observable.map _.Content |> _.ToBinding())
       )
 
-  scroller.DetachedFromVisualTree.Add(fun _ -> follow.Dispose())
+  // The follow watch starts with the palette's attachment: a palette
+  // built inside a popup that never opens never subscribes. Detach
+  // stops it, and a re-attached palette starts it again.
+  scroller.AttachedToVisualTree.Add(fun _ ->
+    follow.Disposable <-
+      followRows(props.Active, built |> Observable.map _.Targets))
+
+  scroller.DetachedFromVisualTree.Add(fun _ ->
+    follow.Disposable <- Disposable.Empty)
 
   scroller

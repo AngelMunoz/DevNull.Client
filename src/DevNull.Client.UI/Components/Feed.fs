@@ -1,6 +1,7 @@
 module DevNull.Client.Components.Feed
 
 open System
+open System.Reactive.Disposables
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
@@ -16,7 +17,15 @@ open DevNull.Client
 type Restore
   (target: float, needMore: (unit -> unit) voption, hasMore: IObservable<bool>) as this
   =
-  do hasMore.Subscribe(fun more -> this.More <- more) |> ignore
+  let latest = new SerialDisposable()
+
+  /// Starts the has-more watch with the feed's attachment.
+  member _.Start() =
+    latest.Disposable <- hasMore.Subscribe(fun more -> this.More <- more)
+
+  /// Ends the watch with the feed's detach; a re-attached feed starts it
+  /// again against the latest value.
+  member _.Stop() = latest.Disposable <- Disposable.Empty
 
   member _.Target = target
 
@@ -176,6 +185,14 @@ let view(props: Props<'T>) : ScrollViewer =
       chase.LandWhenBeyond <- props.Ride
       Some chase
     | _ -> None
+
+  // The scroller owns the chase's has-more watch: it starts when the
+  // feed attaches and ends when the feed leaves, so a rebuilt thread
+  // feed drops its old watch with the old scroller.
+  restore
+  |> Option.iter(fun chase ->
+    scroller.AttachedToVisualTree.Add(fun _ -> chase.Start())
+    scroller.DetachedFromVisualTree.Add(fun _ -> chase.Stop()))
 
   let tail =
     if props.Ride || ValueOption.isSome props.OnRide then

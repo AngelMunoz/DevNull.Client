@@ -80,7 +80,7 @@ testing rule 2: a regression test that fails before the fix.
   the AGENTS.md architecture notes where they name the old shapes.
   Verify: suites green, fakes in tests unchanged in behavior, gates
   clean.
-- [ ] **P21 — Module shape, the mixed files + Startup.** Env.fs (five
+- [x] **P21 — Module shape, the mixed files + Startup.** Env.fs (five
   workers + AppEnv split per interface), Remotes.fs (~2,100 lines: split
   per interface with honest fsproj order), DeviceAuth.fs. Pair
   Startup.fs with Startup.fsi (or fold into the head projects if the
@@ -152,6 +152,7 @@ testing rule 2: a regression test that fails before the fix.
 | P19 | committed 2026-11-03 | refactor: arity records, the receipt union, and honest match shapes |
 | P20 | committed 2026-11-03 | refactor: Approved: 11 services now contract + same-name module + create with all state (subjects, dictionaries, gate, timer, cancellation) allocated per factory call and zero module-level mutable state; moved bodies verified line-by-line against HEAD with no drift (emit-on-change/forget order, 500 ms settle, thread-pool timer, 64-entry/5 MB caps under lock, 5 s gate, 7-day TTL + startup scan + sweep, gate inversion + cancellation, one-flight Interlocked, raw-byte clipboard order + bitmap disposal); dead surface deleted (Desktop, desktop, unused AppSettings ctor); Tray kept as the no-contract control case; Env/Startup/AGENTS and the five test files changed only at sanctioned lines with constructor-expression-only test diffs; all three prior directives verified fixed ([<Struct>] PollContext, UiClock upcast, RouteStore/Timeline factory docs); all 16 battery-flagged added lines read and classified as moved pre-existing constructs (/> ignore discards, one Seq.toList, one '= Some' record-field false positive); drift greps re-run read-only: 0 constructor calls, 0 old factory names, 0 'new:' in the 13 touched signatures, 0 private/let mutable/:> on added lines; one undirected but harmless loosening noted: emitOnUi dropped its unneeded 'value: equality constraint in Stores.fsi (strictly generalizing, no caller affected). |
 | P21 | pending | module shape: Env, Remotes, DeviceAuth + Startup pairing |
+| P21 | committed 2026-11-03 | refactor: the remotes god-file takes the wire, store, and watcher split — cycle broken by an internal deps record; Env workers as contract+module+create; Startup/DeviceAuth narrowed; user feedback encoded: recursive async is async/asyncEx only, tail loops carry [<TailCall>] (AGENTS 27/28) |
 | P22 | pending | rule-8 comment migration for the remaining debt |
 | P23 | pending | BUG-5 + BUG-9 |
 | P24 | pending | BUG-6 + BUG-7 |

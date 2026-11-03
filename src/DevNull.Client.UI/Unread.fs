@@ -70,6 +70,7 @@ module UnreadService =
       context.Log.LogTrace("The unread poll skips while signed out.")
   }
 
+  [<TailCall>]
   let rec loop(context: PollContext) : Async<unit> = asyncEx {
     let gate =
       TaskCompletionSource<unit>

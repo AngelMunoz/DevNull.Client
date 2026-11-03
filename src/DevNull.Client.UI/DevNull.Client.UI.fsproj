@@ -65,6 +65,10 @@
     <Compile Include="RouteStore.fs" />
     <Compile Include="RemotesState.fsi" />
     <Compile Include="RemotesState.fs" />
+    <Compile Include="RemotesWire.fsi" />
+    <Compile Include="RemotesWire.fs" />
+    <Compile Include="RemotesWatcher.fsi" />
+    <Compile Include="RemotesWatcher.fs" />
     <Compile Include="Remotes.fsi" />
     <Compile Include="Remotes.fs" />
     <Compile Include="Env.fsi" />
@@ -193,6 +197,7 @@
     <Compile Include="Views\Routes.fs" />
     <Compile Include="Shell.fsi" />
     <Compile Include="Shell.fs" />
+    <Compile Include="Startup.fsi" />
     <Compile Include="Startup.fs" />
   </ItemGroup>
 

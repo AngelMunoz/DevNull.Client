@@ -34,37 +34,52 @@ open DevNull.Client.UserSettingsStore
 open DevNull.Client.TranslationCache
 open DevNull.Client.Remotes
 
-type SystemClock() =
+type IProvideLogging =
+  abstract LoggerFactory: ILoggerFactory
 
-  interface IClock with
-    member _.UnixNow() =
-      DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+module SystemClock =
 
-type RandomNonceSource() =
+  let unixNow() =
+    DateTimeOffset.UtcNow.ToUnixTimeSeconds()
 
-  interface INonceSource with
-    member _.NewHex() =
-      let bytes = Array.zeroCreate<byte> 16
+  let create() = {
+    new IClock with
+      member _.UnixNow() = unixNow()
+  }
 
-      RandomNumberGenerator.Fill(bytes)
+module RandomNonceSource =
 
-      Convert.ToHexString(bytes).ToLowerInvariant()
+  let newHex() =
+    let bytes = Array.zeroCreate<byte> 16
 
-type RandomPkceSource() =
+    RandomNumberGenerator.Fill(bytes)
 
-  interface IPkceSource with
-    member _.NewVerifier() =
-      let bytes = Array.zeroCreate<byte> 32
+    Convert.ToHexString(bytes).ToLowerInvariant()
 
-      RandomNumberGenerator.Fill(bytes)
+  let create() = {
+    new INonceSource with
+      member _.NewHex() = newHex()
+  }
 
-      Convert
-        .ToBase64String(bytes)
-        .TrimEnd('=')
-        .Replace('+', '-')
-        .Replace('/', '_')
+module RandomPkceSource =
 
-type SshKeygenSigner(log: ILogger) =
+  let newVerifier() =
+    let bytes = Array.zeroCreate<byte> 32
+
+    RandomNumberGenerator.Fill(bytes)
+
+    Convert
+      .ToBase64String(bytes)
+      .TrimEnd('=')
+      .Replace('+', '-')
+      .Replace('/', '_')
+
+  let create() = {
+    new IPkceSource with
+      member _.NewVerifier() = newVerifier()
+  }
+
+module SshKeygenSigner =
 
   let stripArmor(armored: string) =
     armored.Split('\n')
@@ -72,7 +87,9 @@ type SshKeygenSigner(log: ILogger) =
     |> Array.filter(fun line -> not(line.StartsWith "-"))
     |> String.concat ""
 
-  let sign(request: SignRequest) : Async<Result<string, SignFailure>> = asyncEx {
+  let sign
+    (log: ILogger, request: SignRequest)
+    : Async<Result<string, SignFailure>> = asyncEx {
     let directory =
       Path.Combine(Path.GetTempPath(), "devnull." + Path.GetRandomFileName())
 
@@ -124,143 +141,151 @@ type SshKeygenSigner(log: ILogger) =
         ()
   }
 
-  interface ISigner with
-    member _.Sign(request: SignRequest) : Async<Result<string, SignFailure>> =
-      sign request
+  let create(log: ILogger) = {
+    new ISigner with
+      member _.Sign(request: SignRequest) = sign(log, request)
+  }
 
-type HttpClientTransport(baseAddress: string, log: ILogger) =
+module HttpClientTransport =
 
-  let client =
-    new HttpClient(
-      BaseAddress = Uri(baseAddress),
-      Timeout = TimeSpan.FromSeconds 30.0
-    )
+  type State = { Client: HttpClient; Log: ILogger }
 
   let headersOf(response: HttpResponseMessage) =
     Seq.append response.Headers response.Content.Headers
     |> Seq.map(fun header -> header.Key, String.concat ", " header.Value)
     |> Seq.toList
 
-  interface IHttp with
-    member _.Send
-      (request: HttpRequest)
-      : Async<Result<HttpResponse, TransportFailure>> = asyncEx {
-      // The caller's token reaches the socket, so a disposed page stops
-      // its in-flight request instead of only its sleep.
-      let! ct = Async.CancellationToken
+  let send
+    (state: State, request: HttpRequest)
+    : Async<Result<HttpResponse, TransportFailure>> = asyncEx {
+    // The caller's token reaches the socket, so a disposed page stops
+    // its in-flight request instead of only its sleep.
+    let! ct = Async.CancellationToken
 
-      let started = Stopwatch.StartNew()
+    let started = Stopwatch.StartNew()
 
-      try
-        use message =
-          new HttpRequestMessage(HttpMethod(request.Method), request.Target)
+    try
+      use message =
+        new HttpRequestMessage(HttpMethod(request.Method), request.Target)
 
-        for name, value in request.Headers do
-          if
-            not(name.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
-          then
-            message.Headers.TryAddWithoutValidation(name, value) |> ignore
+      for name, value in request.Headers do
+        if
+          not(name.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
+        then
+          message.Headers.TryAddWithoutValidation(name, value) |> ignore
 
-        match request.Body with
-        | Empty -> ()
-        | Text body ->
-          if body <> "" then
-            let content = new ByteArrayContent(Encoding.UTF8.GetBytes body)
+      match request.Body with
+      | Empty -> ()
+      | Text body ->
+        if body <> "" then
+          let content = new ByteArrayContent(Encoding.UTF8.GetBytes body)
 
-            request.Headers
-            |> List.tryFind(fun (name, _) ->
-              name.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
-            |> Option.iter(fun (_, value) ->
-              content.Headers.ContentType <- MediaTypeHeaderValue.Parse value)
-
-            message.Content <- content
-        | Multipart form ->
-          let content = new MultipartFormDataContent()
-
-          for name, value in form.Fields do
-            content.Add(new StringContent(value, Encoding.UTF8), name)
-
-          for file in form.Files do
-            let part = new ByteArrayContent(file.Content)
-
-            part.Headers.ContentType <-
-              MediaTypeHeaderValue.Parse file.ContentType
-
-            content.Add(part, file.Name, file.FileName)
+          request.Headers
+          |> List.tryFind(fun (name, _) ->
+            name.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
+          |> Option.iter(fun (_, value) ->
+            content.Headers.ContentType <- MediaTypeHeaderValue.Parse value)
 
           message.Content <- content
+      | Multipart form ->
+        let content = new MultipartFormDataContent()
 
-        let! response = client.SendAsync(message, ct)
-        use response = response
-        let! body = response.Content.ReadAsStringAsync(ct)
+        for name, value in form.Fields do
+          content.Add(new StringContent(value, Encoding.UTF8), name)
 
-        log.LogDebug(
-          "{Method} {Target} answered {Status} in {Milliseconds} ms.",
-          request.Method,
-          request.Target,
-          int response.StatusCode,
-          started.ElapsedMilliseconds
+        for file in form.Files do
+          let part = new ByteArrayContent(file.Content)
+
+          part.Headers.ContentType <-
+            MediaTypeHeaderValue.Parse file.ContentType
+
+          content.Add(part, file.Name, file.FileName)
+
+        message.Content <- content
+
+      let! response = state.Client.SendAsync(message, ct)
+      use response = response
+      let! body = response.Content.ReadAsStringAsync(ct)
+
+      state.Log.LogDebug(
+        "{Method} {Target} answered {Status} in {Milliseconds} ms.",
+        request.Method,
+        request.Target,
+        int response.StatusCode,
+        started.ElapsedMilliseconds
+      )
+
+      return
+        Ok {
+          Status = int response.StatusCode
+          Headers = headersOf response
+          Body = body
+        }
+    with ex ->
+      state.Log.LogWarning(
+        ex,
+        "{Method} {Target} did not answer.",
+        request.Method,
+        request.Target
+      )
+
+      return Error({ Message = ex.Message }: TransportFailure)
+  }
+
+  let getBytes
+    (state: State, target: string)
+    : Async<Result<byte array, TransportFailure>> = asyncEx {
+    let! ct = Async.CancellationToken
+    let started = Stopwatch.StartNew()
+
+    // The path alone goes to the log: a media URL's query carries the
+    // signature that grants the download.
+    let path =
+      match target.IndexOf '?' with
+      | -1 -> target
+      | i -> target[.. i - 1]
+
+    try
+      use message = new HttpRequestMessage(HttpMethod.Get, target)
+
+      message.Headers.TryAddWithoutValidation("User-Agent", userAgent) |> ignore
+
+      // Image URLs are absolute, so the base address never applies.
+      let! response = state.Client.SendAsync(message, ct)
+
+      use response = response
+      let! bytes = response.Content.ReadAsByteArrayAsync(ct)
+
+      state.Log.LogDebug(
+        "GET {Path} answered {Status} with {Bytes} bytes in {Milliseconds} ms.",
+        path,
+        int response.StatusCode,
+        bytes.Length,
+        started.ElapsedMilliseconds
+      )
+
+      return Ok bytes
+    with ex ->
+      state.Log.LogWarning(ex, "GET {Path} did not answer.", path)
+
+      return Error({ Message = ex.Message }: TransportFailure)
+  }
+
+  let create(baseAddress: string, log: ILogger) =
+    let state = {
+      Client =
+        new HttpClient(
+          BaseAddress = Uri(baseAddress),
+          Timeout = TimeSpan.FromSeconds 30.0
         )
-
-        return
-          Ok {
-            Status = int response.StatusCode
-            Headers = headersOf response
-            Body = body
-          }
-      with ex ->
-        log.LogWarning(
-          ex,
-          "{Method} {Target} did not answer.",
-          request.Method,
-          request.Target
-        )
-
-        return Error({ Message = ex.Message }: TransportFailure)
+      Log = log
     }
 
-    member _.GetBytes
-      (target: string)
-      : Async<Result<byte array, TransportFailure>> = asyncEx {
-      let! ct = Async.CancellationToken
-      let started = Stopwatch.StartNew()
-
-      // The path alone goes to the log: a media URL's query carries the
-      // signature that grants the download.
-      let path =
-        match target.IndexOf '?' with
-        | -1 -> target
-        | i -> target[.. i - 1]
-
-      try
-        use message = new HttpRequestMessage(HttpMethod.Get, target)
-
-        message.Headers.TryAddWithoutValidation("User-Agent", userAgent)
-        |> ignore
-
-        // Image URLs are absolute, so the base address never applies.
-        let! response = client.SendAsync(message, ct)
-
-        use response = response
-        let! bytes = response.Content.ReadAsByteArrayAsync(ct)
-
-        log.LogDebug(
-          "GET {Path} answered {Status} with {Bytes} bytes in {Milliseconds} ms.",
-          path,
-          int response.StatusCode,
-          bytes.Length,
-          started.ElapsedMilliseconds
-        )
-
-        return Ok bytes
-      with ex ->
-        log.LogWarning(ex, "GET {Path} did not answer.", path)
-
-        return Error({ Message = ex.Message }: TransportFailure)
+    {
+      new IHttp with
+        member _.Send(request) = send(state, request)
+        member _.GetBytes(target) = getBytes(state, target)
     }
-
-type IProvideLogging =
-  abstract LoggerFactory: ILoggerFactory
 
 type AppEnv
   (
@@ -270,13 +295,18 @@ type AppEnv
     logging: ILoggerFactory
   ) as this =
 
-  let clock = SystemClock()
-  let nonceSource = RandomNonceSource()
-  let pkceSource = RandomPkceSource()
-  let signer = SshKeygenSigner(logging.CreateLogger "DevNull.Client.Signer")
+  let clock = SystemClock.create()
+  let nonceSource = RandomNonceSource.create()
+  let pkceSource = RandomPkceSource.create()
+
+  let signer =
+    SshKeygenSigner.create(logging.CreateLogger "DevNull.Client.Signer")
 
   let http =
-    HttpClientTransport(baseAddress, logging.CreateLogger "DevNull.Client.Http")
+    HttpClientTransport.create(
+      baseAddress,
+      logging.CreateLogger "DevNull.Client.Http"
+    )
 
   let imageCache =
     ImageCacheService.create(
@@ -288,7 +318,7 @@ type AppEnv
         "cache",
         "images"
       ),
-      (http :> IHttp).GetBytes,
+      http.GetBytes,
       logging.CreateLogger "DevNull.Client.ImageCache"
     )
 
@@ -398,7 +428,7 @@ type AppEnv
     )
 
   let remotes =
-    RemotesStore(
+    RemotesStore.create(
       {
         Clock = clock
         NonceSource = nonceSource
@@ -413,20 +443,22 @@ type AppEnv
 
   let routes = RouteStore.create()
 
+  let sshKeys = SshKeys.create()
+
   interface IProvideClock with
-    member _.Clock = upcast clock
+    member _.Clock = clock
 
   interface IProvideNonceSource with
-    member _.NonceSource = upcast nonceSource
+    member _.NonceSource = nonceSource
 
   interface IProvidePkceSource with
-    member _.PkceSource = upcast pkceSource
+    member _.PkceSource = pkceSource
 
   interface IProvideSigner with
-    member _.Signer = upcast signer
+    member _.Signer = signer
 
   interface IProvideHttp with
-    member _.Http = upcast http
+    member _.Http = http
 
   interface IProvideSession with
     member _.Session = session
@@ -477,4 +509,4 @@ type AppEnv
     member _.Profiles = profiles
 
   interface IProvideSshKeys with
-    member _.SshKeys = SshKeys.create()
+    member _.SshKeys = sshKeys

@@ -466,7 +466,7 @@ type TestEnv
     )
 
   let remotes =
-    RemotesStore(
+    RemotesStore.create(
       {
         Clock = clock
         NonceSource = nonceSource

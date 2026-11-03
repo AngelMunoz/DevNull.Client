@@ -39,23 +39,60 @@ type CompleteArgs = {
 /// The server the app signs in to.
 let baseAddress = "https://dev-null.sh"
 
-let keyDirectory = Path.Combine(dataDirectory, "keys")
+module Helpers =
+
+  let keyDirectory = Path.Combine(dataDirectory, "keys")
+
+  let devicePrivateKeyPath = Path.Combine(keyDirectory, "device")
+
+  let publicKeyPath = devicePrivateKeyPath + ".pub"
+
+  /// The name this install carries on the site's devices page, and the
+  /// comment its key file wears.
+  let deviceName =
+    let platform =
+      if OperatingSystem.IsWindows() then "Windows"
+      elif OperatingSystem.IsMacOS() then "macOS"
+      else "Linux"
+
+    $"devnull on {platform}"
+
+  let parseQuery(query: string) =
+    query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
+    |> Array.map(fun part ->
+      match part.Split([| '=' |], 2) with
+      | [| name; value |] ->
+        name, Uri.UnescapeDataString(value.Replace('+', ' '))
+      | _ -> part, "")
+    |> Map.ofArray
+
+  type Callback = { Code: string; State: string }
+
+  /// Reads and checks one `devnull://` callback URI.
+  let parseCallback(uri: string) : Result<Callback, string> =
+    try
+      let parsed = Uri(uri)
+
+      if
+        not(parsed.Scheme.Equals("devnull", StringComparison.OrdinalIgnoreCase))
+      then
+        Error "The callback is not a devnull link."
+      else
+        let query = parseQuery parsed.Query
+
+        match Map.tryFind "error" query with
+        | Some error -> Error $"The sign-in was denied ({error})."
+        | None ->
+          match Map.tryFind "code" query, Map.tryFind "state" query with
+          | Some code, Some state when code <> "" && state <> "" ->
+            Ok { Code = code; State = state }
+          | _ -> Error "The sign-in callback is missing the code or state."
+    with ex ->
+      Error $"The sign-in callback is invalid: {ex.Message}"
 
 /// The private key file of the app's own key, the one every signed
 /// request after sign-in uses.
-let devicePrivateKeyPath = Path.Combine(keyDirectory, "device")
-
-let publicKeyPath = devicePrivateKeyPath + ".pub"
-
-/// The name this install carries on the site's devices page, and the
-/// comment its key file wears.
-let deviceName =
-  let platform =
-    if OperatingSystem.IsWindows() then "Windows"
-    elif OperatingSystem.IsMacOS() then "macOS"
-    else "Linux"
-
-  $"devnull on {platform}"
+let devicePrivateKeyPath = Helpers.devicePrivateKeyPath
 
 /// The SSH fingerprint of one public key file.
 let fingerprintOf(publicPath: string) : Async<Result<string, string>> =
@@ -84,10 +121,10 @@ let fingerprintOf(publicPath: string) : Async<Result<string, string>> =
 /// fingerprint.
 let ensureKey(log: ILogger) : Async<Result<DeviceKey, string>> = asyncResult {
   try
-    Directory.CreateDirectory(keyDirectory) |> ignore
+    Directory.CreateDirectory(Helpers.keyDirectory) |> ignore
 
     if File.Exists devicePrivateKeyPath then
-      if File.Exists publicKeyPath then
+      if File.Exists Helpers.publicKeyPath then
         log.LogDebug("The device key already exists.")
       else
         log.LogWarning(
@@ -96,21 +133,21 @@ let ensureKey(log: ILogger) : Async<Result<DeviceKey, string>> = asyncResult {
 
         let! derived = SshKeygen.run($"-y -f \"{devicePrivateKeyPath}\"")
 
-        do! writeAllTextAtomic publicKeyPath derived
+        do! writeAllTextAtomic Helpers.publicKeyPath derived
     else
       log.LogInformation("The device key is being generated.")
 
       do!
         SshKeygen.run(
-          $"-t ed25519 -f \"{devicePrivateKeyPath}\" -N \"\" -C \"{deviceName}\""
+          $"-t ed25519 -f \"{devicePrivateKeyPath}\" -N \"\" -C \"{Helpers.deviceName}\""
         )
         |> Async.Ignore
 
-    let! fingerprint = fingerprintOf publicKeyPath
+    let! fingerprint = fingerprintOf Helpers.publicKeyPath
 
     return {
       PrivatePath = devicePrivateKeyPath
-      PublicPath = publicKeyPath
+      PublicPath = Helpers.publicKeyPath
       Fingerprint = fingerprint
     }
   with ex ->
@@ -126,7 +163,7 @@ let startAuthorization
   let request: Device.AuthorizationRequest = {
     BaseAddress = baseAddress
     Fingerprint = key.Fingerprint
-    DeviceName = deviceName
+    DeviceName = Helpers.deviceName
     RedirectUri = "devnull://auth/callback"
   }
 
@@ -140,39 +177,6 @@ let startAuthorization
     Url = authorization.Url
   }
 
-let parseQuery(query: string) =
-  query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
-  |> Array.map(fun part ->
-    match part.Split([| '=' |], 2) with
-    | [| name; value |] ->
-      name, Uri.UnescapeDataString(value.Replace('+', ' '))
-    | _ -> part, "")
-  |> Map.ofArray
-
-type Callback = { Code: string; State: string }
-
-/// Reads and checks one `devnull://` callback URI.
-let parseCallback(uri: string) : Result<Callback, string> =
-  try
-    let parsed = Uri(uri)
-
-    if
-      not(parsed.Scheme.Equals("devnull", StringComparison.OrdinalIgnoreCase))
-    then
-      Error "The callback is not a devnull link."
-    else
-      let query = parseQuery parsed.Query
-
-      match Map.tryFind "error" query with
-      | Some error -> Error $"The sign-in was denied ({error})."
-      | None ->
-        match Map.tryFind "code" query, Map.tryFind "state" query with
-        | Some code, Some state when code <> "" && state <> "" ->
-          Ok { Code = code; State = state }
-        | _ -> Error "The sign-in callback is missing the code or state."
-  with ex ->
-    Error $"The sign-in callback is invalid: {ex.Message}"
-
 /// Verifies the callback state, redeems the code, and stores the
 /// session.
 let complete
@@ -182,7 +186,7 @@ let complete
   ) : Async<Result<DeviceSession, AppError>> = asyncEx {
   let log = args.Log
 
-  match parseCallback args.CallbackUri with
+  match Helpers.parseCallback args.CallbackUri with
   | Error message ->
     log.LogWarning("The sign-in callback was refused: {Error}", message)
     return Error(SignInFailed message)

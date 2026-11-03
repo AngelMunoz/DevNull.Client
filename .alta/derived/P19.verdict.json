@@ -1,0 +1,14 @@
+{
+  "verdict": "directives",
+  "directives": [
+    "src/DevNull.Client.UI/Views/NotificationsView.fs:4 — delete `open System.Collections.Generic`. Its only user was the `HashSet` that `toRows` dropped; grep confirms no other type from that namespace is used in the file. The step's own derivation names this removal; leaving it keeps dead scaffolding in the one file whose reason for it this step removed.",
+    "src/DevNull.Client.UI/Components/CommitCard.fs:259-261 — `Parts.textWithMentions`: the two arms of the `List.iter` match now discard the bool differently (`inlines.Add(Run plain) |> ignore` kept, `inlines.Add(handleInline(...))` made bare). Pick one shape for both arms — both bare is legal and warning-free (verified by a warning-free `dotnet build -t:Rebuild` of the UI project), or keep `|> ignore` on both. One construct, one discard idiom."
+  ],
+  "ledgerNote": "P19 rework lands the honest shapes: BodyArgs context shared by the four body functions, Receipt DU in RemotesState, toRows by distinctBy/pairwise, the five chains as data (prefix table, BodySummary, Line DU); Core and UI sequenced suites green, 4+-arity census exactly the P19b-owned eleven plus three documented false positives; two sweep leftovers (unused Generic open, discard symmetry) before user review.",
+  "unverified": [
+    "gates.ps1 was not re-run (per instruction); the four added-line hits were classified from source only — RemotesView.Tests.fs:294/:321/:336 are `Name = Some \"the org\"` record-field initializations matching the option-comparison pattern (false positives), App.Tests.fs:254's `Seq.toList` materializes a visual-tree enumeration for repeated passes (justified, not a fresh-build round trip).",
+    "fantomas cleanliness is taken from the battery result (238 files unchanged), not re-run.",
+    "The new characterization tests (notification rows, receiptWord copy) were not executed against the pre-step tree; equivalence of toRows dedup/day order and receipt words was established by reading both versions side by side, which the derivation's preservation boundary allows for a non-bug step.",
+    "The battery's 'Core NaN/NaN failed' parse artifact was superseded by my own runs: Core and UI (sequenced) both exited 0 with Failed: 0, Errored: 0."
+  ]
+}

@@ -220,11 +220,6 @@ module ThreadPane =
       OnRetry = fun pending -> ctx.Dispatch(State.RetryWanted pending.ClientId)
     }
 
-  /// Where the pane's own scroll bookkeeping stands: whether the
-  /// reader rides the bottom edge, and the extent the last scroll saw.
-  [<Struct>]
-  type ScrollTrack = { Riding: bool; Extent: float }
-
   /// What one thread feed needs: the page context, the thread's key,
   /// the remembered place, and the live thread.
   [<Struct>]
@@ -236,7 +231,7 @@ module ThreadPane =
   }
 
   /// The message list: the shared feed, riding the bottom edge, with
-  /// the landing token and the page's own scroll bookkeeping.
+  /// the landing token and the feed's tail report.
   let feed(ask: FeedAsk) : ScrollViewer =
     let ctx = ask.Ctx
     let key = ask.Key
@@ -305,36 +300,17 @@ module ThreadPane =
              ValueNone)
         OnScroll =
           ValueSome(fun offset -> ctx.Dispatch(State.ThreadScrolled offset))
+        OnRide =
+          ValueSome(fun ride ->
+            if ride.Offset < 240.0 && ride.Room > 0.0 then
+              ctx.Dispatch State.OlderWanted
+
+            ctx.Dispatch(
+              State.RideMoved(ride.Riding, ride.FromEnd > ride.Viewport)
+            ))
         OnNeedMore = ValueSome(fun () -> ctx.Dispatch State.OlderWanted)
       })
         .Name("RemotesThread")
-
-    // The page's own scroll bookkeeping: the top asks for older pages,
-    // and the bottom edge tells the model whether the reader rides it.
-    // The feed owns the stick itself; this listener only reports.
-    let track = ref { Riding = true; Extent = 0.0 }
-
-    scroller.ScrollChanged.Add(fun _ ->
-      let extent = scroller.Extent.Height
-      let room = extent - scroller.Viewport.Height
-      let current = track.Value
-
-      if scroller.Offset.Y < 240.0 && room > 0.0 then
-        ctx.Dispatch State.OlderWanted
-
-      let fromEnd = room - scroller.Offset.Y
-
-      let riding =
-        if fromEnd < 48.0 then
-          true
-        elif extent > current.Extent + 0.5 && current.Riding then
-          current.Riding
-        else
-          false
-
-      track.Value <- { Riding = riding; Extent = extent }
-
-      ctx.Dispatch(State.RideMoved(riding, fromEnd > scroller.Viewport.Height)))
 
     // The landing asks: one message a ghost named, or the present
     // edge. The message's scroll rides the feed's token; the flash

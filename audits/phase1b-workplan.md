@@ -11,7 +11,7 @@ testing rule 2: a regression test that fails before the fix.
 
 ## Steps
 
-- [ ] **P17 — Shared slots dissolve the forks.** `TabStrip` grows a
+- [x] **P17 — Shared slots dissolve the forks.** `TabStrip` grows a
   badge slot (the waiting pill); `CommitRows.row` grows an actions-off
   switch; `Feed` grows a riding report (the from-end/extent arithmetic
   `Feed.Tail` already owns). Consumers move over: RemotesInbox drops its
@@ -130,6 +130,7 @@ testing rule 2: a regression test that fails before the fix.
 | Step | State | Notes |
 |---|---|---|
 | P17 | pending | slots: TabStrip badge, CommitRows actions-off, Feed riding report |
+| P17 | committed 2026-11-02 | `Tab.Badge: Control voption`; `Host.Actions: bool` (star stays); `Ride` struct + `OnRide` with report-only Tail; RemotesInbox on TabStrip+Feed, SearchView on CommitRows.row, ThreadPane on OnRide; inbox asks through OnRide (no restore path — OnNeedMore serves only the chase); gates zero hits on added lines |
 | P18 | pending | rule-9 five sites, compute callbacks, BUG-15, LEAK-1, two projections |
 | P19 | pending | arity records, receipt DU, shaping, de-inline, upcasts, yields |
 | P20 | pending | module shape: 14 small service files + AGENTS notes |

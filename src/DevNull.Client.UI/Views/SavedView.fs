@@ -403,6 +403,7 @@ module Parts =
       Ride = false
       Restore = ValueNone
       OnScroll = ValueNone
+      OnRide = ValueNone
       OnNeedMore = ValueNone
     }
 
@@ -445,6 +446,7 @@ let view
           }
         Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
         OnPin = ValueNone
+        Actions = true
         OnStar = fun commit -> dispatch(State.StarToggled commit)
         OnVote = fun commit -> dispatch(State.PollVoteRequested commit)
         OnPastel = fun commit -> dispatch(State.PastelGiven commit)

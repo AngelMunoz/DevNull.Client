@@ -88,6 +88,7 @@ module Parts =
         match current with
         | Some kind -> kind = info.Kind
         | None -> false)
+    Badge = ValueNone
     Choose = fun () -> dispatch(TabClicked info.Kind)
   }
 

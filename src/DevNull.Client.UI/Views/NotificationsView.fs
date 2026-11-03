@@ -809,6 +809,7 @@ module Parts =
       Ride = false
       Restore = ValueNone
       OnScroll = ValueNone
+      OnRide = ValueNone
       OnNeedMore = ValueNone
     }
 

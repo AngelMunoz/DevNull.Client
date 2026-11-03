@@ -584,6 +584,7 @@ let view
           }
         Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
         OnPin = ValueNone
+        Actions = true
         OnStar = fun commit -> dispatch(State.StarToggled commit)
         OnVote = fun commit -> dispatch(State.PollVoteRequested commit)
         OnPastel = fun commit -> dispatch(State.PastelGiven commit)
@@ -659,6 +660,7 @@ let view
       {
         Label = "Mentions"
         Active = System.Reactive.Linq.Observable.Return true
+        Badge = ValueNone
         Choose = ignore
       }
     ]

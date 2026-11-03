@@ -4,6 +4,7 @@ open System
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
+open Avalonia.Layout
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open DevNull.Client
@@ -11,8 +12,17 @@ open DevNull.Client
 type Tab = {
   Label: string
   Active: IObservable<bool>
+  Badge: Control voption
   Choose: unit -> unit
 }
+
+let contentOf(tab: Tab) : Control =
+  let label: Control = TextBlock().Text(tab.Label)
+
+  StackPanel()
+    .Orientation(Orientation.Horizontal)
+    .Spacing(6.0)
+    .Children([| label; yield! ValueOption.toArray tab.Badge |])
 
 let view(tabs: Tab list) : Control =
   let strip = Grid()
@@ -25,7 +35,7 @@ let view(tabs: Tab list) : Control =
     for index, tab in List.indexed tabs ->
       ToggleButton()
         .Classes(Theme.name Theme.TabButton)
-        .Content(tab.Label)
+        .Content(contentOf tab)
         .Column(index)
         .IsChecked(tab.Active |> Observable.map(fun active -> Nullable active))
         .OnClickHandler(fun _ _ -> tab.Choose())

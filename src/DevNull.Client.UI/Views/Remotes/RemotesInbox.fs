@@ -4,13 +4,11 @@ open System
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
-open Avalonia.Controls.Templates
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
-open MVUish.Avalonia.Collections
 open DevNull.Client
 open DevNull.Client.Components
 open DevNull.Client.Core.ApiTypes
@@ -344,76 +342,47 @@ module Parts =
       |> Observable.map(fun current ->
         current.State.Requests |> Option.defaultValue 0)
 
+    let waitingPill: Control =
+      let pill =
+        Border()
+          .Classes(Theme.name Theme.TabBadge)
+          .IsVisible(waiting |> Observable.map(fun count -> count > 0))
+          .Child(
+            TextBlock()
+              .Text(
+                waiting
+                |> Observable.map(fun count ->
+                  if count > 99 then "99+" else string count)
+              )
+          )
+
+      let tip =
+        TextBlock()
+          .Text(waiting |> Observable.map(fun count -> $"{count} waiting"))
+
+      ToolTip.SetTip(pill, tip)
+      pill
+
     let strip =
       PageChrome.rebuildOn(
         model,
         (fun current -> current.RequestsOn),
         fun current ->
-          let tabOf(tab: InboxTab, label: string) : Control =
-            let badge: Control array = [|
-              if tab = TabFetched then
-                let waitingPill =
-                  Border()
-                    .Classes(Theme.name Theme.TabBadge)
-                    .IsVisible(
-                      waiting |> Observable.map(fun count -> count > 0)
-                    )
-                    .Child(
-                      TextBlock()
-                        .Text(
-                          waiting
-                          |> Observable.map(fun count ->
-                            if count > 99 then "99+" else string count)
-                        )
-                    )
-
-                let tip =
-                  TextBlock()
-                    .Text(
-                      waiting |> Observable.map(fun count -> $"{count} waiting")
-                    )
-
-                ToolTip.SetTip(waitingPill, tip)
-                yield waitingPill
-            |]
-
-            let button =
-              Button()
-                .Classes(Theme.name Theme.TabButton)
-                .Padding(12.0, 8.0, 12.0, 6.0)
-                .Content(
-                  StackPanel()
-                    .Orientation(Orientation.Horizontal)
-                    .Spacing(6.0)
-                    .Children(
-                      [|
-                        yield (TextBlock().Text(label) :> Control)
-                        yield! badge
-                      |]
-                    )
-                )
-                .OnClickHandler(fun _ _ -> dispatch(State.TabChosen tab))
-
-            let active =
-              Theme.bindClass(
-                button,
-                Theme.TabButtonActive,
-                model |> Observable.map(fun current -> current.Tab = tab)
-              )
-
-            button.DetachedFromVisualTree.Add(fun _ -> active.Dispose())
-
-            button
-
-          let strip = StackPanel().Orientation(Orientation.Horizontal)
-
-          strip.Children [|
+          let tabs: TabStrip.Tab list = [
             for tab, label in RemotesRows.tabsOf current.RequestsOn ->
-              tabOf(tab, label)
-          |]
-          |> ignore
+              {
+                Label = label
+                Active = model |> Observable.map(fun next -> next.Tab = tab)
+                Badge =
+                  if tab = TabFetched then
+                    ValueSome waitingPill
+                  else
+                    ValueNone
+                Choose = fun () -> dispatch(State.TabChosen tab)
+              }
+          ]
 
-          strip
+          TabStrip.view tabs
       )
 
     ContentControl().Content(strip |> _.ToBinding())
@@ -438,42 +407,37 @@ module Parts =
 
     txt
 
-  /// The inbox column's rows: virtualized and keyed. The scroll-end
-  /// probe asks the update for the next page; the guards there keep it
-  /// from asking twice.
-  let rows(ctx: RowCtx, list: IObservable<State.InboxRow list>) : Control =
-    let template =
-      FuncDataTemplate<State.InboxRow>(
-        (fun item _ ->
-          if isNull(box item) then
-            Panel() :> Control
-          else
-            match item with
-            | State.InboxRow.Conversation(tab, row) ->
-              conversationRow(ctx, tab, row)
-            | State.InboxRow.Candidate person -> candidateRow(ctx, person)),
-        false
-      )
-
-    let items =
-      ItemsControl()
-        .ItemTemplate(template)
-        .ItemsPanel(FuncTemplate<Panel>(fun () -> VirtualizingStackPanel()))
-        .BindItemsSource(list, RemotesRows.rowKey)
-
-    let scroller = ScrollViewer().Content(items)
-
-    scroller.Name <- "RemotesInbox"
-    scroller.HorizontalScrollBarVisibility <- ScrollBarVisibility.Disabled
-
-    scroller.ScrollChanged.Add(fun _ ->
-      if
-        scroller.Extent.Height - scroller.Viewport.Height - scroller.Offset.Y <
-          240.0
-      then
-        ctx.Dispatch State.MoreWanted)
-
-    scroller
+  /// The inbox column's rows: the shared feed, whose riding report acts
+  /// as the scroll-end probe. The update's guards keep it from asking
+  /// twice.
+  let rows
+    (
+      ctx: RowCtx,
+      list: IObservable<State.InboxRow list>,
+      hasMore: IObservable<bool>
+    ) : Control =
+    (Feed.view {
+      Items = list
+      KeyOf = RemotesRows.rowKey
+      Row =
+        (fun item ->
+          match item with
+          | State.InboxRow.Conversation(tab, row) ->
+            conversationRow(ctx, tab, row)
+          | State.InboxRow.Candidate person -> candidateRow(ctx, person))
+      Footer = ValueNone
+      HasMore = hasMore
+      ScrollTo = ValueNone
+      Ride = false
+      Restore = ValueNone
+      OnScroll = ValueNone
+      OnRide =
+        ValueSome(fun ride ->
+          if ride.FromEnd < 240.0 then
+            ctx.Dispatch State.MoreWanted)
+      OnNeedMore = ValueNone
+    })
+      .Name("RemotesInbox")
 
   /// The quiet centered line the column says when its list says
   /// nothing: loading, empty, or nothing found.
@@ -672,6 +636,13 @@ module Parts =
 
     let list = model |> Observable.map RemotesRows.rowsOf
 
+    let hasMore =
+      model
+      |> Observable.map(fun current ->
+        let currentList = listTab(current.State, current.Tab)
+
+        current.Found.IsNone && currentList.HasMore)
+
     let column =
       let grid = Grid()
 
@@ -680,7 +651,7 @@ module Parts =
       grid.Children(
         inboxHead(model, dispatch).Row(0),
         tabRow(model, dispatch).Row(1),
-        rows(ctx, list).Row(2)
+        rows(ctx, list, hasMore).Row(2)
       )
 
     let line = quietLine(lineOf model).VerticalAlignment(VerticalAlignment.Top)

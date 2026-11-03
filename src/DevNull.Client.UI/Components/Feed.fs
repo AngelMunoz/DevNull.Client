@@ -47,32 +47,57 @@ type Restore
       elif this.More then
         needMore |> ValueOption.iter(fun ask -> ask())
 
+/// One scroll pass's reading place: whether the reader rides the
+/// bottom edge, the scroller's vertical offset, the height the rows
+/// exceed the viewport by, the distance from the bottom edge, and the
+/// viewport's height.
+[<Struct>]
+type Ride = {
+  Riding: bool
+  Offset: float
+  Room: float
+  FromEnd: float
+  Viewport: float
+}
+
 /// Where the reading stands at the feed's bottom edge: whether it
 /// rides that edge, and the extent the last scroll saw.
 type TailPlace = { Riding: bool; Extent: float }
 
 /// Keeps a riding reader at the bottom: each pass measures the scroll,
 /// sticks to the end while the extent grows under a riding reader, and
-/// stops once the reader scrolls away.
-type Tail() =
-  let mutable place = { Riding = true; Extent = 0.0 }
+/// stops once the reader scrolls away. A report-only tail computes the
+/// same place without moving the scroller.
+type Tail(stick: bool) =
+  member val Place = { Riding = true; Extent = 0.0 } with get, set
 
-  member _.Track(scroller: ScrollViewer) =
+  member this.Track(scroller: ScrollViewer) : Ride =
     let extent = scroller.Extent.Height
-    let room = extent - scroller.Viewport.Height
+    let viewport = scroller.Viewport.Height
+    let room = extent - viewport
     let fromEnd = room - scroller.Offset.Y
-    let current = place
+    let current = this.Place
 
     let riding =
       if fromEnd < 48.0 then
         true
       elif extent > current.Extent + 0.5 && current.Riding then
-        scroller.ScrollToEnd()
+        if stick then
+          scroller.ScrollToEnd()
+
         current.Riding
       else
         false
 
-    place <- { Riding = riding; Extent = extent }
+    this.Place <- { Riding = riding; Extent = extent }
+
+    {
+      Riding = riding
+      Offset = scroller.Offset.Y
+      Room = room
+      FromEnd = room - scroller.Offset.Y
+      Viewport = viewport
+    }
 
 type Props<'T when 'T: equality> = {
   Items: IObservable<'T list>
@@ -94,6 +119,10 @@ type Props<'T when 'T: equality> = {
   Restore: float voption
   /// Reports every settled scroll place, so the host can park it.
   OnScroll: (float -> unit) voption
+  /// Reports the reading place every settled scroll pass, so the host
+  /// can follow the bottom edge. A feed that sets this tracks the tail
+  /// even when `Ride` is off; it never sticks to the edge.
+  OnRide: (Ride -> unit) voption
   /// Asks the host for the next page while a remembered place sits
   /// beyond the loaded extent.
   OnNeedMore: (unit -> unit) voption
@@ -148,14 +177,22 @@ let view(props: Props<'T>) : ScrollViewer =
       Some chase
     | _ -> None
 
-  let tail = if props.Ride then Some(Tail()) else None
+  let tail =
+    if props.Ride || ValueOption.isSome props.OnRide then
+      Some(Tail(props.Ride))
+    else
+      None
 
   scroller.ScrollChanged.Add(fun _ ->
-    tail |> Option.iter(fun track -> track.Track scroller)
+    let ride = tail |> Option.map(fun track -> track.Track scroller)
 
     restore |> Option.iter(fun chase -> chase.Chase scroller)
 
-    props.OnScroll |> ValueOption.iter(fun park -> park scroller.Offset.Y))
+    props.OnScroll |> ValueOption.iter(fun park -> park scroller.Offset.Y)
+
+    ride
+    |> Option.iter(fun current ->
+      props.OnRide |> ValueOption.iter(fun report -> report current)))
 
   // A scroll signal reaches the feed's own scroller through a property
   // binding, so the subscription follows the scroller's life and

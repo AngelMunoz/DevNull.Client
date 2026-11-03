@@ -1063,6 +1063,7 @@ module Parts =
       Restore = (if place > 0.0 then ValueSome place else ValueNone)
       OnScroll =
         ValueSome(fun offset -> props.Env.Timeline.Remember(props.Log, offset))
+      OnRide = ValueNone
       OnNeedMore = ValueSome(fun () -> args.Dispatch State.MoreRequested)
     }
 
@@ -1095,6 +1096,7 @@ let view
         Flyout = Parts.flyoutOf props
         Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
         OnPin = ValueNone
+        Actions = true
         OnStar = fun commit -> dispatch(State.StarToggled commit)
         OnVote = fun commit -> dispatch(State.PollVoteRequested commit)
         OnPastel = fun commit -> dispatch(State.PastelGiven commit)

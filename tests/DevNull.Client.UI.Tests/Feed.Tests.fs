@@ -54,6 +54,7 @@ let tests =
                 Ride = false
                 Restore = ValueNone
                 OnScroll = ValueNone
+                OnRide = ValueNone
                 OnNeedMore = ValueNone
               }
 

@@ -435,53 +435,57 @@ let view
   (dispatch: Dispatch<State.Msg>)
   : Control =
 
-  let ctx: CommitCard.RowProps = {
-    OnEvent = State.CardEvent >> dispatch
-    Pasteis = model |> Observable.map(fun _ -> false)
-    ViewerId = props.SignedIn.Session.User.Id
-    Now = model |> Observable.map _.Now
-    PollChoices = model |> Observable.map(fun _ -> Map.empty)
-    Dense = false
-    Images = props.Env.ImageCache
-    Flyout =
-      ValueSome {
-        Fetch = props.Env.Profiles.Fetch
-        OnOpen =
-          fun username ->
-            Navigation.go(
-              props.Nav,
-              "/profile/" + Uri.EscapeDataString username,
-              ignore
-            )
-        OnOpenOrg =
-          fun handle ->
-            Navigation.go(
-              props.Nav,
-              "/org/" + Uri.EscapeDataString handle,
-              ignore
-            )
-        Cache = props.Env.ImageCache
-      }
-    Pin = ValueNone
-    Star =
-      ValueSome {
-        Command = fun commit -> dispatch(State.StarToggled commit)
-        Busy = System.Reactive.Linq.Observable.Return(None: string option)
-      }
-    Vote = ValueNone
-    Pastel = ValueNone
-    Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
-    Translation =
-      model
-      |> Observable.map(fun model ->
-        fun commit ->
-          TranslationModel.view {
-            Automatic = model.Automatic
-            Book = model.Translations
-            Now = model.Now
-            Commit = commit
-          })
-  }
+  let ctx =
+    CommitRows.row(
+      {
+        OnEvent = State.CardEvent >> dispatch
+        ViewerId = props.SignedIn.Session.User.Id
+        Images = props.Env.ImageCache
+        Flyout =
+          ValueSome {
+            Fetch = props.Env.Profiles.Fetch
+            OnOpen =
+              fun username ->
+                Navigation.go(
+                  props.Nav,
+                  "/profile/" + Uri.EscapeDataString username,
+                  ignore
+                )
+            OnOpenOrg =
+              fun handle ->
+                Navigation.go(
+                  props.Nav,
+                  "/org/" + Uri.EscapeDataString handle,
+                  ignore
+                )
+            Cache = props.Env.ImageCache
+          }
+        Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
+        OnPin = ValueNone
+        Actions = false
+        OnStar = fun commit -> dispatch(State.StarToggled commit)
+        OnVote = ignore
+        OnPastel = ignore
+        Translation =
+          model
+          |> Observable.map(fun current ->
+            fun commit ->
+              TranslationModel.view {
+                Automatic = current.Automatic
+                Book = current.Translations
+                Now = current.Now
+                Commit = commit
+              })
+      },
+      model,
+      (fun current -> {
+        Pasteis = false
+        Now = current.Now
+        PollChoices = Map.empty
+        Voting = None
+        Pinning = None
+      })
+    )
 
   let bodyKey(current: State.Model) =
     let answer = State.answerOf current

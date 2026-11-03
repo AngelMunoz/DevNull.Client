@@ -24,6 +24,7 @@ type Host = {
   Flyout: Source voption
   Zone: Zone
   OnPin: (Commit -> unit) voption
+  Actions: bool
   OnStar: Commit -> unit
   OnVote: Commit -> unit
   OnPastel: Commit -> unit
@@ -37,8 +38,11 @@ let row
 
   let busy = slices |> Observable.map _.Voting |> Slices.share
 
-  let slot(command: Commit -> unit) : ActionSlot voption =
+  let inline slot(command: Commit -> unit) : ActionSlot voption =
     ValueSome { Command = command; Busy = busy }
+
+  let inline offered(command: Commit -> unit) : ActionSlot voption =
+    if host.Actions then slot command else ValueNone
 
   let pin: PinToggle voption =
     match host.OnPin with
@@ -60,8 +64,8 @@ let row
     Flyout = host.Flyout
     Pin = pin
     Star = slot host.OnStar
-    Vote = slot host.OnVote
-    Pastel = slot host.OnPastel
+    Vote = offered host.OnVote
+    Pastel = offered host.OnPastel
     Translation = host.Translation
     Zone = host.Zone
   }

@@ -124,6 +124,7 @@ let feedColumn(feed: FeedProps<'row>) : Control =
     Ride = false
     Restore = ValueNone
     OnScroll = ValueNone
+    OnRide = ValueNone
     OnNeedMore = ValueNone
   }
 

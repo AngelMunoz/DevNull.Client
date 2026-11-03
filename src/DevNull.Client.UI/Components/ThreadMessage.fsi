@@ -70,7 +70,7 @@ type BubbleProps = {
   Author: User option
   Media: Media
   ShowsStatus: IObservable<bool>
-  Receipt: IObservable<(bool * string) option>
+  Receipt: IObservable<Receipt option>
   Preview: IObservable<LinkPreview option>
   Reactions: IObservable<ReactionChip list>
   ReactionChoices: IObservable<ReactionChoices>
@@ -107,6 +107,18 @@ type RunProps = {
   Bubble: Message -> BubbleProps
   OnRetry: PendingSend -> unit
 }
+
+/// One message body's readable content, once its words are clean:
+/// the words, the voice note, the pictures, or nothing.
+type BodySummary =
+  | Text of words: string
+  | Voice
+  | Images of count: int
+  | Empty
+
+/// One message's body as the snippet lines read it: links dropped,
+/// then its words, its voice note, or its pictures.
+val summaryOf: message: Message -> BodySummary
 
 /// One message bubble: the body, its voice, images, link card, reply
 /// ghost, reactions, pin, and receipts.

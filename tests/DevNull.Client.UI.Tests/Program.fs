@@ -28,6 +28,7 @@ let main argv =
       Leaks.tests
       FeedTests.tests
       App.tests
+      App.notificationDayTests
       Search.tests
       Search.completionTests
       Composer.tests
@@ -38,6 +39,7 @@ let main argv =
       Unread.tests
       Remotes.tests
       RemotesView.tests
+      RemotesView.receiptTests
       RemotesView.threadTests
       RemotesView.composerTests
       RemotesView.manageTests

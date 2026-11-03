@@ -38,7 +38,7 @@ let internal handOver (cancelled: bool, show: Bitmap -> unit) (bitmap: Bitmap) =
 type Loader(props: Props) as this =
   inherit ContentControl()
 
-  let placeholder: Control = Panel() :> Control
+  let placeholder: Control = Panel()
 
   // The load's token source is the control's lifecycle state, the one
   // mutable field; attach and detach own it, both on the UI thread.

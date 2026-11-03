@@ -30,6 +30,13 @@ type MentionTone =
   | Accent
   | OnFill
 
+[<Struct>]
+type BodyArgs = {
+  Flyout: Source voption
+  Tone: MentionTone
+  Mentions: Mention list
+}
+
 /// What one card reports up: open the thread, reveal the reply
 /// composer, walk more replies of a thread preview, start a quote,
 /// choose a poll option, or show the commit translated.
@@ -238,16 +245,10 @@ module Parts =
 
   /// The body text with its mentions wrapped, flowing the way the
   /// site's inline links do.
-  let textWithMentions
-    (
-      flyout: Source voption,
-      tone: MentionTone,
-      text: string,
-      mentions: Mention list
-    ) : Control =
-    match mentions with
+  let textWithMentions(args: BodyArgs, text: string) : Control =
+    match args.Mentions with
     | [] -> TextBlock().Text(text).TextWrapping(TextWrapping.Wrap)
-    | _ ->
+    | mentions ->
       let block = TextBlock().TextWrapping(TextWrapping.Wrap)
       let inlines = InlineCollection()
       block.Inlines <- inlines
@@ -257,19 +258,13 @@ module Parts =
         match piece with
         | Plain plain -> inlines.Add(Run plain) |> ignore
         | Handle mention ->
-          inlines.Add(handleInline(flyout, tone, mention)) |> ignore)
+          inlines.Add(handleInline(args.Flyout, args.Tone, mention)) |> ignore)
 
       block
 
-  let segmentView
-    (
-      flyout: Source voption,
-      tone: MentionTone,
-      mentions: Mention list,
-      segment: Segment
-    ) : Control =
+  let segmentView(args: BodyArgs, segment: Segment) : Control =
     match segment with
-    | TextSegment text -> textWithMentions(flyout, tone, text, mentions)
+    | TextSegment text -> textWithMentions(args, text)
     | CodeSegment code ->
       Border()
         .Classes(Theme.name Theme.SurfaceBack)
@@ -296,25 +291,26 @@ module Parts =
         )
 
   /// One body from its parts, whatever carries it.
-  let bodyGen
-    (
-      flyout: Source voption,
-      tone: MentionTone,
-      text: string,
-      segments: Segment list,
-      mentions: Mention list
-    ) : Control =
+  let bodyGen(args: BodyArgs, text: string, segments: Segment list) : Control =
     match segments with
-    | [] -> textWithMentions(flyout, tone, text, mentions)
+    | [] -> textWithMentions(args, text)
     | segments ->
       StackPanel().Children [|
-        for segment in segments -> segmentView(flyout, tone, mentions, segment)
+        for segment in segments -> segmentView(args, segment)
       |]
 
   /// The body over any source: the segments with their mentions, the
   /// plain text when the payload carries no segments.
   let bodyOf(flyout: Source voption, commit: Commit) : Control =
-    bodyGen(flyout, Accent, commit.Body, commit.BodySegments, commit.Mentions)
+    bodyGen(
+      {
+        Flyout = flyout
+        Tone = Accent
+        Mentions = commit.Mentions
+      },
+      commit.Body,
+      commit.BodySegments
+    )
 
   /// The body a card shows: the translated segments while a translation
   /// shows, the commit's own otherwise. Translated segments carry no
@@ -331,11 +327,13 @@ module Parts =
             match view with
             | ValueSome { Body = Some translated } ->
               bodyGen(
-                props.Flyout,
-                Accent,
+                {
+                  Flyout = props.Flyout
+                  Tone = Accent
+                  Mentions = []
+                },
                 commit.Body,
-                translated.BodySegments,
-                []
+                translated.BodySegments
               )
             | _ -> original
         )
@@ -1527,15 +1525,8 @@ let feedRow (props: RowProps) (node: CommitNode) : Control =
 /// One body from its segments — the text with its mentions wrapped,
 /// the code blocks boxed — whatever carries it: a commit card or a
 /// chat bubble.
-let body
-  (
-    flyout: Source voption,
-    text: string,
-    segments: Segment list,
-    mentions: Mention list,
-    tone: MentionTone
-  ) : Control =
-  Parts.bodyGen(flyout, tone, text, segments, mentions)
+let body(args: BodyArgs, text: string, segments: Segment list) : Control =
+  Parts.bodyGen(args, text, segments)
 
 /// The shared context of one reply chain: the row props, the nesting
 /// depth, the lane and handle of the parent the chain hangs from, and
@@ -1752,21 +1743,20 @@ let replyBlock
       // no gap, and nothing reaches back into the card (the feed's
       // virtualizing panel would clip it).
       if not replies.IsEmpty then
-        yield
-          StackPanel()
-            .Margin(40.0, 0.0, 0.0, 0.0)
-            .Children(
-              chainRows(
-                {
-                  Props = props
-                  Depth = 0
-                  ParentLane = lane
-                  ParentHandle = commit.Author.Handle
-                  Grow = ValueNone
-                },
-                replies
-              )
+        StackPanel()
+          .Margin(40.0, 0.0, 0.0, 0.0)
+          .Children(
+            chainRows(
+              {
+                Props = props
+                Depth = 0
+                ParentLane = lane
+                ParentHandle = commit.Author.Handle
+                Grow = ValueNone
+              },
+              replies
             )
+          )
 
       if remaining > 0 then
         let label =
@@ -1774,32 +1764,31 @@ let replyBlock
           | 1 -> "Show the last reply"
           | count -> $"Show {count} more replies"
 
-        yield
-          Button()
-            .Name("MoreReplies")
-            .Classes(Theme.name Theme.GhostButton)
-            .Padding(4.0, 2.0, 4.0, 2.0)
-            .Margin(48.0, 4.0, 0.0, 4.0)
-            .HorizontalAlignment(HorizontalAlignment.Left)
-            .Content(
-              StackPanel()
-                .Orientation(Orientation.Horizontal)
-                .Spacing(6.0)
-                .Children(
-                  Ellipse()
-                    .Width(10.0)
-                    .Height(10.0)
-                    .StrokeThickness(1.5)
-                    .StrokeDashArray(
-                      Avalonia.Collections.AvaloniaList<double>(2.0, 2.0)
-                    )
-                    .Classes(Theme.name Theme.MutedEdge),
-                  TextBlock().Text(label)
-                )
-            )
-            .OnClickHandler(fun _ args ->
-              args.Handled <- true
-              props.OnEvent(MoreRepliesRequested commit))
+        Button()
+          .Name("MoreReplies")
+          .Classes(Theme.name Theme.GhostButton)
+          .Padding(4.0, 2.0, 4.0, 2.0)
+          .Margin(48.0, 4.0, 0.0, 4.0)
+          .HorizontalAlignment(HorizontalAlignment.Left)
+          .Content(
+            StackPanel()
+              .Orientation(Orientation.Horizontal)
+              .Spacing(6.0)
+              .Children(
+                Ellipse()
+                  .Width(10.0)
+                  .Height(10.0)
+                  .StrokeThickness(1.5)
+                  .StrokeDashArray(
+                    Avalonia.Collections.AvaloniaList<double>(2.0, 2.0)
+                  )
+                  .Classes(Theme.name Theme.MutedEdge),
+                TextBlock().Text(label)
+              )
+          )
+          .OnClickHandler(fun _ args ->
+            args.Handled <- true
+            props.OnEvent(MoreRepliesRequested commit))
     |]
 
     StackPanel().Children(children)

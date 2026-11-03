@@ -6,7 +6,7 @@ open Navs
 /// success. The router answers with a result, so a failed navigation
 /// is a silent no-op only by accident: this helper reports the error
 /// through `onError`.
-val inline go: nav: INavigable * url: string * onError: (string -> unit) -> unit
+val go: nav: INavigable * url: string * onError: (string -> unit) -> unit
 
 /// The sidebar section a URL belongs to, so the shell can highlight one
 /// item at a time.

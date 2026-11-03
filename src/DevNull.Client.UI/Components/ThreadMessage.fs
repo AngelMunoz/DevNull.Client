@@ -80,7 +80,7 @@ type BubbleProps = {
   Author: User option
   Media: Media
   ShowsStatus: IObservable<bool>
-  Receipt: IObservable<(bool * string) option>
+  Receipt: IObservable<Receipt option>
   Preview: IObservable<LinkPreview option>
   Reactions: IObservable<ReactionChip list>
   ReactionChoices: IObservable<ReactionChoices>
@@ -118,11 +118,50 @@ type RunProps = {
   OnRetry: PendingSend -> unit
 }
 
+type BodySummary =
+  | Text of words: string
+  | Voice
+  | Images of count: int
+  | Empty
+
 /// One author's name as the receipt and ghost lines know it.
 let authorName(viewerId: string, who: User option, authorId: string) : string =
   who
   |> Option.map _.Name
   |> Option.defaultValue(if authorId = viewerId then "You" else "Someone")
+
+let wordsOf(body: string) : string =
+  let body = body.Replace("\r", " ").Replace("\n", " ")
+
+  // The site's snippet: links fall away, so the words carry it.
+  let words =
+    body.Split(' ')
+    |> Array.filter(fun word ->
+      not(word.StartsWith "http://" || word.StartsWith "https://"))
+
+  String.concat " " words |> _.Trim()
+
+let summaryOfParts(trimmed: string, voice: bool, images: int) : BodySummary =
+  let words = if trimmed = "" then None else Some(Text trimmed)
+
+  let note = if voice then Some Voice else None
+  let pictures = if images > 0 then Some(Images images) else None
+
+  words
+  |> Option.orElse note
+  |> Option.orElse pictures
+  |> Option.defaultValue Empty
+
+let summaryOf(message: Message) : BodySummary =
+  summaryOfParts(
+    wordsOf message.Body,
+    message.Voice.IsSome,
+    message.Images.Length
+  )
+
+/// One answered message's body as the reply ghost reads it.
+let summaryOfReply(reply: MessageParent) : BodySummary =
+  summaryOfParts(wordsOf reply.Body, reply.HasVoice, reply.ImagesCount)
 
 /// The reply ghost: the message a bubble answers, peeking out above
 /// it. A click walks the thread to the original.
@@ -130,24 +169,11 @@ let ghost
   (walk: int -> unit, reply: MessageParent, mine: bool, author: string)
   : Control =
   let snippet =
-    let body = reply.Body.Replace("\r", " ").Replace("\n", " ")
-
-    // The site's snippet: links fall away, so the words carry it.
-    let words =
-      body.Split(' ')
-      |> Array.filter(fun word ->
-        not(word.StartsWith "http://" || word.StartsWith "https://"))
-
-    let trimmed = String.concat " " words |> _.Trim()
-
-    if trimmed <> "" then
-      trimmed
-    elif reply.HasVoice then
-      "voice note"
-    elif reply.ImagesCount > 1 then
-      $"{reply.ImagesCount} images"
-    else
-      "image"
+    match summaryOfReply reply with
+    | Text words -> words
+    | Voice -> "voice note"
+    | Images count -> if count > 1 then $"{count} images" else "image"
+    | Empty -> "image"
 
   Button()
     .Classes(Theme.name Theme.GhostButton)
@@ -282,7 +308,7 @@ let linkCard
 /// rail once pulled — beside the word. Live from the thread, because
 /// the read position moves under a built row.
 let receipts
-  (line: IObservable<(bool * string) option>, message: Message, mine: bool)
+  (line: IObservable<Receipt option>, message: Message, mine: bool)
   : Control voption =
   if not mine then
     ValueNone
@@ -291,11 +317,12 @@ let receipts
 
     // The glyph: my filled dot while only pushed; once pulled, my
     // dot joined by the rail to the partner's lane-colored one.
-    let glyph(pulled: bool) : Control =
+    let glyph(receipt: Receipt) : Control =
       let mine =
         Ellipse().Classes(Theme.name Theme.AccentDot).Width(8.0).Height(8.0)
 
-      if pulled then
+      match receipt with
+      | Pulled _ ->
         let theirs = Ellipse().Width(8.0).Height(8.0)
 
         Theme.laneFill(theirs, partnerLane)
@@ -313,8 +340,7 @@ let receipts
               .VerticalAlignment(VerticalAlignment.Center),
             theirs
           )
-      else
-        mine
+      | Pushed -> mine
 
     let readings = line |> Observable.distinctUntilChanged
 
@@ -323,13 +349,18 @@ let receipts
         .Content(
           readings
           |> Observable.map(function
-            | Some(pulled, word) ->
+            | Some receipt ->
+              let word =
+                match receipt with
+                | Pulled word -> word
+                | Pushed -> "pushed"
+
               StackPanel()
                 .Orientation(Orientation.Horizontal)
                 .Spacing(5.0)
                 .VerticalAlignment(VerticalAlignment.Center)
                 .Children(
-                  glyph pulled,
+                  glyph receipt,
                   TextBlock()
                     .Classes(Theme.name Theme.Mono)
                     .FontSize(11.0)
@@ -559,11 +590,13 @@ let bubble(props: BubbleProps) : Control =
 
   let body =
     CommitCard.body(
-      ValueNone,
+      {
+        Flyout = ValueNone
+        Tone = if mine then CommitCard.OnFill else CommitCard.Accent
+        Mentions = who.Mentions
+      },
       who.Body,
-      who.BodySegments,
-      who.Mentions,
-      (if mine then CommitCard.OnFill else CommitCard.Accent)
+      who.BodySegments
     )
 
   let tray = reactionTray(choices, actions.React)
@@ -727,7 +760,15 @@ let stagedBubble(onRetry: PendingSend -> unit, pending: PendingSend) : Control =
     pending.Message.Body
     |> Option.toArray
     |> Array.map(fun text ->
-      CommitCard.body(ValueNone, text, [], [], CommitCard.Accent))
+      CommitCard.body(
+        {
+          Flyout = ValueNone
+          Tone = CommitCard.Accent
+          Mentions = []
+        },
+        text,
+        []
+      ))
 
   let statusRows: Control array = [|
     StackPanel()

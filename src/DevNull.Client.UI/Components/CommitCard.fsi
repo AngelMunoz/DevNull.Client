@@ -116,18 +116,21 @@ type MentionTone =
   | Accent
   | OnFill
 
+/// The mention context one body shares: where a handle's hover card
+/// attaches, how its accent reads, and the mentions the text confirms.
+[<Struct>]
+type BodyArgs = {
+  Flyout: Source voption
+  Tone: MentionTone
+  Mentions: Mention list
+}
+
 /// One body from its segments — the text with its mentions wrapped,
 /// the code blocks boxed — whatever carries it: a commit card or a
 /// chat bubble. A mention that names an organization opens the
 /// organization page through the source's navigation; an unknown kind
 /// stays plain accent text.
-val body:
-  flyout: Source voption *
-  text: string *
-  segments: Segment list *
-  mentions: Mention list *
-  tone: MentionTone ->
-    Control
+val body: args: BodyArgs * text: string * segments: Segment list -> Control
 
 /// Everything one card row needs from its host page: where its events
 /// go, the signed-in viewer, the live pastéis flag and clock, the poll

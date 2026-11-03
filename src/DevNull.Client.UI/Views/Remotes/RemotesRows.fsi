@@ -60,12 +60,11 @@ module RemotesRows =
   /// The emoji the user reacts with, most used first.
   val frequentReactions: usage: ReactionUse list -> string list
 
-  /// The word and shape one message's meta line carries: `pushed`
-  /// until the other side pulled, then `pulled` with its own clock
-  /// time in a direct thread, or the org's pull count.
+  /// The receipt one message's meta line carries: `Pushed` until the
+  /// other side pulled, then `Pulled` with its own clock time in a
+  /// direct thread, or the org's pull count.
   val receiptWord:
-    isOrg: bool * thread: ThreadState * message: Message ->
-      (bool * string) option
+    isOrg: bool * thread: ThreadState * message: Message -> Receipt option
 
   /// The who-reacted line: the viewer, the partner, a member the
   /// thread carries — each as their handle — or someone the payload

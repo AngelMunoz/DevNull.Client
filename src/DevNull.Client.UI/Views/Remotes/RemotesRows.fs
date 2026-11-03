@@ -376,7 +376,7 @@ module RemotesRows =
   /// The word and shape one message's meta line carries.
   let receiptWord
     (isOrg: bool, thread: ThreadState, message: Message)
-    : (bool * string) option =
+    : Receipt option =
     if isOrg then
       let others =
         thread.Members
@@ -391,18 +391,18 @@ module RemotesRows =
       elif
         List.length pulled = List.length others && List.length others > 3
       then
-        Some(true, "pulled by everyone")
+        Some(Pulled "pulled by everyone")
       else
-        Some(true, $"pulled by {List.length pulled} of {List.length others}")
+        Some(Pulled $"pulled by {List.length pulled} of {List.length others}")
     elif
       thread.PartnerReadThroughId >= message.Id
       && thread.PartnerReadThroughId > 0
     then
       let pulledAt = message.CreatedAt.LocalDateTime.ToString("h:mm tt")
 
-      Some(true, $"pulled {pulledAt}")
+      Some(Pulled $"pulled {pulledAt}")
     else
-      Some(false, "pushed")
+      Some Pushed
 
   /// The who-reacted line.
   let whoNames

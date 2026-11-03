@@ -19,6 +19,12 @@ type ChatTarget =
   | Partner of user: User
   | Org of org: OrgRef
 
+/// How one sent message's meta line reads: on its way, or pulled by
+/// the other side with the word the line shows.
+type Receipt =
+  | Pulled of string
+  | Pushed
+
 /// One message to push: the body, the reply it answers, the staged
 /// images, the link chosen for the card, and a voice note, which
 /// rides alone or with a reply.

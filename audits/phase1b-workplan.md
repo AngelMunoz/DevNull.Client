@@ -39,7 +39,7 @@ testing rule 2: a regression test that fails before the fix.
   every route (Shell.fs:1312). Verify: rule-9 grep at zero unexplained,
   `report`/store writes grep inside update at zero, LEAK-1 test green,
   suites green.
-- [ ] **P19 — Arity, types, and shaping.** `BodyArgs`-style records for
+- [x] **P19 — Arity, types, and shaping.** `BodyArgs`-style records for
   `CommitCard.body` (5 params, fsi:124), `bodyGen`, `textWithMentions`,
   `segmentView`; `readInbox` (Remotes.fs:171); `ScheduledView.row`
   (:428); the receipt pair `(bool * string)` across
@@ -53,6 +53,23 @@ testing rule 2: a regression test that fails before the fix.
   (AsyncImage.fs:38, ThreadVoice.fs:566); CommitCard's two bare yields
   (:1755, :1777). Verify: 4+-parameter grep at zero unexplained, gates
   clean, suites green.
+- [ ] **P19b — The arity stragglers the sweep surfaced.** The complete
+  4+-parameter census: eleven real hits. The five already owned are
+  `CommitCard.iconAction`, `CommitCard.railCell`, `ThreadMessage.ghost`,
+  `ThreadMessage.hoverActions`, and `RemotesState.landLinkPreview`. The
+  six the audit missed: `src/DevNull.Client.Linux/GStreamer.fs:383`
+  `play`, `src/DevNull.Client.Windows/Audio.fs:393` `openPlayback`,
+  `src/DevNull.Client.UI/Components/FeedParts.fs:124` `laneElbowAt`,
+  `src/DevNull.Client.UI/Views/CommitDetailView.fs:173` `replies`,
+  `src/DevNull.Client.UI/Remotes.fs:343` `walk`, and
+  `src/DevNull.Client.UI/Remotes.fs:704` `landed`. Same treatment as
+  P19: contextual records where a context exists, dead parameters
+  deleted, callers named and updated in the same step. Two scan false
+  positives stay out: `TranslationModel.walk`/`auto` and
+  `RemotesState.withFirstPage` have three real parameters; commas
+  inside their `Result<_,_>` and `Map<_,_>` annotations fooled the
+  counter. Verify: the 4+-parameter scan over the whole tree names zero
+  ownerless hits.
 - [ ] **P20 — Module shape, the small services.** Migrate to the
   `fsharp-module-shape` (interfaces first, one Helpers block, one module
   per interface, `create` factory): Stores, SettingsStore, UiClock,
@@ -131,8 +148,8 @@ testing rule 2: a regression test that fails before the fix.
 |---|---|---|
 | P17 | pending | slots: TabStrip badge, CommitRows actions-off, Feed riding report |
 | P17 | committed 2026-11-02 | `Tab.Badge: Control voption`; `Host.Actions: bool` (star stays); `Ride` struct + `OnRide` with report-only Tail; RemotesInbox on TabStrip+Feed, SearchView on CommitRows.row, ThreadPane on OnRide; inbox asks through OnRide (no restore path — OnNeedMore serves only the chase); gates zero hits on added lines |
-| P18 | committed 2026-11-03 | refactor: refactor: subscriptions get owners, effects ride commands, canceled bitmaps dispose (P18) (P18) |
-| P19 | pending | arity records, receipt DU, shaping, de-inline, upcasts, yields |
+| P18 | committed 2026-11-03 | refactor: subscriptions get owners, effects ride commands, canceled bitmaps dispose — BUG-15/LEAK-1 dead; OnBodyReady replaces the name lookup; debounce restored on an attach-owned SerialDisposable (architect directive) |
+| P19 | committed 2026-11-03 | refactor: arity records, the receipt union, and honest match shapes |
 | P20 | pending | module shape: 14 small service files + AGENTS notes |
 | P21 | pending | module shape: Env, Remotes, DeviceAuth + Startup pairing |
 | P22 | pending | rule-8 comment migration for the remaining debt |

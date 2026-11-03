@@ -4,7 +4,7 @@ open System
 open IcedTasks
 open Navs
 
-let inline go(nav: INavigable, url: string, onError: string -> unit) : unit =
+let go(nav: INavigable, url: string, onError: string -> unit) : unit =
   asyncEx {
     match! nav.Navigate url with
     | Ok _ -> ()
@@ -12,23 +12,29 @@ let inline go(nav: INavigable, url: string, onError: string -> unit) : unit =
   }
   |> Async.StartImmediate
 
-let sectionOf(url: string) : string voption =
-  let prefix prefix' =
-    url.StartsWith(prefix', StringComparison.Ordinal)
+type Route =
+  | Exact of string
+  | Prefix of string
 
-  if url = "/" || prefix "/log" || prefix "/commit" then
-    ValueSome "log"
-  elif prefix "/notifications" then
-    ValueSome "notifications"
-  elif prefix "/remotes" then
-    ValueSome "remotes"
-  elif prefix "/profile" then
-    ValueSome "profile"
-  elif prefix "/saved" then
-    ValueSome "saved"
-  elif prefix "/settings" then
-    ValueSome "settings"
-  elif prefix "/signin" then
-    ValueSome "signin"
-  else
-    ValueNone
+let routes: (Route * string) list = [
+  Exact "/", "log"
+  Prefix "/log", "log"
+  Prefix "/commit", "log"
+  Prefix "/notifications", "notifications"
+  Prefix "/remotes", "remotes"
+  Prefix "/profile", "profile"
+  Prefix "/saved", "saved"
+  Prefix "/settings", "settings"
+  Prefix "/signin", "signin"
+]
+
+let routeMatches(url: string, route: Route) : bool =
+  match route with
+  | Exact path -> url = path
+  | Prefix path -> url.StartsWith(path, StringComparison.Ordinal)
+
+let sectionOf(url: string) : string voption =
+  routes
+  |> List.tryFind(fun (route, _) -> routeMatches(url, route))
+  |> Option.map snd
+  |> ValueOption.ofOption

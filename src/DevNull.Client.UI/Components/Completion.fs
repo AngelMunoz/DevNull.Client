@@ -211,12 +211,10 @@ let view
 
         if mentions.IsEmpty && not current.Caption then
           Quiet(
-            if current.Searching then
-              "Searching…"
-            elif current.Throttled then
-              "error: too many searches, give it a few seconds"
-            else
-              $"fatal: no developers match '{current.Query}'"
+            match current.Searching, current.Throttled with
+            | true, _ -> "Searching…"
+            | _, true -> "error: too many searches, give it a few seconds"
+            | _ -> $"fatal: no developers match '{current.Query}'"
           )
       ]
 

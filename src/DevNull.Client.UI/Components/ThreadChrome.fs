@@ -9,6 +9,7 @@ open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open DevNull.Client
+open DevNull.Client.Components.ThreadMessage
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Icons
 open DevNull.Client.RemotesState
@@ -145,19 +146,11 @@ let notice(notice: IObservable<string option>) : Control =
 /// One pinned message as a snippet: its words without links, or the
 /// word for what a bodyless message carries.
 let snippetOf(message: Message) : string =
-  let body = message.Body.Replace("\r", " ").Replace("\n", " ")
-
-  let words =
-    body.Split(' ')
-    |> Array.filter(fun word ->
-      not(word.StartsWith "http://" || word.StartsWith "https://"))
-
-  let trimmed = String.concat " " words |> _.Trim()
-
-  if trimmed <> "" then trimmed
-  elif message.Voice.IsSome then "voice note"
-  elif not message.Images.IsEmpty then "image"
-  else ""
+  match summaryOf message with
+  | Text words -> words
+  | Voice -> "voice note"
+  | Images _ -> "image"
+  | Empty -> ""
 
 /// One pinned message's author as the banner and panel name them:
 /// the member's own name, the user id only when the member is gone.

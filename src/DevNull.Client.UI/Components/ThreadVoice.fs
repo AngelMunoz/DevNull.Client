@@ -563,4 +563,4 @@ type VoicePlayer(voice: VoiceCtx) as this =
     this.Content <- root
 
 /// One message's voice note: the waveform player.
-let voiceChip(voice: VoiceCtx) : Control = VoicePlayer(voice) :> Control
+let voiceChip(voice: VoiceCtx) : Control = VoicePlayer(voice)

@@ -20,6 +20,10 @@ type ChatTarget =
   | Partner of user: User
   | Org of org: OrgRef
 
+type Receipt =
+  | Pulled of string
+  | Pushed
+
 /// One message to push: the body, the reply it answers, the staged
 /// images, the link chosen for the card, and a voice note, which
 /// rides alone or with a reply.

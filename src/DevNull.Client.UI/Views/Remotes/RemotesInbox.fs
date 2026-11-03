@@ -460,6 +460,36 @@ module Parts =
       .Margin(12.0, 24.0, 12.0, 12.0)
       .TextWrapping(TextWrapping.Wrap)
 
+  /// How the inbox column's quiet line reads for its inputs.
+  type Line =
+    | NothingFound
+    | EmptyTab
+    | Loading
+    | Quiet
+
+  let lineState
+    (found: State.SearchFound option, items: Conversation list option)
+    : Line =
+    match
+      found
+      |> Option.map(fun result ->
+        result.Conversations.IsEmpty && result.Candidates.IsEmpty)
+    with
+    | Some true -> NothingFound
+    | Some false -> Quiet
+    | None ->
+      match items with
+      | Some [] -> EmptyTab
+      | None -> Loading
+      | Some _ -> Quiet
+
+  let lineWords(tab: InboxTab, line: Line) : string =
+    match line with
+    | NothingFound -> "nothing found"
+    | EmptyTab -> RemotesRows.emptyLine tab
+    | Loading -> "loading the inbox…"
+    | Quiet -> ""
+
   /// The line the column says over its rows: nothing while rows show,
   /// the loading word while the tab's first page is out, the empty
   /// word once the list holds nothing, and the nothing-found word
@@ -469,20 +499,7 @@ module Parts =
     |> Observable.map(fun current ->
       let list = listTab(current.State, current.Tab)
 
-      if current.Found.IsSome then
-        if
-          current.Found.Value.Conversations.IsEmpty
-          && current.Found.Value.Candidates.IsEmpty
-        then
-          "nothing found"
-        else
-          ""
-      elif list.Items |> Option.contains [] then
-        RemotesRows.emptyLine current.Tab
-      elif list.Items.IsNone then
-        "loading the inbox…"
-      else
-        "")
+      lineWords(current.Tab, lineState(current.Found, list.Items)))
 
   /// The org-create picker: a quiet button whose flyout takes an
   /// optional 60-char name and the members picked from the search's

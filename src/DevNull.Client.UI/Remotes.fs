@@ -63,6 +63,16 @@ type ThreadRead = {
 /// One inbox page read, with whether the pin state moved.
 type InboxRead = { Page: Inbox; PinsMoved: bool }
 
+/// One inbox page request: the credentials and key it signs with, the
+/// tab, and the cursor before which the page sits.
+[<Struct>]
+type InboxPageRead = {
+  SignEnv: SignEnv
+  KeyFile: string voption
+  Tab: InboxTab
+  Before: string option
+}
+
 /// One step of a tab rebuild's walk: the rows it gathered, and how
 /// many pages it took.
 type WalkStep = {
@@ -168,22 +178,16 @@ let readThread
     |> AsyncResult.map OrgFresh
 
 /// One inbox page read, refused when the session holds no key.
-let readInbox
-  (
-    signEnv: SignEnv,
-    keyFile: string voption,
-    tab: InboxTab,
-    before: string option
-  ) : Async<Result<Inbox, AppError>> =
-  match keyFile with
+let readInbox(read: InboxPageRead) : Async<Result<Inbox, AppError>> =
+  match read.KeyFile with
   | ValueSome keyFile ->
     CoreRemotes.inbox(
-      signEnv,
+      read.SignEnv,
       {
         KeyFile = keyFile
-        Tab = tab
+        Tab = read.Tab
         Search = None
-        Before = before
+        Before = read.Before
       }
     )
   | ValueNone -> async { return Error(SignInFailed "signed out") }
@@ -876,7 +880,14 @@ type RemotesStore(workers: RemotesWorkers, session: SessionStore, log: ILogger) 
     Read = read
     KeyFile = keyFile
     CanRun = fun () -> session.SignedIn.IsSome
-    CallInbox = fun (tab, before) -> readInbox(signEnv, keyFile(), tab, before)
+    CallInbox =
+      fun (tab, before) ->
+        readInbox {
+          SignEnv = signEnv
+          KeyFile = keyFile()
+          Tab = tab
+          Before = before
+        }
     CallThread = fun threadRead -> readThread(signEnv, threadRead)
     Push =
       fun (pending, target) ->

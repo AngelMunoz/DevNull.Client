@@ -178,6 +178,109 @@ let clickWhenShown(window: Window, text: string) : Async<unit> = async {
   do! onUiAsync(fun () -> buttonWithText(window, text) |> Option.iter click)
 }
 
+let notificationDayTests =
+  testList "notification inbox rows" [
+    testCaseAsync
+      "duplicate groups keep one row and break days at the boundary"
+      (async {
+        let notificationOf(groupId: string, at: string, body: string) =
+          notificationJson
+            .Replace("01a15752-d17c-7065-b076-99e5bdad596d", $"{groupId}-{at}")
+            .Replace("01a15751-bf69-7261-a486-e524bcb4d8e8", groupId)
+            .Replace("2026-10-20T04:17:19Z", at)
+            .Replace("It was DNS.", body)
+
+        let firstDay = "2026-10-21T04:17:19Z"
+        let secondDay = "2026-10-20T04:17:19Z"
+
+        let kept = notificationOf("group-alpha", firstDay, "Alpha kept.")
+
+        let dropped = notificationOf("group-alpha", secondDay, "Alpha dropped.")
+
+        let beta = notificationOf("group-beta", secondDay, "Beta kept.")
+
+        let inbox =
+          sprintf
+            """{"data":[%s],"links":{},"meta":{"per_page":20,"next_cursor":null,"prev_cursor":null},"filters":{"type":"all"},"read_at":"2026-10-20T04:20:00Z"}"""
+            (String.concat "," [ kept; dropped; beta ])
+
+        let api =
+          FakeApi(fun request ->
+            if request.Target.StartsWith "/api/v1/notifications" then
+              ok inbox
+            elif request.Target.StartsWith "/api/v1/log/" then
+              ok logPageJson
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Notifications")
+
+        let! alphaShown = showsText(window, "Alpha kept.")
+
+        Expect.isTrue alphaShown "the kept group row never rendered"
+
+        let! betaShown = showsText(window, "Beta kept.")
+
+        Expect.isTrue betaShown "the second group row never rendered"
+
+        let dayOne =
+          DevNull.Client.Formatting.dayLabel(
+            DateTimeOffset.UtcNow,
+            DateTimeOffset(2026, 10, 21, 4, 17, 19, TimeSpan.Zero)
+          )
+
+        let dayTwo =
+          DevNull.Client.Formatting.dayLabel(
+            DateTimeOffset.UtcNow,
+            DateTimeOffset(2026, 10, 20, 4, 17, 19, TimeSpan.Zero)
+          )
+
+        let! texts =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.choose(fun visual ->
+              match visual with
+              | :? TextBlock as block when effectiveVisible block ->
+                Option.ofObj block.Text
+              | _ -> None)
+            |> Seq.toList)
+
+        let countOf(value: string) =
+          texts |> List.filter(fun text -> text = value) |> List.length
+
+        let indexOf(value: string) =
+          texts |> List.tryFindIndex(fun text -> text = value)
+
+        Expect.equal (countOf dayOne) 1 "the first day separator"
+        Expect.equal (countOf dayTwo) 1 "the second day separator"
+        Expect.equal (countOf "Alpha kept.") 1 "the kept group row"
+        Expect.equal (countOf "Alpha dropped.") 0 "the duplicate group row"
+        Expect.equal (countOf "Beta kept.") 1 "the second group row"
+
+        match
+          indexOf dayOne,
+          indexOf "Alpha kept.",
+          indexOf dayTwo,
+          indexOf "Beta kept."
+        with
+        | Some dayOneAt, Some alphaAt, Some dayTwoAt, Some betaAt ->
+          let visible = String.Join(" | ", texts)
+
+          Expect.isTrue
+            (dayOneAt < alphaAt && alphaAt < dayTwoAt && dayTwoAt < betaAt)
+            $"the rows did not break at the boundary: {visible}"
+        | _ -> failtestf "a day separator or group row never rendered: %A" texts
+      })
+  ]
+
 let tests =
   testList "app shell" [
     testCaseAsync
@@ -2836,11 +2939,13 @@ let tests =
           probeUiAsync(fun () ->
             let body =
               CommitCard.body(
-                ValueSome source,
+                {
+                  Flyout = ValueSome source
+                  Tone = CommitCard.Accent
+                  Mentions = commit.Mentions
+                },
                 commit.Body,
-                commit.BodySegments,
-                commit.Mentions,
-                CommitCard.Accent
+                commit.BodySegments
               )
 
             let window = Window(Content = body)

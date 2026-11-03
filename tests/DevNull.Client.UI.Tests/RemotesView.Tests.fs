@@ -217,6 +217,134 @@ let badgeText(window: Window) : string option =
         | _ -> None
       | _ -> None))
 
+/// One message with the fields the receipt line reads.
+let messageOf(id: int, userId: string, at: DateTimeOffset) : Message = {
+  Id = id
+  UserId = userId
+  ClientId = $"c-{id}"
+  Body = ""
+  BodySegments = []
+  Mentions = []
+  ReplyToId = None
+  ReplyTo = None
+  LinkPreview = None
+  Images = []
+  Voice = None
+  Reactions = []
+  Event = None
+  SubjectId = None
+  User = None
+  Subject = None
+  PinnedAt = None
+  CreatedAt = at
+}
+
+/// One org member at a read position.
+let memberOf(user: User, readThrough: int) : ThreadMember = {
+  User = user
+  Role = None
+  ReadThroughId = readThrough
+}
+
+let receiptTests =
+  testList "remotes receipts" [
+    testCase
+      "a direct message says Pushed until the partner reads past it"
+      (fun () ->
+        let at =
+          DateTimeOffset(DateTime(2026, 10, 20, 4, 0, 0, DateTimeKind.Local))
+
+        let message = messageOf(41, viewerId, at)
+
+        let thread = {
+          emptyThread(Partner hubot) with
+              PartnerReadThroughId = 40
+        }
+
+        Expect.equal
+          (DevNull.Client.Views.RemotesRows.receiptWord(false, thread, message))
+          (Some Pushed)
+          "the direct receipt")
+    testCase
+      "a pulled direct message carries the partner's clock time"
+      (fun () ->
+        let at =
+          DateTimeOffset(DateTime(2026, 10, 20, 4, 0, 0, DateTimeKind.Local))
+
+        let message = messageOf(41, viewerId, at)
+
+        let thread = {
+          emptyThread(Partner hubot) with
+              PartnerReadThroughId = 41
+        }
+
+        let pulledAt = at.LocalDateTime.ToString("h:mm tt")
+
+        Expect.equal
+          (DevNull.Client.Views.RemotesRows.receiptWord(false, thread, message))
+          (Some(Pulled $"pulled {pulledAt}"))
+          "the pulled receipt")
+    testCase "an org message counts its pulls" (fun () ->
+      let at =
+        DateTimeOffset(DateTime(2026, 10, 20, 4, 0, 0, DateTimeKind.Local))
+
+      let message = messageOf(42, viewerId, at)
+
+      let thread = {
+        emptyThread(Org { Id = "org-1"; Name = Some "the org" }) with
+            Members = [ memberOf(hubot, 42); memberOf(bob, 41) ]
+      }
+
+      Expect.equal
+        (DevNull.Client.Views.RemotesRows.receiptWord(true, thread, message))
+        (Some(Pulled "pulled by 1 of 2"))
+        "the org pull count")
+    testCase "an org message says everyone once all members pulled" (fun () ->
+      let at =
+        DateTimeOffset(DateTime(2026, 10, 20, 4, 0, 0, DateTimeKind.Local))
+
+      let message = messageOf(42, viewerId, at)
+
+      let members = [
+        for index in 1..4 ->
+          memberOf(
+            userOf(
+              $"01a151db-{index:D4}-727b-a7ce-c911a7556243",
+              $"member{index}",
+              $"Member {index}"
+            ),
+            42
+          )
+      ]
+
+      let thread = {
+        emptyThread(Org { Id = "org-1"; Name = Some "the org" }) with
+            Members = members
+      }
+
+      Expect.equal
+        (DevNull.Client.Views.RemotesRows.receiptWord(true, thread, message))
+        (Some(Pulled "pulled by everyone"))
+        "the everyone receipt")
+    testCase "an org with no other members has no receipt" (fun () ->
+      let at =
+        DateTimeOffset(DateTime(2026, 10, 20, 4, 0, 0, DateTimeKind.Local))
+
+      let message = messageOf(42, viewerId, at)
+
+      let thread = {
+        emptyThread(Org { Id = "org-1"; Name = Some "the org" }) with
+            Members = [
+              memberOf(userOf(viewerId, "octocat", "The Octocat"), 42)
+            ]
+      }
+
+      Expect.equal
+        (DevNull.Client.Views.RemotesRows.receiptWord(true, thread, message))
+        None
+        "the empty org receipt")
+  ]
+
 let tests =
   testList "remotes page" [
     testCaseAsync

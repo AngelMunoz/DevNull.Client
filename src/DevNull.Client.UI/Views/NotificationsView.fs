@@ -344,23 +344,21 @@ module State =
   let toRows(items: Notification list) : InboxRow list =
     let now = DateTimeOffset.UtcNow
 
-    let seen = HashSet<string>()
+    let inline dayOf(notification: Notification) =
+      dayLabel(now, notification.CreatedAt)
 
-    let distinct =
-      items |> List.filter(fun notification -> seen.Add notification.GroupId)
+    match items |> List.distinctBy _.GroupId with
+    | [] -> []
+    | first :: rest ->
+      let rows = [
+        for previous, next in List.pairwise(first :: rest) do
+          if dayOf previous <> dayOf next then
+            InboxRow.Day(dayOf next)
 
-    [
-      for index, notification in List.indexed distinct do
-        let day = dayLabel(now, notification.CreatedAt)
+          InboxRow.Entry next
+      ]
 
-        let startsDay =
-          index = 0 || dayLabel(now, distinct[index - 1].CreatedAt) <> day
-
-        if startsDay then
-          InboxRow.Day day
-
-        InboxRow.Entry notification
-    ]
+      InboxRow.Day(dayOf first) :: InboxRow.Entry first :: rows
 
   let rowKey(inboxRow: InboxRow) : string =
     match inboxRow with

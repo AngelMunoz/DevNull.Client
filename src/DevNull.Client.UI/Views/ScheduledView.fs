@@ -427,7 +427,6 @@ module Parts =
   /// footnote.
   let row
     (
-      props: Props<'env>,
       dispatch: Dispatch<State.Msg>,
       model: IObservable<State.Model>,
       entry: ScheduledCommit
@@ -603,7 +602,7 @@ module Parts =
       ItemsControl()
         .ItemTemplate(
           FuncDataTemplate<ScheduledCommit>(
-            (fun entry _ -> row(props, dispatch, model, entry)),
+            (fun entry _ -> row(dispatch, model, entry)),
             false
           )
         )

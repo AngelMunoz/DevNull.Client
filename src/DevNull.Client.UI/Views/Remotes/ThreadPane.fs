@@ -4,8 +4,6 @@ open System
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Layout
-open Avalonia.Threading
-open Avalonia.VisualTree
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
@@ -161,6 +159,14 @@ module ThreadPane =
       Reactions = reactions
       ReactionChoices = ask.Usage |> Observable.map reactionChoices
       Pin = pin
+      Flash =
+        ctx.Model
+        |> Observable.map(fun current ->
+          match current.Landing with
+          | Some(State.Message(id, beat)) when id = message.Id ->
+            ValueSome beat
+          | _ -> ValueNone)
+        |> Observable.distinctUntilChanged
       Actions = {
         Reply = fun who -> ctx.Dispatch(State.ReplyWanted who)
         React = fun emoji -> ctx.Dispatch(State.ReactWanted(message.Id, emoji))
@@ -310,37 +316,17 @@ module ThreadPane =
         .Name("RemotesThread")
 
     // The landing asks: one message a ghost named, or the present
-    // edge. The message's scroll rides the feed's token; the flash
-    // timer is the pane's own. The listener ends with the feed's
-    // detach.
+    // edge. The message's scroll rides the feed's token; the row owns
+    // both the flash class and its one beat, so a row the panel
+    // realizes after the ask still wears it. The listener ends with
+    // the feed's detach.
     let land =
-      Sub.ofId "landing" (fun _ ->
+      Sub.ofId ("landing:" + ask.Key) (fun _ ->
         landings.Subscribe(function
-          | Some(State.Message id) ->
-            scroller.GetVisualDescendants()
-            |> Seq.tryPick(fun visual ->
-              match visual with
-              | :? Border as border when visual.Name = $"ChatMessage{id}" ->
-                Some border
-              | _ -> None)
-            |> Option.iter(fun border ->
-              border.Classes.Add(Theme.name Theme.FlashRing) |> ignore
-
-              let timer = DispatcherTimer()
-              timer.Interval <- TimeSpan.FromMilliseconds 1200.0
-
-              let stop() =
-                timer.Stop()
-                border.Classes.Remove(Theme.name Theme.FlashRing) |> ignore
-
-              timer.Tick.Add(fun _ -> stop())
-              border.DetachedFromVisualTree.Add(fun _ -> stop())
-              timer.Start())
-
-            ctx.Dispatch State.Landed
           | Some State.Present ->
             scroller.ScrollToEnd()
-            ctx.Dispatch State.Landed
+            ctx.Dispatch(State.Landed State.Present)
+          | Some(State.Message _) -> ()
           | None -> ()))
       |> Sub.untilDetached scroller
       |> List.exactlyOne
@@ -502,12 +488,18 @@ module ThreadPane =
             )
       }
 
+      let busy =
+        model
+        |> Observable.map(fun current -> current.Busy.IsSome)
+        |> Observable.distinctUntilChanged
+
       let actions =
         ThreadMenus.actionsMenu {
           Target = target
           Pinned =
             thread |> Observable.map(fun current -> current.PinnedAt.IsSome)
           Archived = thread |> Observable.map _.IsArchived
+          Busy = busy
           Actions = menuActions
         }
 
@@ -538,6 +530,7 @@ module ThreadPane =
                 Rename = model |> Observable.map _.OrgRename
                 Picked = model |> Observable.map _.OrgMembers
                 Shared = model |> Observable.map _.OrgShare
+                Busy = busy
                 Actions = orgActions
               },
               actions
@@ -719,6 +712,10 @@ module ThreadPane =
           Open =
             model
             |> Observable.map(fun current -> current.PinAsk.IsSome)
+            |> Observable.distinctUntilChanged
+          Busy =
+            model
+            |> Observable.map(fun current -> current.Busy.IsSome)
             |> Observable.distinctUntilChanged
           OnConfirm = fun keep -> dispatch(State.PinConfirmed keep)
           OnCancel = fun () -> dispatch State.PinAskCancelled

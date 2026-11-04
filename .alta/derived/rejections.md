@@ -109,6 +109,34 @@ reject, whatever the suites say.
 
 ## Standing note to every reviewer
 
+### R8 — the fix whose shape outgrew its bug, and the view that owned state
+
+The landing-flash fix (a styling bug: missed virtualized rows, stacked
+
+timers) arrived as ~100 lines of view-side machinery: two subjects, a
+serial disposable, a DispatcherTimer, class-change observation — mirroring
+state the model already tracked. Three review layers refereed its races;
+none asked why a flash needed a framework. The flash is styling: the
+timer rides the update's sleep command, the class binds from the model
+slice, the row owns nothing. (The user's words: "a flash is about
+styling... all of that should be riding the MVU.")
+
+**Class:** state lives in the model, effects ride commands, views bind
+slices. A view-side state mirror with its own timer is a framework
+violation no matter how correct its races are. When a fix's size dwarfs
+its bug, the shape is the finding.
+
+### R9 — wrapper arrays spliced into comprehensions
+
+Per-row code built `[| single |]` and empty arrays, then `yield!`-spliced
+them four to seven times into a comprehension — allocations and noise
+where the comprehension builds directly. Rule 21's letter, violated in
+hot row code and passed by every review. The instances were fixed by
+hand; the pattern is greppable (`yield!` splicing a single-item or empty
+array literal) and belongs in the battery so no judge is needed.
+
+**Class:** build the collection the consumer needs, in the comprehension.
+
 The battery, the gates, and the derived parameters are the FLOOR. The
 review exists for what they cannot name. If you catch yourself verifying
 that a rule's letter was satisfied, ask whether its spirit survived.

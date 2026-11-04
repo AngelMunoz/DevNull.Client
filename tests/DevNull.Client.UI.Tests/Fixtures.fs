@@ -284,7 +284,7 @@ type FakeCapture() =
 
 /// The headless system sounds: one counter per note the page asked the
 /// operating system for. Nothing sounds anywhere.
-type FakeSounds() =
+type FakeSounds(?fail: bool) =
   let gate = obj()
   let notes = ResizeArray<unit>()
 
@@ -294,6 +294,9 @@ type FakeSounds() =
   interface ISystemSounds with
     member _.Notify() =
       lock gate (fun () -> notes.Add()) |> ignore
+
+      if defaultArg fail false then
+        raise(InvalidOperationException "the sound failed")
 
 /// The headless audio engine: every capture hands back the same canned
 /// WAV, and every playback is a `FakePlayback` the test finishes. No

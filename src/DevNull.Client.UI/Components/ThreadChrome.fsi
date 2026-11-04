@@ -31,18 +31,19 @@ type PinnedPanelProps = {
   OnClose: unit -> unit
 }
 
-/// The first-pin dialog's inputs: whether it stands open, and the
-/// two answers.
+/// The first-pin dialog's inputs: whether it stands open, the call
+/// in flight, and the two answers.
 [<Struct>]
 type PinDialogProps = {
   Open: IObservable<bool>
+  Busy: IObservable<bool>
   OnConfirm: bool -> unit
   OnCancel: unit -> unit
 }
 
 /// One destructive confirm: the pick that opens it, its question and
-/// consequences, the destructive verb and command, and the call in
-/// flight that keeps the verb disabled.
+/// consequences, the destructive verb and command, and whether a call
+/// is in flight that keeps the verb disabled.
 [<Struct>]
 type ConfirmProps = {
   Label: string
@@ -50,7 +51,7 @@ type ConfirmProps = {
   Words: string
   Verb: string
   OnConfirm: unit -> unit
-  Busy: IObservable<string option>
+  Busy: IObservable<bool>
 }
 
 /// The bar that takes the composer's place when the viewer cannot

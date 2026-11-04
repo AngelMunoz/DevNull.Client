@@ -61,7 +61,7 @@ type BubbleActions = {
 
 /// One message bubble's inputs: the message, its side, the author
 /// payload the reply ghost names, the media services, and the live
-/// slices the row follows.
+/// slices the row follows, the landing flash among them.
 [<Struct>]
 type BubbleProps = {
   Message: Message
@@ -75,6 +75,7 @@ type BubbleProps = {
   Reactions: IObservable<ReactionChip list>
   ReactionChoices: IObservable<ReactionChoices>
   Pin: IObservable<PinState> voption
+  Flash: IObservable<int voption>
   Actions: BubbleActions
 }
 

@@ -8,6 +8,9 @@ open Avalonia.Controls.Shapes
 open Avalonia.Interactivity
 open Avalonia.Layout
 open Avalonia.Media
+open Avalonia.Threading
+open System.Reactive.Disposables
+open System.Reactive.Subjects
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open DevNull.Client
@@ -71,6 +74,7 @@ type BubbleProps = {
   Reactions: IObservable<ReactionChip list>
   ReactionChoices: IObservable<ReactionChoices>
   Pin: IObservable<PinState> voption
+  Flash: IObservable<int voption>
   Actions: BubbleActions
 }
 
@@ -453,7 +457,7 @@ let pinAction
 let reactionTray
   (choices: IObservable<ReactionChoices>, onReact: string -> unit)
   : Popup =
-  let tray = Popup()
+  let tray = Popup().Name("ReactionTrayFlyout")
   let ranked = choices |> Observable.distinctUntilChanged
 
   let host =
@@ -524,6 +528,9 @@ let hoverActions(props: BubbleProps, tray: Popup) : Control =
 
   ToolTip.SetTip(react, "Add reaction")
 
+  tray.PlacementTarget <- react
+  tray.Placement <- PlacementMode.Top
+
   let reply =
     Button()
       .Classes(Theme.name Theme.GhostButton)
@@ -563,6 +570,7 @@ let bubble(props: BubbleProps) : Control =
         Reactions = reactions
         ReactionChoices = choices
         Pin = pin
+        Flash = flash
         Actions = actions
       } =
     props
@@ -657,6 +665,22 @@ let bubble(props: BubbleProps) : Control =
 
       [| ghost(props, reply, ghostAuthor) |])
     |> Option.defaultValue [||]
+
+  // The flash is styling: the class rides the model's landing slice
+  // (the timer that clears it lives in the update's sleep command),
+  // so a row realized late shows the ring for whatever beat remains
+  // and no row owns a timer of its own.
+  let flashOn =
+    flash
+    |> Observable.map ValueOption.isSome
+    |> Observable.distinctUntilChanged
+
+  let bindFlashRing(control: Control) =
+    Theme.bindClass(control, Theme.FlashRing, flashOn) |> ignore
+
+  bindFlashRing bodyBox
+
+  voiceBox |> Option.iter bindFlashRing
 
   let bodyRows: Control array =
     if carriesMore || voiceBox.IsNone then

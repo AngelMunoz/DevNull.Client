@@ -169,6 +169,7 @@ module RemotesModel =
       Now = DateTimeOffset.UtcNow
       Riding = true
       Landing = None
+      LandingBeat = 0
       MarkedThrough = 0
       DraftKey = key
       Draft = draft |> Option.defaultValue ""
@@ -183,6 +184,7 @@ module RemotesModel =
       OrgRename = ""
       Notice = None
       PinAsk = None
+      Busy = None
       PinnedPanel = false
       SeenThrough = 0
       Unseen = 0
@@ -332,29 +334,43 @@ module RemotesModel =
   let startPin
     (props: Props<'env>, model: Model, message: Message)
     : Model * Cmd<Msg> =
-    match model.State.OpenTarget with
-    | Some target ->
-      { model with Notice = None },
-      Cmd.OfAsync.perform
-        (fun (store: RemotesStore, who: ChatTarget, which: Message) ->
-          store.PinMessage(who, which))
-        (props.Env.Remotes, target, message)
-        MessagePinSettled
-    | None -> model, Cmd.none
+    match model.Busy with
+    | Some _ -> model, Cmd.none
+    | None ->
+      match model.State.OpenTarget with
+      | Some target ->
+        {
+          model with
+              Notice = None
+              Busy = Some PinFlight
+        },
+        Cmd.OfAsync.perform
+          (fun (store: RemotesStore, who: ChatTarget, which: Message) ->
+            store.PinMessage(who, which))
+          (props.Env.Remotes, target, message)
+          MessagePinSettled
+      | None -> model, Cmd.none
 
   // One unpin through the store; it never asks first.
   let startUnpin
     (props: Props<'env>, model: Model, message: Message)
     : Model * Cmd<Msg> =
-    match model.State.OpenTarget with
-    | Some target ->
-      { model with Notice = None },
-      Cmd.OfAsync.perform
-        (fun (store: RemotesStore, who: ChatTarget, which: Message) ->
-          store.UnpinMessage(who, which))
-        (props.Env.Remotes, target, message)
-        MessageUnpinSettled
-    | None -> model, Cmd.none
+    match model.Busy with
+    | Some _ -> model, Cmd.none
+    | None ->
+      match model.State.OpenTarget with
+      | Some target ->
+        {
+          model with
+              Notice = None
+              Busy = Some UnpinFlight
+        },
+        Cmd.OfAsync.perform
+          (fun (store: RemotesStore, who: ChatTarget, which: Message) ->
+            store.UnpinMessage(who, which))
+          (props.Env.Remotes, target, message)
+          MessageUnpinSettled
+      | None -> model, Cmd.none
 
   let loggerOf(props: Props<'env>) =
     props.Env.LoggerFactory.CreateLogger "DevNull.Client.Views.Remotes"
@@ -565,15 +581,15 @@ module RemotesModel =
       )
     | ThreadScrolled offset ->
       model,
-      (model.State.OpenTarget
-       |> Option.map(fun target ->
-         Cmd.ofAction(fun () ->
-           props.Env.Remotes.RememberScroll(ChatTargets.key target, offset)))
-       |> Option.defaultValue Cmd.none)
+      model.State.OpenTarget
+      |> Option.map(fun target ->
+        Cmd.ofAction(fun () ->
+          props.Env.Remotes.RememberScroll(ChatTargets.key target, offset)))
+      |> Option.defaultValue Cmd.none
     | GhostWanted messageId ->
       match model.State.OpenTarget with
       | Some target ->
-        model,
+        { model with Landing = None },
         Cmd.OfAsync.perform
           walkTo
           (props.Env.Remotes, target, messageId)
@@ -581,11 +597,15 @@ module RemotesModel =
       | None -> model, Cmd.none
     | Walked(messageId, found) ->
       if found then
+        let beat = model.LandingBeat + 1
+
         {
           model with
-              Landing = Some(Message messageId)
+              LandingBeat = beat
+              Landing = Some(Message(messageId, beat))
         },
-        Cmd.none
+        Cmd.OfAsync.perform (fun () -> Async.Sleep 1200) () (fun () ->
+          Landed(Message(messageId, beat)))
       else
         {
           model with
@@ -596,14 +616,19 @@ module RemotesModel =
             "The walk to message {Message} found nothing.",
             messageId
           ))
-    | Landed -> { model with Landing = None }, Cmd.none
+    | Landed landing ->
+      if model.Landing = Some landing then
+        { model with Landing = None }, Cmd.none
+      else
+        model, Cmd.none
     | PresentWanted ->
       {
         model with
             Landing = Some Present
             Riding = true
       },
-      Cmd.none
+      Cmd.OfAsync.perform (fun () -> Async.Sleep 1200) () (fun () ->
+        Landed Present)
     | PreviewsChecked ->
       let asks =
         model.State.OpenTarget
@@ -779,76 +804,113 @@ module RemotesModel =
         },
         Cmd.none
     | MuteWanted duration ->
-      match model.State.OpenTarget with
-      | Some target ->
-        { model with Notice = None },
-        Cmd.OfAsync.perform
-          (fun (store: RemotesStore, who: ChatTarget, how: MuteDuration) ->
-            store.SetMuted(who, how))
-          (props.Env.Remotes, target, duration)
-          ActionSettled
-      | None -> model, Cmd.none
+      match model.Busy with
+      | Some _ -> model, Cmd.none
+      | None ->
+        match model.State.OpenTarget with
+        | Some target ->
+          {
+            model with
+                Notice = None
+                Busy = Some MuteFlight
+          },
+          Cmd.OfAsync.perform
+            (fun (store: RemotesStore, who: ChatTarget, how: MuteDuration) ->
+              store.SetMuted(who, how))
+            (props.Env.Remotes, target, duration)
+            ActionSettled
+        | None -> model, Cmd.none
     | PinWanted pinned ->
-      match model.State.OpenTarget with
-      | Some target ->
-        { model with Notice = None },
-        Cmd.OfAsync.perform
-          (fun (store: RemotesStore, who: ChatTarget, pin: bool) ->
-            store.SetPinned(who, pin))
-          (props.Env.Remotes, target, pinned)
-          ActionSettled
-      | None -> model, Cmd.none
+      match model.Busy with
+      | Some _ -> model, Cmd.none
+      | None ->
+        match model.State.OpenTarget with
+        | Some target ->
+          {
+            model with
+                Notice = None
+                Busy = Some PinFlight
+          },
+          Cmd.OfAsync.perform
+            (fun (store: RemotesStore, who: ChatTarget, pin: bool) ->
+              store.SetPinned(who, pin))
+            (props.Env.Remotes, target, pinned)
+            ActionSettled
+        | None -> model, Cmd.none
     | ArchiveWanted archived ->
-      match model.State.OpenTarget with
-      | Some target ->
-        { model with Notice = None },
-        Cmd.OfAsync.perform
-          (fun (store: RemotesStore, who: ChatTarget, away: bool) ->
-            store.SetArchived(who, away))
-          (props.Env.Remotes, target, archived)
-          (fun moved ->
-            // The store already rolled the row back and logged the
-            // server's word; the notice says only what happened.
-            if moved then
-              ActionSettled(Ok())
-            else
-              MenuNotice "Could not update the conversation. Try again.")
-      | None -> model, Cmd.none
+      match model.Busy with
+      | Some _ -> model, Cmd.none
+      | None ->
+        match model.State.OpenTarget with
+        | Some target ->
+          {
+            model with
+                Notice = None
+                Busy = Some ArchiveFlight
+          },
+          Cmd.OfAsync.perform
+            (fun (store: RemotesStore, who: ChatTarget, away: bool) ->
+              store.SetArchived(who, away))
+            (props.Env.Remotes, target, archived)
+            (fun moved ->
+              // The store already rolled the row back and logged the
+              // server's word; the notice says only what happened.
+              if moved then
+                ActionSettled(Ok())
+              else
+                ArchiveFailed "Could not update the conversation. Try again.")
+        | None -> model, Cmd.none
+    | ArchiveFailed message ->
+      {
+        model with
+            Notice = Some message
+            Busy = None
+      },
+      Cmd.none
     | ActionSettled outcome ->
+      let next = { model with Busy = None }
+
       match outcome with
-      | Ok() -> { model with Notice = None }, Cmd.none
+      | Ok() -> { next with Notice = None }, Cmd.none
       | Error error ->
         {
-          model with
+          next with
               Notice = Some(describe error)
         },
         failed "the conversation action" error
     | PinAskWanted message ->
-      match openThread model with
-      | Some held when atPinCap held ->
-        // At the cap the action answers with the server's own
-        // sentence and never calls.
-        {
-          model with
-              Notice = Some CoreRemotes.pinCapMessage
-        },
-        Cmd.none
-      | Some _ when props.Env.Settings.Current.PinPromptHidden ->
-        startPin(props, model, message)
-      | _ -> { model with PinAsk = Some message }, Cmd.none
-    | PinConfirmed keep ->
-      let remember =
-        if keep then
-          Cmd.ofAction(fun () -> props.Env.Settings.SetPinPromptHidden true)
-        else
+      match model.Busy with
+      | Some _ -> model, Cmd.none
+      | None ->
+        match openThread model with
+        | Some held when atPinCap held ->
+          // At the cap the action answers with the server's own
+          // sentence and never calls.
+          {
+            model with
+                Notice = Some CoreRemotes.pinCapMessage
+          },
           Cmd.none
+        | Some _ when props.Env.Settings.Current.PinPromptHidden ->
+          startPin(props, model, message)
+        | _ -> { model with PinAsk = Some message }, Cmd.none
+    | PinConfirmed keep ->
+      match model.Busy with
+      | Some _ -> model, Cmd.none
+      | None ->
+        let remember =
+          if keep then
+            Cmd.ofAction(fun () -> props.Env.Settings.SetPinPromptHidden true)
+          else
+            Cmd.none
 
-      let next, pin =
-        match model.PinAsk with
-        | Some message -> startPin(props, { model with PinAsk = None }, message)
-        | None -> { model with PinAsk = None }, Cmd.none
+        let next, pin =
+          match model.PinAsk with
+          | Some message ->
+            startPin(props, { model with PinAsk = None }, message)
+          | None -> { model with PinAsk = None }, Cmd.none
 
-      next, Cmd.batch [ remember; pin ]
+        next, Cmd.batch [ remember; pin ]
     | PinAskCancelled -> { model with PinAsk = None }, Cmd.none
     | MessageUnpinWanted message -> startUnpin(props, model, message)
     | PinnedPanelWanted shown -> { model with PinnedPanel = shown }, Cmd.none
@@ -856,6 +918,7 @@ module RemotesModel =
       {
         model with
             Notice = pinWords(true, outcome)
+            Busy = None
       },
       (match outcome with
        | Ok() -> Cmd.none
@@ -864,31 +927,43 @@ module RemotesModel =
       {
         model with
             Notice = pinWords(false, outcome)
+            Busy = None
       },
       (match outcome with
        | Ok() -> Cmd.none
        | Error error -> failed "the message unpin" error)
     | BlockWanted partner ->
-      { model with Notice = None },
-      Cmd.OfAsync.perform
-        (fun (env, session: SignedInSession, who: User) -> async {
-          let! blocked =
-            DevNull.Client.Core.Api.Users.block(
-              env,
-              {
-                KeyFile = session.KeyFile
-                Username = who.Handle
-              }
-            )
+      match model.Busy with
+      | Some _ -> model, Cmd.none
+      | None ->
+        {
+          model with
+              Notice = None
+              Busy = Some BlockFlight
+        },
+        Cmd.OfAsync.perform
+          (fun (env, session: SignedInSession, who: User) -> async {
+            let! blocked =
+              DevNull.Client.Core.Api.Users.block(
+                env,
+                {
+                  KeyFile = session.KeyFile
+                  Username = who.Handle
+                }
+              )
 
-          return blocked |> Result.map ignore
-        })
-        (props.Env, props.Session, partner)
-        Blocked
+            return blocked |> Result.map ignore
+          })
+          (props.Env, props.Session, partner)
+          Blocked
     | Blocked outcome ->
       match outcome with
       | Ok _ ->
-        { model with Notice = None },
+        {
+          model with
+              Notice = None
+              Busy = None
+        },
         Cmd.batch [
           Cmd.ofAction(fun () -> props.Env.Remotes.SetOpenTarget None)
           Cmd.ofAction(fun () -> log.LogInformation("The block changed."))
@@ -897,6 +972,7 @@ module RemotesModel =
         {
           model with
               Notice = Some(describe error)
+              Busy = None
         },
         failed "the block" error
     | OrgCreateWanted ->
@@ -1019,21 +1095,33 @@ module RemotesModel =
         },
         Cmd.none
     | OrgRemoveWanted(username, leaving) ->
-      match model.State.OpenTarget with
-      | Some(Org org) ->
-        { model with Notice = None },
-        Cmd.OfAsync.perform
-          (fun (store: RemotesStore, which: OrgRef, member', gone) ->
-            store.RemoveOrgMember(which, member', gone))
-          (props.Env.Remotes, org, username, leaving)
-          (fun outcome -> OrgRemoved(leaving, outcome))
-      | _ -> model, Cmd.none
+      match model.Busy with
+      | Some _ -> model, Cmd.none
+      | None ->
+        match model.State.OpenTarget with
+        | Some(Org org) ->
+          {
+            model with
+                Notice = None
+                Busy = Some RemoveFlight
+          },
+          Cmd.OfAsync.perform
+            (fun (store: RemotesStore, which: OrgRef, member', gone) ->
+              store.RemoveOrgMember(which, member', gone))
+            (props.Env.Remotes, org, username, leaving)
+            (fun outcome -> OrgRemoved(leaving, outcome))
+        | Some(Partner _)
+        | None -> model, Cmd.none
     | OrgRemoved(left, outcome) ->
       match outcome with
       | Ok() ->
         // Leaving takes the org out of the state; the pane steps back
         // to the quiet invitation.
-        { model with Notice = None },
+        {
+          model with
+              Notice = None
+              Busy = None
+        },
         (if left then
            Cmd.ofAction(fun () -> props.Env.Remotes.SetOpenTarget None)
          else
@@ -1042,6 +1130,7 @@ module RemotesModel =
         {
           model with
               Notice = Some(describe error)
+              Busy = None
         },
         Cmd.none
     | MenuNotice message -> { model with Notice = Some message }, Cmd.none

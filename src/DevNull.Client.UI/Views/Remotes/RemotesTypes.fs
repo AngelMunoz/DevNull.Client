@@ -48,8 +48,16 @@ module State =
   }
 
   type Landing =
-    | Message of id: int
+    | Message of id: int * beat: int
     | Present
+
+  type Flight =
+    | PinFlight
+    | UnpinFlight
+    | MuteFlight
+    | ArchiveFlight
+    | BlockFlight
+    | RemoveFlight
 
   type Model = {
     State: RemotesState
@@ -61,6 +69,7 @@ module State =
     Now: DateTimeOffset
     Riding: bool
     Landing: Landing option
+    LandingBeat: int
     MarkedThrough: int
     DraftKey: string
     Draft: string
@@ -75,6 +84,7 @@ module State =
     OrgRename: string
     Notice: string option
     PinAsk: Message option
+    Busy: Flight option
     PinnedPanel: bool
     SeenThrough: int
     Unseen: int
@@ -99,7 +109,7 @@ module State =
     | ThreadScrolled of offset: float
     | GhostWanted of messageId: int
     | Walked of messageId: int * found: bool
-    | Landed
+    | Landed of landing: Landing
     | PresentWanted
     | PreviewsChecked
     | ReadSettled of went: bool
@@ -116,6 +126,7 @@ module State =
     | MuteWanted of MuteDuration
     | PinWanted of pinned: bool
     | ArchiveWanted of archived: bool
+    | ArchiveFailed of message: string
     | ActionSettled of Result<unit, AppError>
     | PinAskWanted of message: Message
     | PinConfirmed of keep: bool

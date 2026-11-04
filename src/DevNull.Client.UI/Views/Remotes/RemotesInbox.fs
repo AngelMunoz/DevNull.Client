@@ -206,27 +206,28 @@ module Parts =
         |> Option.map ChatTargets.key
         |> Option.contains(ChatTargets.summaryKey row))
 
-    let settle: Control array = [|
-      for partner in row.Partner |> Option.toList do
-        settleRow {
-          Dispatch = ctx.Dispatch
-          Partner = partner
-          Merging = true
-          Label = "merge"
-        }
-
-        settleRow {
-          Dispatch = ctx.Dispatch
-          Partner = partner
-          Merging = false
-          Label = "drop"
-        }
-    |]
 
     let body: Control array = [|
       titleLine(ctx.ViewerId, row)
       excerptLine(RemotesRows.excerptOf(ctx.ViewerId, row))
-      yield! settle
+      match tab with
+      | TabFetched ->
+        for partner in row.Partner |> Option.toList do
+          settleRow {
+            Dispatch = ctx.Dispatch
+            Partner = partner
+            Merging = true
+            Label = "merge"
+          }
+
+          settleRow {
+            Dispatch = ctx.Dispatch
+            Partner = partner
+            Merging = false
+            Label = "drop"
+          }
+      | TabOpen
+      | TabStashed -> ()
     |]
 
     let avatar: Control =
@@ -407,7 +408,6 @@ module Parts =
         txt.TextChanged
         |> Observable.map(fun _ ->
           txt.Text |> Option.ofObj |> Option.defaultValue "")
-        |> Observable.filter(String.IsNullOrWhiteSpace >> not)
         |> Observable.distinctUntilChanged
         |> Observable.throttle(TimeSpan.FromMilliseconds(300.))
         |> Observable.subscribe(State.Searched >> dispatch))
@@ -584,8 +584,24 @@ module Parts =
           |> _.ToBinding()
         )
 
-    let flyout =
-      Popup()
+    let flyout = Popup()
+
+    let newOrg =
+      Button()
+        .Classes(Theme.name Theme.GhostButton)
+        .Padding(6.0, 2.0, 6.0, 2.0)
+        .FontSize(12.0)
+        .Content("new org")
+        .OnClickHandler(fun _ args ->
+          args.Handled <- true
+          flyout.IsOpen <- not flyout.IsOpen)
+
+    let placed =
+      flyout
+        .Name("OrgCreateFlyout")
+        .PlacementTarget(newOrg)
+        .Placement(PlacementMode.BottomEdgeAlignedLeft)
+        .IsLightDismissEnabled(true)
         .Child(
           Border()
             .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
@@ -621,18 +637,7 @@ module Parts =
             )
         )
 
-    Panel()
-      .Children(
-        Button()
-          .Classes(Theme.name Theme.GhostButton)
-          .Padding(6.0, 2.0, 6.0, 2.0)
-          .FontSize(12.0)
-          .Content("new org")
-          .OnClickHandler(fun _ args ->
-            args.Handled <- true
-            flyout.IsOpen <- not flyout.IsOpen),
-        flyout
-      )
+    Panel().Children(newOrg, placed)
 
   // The inbox's header row: the search box with the org picker beside
   // it, and the tabs under them.
@@ -678,14 +683,17 @@ module Parts =
       grid.Children(
         inboxHead(model, dispatch).Row(0),
         tabRow(model, dispatch).Row(1),
-        rows(ctx, list, hasMore).Row(2)
+        Panel()
+          .Children(
+            rows(ctx, list, hasMore),
+            quietLine(lineOf model).VerticalAlignment(VerticalAlignment.Top)
+          )
+          .Row(2)
       )
 
-    let line = quietLine(lineOf model).VerticalAlignment(VerticalAlignment.Top)
-
-    // The quiet line sits over the rows: the empty and loading words
-    // own the column while no row exists to cover them.
-    Panel().Children(column, line)
+    // The quiet line sits over the rows only: the empty and loading
+    // words own the list while no row exists to cover them.
+    column
 
   let noThread() : Control =
     TextBlock()

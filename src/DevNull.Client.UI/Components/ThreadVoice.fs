@@ -476,14 +476,6 @@ type VoicePlayer(voice: VoiceCtx) as this =
     fader.ValueChanged.Add(fun args ->
       dispatch(Player.VolumeMoved(int(round args.NewValue))))
 
-    volumeFlyout.Child <-
-      Border()
-        .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
-        .BorderThickness(1.0)
-        .CornerRadius(6.0)
-        .Padding(8.0)
-        .Child(StackPanel().Spacing(4.0).Children(fader, volumeWord))
-
     let volumeButton =
       Button()
         .Classes(Theme.name Theme.GhostButton)
@@ -494,6 +486,20 @@ type VoicePlayer(voice: VoiceCtx) as this =
           volumeFlyout.IsOpen <- not volumeFlyout.IsOpen)
 
     ToolTip.SetTip(volumeButton, "Voice volume")
+
+    let placed =
+      volumeFlyout
+        .Name("VolumeFlyout")
+        .PlacementTarget(volumeButton)
+        .Placement(PlacementMode.Top)
+        .Child(
+          Border()
+            .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
+            .BorderThickness(1.0)
+            .CornerRadius(6.0)
+            .Padding(8.0)
+            .Child(StackPanel().Spacing(4.0).Children(fader, volumeWord))
+        )
 
     // The speed cycle: dimmed at the natural pace, the site's own
     // quiet word.
@@ -528,7 +534,7 @@ type VoicePlayer(voice: VoiceCtx) as this =
           .Child(playButton),
         wave,
         clock,
-        Panel().Children(volumeButton, volumeFlyout),
+        Panel().Children(volumeButton, placed),
         speedButton
       )
 

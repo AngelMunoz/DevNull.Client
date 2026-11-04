@@ -30,6 +30,7 @@ type ActionsMenuProps = {
   Target: ChatTarget
   Pinned: IObservable<bool>
   Archived: IObservable<bool>
+  Busy: IObservable<bool>
   Actions: MenuActions
 }
 
@@ -53,6 +54,7 @@ type OrgMenuProps = {
   Rename: IObservable<string>
   Picked: IObservable<string list>
   Shared: IObservable<bool>
+  Busy: IObservable<bool>
   Actions: OrgActions
 }
 
@@ -75,13 +77,14 @@ let profilePick(partner: User, viewProfile: User -> unit) : Control =
       viewProfile partner)
 
 // One menu pick that follows a live state slice.
-let visiblePick
+let inline visiblePick
   (label: string, onPick: unit -> unit, shown: IObservable<bool>)
   : Control =
   menuPick(label, onPick).IsVisible(shown)
 
-// The mute choices, each one a quiet pick.
-let mutePicks(actions: MenuActions) : Control array = [|
+// The mute choices, each one a quiet pick that waits while a call
+// stands.
+let mutePicks(actions: MenuActions, busy: IObservable<bool>) : Control array = [|
   for label, how in
     [
       "mute 1 hour", MuteHour
@@ -89,11 +92,15 @@ let mutePicks(actions: MenuActions) : Control array = [|
       "mute 1 week", MuteWeek
       "mute forever", MuteForever
       "unmute", MuteOff
-    ] -> menuPick(label, fun () -> actions.Mute how)
+    ] ->
+    menuPick(label, fun () -> actions.Mute how)
+      .IsEnabled(busy |> Observable.map not)
 |]
 
 // The partner's block pick.
-let blockPick(actions: MenuActions, partner: User) : Control =
+let blockPick
+  (actions: MenuActions, partner: User, busy: IObservable<bool>)
+  : Control =
   confirmPick {
     Label = $"block @{partner.Handle}"
     Title = $"Block {partner.Name}?"
@@ -101,11 +108,13 @@ let blockPick(actions: MenuActions, partner: User) : Control =
       "This conversation goes away for both of you, and neither of you can message, follow, reply to, or star the other. They won't be told. You can unblock them any time from your settings."
     Verb = "Block"
     OnConfirm = fun () -> actions.Block partner
-    Busy = Observable.single None
+    Busy = busy
   }
 
 // The org's leave pick.
-let leavePick(actions: MenuActions, title: string) : Control =
+let leavePick
+  (actions: MenuActions, title: string, busy: IObservable<bool>)
+  : Control =
   confirmPick {
     Label = $"leave {title}"
     Title = $"Leave {title}?"
@@ -113,41 +122,38 @@ let leavePick(actions: MenuActions, title: string) : Control =
       "You stop seeing the org and its history. A maintainer would have to add you back. If you are its only maintainer, the longest-standing member takes over."
     Verb = "Leave"
     OnConfirm = fun () -> actions.Leave()
-    Busy = Observable.single None
+    Busy = busy
   }
 
 // The menu's rows in the order the flyout carries them.
 let actionRows(props: ActionsMenuProps) : Control array =
-  let profileRows: Control array =
-    match props.Target with
-    | Partner partner -> [| profilePick(partner, props.Actions.ViewProfile) |]
-    | Org _ -> [||]
+  let inline waiting(control: Control) =
+    control.IsEnabled(props.Busy |> Observable.map not)
 
-  let stateRows: Control array = [|
+  [|
+    match props.Target with
+    | Partner partner -> profilePick(partner, props.Actions.ViewProfile)
+    | Org _ -> ()
     visiblePick(
       "pin",
       (fun () -> props.Actions.Pin true),
       props.Pinned |> Observable.map not
     )
+    |> waiting
     visiblePick("unpin", (fun () -> props.Actions.Pin false), props.Pinned)
+    |> waiting
     visiblePick(
       "stash",
       (fun () -> props.Actions.Archive true),
       props.Archived |> Observable.map not
     )
+    |> waiting
     visiblePick("pop", (fun () -> props.Actions.Archive false), props.Archived)
-  |]
-
-  let destructiveRows: Control array =
+    |> waiting
+    yield! mutePicks(props.Actions, props.Busy)
     match props.Target with
-    | Partner partner -> [| blockPick(props.Actions, partner) |]
-    | Org _ -> [| leavePick(props.Actions, menuTitle props.Target) |]
-
-  [|
-    yield! profileRows
-    yield! stateRows
-    yield! mutePicks props.Actions
-    yield! destructiveRows
+    | Partner partner -> blockPick(props.Actions, partner, props.Busy)
+    | Org _ -> leavePick(props.Actions, menuTitle props.Target, props.Busy)
   |]
 
 let actionsMenu(props: ActionsMenuProps) : Control =
@@ -175,7 +181,13 @@ let actionsMenu(props: ActionsMenuProps) : Control =
 
   ToolTip.SetTip(more, $"More options for {title}")
 
-  Panel().Children(more, flyout).HorizontalAlignment(HorizontalAlignment.Right)
+  let placed =
+    flyout
+      .Name("ActionsMenuFlyout")
+      .PlacementTarget(more)
+      .Placement(PlacementMode.BottomEdgeAlignedRight)
+
+  Panel().Children(more, placed).HorizontalAlignment(HorizontalAlignment.Right)
 
 // One org member's avatar in the stack.
 let memberAvatar(cache: ImageCacheService, member': ThreadMember) : Control =
@@ -255,8 +267,9 @@ let roleFlip(member': ThreadMember) : string * OrgRole =
   | Some Contributor
   | None -> "make maintainer", Maintainer
 
-// One member's role pick and removal.
-let memberPick(member': ThreadMember, actions: OrgActions) : Control =
+// One member's role pick and removal. The removal waits while a call
+// stands; the role pick follows its own route.
+let memberPick(member': ThreadMember, props: OrgMenuProps) : Control =
   let label, nextRole = roleFlip member'
 
   StackPanel()
@@ -271,18 +284,22 @@ let memberPick(member': ThreadMember, actions: OrgActions) : Control =
             .FontSize(11.0)
             .Text("@" + member'.User.Handle)
             .VerticalAlignment(VerticalAlignment.Center),
-          menuPick(label, fun () -> actions.Role(member'.User.Handle, nextRole))
+          menuPick(
+            label,
+            fun () -> props.Actions.Role(member'.User.Handle, nextRole)
+          )
         ),
       menuPick(
         "Remove from org",
-        fun () -> actions.Remove(member'.User.Handle, false)
+        fun () -> props.Actions.Remove(member'.User.Handle, false)
       )
+        .IsEnabled(props.Busy |> Observable.map not)
     )
     .Margin(0.0, 2.0, 0.0, 0.0)
 
 // The rows for every member but the viewer.
-let memberRows(others: ThreadMember list, actions: OrgActions) : Control array = [|
-  for member' in others -> memberPick(member', actions)
+let memberRows(others: ThreadMember list, props: OrgMenuProps) : Control array = [|
+  for member' in others -> memberPick(member', props)
 |]
 
 // The add-section's own count: everyone the org would hold once the
@@ -317,19 +334,17 @@ let addCountLine(count: IObservable<int>) : Control =
 
 // The live member rows under the add section.
 let memberHost
-  (
-    members: IObservable<ThreadMember list>,
-    viewerId: string,
-    actions: OrgActions
-  ) : Control =
+  (members: IObservable<ThreadMember list>, props: OrgMenuProps)
+  : Control =
   ContentControl()
     .Content(
       members
       |> Observable.map(fun current ->
-        current |> List.filter(fun member' -> member'.User.Id <> viewerId))
+        current
+        |> List.filter(fun member' -> member'.User.Id <> props.ViewerId))
       |> Observable.distinctUntilChanged
       |> Observable.map(fun others ->
-        StackPanel().Children(memberRows(others, actions)))
+        StackPanel().Children(memberRows(others, props)))
       |> _.ToBinding()
     )
 
@@ -383,54 +398,31 @@ let orgLeavePick(props: OrgMenuProps) : Control =
       "You stop seeing the org and its history. A maintainer would have to add you back. If you are its only maintainer, the longest-standing member takes over."
     Verb = "Leave"
     OnConfirm = fun () -> props.Actions.Remove(props.ViewerHandle, true)
-    Busy = Observable.single None
+    Busy = props.Busy
   }
 
 // The org menu's rows in the order the flyout carries them.
 let orgRows(props: OrgMenuProps) : Control array =
   let members = props.Thread |> Observable.map _.Members
 
-  let renameRows: Control array = [|
+  [|
     sectionTitle "rename"
     renameRow(props.Rename, props.Actions.RenameChanged, props.Actions.Rename)
-  |]
-
-  let addTitleRows: Control array = [|
     (sectionTitle "add members").Margin(0.0, 6.0, 0.0, 0.0)
-  |]
-
-  let countRows: Control array = [|
     addCountLine(addCount(members, props.Picked, props.ViewerId))
-  |]
-
-  let inputRows: Control array = [| memberBox props.Actions.MemberChanged |]
-
-  let shareRows: Control array = [|
+    memberBox props.Actions.MemberChanged
     shareRow(props.Shared, props.Actions.ShareChanged)
-  |]
-
-  let hostRows: Control array = [|
-    memberHost(members, props.ViewerId, props.Actions)
-  |]
-
-  let addRows: Control array = [| addButton props.Actions.Add |]
-
-  let leaveRows: Control array = [| orgLeavePick props |]
-
-  [|
-    yield! renameRows
-    yield! addTitleRows
-    yield! countRows
-    yield! inputRows
-    yield! shareRows
-    yield! hostRows
-    yield! addRows
-    yield! leaveRows
+    memberHost(members, props)
+    addButton props.Actions.Add
+    orgLeavePick props
   |]
 
 // The org menu's flyout: the scrolling card around the rows.
-let orgFlyout(rows: Control array) : Popup =
+let orgFlyout(target: Control, rows: Control array) : Popup =
   Popup()
+    .Name("OrgMenuFlyout")
+    .PlacementTarget(target)
+    .Placement(PlacementMode.BottomEdgeAlignedRight)
     .Child(
       Border()
         .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
@@ -443,18 +435,21 @@ let orgFlyout(rows: Control array) : Popup =
 
 let orgMenu(props: OrgMenuProps) : Control =
   let role = props.Thread |> Observable.map _.Role
-  let flyout = orgFlyout(orgRows props)
+
+  let members =
+    Button()
+      .Classes(Theme.name Theme.GhostButton)
+      .Padding(6.0)
+      .Content("members")
+      .IsVisible(role |> Observable.map(Option.contains Maintainer))
+
+  let flyout = orgFlyout(members, orgRows props)
 
   Panel()
     .Children(
-      Button()
-        .Classes(Theme.name Theme.GhostButton)
-        .Padding(6.0)
-        .Content("members")
-        .IsVisible(role |> Observable.map(Option.contains Maintainer))
-        .OnClickHandler(fun _ args ->
-          args.Handled <- true
-          flyout.IsOpen <- not flyout.IsOpen),
+      members.OnClickHandler(fun _ args ->
+        args.Handled <- true
+        flyout.IsOpen <- not flyout.IsOpen),
       flyout
     )
     .HorizontalAlignment(HorizontalAlignment.Right)

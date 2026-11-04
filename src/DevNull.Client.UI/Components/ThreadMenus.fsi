@@ -18,12 +18,14 @@ type MenuActions = {
 }
 
 /// The conversation menu's inputs: the target it describes, the live
-/// pin and archive state, and the actions it reports.
+/// pin and archive state, whether a call is in flight, and the actions
+/// it reports.
 [<Struct>]
 type ActionsMenuProps = {
   Target: ChatTarget
   Pinned: IObservable<bool>
   Archived: IObservable<bool>
+  Busy: IObservable<bool>
   Actions: MenuActions
 }
 
@@ -40,7 +42,8 @@ type OrgActions = {
 }
 
 /// The org menu's inputs: the org, the viewer, the live thread, the
-/// three model slices its fields follow, and the actions it reports.
+/// three model slices its fields follow, whether a call is in flight,
+/// and the actions it reports.
 [<Struct>]
 type OrgMenuProps = {
   Org: OrgRef
@@ -50,6 +53,7 @@ type OrgMenuProps = {
   Rename: IObservable<string>
   Picked: IObservable<string list>
   Shared: IObservable<bool>
+  Busy: IObservable<bool>
   Actions: OrgActions
 }
 

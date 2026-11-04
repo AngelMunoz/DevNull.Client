@@ -95,7 +95,7 @@ testing rule 2: a regression test that fails before the fix.
 
 ### The bug ledger steps (§10 of the audit report)
 
-- [ ] **P23 — Remotes inbox + thread dialogs** (BUG-5, BUG-9). BUG-5:
+- [x] **P23 — Remotes inbox + thread dialogs** (BUG-5, BUG-9). BUG-5:
   clearing the search box clears the search (:428-439 filter + Text
   refills); settle actions render in Fetched only; the quiet line no
   longer draws over the search header; the org popover gets a placement
@@ -156,6 +156,7 @@ testing rule 2: a regression test that fails before the fix.
 | P22 | pending | rule-8 comment migration for the remaining debt |
 | P22 | committed 2026-11-03 | 1,534 comment lines into .fsi, count-exact and verbatim (corrections batch filed as a task); casebook R6 (totals are not proof) + R7 (bulk transcription is tooling work); seat card locked: deepseek worker, glm-5.3@high derive+architect (flash fallback), flash pair red team |
 | P23 | pending | BUG-5 + BUG-9 |
+| P23 | committed 2026-11-03 | the nine behaviors fixed, each with a mutation-verified regression test (UI suite 283); the landing flash stripped to the MVU (timer rides the update's sleep command, class binds from the model slice, view machinery deleted); the user's array-comprehension fixes ride along; casebook R8 (view-owned state) + R9 (wrapper-array splices) |
 | P24 | pending | BUG-6 + BUG-7 |
 | P25 | pending | BUG-8 |
 | P26 | pending | BUG-10 |

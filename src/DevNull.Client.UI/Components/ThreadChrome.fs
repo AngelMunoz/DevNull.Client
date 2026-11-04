@@ -38,6 +38,7 @@ type PinnedPanelProps = {
 [<Struct>]
 type PinDialogProps = {
   Open: IObservable<bool>
+  Busy: IObservable<bool>
   OnConfirm: bool -> unit
   OnCancel: unit -> unit
 }
@@ -49,7 +50,7 @@ type ConfirmProps = {
   Words: string
   Verb: string
   OnConfirm: unit -> unit
-  Busy: IObservable<string option>
+  Busy: IObservable<bool>
 }
 
 // One pinned summary's display text: the count, the latest author,
@@ -310,6 +311,7 @@ let pinButtons(props: PinDialogProps, keep: CheckBox) : Control =
         .Padding(8.0, 2.0, 8.0, 2.0)
         .FontSize(12.0)
         .Content("Pin message")
+        .IsEnabled(props.Busy |> Observable.map not)
         .OnClickHandler(fun _ args ->
           args.Handled <- true
           props.OnConfirm(pinChoiceValue keep))
@@ -350,7 +352,11 @@ let pinCard(props: PinDialogProps) : Control =
 
 // The scrim under the dialog's card.
 let pinScrim(card: Control) : Control =
-  Grid().Children(Border().Background(Brushes.Black).Opacity(0.35), card)
+  Grid()
+    .Children(
+      Border().Name("PinScrim").Classes(Theme.name Theme.ScrimBack),
+      card
+    )
 
 let pinDialog(props: PinDialogProps) : Control =
   ContentControl()
@@ -415,7 +421,7 @@ let confirmCard(props: ConfirmProps, close: unit -> unit) : Control =
                 .Padding(8.0, 2.0, 8.0, 2.0)
                 .FontSize(12.0)
                 .Content(props.Verb)
-                .IsEnabled(props.Busy |> Observable.map Option.isNone)
+                .IsEnabled(props.Busy |> Observable.map not)
                 .OnClickHandler(fun _ args ->
                   args.Handled <- true
                   close()
@@ -439,12 +445,15 @@ let confirmTrigger(label: string, onOpen: unit -> unit) : Control =
 
 let confirmPick(props: ConfirmProps) : Control =
   let flyout = Popup()
-  let close() = flyout.IsOpen <- false
 
-  flyout.Child <- confirmCard(props, close)
+  let trigger =
+    confirmTrigger(props.Label, fun () -> flyout.IsOpen <- not flyout.IsOpen)
 
-  Panel()
-    .Children(
-      confirmTrigger(props.Label, fun () -> flyout.IsOpen <- not flyout.IsOpen),
-      flyout
-    )
+  let placed =
+    flyout
+      .Name("ConfirmFlyout")
+      .PlacementTarget(trigger)
+      .Placement(PlacementMode.BottomEdgeAlignedLeft)
+      .Child(confirmCard(props, fun () -> flyout.IsOpen <- false))
+
+  Panel().Children(trigger, placed)

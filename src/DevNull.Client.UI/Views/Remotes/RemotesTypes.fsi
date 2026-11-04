@@ -55,8 +55,18 @@ module State =
 
   /// Where the thread reading goes next.
   type Landing =
-    | Message of id: int
+    | Message of id: int * beat: int
     | Present
+
+  /// One action whose call is in flight: the guarded surfaces stay
+  /// disabled until it settles.
+  type Flight =
+    | PinFlight
+    | UnpinFlight
+    | MuteFlight
+    | ArchiveFlight
+    | BlockFlight
+    | RemoveFlight
 
   type Model = {
     State: RemotesState
@@ -68,6 +78,10 @@ module State =
     Now: DateTimeOffset
     Riding: bool
     Landing: Landing option
+    /// The beat of the latest message landing: a repeated landing on
+    /// the same message takes a new beat, so its row's timer can never
+    /// end an older one.
+    LandingBeat: int
     MarkedThrough: int
     DraftKey: string
     Draft: string
@@ -85,6 +99,10 @@ module State =
     /// The message the first-pin dialog stands open for, when one
     /// does.
     PinAsk: Message option
+    /// The action in flight, when one is: the pin and confirm
+    /// surfaces stay disabled, and the guarded menu actions wait,
+    /// until its call settles.
+    Busy: Flight option
     /// Whether the pinned-messages panel stands open over the reading.
     PinnedPanel: bool
     SeenThrough: int
@@ -110,7 +128,7 @@ module State =
     | ThreadScrolled of offset: float
     | GhostWanted of messageId: int
     | Walked of messageId: int * found: bool
-    | Landed
+    | Landed of landing: Landing
     | PresentWanted
     | PreviewsChecked
     | ReadSettled of went: bool
@@ -127,6 +145,7 @@ module State =
     | MuteWanted of MuteDuration
     | PinWanted of pinned: bool
     | ArchiveWanted of archived: bool
+    | ArchiveFailed of message: string
     | ActionSettled of Result<unit, AppError>
     | PinAskWanted of message: Message
     | PinConfirmed of keep: bool

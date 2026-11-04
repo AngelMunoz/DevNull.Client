@@ -9,9 +9,13 @@ module DevNull.Client.UI.Tests.RemotesView
 open System
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.Primitives
 open Avalonia.Controls.Shapes
+open Avalonia.Headless
 open Avalonia.Input
 open Avalonia.Interactivity
+open Avalonia.LogicalTree
+open Avalonia.Media
 open Avalonia.VisualTree
 open Expecto
 open DevNull.Client.Core.ApiTypes
@@ -103,6 +107,33 @@ let pageApi(firstPage: string, nextPage: string, search: string) : FakeApi =
       (match accountAnswer request with
        | ValueSome answer -> answer
        | ValueNone -> ok "{}"))
+
+/// One http worker that pauses the matching calls before the inner
+/// worker sees them, so a test can read the in-flight state.
+let slowHttp(inner: IHttp, slow: HttpRequest -> bool, delay: TimeSpan) : IHttp = {
+  new IHttp with
+    member _.Send(request) = async {
+      if slow request then
+        do! Async.Sleep(int delay.TotalMilliseconds)
+
+      return! inner.Send request
+    }
+
+    member _.GetBytes(target: string) = inner.GetBytes target
+}
+
+/// The popup the control tree carries under the name, whether it
+/// stands open or closed.
+let popupNamed(root: Control, name: string) : Popup option =
+  let find(popup: obj) =
+    match popup with
+    | :? Popup as popup when popup.Name = name -> Some popup
+    | _ -> None
+
+  root.GetVisualDescendants()
+  |> Seq.tryPick(fun visual -> find visual)
+  |> Option.orElseWith(fun () ->
+    root.GetLogicalDescendants() |> Seq.tryPick(fun visual -> find visual))
 
 /// Builds and shows the shell over one test env.
 let startShell(store: SessionStore, http: IHttp) : Async<Window> =
@@ -511,6 +542,364 @@ let tests =
       })
 
     testCaseAsync
+      "clearing the search box clears the search"
+      (async {
+        let page =
+          Remotes.inboxPageJson(
+            [
+              rowAt(hubotJson, "2026-10-21T04:00:00Z", 0)
+              rowAt(bobJson, "2026-10-20T04:00:00Z", 0)
+            ],
+            false,
+            0,
+            0
+          )
+
+        let found =
+          Remotes.inboxPageJson(
+            [ rowAt(hubotJson, "2026-10-21T04:00:00Z", 0) ],
+            false,
+            0,
+            0
+          )
+
+        let api = pageApi(page, page, found)
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openRemotesAsync window
+
+        let searchBox() =
+          window.GetVisualDescendants()
+          |> Seq.tryPick(fun visual ->
+            match visual with
+            | :? TextBox as box when box.Name = "RemotesSearch" -> Some box
+            | _ -> None)
+
+        let searched() =
+          api.Requests
+          |> List.filter(fun request ->
+            request.Target.StartsWith "/api/v1/remotes"
+            && request.Target.Contains "q=")
+          |> List.length
+
+        let emptySearch() =
+          api.Requests
+          |> List.exists(fun request ->
+            request.Target.StartsWith "/api/v1/remotes"
+            && request.Target.Contains "q="
+            && (request.Target.EndsWith "q=" || request.Target.Contains "q=&"))
+
+        let! listed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "@bob"))
+          )
+
+        Expect.isTrue listed "the conversations never listed"
+
+        do!
+          onUiAsync(fun () ->
+            searchBox() |> Option.iter(fun box -> box.Text <- "hub"))
+
+        let! narrowed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> not(hasText(root, "@bob")))
+          )
+
+        Expect.isTrue narrowed "the search never narrowed the rows"
+
+        let before = searched()
+
+        do!
+          onUiAsync(fun () ->
+            searchBox() |> Option.iter(fun box -> box.Text <- ""))
+
+        let! restored =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "@bob"))
+          )
+
+        Expect.isTrue restored "clearing the box never cleared the search"
+
+        do! Async.Sleep 300
+
+        let! text = probeUiAsync(fun () -> searchBox() |> Option.map _.Text)
+
+        Expect.equal text (Some "") "the cleared box was refilled"
+
+        Expect.equal
+          (searched())
+          before
+          "clearing the box asked for another search"
+
+        Expect.isFalse (emptySearch()) "clearing the box sent an empty search"
+      })
+
+    testCaseAsync
+      "the fetched request settles only on its own tab"
+      (async {
+        let openPage =
+          Remotes.inboxPageJson(
+            [ rowAt(hubotJson, "2026-10-21T04:00:00Z", 0) ],
+            false,
+            0,
+            0
+          )
+
+        let fetchedPage =
+          Remotes.inboxPageJson(
+            [ rowAt(hubotJson, "2026-10-21T04:00:00Z", 0) ],
+            false,
+            0,
+            1
+          )
+
+        let api =
+          FakeApi(fun request ->
+            if request.Target.StartsWith "/api/v1/remotes/candidates" then
+              ok
+                $"{{\"candidates\":[{{\"user\":{hubotJson},\"reason\":null}}]}}"
+            elif request.Target.Contains "q=hub" then
+              ok fetchedPage
+            elif request.Target.Contains "tab=fetched" then
+              ok fetchedPage
+            elif request.Target.StartsWith "/api/v1/remotes" then
+              ok openPage
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let! window = startShell(remotesOnStore(true, 0), api)
+
+        do! openRemotesAsync window
+
+        let! listed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "@hubot"))
+          )
+
+        Expect.isTrue listed "the open row never listed"
+
+        let! quiet =
+          probeUiAsync(fun () ->
+            buttonWithText(window, "merge") |> Option.isNone
+            && buttonWithText(window, "drop") |> Option.isNone)
+
+        Expect.isTrue quiet "the open tab offered the settle actions"
+
+        do! clickWhenShown(window, "Fetched")
+
+        let! settle =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              buttonWithText(root, "merge") |> Option.isSome
+              && buttonWithText(root, "drop") |> Option.isSome)
+          )
+
+        Expect.isTrue settle "the fetched tab dropped its settle actions"
+
+        do! clickWhenShown(window, "Open")
+
+        let! returned =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              hasText(root, "@hubot")
+              && buttonWithText(root, "merge") |> Option.isNone)
+          )
+
+        Expect.isTrue returned "the open tab kept the settle actions"
+
+        do!
+          onUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryPick(fun visual ->
+              match visual with
+              | :? TextBox as box when box.Name = "RemotesSearch" -> Some box
+              | _ -> None)
+            |> Option.iter(fun box -> box.Text <- "hub"))
+
+        let! searched =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              hasText(root, "@hubot")
+              && buttonWithText(root, "merge") |> Option.isNone)
+          )
+
+        Expect.isTrue searched "a search hit kept the settle actions"
+      })
+
+    testCaseAsync
+      "the quiet line sits below the search header"
+      (async {
+        let page = Remotes.inboxPageJson([], false, 0, 0)
+        let api = pageApi(page, page, page)
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openRemotesAsync window
+
+        let! quiet =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              textBlockWith(root, "no conversations yet") |> Option.isSome)
+          )
+
+        Expect.isTrue quiet "the empty word never showed"
+
+        let! below =
+          probeUiAsync(fun () ->
+            let search =
+              window.GetVisualDescendants()
+              |> Seq.tryPick(fun visual ->
+                match visual with
+                | :? TextBox as box when box.Name = "RemotesSearch" ->
+                  Some box
+                | _ -> None)
+
+            match search, textBlockWith(window, "no conversations yet") with
+            | Some box, Some word ->
+              let top = word.TranslatePoint(Point(0.0, 0.0), window)
+
+              let searchBottom =
+                box.TranslatePoint(Point(0.0, box.Bounds.Height), window)
+
+              top.HasValue
+              && searchBottom.HasValue
+              && top.Value.Y > searchBottom.Value.Y
+            | _ -> false)
+
+        Expect.isTrue below "the quiet line drew over the search header"
+      })
+
+    testCaseAsync
+      "the org picker places its flyout and light-dismisses"
+      (async {
+        let page = Remotes.inboxPageJson([], false, 0, 0)
+        let api = pageApi(page, page, page)
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openRemotesAsync window
+        do! clickWhenShown(window, "new org")
+
+        let! picker =
+          probeUiAsync(fun () -> popupNamed(window, "OrgCreateFlyout"))
+
+        Expect.isSome picker "the org flyout never rendered"
+
+        let popup = picker.Value
+
+        let! placed =
+          probeUiAsync(fun () ->
+            let target = buttonWithText(window, "new org")
+
+            let anchored =
+              target
+              |> Option.exists(fun button ->
+                obj.ReferenceEquals(popup.PlacementTarget, button))
+
+            anchored && popup.IsOpen && popup.IsLightDismissEnabled)
+
+        Expect.isTrue placed "the org flyout carried no placement target"
+
+        let! point =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryPick(fun visual ->
+              match visual with
+              | :? ScrollViewer as scroller when
+                scroller.Name = "RemotesInbox"
+                ->
+                let center =
+                  scroller.TranslatePoint(
+                    Point(
+                      scroller.Bounds.Width / 2.0,
+                      scroller.Bounds.Height / 2.0
+                    ),
+                    window
+                  )
+
+                if center.HasValue then Some center.Value else None
+              | _ -> None))
+
+        Expect.isSome point "the empty inbox never measured"
+
+        do!
+          onUiAsync(fun () ->
+            window.MouseDown(
+              point.Value,
+              MouseButton.Left,
+              RawInputModifiers.None
+            )
+
+            window.MouseUp(
+              point.Value,
+              MouseButton.Left,
+              RawInputModifiers.None
+            ))
+
+        do! settleAsync()
+
+        let! closed = probeUiAsync(fun () -> not popup.IsOpen)
+
+        Expect.isTrue closed "the empty click never dismissed the org picker"
+
+        do! clickWhenShown(window, "new org")
+
+        let! reopened = probeUiAsync(fun () -> popup.IsOpen)
+
+        Expect.isTrue reopened "the org picker never opened again"
+
+        let! trigger =
+          probeUiAsync(fun () ->
+            buttonWithText(window, "new org")
+            |> Option.bind(fun button ->
+              let center =
+                button.TranslatePoint(
+                  Point(button.Bounds.Width / 2.0, button.Bounds.Height / 2.0),
+                  window
+                )
+
+              if center.HasValue then Some center.Value else None))
+
+        Expect.isSome trigger "the org button never measured"
+
+        do!
+          onUiAsync(fun () ->
+            window.MouseDown(
+              trigger.Value,
+              MouseButton.Left,
+              RawInputModifiers.None
+            )
+
+            window.MouseUp(
+              trigger.Value,
+              MouseButton.Left,
+              RawInputModifiers.None
+            ))
+
+        do! settleAsync()
+
+        let! toggled = probeUiAsync(fun () -> not popup.IsOpen)
+
+        Expect.isTrue toggled "the trigger click reopened its own picker"
+      })
+
+    testCaseAsync
       "the end of the list asks for the next page"
       (async {
         let page = manyRowsJson 30
@@ -688,6 +1077,23 @@ let tests =
         Expect.isFalse weak.Value.IsAlive "the row outlived its page"
       })
   ]
+
+/// One message whose reply ghost points at an earlier message.
+let messageWithGhost
+  (
+    id: int,
+    userId: string,
+    body: string,
+    clientId: string,
+    replyId: int,
+    replyBody: string
+  ) : string =
+  Remotes
+    .messageJson(id, userId, body, clientId)
+    .Replace(
+      "\"reply_to_id\":null",
+      $"\"reply_to_id\":{replyId},\"reply_to\":{{\"id\":{replyId},\"user_id\":\"{partnerId}\",\"body\":\"{replyBody}\",\"images_count\":0,\"has_voice\":false}}"
+    )
 
 /// The api of the thread tests: the inbox lists one conversation, and
 /// the thread answers from cans, with its older page behind a before
@@ -1158,6 +1564,378 @@ let threadTests =
       })
 
     testCaseAsync
+      "a landing flash follows a row the panel realizes late"
+      (async {
+        let thread =
+          Remotes
+            .threadJson(
+              [
+                for at in 1..60 ->
+                  Remotes.messageJson(
+                    at,
+                    (if at % 2 = 0 then viewerId else partnerId),
+                    $"message number {at}",
+                    $"c-{at}"
+                  )
+              ],
+              60,
+              "",
+              false,
+              0
+            )
+            .Replace(
+              "\"client_id\":\"c-60\",\"body\":\"message number 60\",\"body_segments\":[{\"type\":\"text\",\"text\":\"message number 60\"}],\"mentions\":[],\"reply_to_id\":null",
+              "\"client_id\":\"c-60\",\"body\":\"message number 60\",\"body_segments\":[{\"type\":\"text\",\"text\":\"message number 60\"}],\"mentions\":[],\"reply_to_id\":30,\"reply_to\":{\"id\":30,\"user_id\":\""
+              + viewerId
+              + "\",\"body\":\"the original\",\"images_count\":0,\"has_voice\":false}"
+            )
+
+        let api = threadApi(thread, thread)
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openConversationAsync window
+
+        let! ghost =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "the original"))
+          )
+
+        Expect.isTrue ghost "the reply ghost never showed"
+
+        let flashShown(root: Control) =
+          root.GetVisualDescendants()
+          |> Seq.exists(fun visual ->
+            match visual with
+            | :? Border as border when border.Name = "ChatMessage30" ->
+              border.Classes.Contains "flash-ring"
+            | _ -> false)
+
+        let threadScroller() =
+          window.GetVisualDescendants()
+          |> Seq.tryPick(fun visual ->
+            match visual with
+            | :? ScrollViewer as scroller when scroller.Name = "RemotesThread" ->
+              Some scroller
+            | _ -> None)
+
+        do! clickWhenShown(window, "the original")
+
+        // At this height the landing target sits outside the realized
+        // window. Let the ask land, then grow the viewport so the
+        // virtualizer builds the row: the row's own class binding is
+        // what has to find it.
+        do! Async.Sleep 300
+        do! onUiAsync(fun () -> window.Height <- 2200.0)
+        do! settleAsync()
+
+        let! lit = waitForAsync(5000, (fun () -> window), flashShown)
+
+        Expect.isTrue lit "the landing flash never reached the row"
+
+        let! faded =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> not(flashShown root)
+          )
+
+        Expect.isTrue faded "the landing flash never ended"
+
+        do! onUiAsync(fun () -> window.Height <- 600.0)
+        do! settleAsync()
+
+        do! onUiAsync(fun () -> threadScroller() |> Option.iter _.ScrollToEnd())
+
+        let! again =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "the original"))
+          )
+
+        Expect.isTrue again "the ghost never came back with the tail"
+
+        do! clickWhenShown(window, "the original")
+        do! Async.Sleep 300
+        do! onUiAsync(fun () -> window.Height <- 2200.0)
+        do! settleAsync()
+
+        let! litAgain = waitForAsync(5000, (fun () -> window), flashShown)
+
+        Expect.isTrue litAgain "the second landing never flashed"
+
+        let! fadedAgain =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> not(flashShown root)
+          )
+
+        Expect.isTrue fadedAgain "the second landing left its flash running"
+      })
+
+    testCaseAsync
+      "a landing still scrolls after the reader switches conversations"
+      (async {
+        let firstThread =
+          Remotes.threadJson(
+            [ Remotes.messageJson(5, partnerId, "first thread tail", "c-5") ],
+            5,
+            "",
+            false,
+            0
+          )
+
+        let secondMessages = [
+          for at in 1..20 ->
+            Remotes.messageJson(
+              at,
+              (if at % 2 = 0 then viewerId else partnerId),
+              $"second message {at}",
+              $"s-{at}"
+            )
+        ]
+
+        let secondThread =
+          Remotes
+            .threadJson(secondMessages, 20, "", false, 0)
+            .Replace(hubotJson, bobJson)
+
+        let api =
+          FakeApi(fun request ->
+            if request.Target.StartsWith "/api/v1/remotes/@hubot/messages" then
+              ok firstThread
+            elif request.Target.StartsWith "/api/v1/remotes/@bob/messages" then
+              ok secondThread
+            elif request.Target.StartsWith "/api/v1/remotes" then
+              ok(
+                Remotes.inboxPageJson(
+                  [
+                    rowAt(hubotJson, "2026-10-21T04:00:00Z", 0)
+                    rowAt(bobJson, "2026-10-20T04:00:00Z", 0)
+                  ],
+                  false,
+                  0,
+                  0
+                )
+              )
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openRemotesAsync window
+
+        let! firstRow =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> buttonWithText(root, "@hubot") |> Option.isSome)
+          )
+
+        Expect.isTrue firstRow "the first conversation never listed"
+
+        do! clickWhenShown(window, "@hubot")
+
+        let! firstShown =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "first thread tail"))
+          )
+
+        Expect.isTrue firstShown "the first conversation never opened"
+
+        do! clickWhenShown(window, "@bob")
+
+        let! secondShown =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "second message 20"))
+          )
+
+        Expect.isTrue secondShown "the second conversation never opened"
+
+        do! Async.Sleep 300
+        do! settleAsync()
+
+        let threadScroller() =
+          window.GetVisualDescendants()
+          |> Seq.tryPick(fun visual ->
+            match visual with
+            | :? ScrollViewer as scroller when scroller.Name = "RemotesThread" ->
+              Some scroller
+            | _ -> None)
+
+        let! overflows =
+          waitForAsync(
+            5000,
+            (fun () -> threadScroller()),
+            Option.exists(fun scroller ->
+              scroller.Extent.Height > scroller.Viewport.Height + 48.0)
+          )
+
+        Expect.isTrue overflows "the second thread never overflowed"
+
+        do!
+          onUiAsync(fun () ->
+            threadScroller()
+            |> Option.iter(fun scroller ->
+              scroller.ScrollToEnd()
+              scroller.Offset <- Vector(0.0, 0.0)))
+
+        do! settleAsync()
+
+        let! atTop =
+          probeUiAsync(fun () ->
+            threadScroller()
+            |> Option.map _.Offset.Y
+            |> Option.defaultValue -1.0)
+
+        Expect.isLessThan
+          atTop
+          1.0
+          "the second thread never returned to its top"
+
+        let! ready =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              buttonWithText(root, "back to present")
+              |> Option.exists(fun button -> button.IsVisible))
+          )
+
+        Expect.isTrue ready "the present edge never offered its return"
+
+        do! clickWhenShown(window, "back to present")
+
+        let! landed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun _ ->
+              threadScroller()
+              |> Option.exists(fun scroller ->
+                scroller.Extent.Height > scroller.Viewport.Height
+                && scroller.Offset.Y + scroller.Viewport.Height
+                   >= scroller.Extent.Height - 2.0))
+          )
+
+        Expect.isTrue
+          landed
+          "the present landing after the switch never reached its edge"
+      })
+
+    testCaseAsync
+      "a second landing keeps its own beat"
+      (async {
+        let thread =
+          Remotes.threadJson(
+            [
+              Remotes.messageJson(1, viewerId, "first", "c-1")
+              Remotes.messageJson(2, partnerId, "second", "c-2")
+              messageWithGhost(3, partnerId, "A holder", "c-3", 1, "A original")
+              messageWithGhost(4, partnerId, "B holder", "c-4", 2, "B original")
+              Remotes.messageJson(5, partnerId, "tail", "c-5")
+            ],
+            5,
+            "",
+            false,
+            0
+          )
+
+        let api = threadApi(thread, thread)
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openConversationAsync window
+
+        let! listed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "A original"))
+          )
+
+        Expect.isTrue listed "the ghosts never showed"
+
+        let flashShown (id: int) (root: Control) =
+          root.GetVisualDescendants()
+          |> Seq.exists(fun visual ->
+            match visual with
+            | :? Border as border when border.Name = $"ChatMessage{id}" ->
+              border.Classes.Contains "flash-ring"
+            | _ -> false)
+
+        do! clickWhenShown(window, "A original")
+
+        let! firstLit = waitForAsync(5000, (fun () -> window), flashShown 1)
+
+        Expect.isTrue firstLit "the first landing never flashed"
+
+        do! Async.Sleep 1100
+
+        let watch = Diagnostics.Stopwatch.StartNew()
+        let secondLitAt = ResizeArray<int64>()
+
+        let probeSecond(root: Control) =
+          let lit = flashShown 2 root
+
+          if lit && secondLitAt.Count = 0 then
+            secondLitAt.Add watch.ElapsedMilliseconds
+
+          lit
+
+        do! clickWhenShown(window, "B original")
+
+        let! secondLit = waitForAsync(5000, (fun () -> window), probeSecond)
+
+        Expect.isTrue secondLit "the second landing never flashed"
+
+        Expect.isGreaterThan
+          secondLitAt.Count
+          0
+          "the second landing's first lit moment was never seen"
+
+        let! secondFaded =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> not(flashShown 2 root)
+          )
+
+        let beat = int(watch.ElapsedMilliseconds - secondLitAt[0])
+
+        Expect.isTrue secondFaded "the second landing never faded"
+
+        Expect.isGreaterThanOrEqual
+          beat
+          1000
+          "the first beat cut the second landing's flash short"
+
+        do! clickWhenShown(window, "A original")
+
+        let! againLit = waitForAsync(5000, (fun () -> window), flashShown 1)
+
+        Expect.isTrue againLit "the repeated landing never flashed"
+
+        do! Async.Sleep 250
+        do! clickWhenShown(window, "A original")
+        do! Async.Sleep 1000
+
+        let! stillLit = probeUiAsync(fun () -> flashShown 1 window)
+
+        Expect.isTrue
+          stillLit
+          "a repeated landing on the same message cut its beat short"
+      })
+
+    testCaseAsync
       "leaving the page releases the thread rows"
       (async {
         let thread =
@@ -1580,6 +2358,16 @@ let reactTests =
         do! onUiAsync(fun () -> hoverMessage(window, 41, false))
         do! settleAsync()
         do! clickWhenShownByTip(window, "Add reaction")
+
+        let! placed =
+          probeUiAsync(fun () ->
+            popupNamed(window, "ReactionTrayFlyout")
+            |> Option.map(fun popup ->
+              popup.IsOpen
+              && (popup.PlacementTarget |> Option.ofObj |> Option.isSome))
+            |> Option.defaultValue false)
+
+        Expect.isTrue placed "the reaction tray carried no placement target"
 
         // The tray carries the three defaults; a pick lands the chip
         // at once from the optimistic toggle.
@@ -2198,6 +2986,31 @@ let composerTests =
 
         Expect.isTrue composerGone "the composer stayed open"
       })
+
+    testCaseAsync
+      "the link picker places its flyout on its button"
+      (async {
+        let api = composerApi(quietThread(), Stored)
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openConversationAsync window
+        do! typeIntoComposer(window, "see https://example.com/thing")
+        do! clickWhenShown(window, "first link")
+
+        let! placed =
+          probeUiAsync(fun () ->
+            let target = buttonWithText(window, "first link")
+
+            popupNamed(window, "LinkPickerFlyout")
+            |> Option.map(fun popup ->
+              popup.IsOpen
+              && (target
+                  |> Option.exists(fun button ->
+                    obj.ReferenceEquals(popup.PlacementTarget, button))))
+            |> Option.defaultValue false)
+
+        Expect.isTrue placed "the link picker carried no placement target"
+      })
   ]
 
 /// The api of the management tests: the thread and inbox answer from
@@ -2247,6 +3060,17 @@ let manageTests =
         let! window = startShell(remotesOnStore(false, 0), api)
 
         do! openActionsAsync window
+
+        let! placed =
+          probeUiAsync(fun () ->
+            popupNamed(window, "ActionsMenuFlyout")
+            |> Option.map(fun popup ->
+              popup.IsOpen
+              && (popup.PlacementTarget |> Option.ofObj |> Option.isSome))
+            |> Option.defaultValue false)
+
+        Expect.isTrue placed "the actions menu carried no placement target"
+
         do! clickWhenShown(window, "mute 1 hour")
 
         let! muted =
@@ -2349,6 +3173,16 @@ let manageTests =
         // The confirm carries the site's own question; Cancel keeps
         // the conversation untouched.
         do! clickWhenShown(window, "block @hubot")
+
+        let! placed =
+          probeUiAsync(fun () ->
+            popupNamed(window, "ConfirmFlyout")
+            |> Option.map(fun popup ->
+              popup.IsOpen
+              && (popup.PlacementTarget |> Option.ofObj |> Option.isSome))
+            |> Option.defaultValue false)
+
+        Expect.isTrue placed "the confirm carried no placement target"
 
         let! asked =
           waitForAsync(
@@ -2532,7 +3366,17 @@ let manageTests =
             ]
           )
 
-        let! window = startShell(remotesOnStore(false, 0), api)
+        let slow =
+          slowHttp(
+            api,
+            (fun request ->
+              request.Method = "DELETE"
+              && request.Target.StartsWith
+                "/api/v1/remotes/orgs/org-9/members/hubot"),
+            TimeSpan.FromMilliseconds 800.0
+          )
+
+        let! window = startShell(remotesOnStore(false, 0), slow)
 
         do! openRemotesAsync window
 
@@ -2561,7 +3405,30 @@ let manageTests =
         Expect.isTrue orgThread "the org thread never opened"
 
         do! clickWhenShown(window, "members")
+
+        let! placed =
+          probeUiAsync(fun () ->
+            popupNamed(window, "OrgMenuFlyout")
+            |> Option.map(fun popup ->
+              popup.IsOpen
+              && (popup.PlacementTarget |> Option.ofObj |> Option.isSome))
+            |> Option.defaultValue false)
+
+        Expect.isTrue placed "the members menu carried no placement target"
+
         do! clickWhenShown(window, "Remove from org")
+
+        let! waiting =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              buttonWithText(root, "Remove from org")
+              |> Option.map _.IsEnabled
+              |> Option.contains false)
+          )
+
+        Expect.isTrue waiting "the remove row stayed live in flight"
 
         let! removed =
           waitForAsync(
@@ -2576,6 +3443,93 @@ let manageTests =
           )
 
         Expect.isTrue removed "the member removal never reached its route"
+      })
+
+    testCaseAsync
+      "the block flight waits on its cross-action rows"
+      (async {
+        let blockedBody =
+          "{\"data\":{\"id\":\"01a151db-7fee-727b-a7ce-c911a7556243\",\"handle\":\"hubot\",\"name\":\"The Hubot\",\"avatar_url\":null},\"is_blocking\":true}"
+
+        let api =
+          manageApi(
+            quietThread(),
+            [ ("/api/v1/users/hubot/block", ok blockedBody) ]
+          )
+
+        let slow =
+          slowHttp(
+            api,
+            (fun request ->
+              request.Method = "POST"
+              && request.Target.StartsWith "/api/v1/users/hubot/block"),
+            TimeSpan.FromMilliseconds 1500.0
+          )
+
+        let! window = startShell(remotesOnStore(false, 0), slow)
+
+        do! openActionsAsync window
+        do! clickWhenShown(window, "block @hubot")
+
+        let! asked =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "Block The Hubot?"))
+          )
+
+        Expect.isTrue asked "the block never asked first"
+
+        let! block = probeUiAsync(fun () -> buttonWithText(window, "Block"))
+
+        Expect.isSome block "the block verb never rendered"
+
+        let button = block.Value
+
+        // Two clicks inside one frame both reach the card before the
+        // flight's state lands: the guard refuses the second.
+        do!
+          onUiAsync(fun () ->
+            click button
+            click button)
+
+        let! waiting =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              buttonWithText(root, "stash")
+              |> Option.map _.IsEnabled
+              |> Option.contains false)
+          )
+
+        Expect.isTrue
+          waiting
+          "the cross-action rows stayed live in the block flight"
+
+        let! reached =
+          waitForAsync(
+            5000,
+            (fun () -> api.Requests),
+            fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Method = "POST"
+                && request.Target.StartsWith "/api/v1/users/hubot/block")
+          )
+
+        Expect.isTrue reached "the block never reached its route"
+
+        do! Async.Sleep 600
+
+        let calls =
+          api.Requests
+          |> List.filter(fun request ->
+            request.Method = "POST"
+            && request.Target.StartsWith "/api/v1/users/hubot/block")
+          |> List.length
+
+        Expect.equal calls 1 "the second confirm sent another block"
       })
   ]
 
@@ -3042,6 +3996,16 @@ let voiceTests =
 
         do! clickWhenShownByTip(window, "Voice volume")
 
+        let! placed =
+          probeUiAsync(fun () ->
+            popupNamed(window, "VolumeFlyout")
+            |> Option.map(fun popup ->
+              popup.IsOpen
+              && (popup.PlacementTarget |> Option.ofObj |> Option.isSome))
+            |> Option.defaultValue false)
+
+        Expect.isTrue placed "the volume flyout carried no placement target"
+
         let! fader =
           probeUiAsync(fun () ->
             window.GetVisualDescendants()
@@ -3457,6 +4421,8 @@ let pingTests =
               && request.Target.StartsWith "/api/v1/remotes/@hubot/messages"
             then
               ok(if can.Count = 0 then quiet else pinged)
+            elif request.Target.EndsWith "/archive" then
+              ok "{}"
             elif request.Target.StartsWith "/api/v1/remotes" then
               ok(
                 Remotes.inboxPageJson(
@@ -3497,6 +4463,197 @@ let pingTests =
           )
 
         Expect.isTrue word "the ping word never landed"
+      })
+
+    testCaseAsync
+      "a failed ping sound leaves the archive guard up"
+      (async {
+        let sounds = FakeSounds(true)
+        let can = ResizeArray<string>()
+        let quiet = quietThread()
+
+        let pinged =
+          Remotes.threadJson(
+            [
+              Remotes.messageJson(41, partnerId, "hello there", "c-41")
+              Remotes.pingJson(45, partnerId)
+            ],
+            41,
+            "",
+            false,
+            0
+          )
+
+        let api =
+          FakeApi(fun request ->
+            if
+              request.Method = "GET"
+              && request.Target.StartsWith "/api/v1/remotes/@hubot/messages"
+            then
+              ok(if can.Count = 0 then quiet else pinged)
+            elif request.Target.EndsWith "/archive" then
+              ok "{}"
+            elif request.Target.StartsWith "/api/v1/remotes" then
+              ok(
+                Remotes.inboxPageJson(
+                  [ rowAt(hubotJson, "2026-10-21T04:00:00Z", 0) ],
+                  false,
+                  0,
+                  0
+                )
+              )
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let slow =
+          slowHttp(
+            api,
+            (fun request ->
+              request.Method = "POST" && request.Target.EndsWith "/archive"),
+            TimeSpan.FromMilliseconds 4000.0
+          )
+
+        let! window = startSoundsShell(remotesOnStore(false, 0), slow, sounds)
+
+        do! openConversationAsync window
+        do! clickWhenShown(window, "···")
+        do! clickWhenShown(window, "block @hubot")
+
+        let! asked =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "Block The Hubot?")
+          )
+
+        Expect.isTrue asked "the block never asked first"
+
+        do! clickWhenShown(window, "stash")
+
+        let! archived =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              buttonWithText(root, "pop")
+              |> Option.exists(fun button -> button.IsVisible)
+          )
+
+        Expect.isTrue archived "the stash never started its move"
+
+        let blockVerb() =
+          buttonWithText(window, "Block") |> Option.map _.IsEnabled
+
+        let! guarded = waitForAsync(5000, blockVerb, Option.contains false)
+
+        Expect.isTrue guarded "the stash never disabled the block verb"
+
+        do! onUiAsync(fun () -> can.Add pinged)
+
+        let! failed =
+          waitForAsync(8000, (fun () -> sounds), fun head -> head.Notified > 0)
+
+        Expect.isTrue failed "the ping's sound never failed"
+
+        do! Async.Sleep 500
+
+        let! after = probeUiAsync(blockVerb)
+
+        Expect.equal
+          after
+          (Some false)
+          "the failed sound dropped the archive guard"
+
+        let! settled =
+          waitForAsync(
+            6000,
+            (fun () -> api.Requests),
+            fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Method = "POST" && request.Target.EndsWith "/archive")
+          )
+
+        Expect.isTrue settled "the stash never reached its route"
+      })
+
+    testCaseAsync
+      "a refused stash says so and frees the block verb"
+      (async {
+        let quiet = quietThread()
+
+        let api =
+          FakeApi(fun request ->
+            if
+              request.Method = "GET"
+              && request.Target.StartsWith "/api/v1/remotes/@hubot/messages"
+            then
+              ok quiet
+            elif
+              request.Method = "POST" && request.Target.EndsWith "/archive"
+            then
+              refused(500, "the server is down")
+            elif request.Target.StartsWith "/api/v1/remotes" then
+              ok(
+                Remotes.inboxPageJson(
+                  [ rowAt(hubotJson, "2026-10-21T04:00:00Z", 0) ],
+                  false,
+                  0,
+                  0
+                )
+              )
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let slow =
+          slowHttp(
+            api,
+            (fun request ->
+              request.Method = "POST" && request.Target.EndsWith "/archive"),
+            TimeSpan.FromMilliseconds 700.0
+          )
+
+        let! window = startShell(remotesOnStore(false, 0), slow)
+
+        do! openConversationAsync window
+        do! clickWhenShown(window, "···")
+        do! clickWhenShown(window, "block @hubot")
+
+        let! asked =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "Block The Hubot?")
+          )
+
+        Expect.isTrue asked "the block never asked first"
+
+        do! clickWhenShown(window, "stash")
+
+        let blockVerb() =
+          buttonWithText(window, "Block") |> Option.map _.IsEnabled
+
+        let! guarded = waitForAsync(5000, blockVerb, Option.contains false)
+
+        Expect.isTrue guarded "the refused stash never held the block verb"
+
+        let! said =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              hasText(root, "Could not update the conversation. Try again.")
+          )
+
+        Expect.isTrue said "the refused stash never said what happened"
+
+        let! freed = waitForAsync(5000, blockVerb, Option.contains true)
+
+        Expect.isTrue freed "the refused stash left the block verb held"
       })
   ]
 
@@ -3830,6 +4987,99 @@ let pinTests =
       })
 
     testCaseAsync
+      "a pin dialog's cancel stays usable during another flight"
+      (async {
+        let api =
+          pinApi(
+            orgThread("maintainer", None, 0),
+            [
+              ("PUT",
+               "/messages/41/pin",
+               ok(pinAnswerJson([ pinOf(41, partnerId) ], 1)))
+              ("POST", "/archive", ok "{}")
+            ]
+          )
+
+        let slow =
+          slowHttp(
+            api,
+            (fun request ->
+              request.Method = "POST" && request.Target.EndsWith "/archive"),
+            TimeSpan.FromMilliseconds 1500.0
+          )
+
+        let! window = startShell(remotesOnStore(false, 0), slow)
+
+        do! openOrgAsync window
+
+        let! control =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              controlByName(root, "PinMessage41")
+              |> Option.map(fun control ->
+                (control :?> Button).Content = "Pin message")
+              |> Option.defaultValue false)
+          )
+
+        Expect.isTrue control "the maintainer's pin control never showed"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "PinMessage41")
+            |> Option.map(fun control -> control :?> Button)
+            |> Option.iter click)
+
+        let! asked =
+          waitForAsync(
+            5000,
+            (fun () ->
+              controlByName(window, "ConfirmPin")
+              |> Option.map(fun control -> control :?> Button)),
+            Option.isSome
+          )
+
+        Expect.isTrue asked "the first-pin dialog never asked"
+
+        do! clickWhenShown(window, "···")
+        do! clickWhenShown(window, "stash")
+
+        let! busy =
+          waitForAsync(
+            5000,
+            (fun () ->
+              controlByName(window, "ConfirmPin")
+              |> Option.map(fun control -> control.IsEnabled)),
+            Option.contains false
+          )
+
+        Expect.isTrue busy "the pin dialog never saw the other flight"
+
+        let! cancel =
+          probeUiAsync(fun () ->
+            controlByName(window, "ConfirmPin")
+            |> Option.bind(fun confirm -> buttonNear(confirm, "Cancel")))
+
+        Expect.isSome cancel "the pin dialog's cancel never rendered"
+
+        let! live = probeUiAsync(fun () -> cancel.Value.IsEnabled)
+
+        Expect.isTrue live "the pin dialog trapped its cancel in the flight"
+
+        do! onUiAsync(fun () -> click cancel.Value)
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> not(hasText(root, "Pin for the whole org?"))
+          )
+
+        Expect.isTrue closed "the pin dialog never closed on cancel"
+      })
+
+    testCaseAsync
       "a refused pin shows the server's words"
       (async {
         let api =
@@ -3894,5 +5144,149 @@ let pinTests =
           )
 
         Expect.isTrue said "the refusal never showed the server's words"
+      })
+
+    testCaseAsync
+      "the first-pin flight waits on its cross-action rows"
+      (async {
+        let api =
+          pinApi(
+            orgThread("maintainer", None, 0),
+            [
+              ("PUT",
+               "/messages/41/pin",
+               ok(pinAnswerJson([ pinOf(41, partnerId) ], 1)))
+            ]
+          )
+
+        let slow =
+          slowHttp(
+            api,
+            (fun request ->
+              request.Method = "PUT"
+              && request.Target.EndsWith "/messages/41/pin"),
+            TimeSpan.FromMilliseconds 1800.0
+          )
+
+        let! window = startShell(remotesOnStore(false, 0), slow)
+
+        do! openOrgAsync window
+
+        let! control =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              controlByName(root, "PinMessage41")
+              |> Option.map(fun control ->
+                (control :?> Button).Content = "Pin message")
+              |> Option.defaultValue false)
+          )
+
+        Expect.isTrue control "the maintainer's pin control never showed"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "PinMessage41")
+            |> Option.map(fun control -> control :?> Button)
+            |> Option.iter click)
+
+        let! asked =
+          waitForAsync(
+            5000,
+            (fun () ->
+              controlByName(window, "ConfirmPin")
+              |> Option.map(fun control -> control :?> Button)),
+            Option.isSome
+          )
+
+        Expect.isTrue asked "the first-pin dialog never asked"
+
+        let! confirm =
+          probeUiAsync(fun () ->
+            controlByName(window, "ConfirmPin")
+            |> Option.map(fun control -> control :?> Button))
+
+        Expect.isSome confirm "the first-pin dialog never asked"
+
+        let button = confirm.Value
+
+        let! scrim =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryPick(fun visual ->
+              match visual with
+              | :? Border as border when border.Name = "PinScrim" ->
+                Some(
+                  border.Classes.Contains "scrim-back"
+                  && not(isNull border.Background)
+                )
+              | _ -> None))
+
+        Expect.equal
+          scrim
+          (Some true)
+          "the pin scrim carried no scrim-back class or no background"
+
+        // Two clicks inside one frame both reach the dialog before
+        // the flight's state lands: the guard refuses the second.
+        do!
+          onUiAsync(fun () ->
+            click button
+            click button)
+
+        do! clickWhenShown(window, "···")
+
+        let! waiting =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              buttonWithText(root, "stash")
+              |> Option.map _.IsEnabled
+              |> Option.contains false)
+          )
+
+        Expect.isTrue
+          waiting
+          "the cross-action rows stayed live in the pin flight"
+
+        let! reached =
+          waitForAsync(
+            5000,
+            (fun () -> api.Requests),
+            fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Method = "PUT"
+                && request.Target.EndsWith "/messages/41/pin")
+          )
+
+        Expect.isTrue reached "the pin never reached its route"
+
+        let! freed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              buttonWithText(root, "stash")
+              |> Option.map _.IsEnabled
+              |> Option.contains true)
+          )
+
+        Expect.isTrue
+          freed
+          "the cross-action rows stayed disabled after the pin settled"
+
+        do! Async.Sleep 600
+
+        let pins =
+          api.Requests
+          |> List.filter(fun request ->
+            request.Method = "PUT"
+            && request.Target.EndsWith "/messages/41/pin")
+          |> List.length
+
+        Expect.equal pins 1 "the second confirm sent another pin"
       })
   ]

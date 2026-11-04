@@ -8,7 +8,8 @@ open MVUish.Avalonia
 module Parts =
 
   /// The whole inbox column: the search box with the org picker beside
-  /// it, the tabs under them, and the rows over the quiet line.
+  /// it, the tabs under them, and the rows with the quiet line over
+  /// them.
   val inbox:
     props: Props<'env> *
     model: IObservable<State.Model> *

@@ -136,16 +136,7 @@ let linkPicker(props: Props) : Control =
         |> _.ToBinding()
       )
 
-  let flyout =
-    Popup()
-      .Child(
-        Border()
-          .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
-          .BorderThickness(1.0)
-          .CornerRadius(6.0)
-          .Padding(4.0)
-          .Child(host)
-      )
+  let flyout = Popup()
 
   let quiet =
     Button()
@@ -159,8 +150,22 @@ let linkPicker(props: Props) : Control =
 
   ToolTip.SetTip(quiet, "Choose which link gets a card")
 
+  let placed =
+    flyout
+      .Name("LinkPickerFlyout")
+      .PlacementTarget(quiet)
+      .Placement(PlacementMode.Top)
+      .Child(
+        Border()
+          .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
+          .BorderThickness(1.0)
+          .CornerRadius(6.0)
+          .Padding(4.0)
+          .Child(host)
+      )
+
   Panel()
-    .Children(quiet, flyout)
+    .Children(quiet, placed)
     .HorizontalAlignment(HorizontalAlignment.Right)
     .IsVisible(links |> Observable.map(fun found -> not found.IsEmpty))
 

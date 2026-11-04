@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Threads:** a click on "Back to the log" works again on Windows — the window's drag strip no longer covers it, and the search box's top edge clears the same strip.
 - **UI:** a commit thread's card no longer rebuilds on every clock tick; the per-tick copies stayed bound until the thread closed, so long sessions no longer grow with the clock.
 - **UI:** the timeline's scroll-to-top works after the log is stashed and brought back: the feed follows the page's own return-to-top signal, so every request reaches the open log instead of stopping after the first leave.
 - **Composer:** staged image previews decode to the size they show and free their memory when the strip rebuilds or an image is removed — long writing sessions with several photos no longer hold the pixels of pictures already removed.

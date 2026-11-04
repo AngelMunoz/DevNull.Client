@@ -29,6 +29,7 @@ export const meta = {
     maxReviewRounds: { type: "integer", description: "Hard backstop on total worker passes before stopping for the user; the scope gate usually stops first.", default: 3 },
     maxScopeReviews: { type: "integer", description: "Scope-review cycles allowed per issue. The budget is multiplicity, never wall clock: needing one more cycle than this stops for the user's judgment.", default: 2 },
     rederive: { type: "boolean", description: "Regenerate the derivation.", default: false },
+    resume: { type: "boolean", description: "The tree already carries the implementation of an interrupted run: skip the worker first pass and start at the battery.", default: false },
     force: { type: "boolean", description: "Run inside a peak window anyway.", default: false },
     snapshotsDir: { type: "string", description: "Where capture PNGs land (gitignored evidence).", default: "artifacts/snapshots" },
     message: { type: "string", description: "land: the commit/PR title.", default: "" },
@@ -213,7 +214,7 @@ Rules:
 - Numbers are copied exactly, never rounded or paraphrased.
 - You produce evidence for the deriver, not a design: no recommendations, just the two sides of the parity ledger.
 
-Answer as Markdown with three sections — ## Server facts (each with file:line), ## Client parity (item -> has/lacks, file:line), ## Gaps. Cap: 50 lines.`;
+Answer as Markdown with three sections — ## Server facts (each with file:line), ## Client parity (item -> has/lacks, file:line), ## Gaps. One line per fact, no prose padding: concise, but never at the cost of an item left out.`;
 
 const DERIVE_BRIEF = (id, st, issueText, census) => `You derive the working parameters for feature step ${id} of DevNull.Client (repo root ${ROOT}). READ-ONLY: no edits, no commits. Read AGENTS.md, ${plan} (step ${id}), and the code the feature names — ground everything in file:line evidence you actually read. The server repository sits at ${SERVER}: read the primary sources YOURSELF; the parity census below is evidence to reconcile, not truth — promote each line you confirm, refute each you cannot, and add what it missed.
 
@@ -241,7 +242,7 @@ Mandatory, every derivation:
 - **Public-surface flag.** Any exported type or .fsi change is named as the structural risk with its consumer ripple.
 - **Sanitization.** Every constant, wording, and flow leaves this derivation already free of server names; the worker never sees them.
 
-Cap: 40 lines beyond these. Only what is specific to this feature and this tree.`;
+One line per fact, no prose padding; concise, never at the cost of an item. Only what is specific to this feature and this tree.`;
 
 const WORKER_BRIEF = (id, st, derivation, extra) => `You are the implementer for feature step ${id} of the work plan in DevNull.Client (repo root ${ROOT} — stay on the current branch). Read AGENTS.md (binding), ${plan} (step ${id} — its scope below is binding), and the skills under .agents/skills/ named in the derivation; if none, read mvuish-element-shapes, mvuish-controls, devnull-mvuish-audit.
 
@@ -290,7 +291,7 @@ const REVIEW_BRIEF = (ref, id, derivation, changed, captures) => `You are the RE
 
 Read first: .alta/derived/rejections.md (the casebook — find each class's next instance), and the derivation below — the behavior spec, the visual spec, and the negative space are the contract.
 
-${derivation ? `## The derivation (contract)\n\n${String(derivation).slice(0, 5000)}\n` : ""}## Your two passes
+${derivation ? `## The derivation (contract)\n\n${derivation}\n` : ""}## Your two passes
 
 1. **The diff.** git diff over the changed files (run it yourself):
 ${changed.map((f) => `- ${f}`).join("\n")}
@@ -550,11 +551,18 @@ const issueText = await fetchIssue(issueNumber);
 const seats = { deriver: null, worker: null };
 const stopped = [];
 try {
-  const census = await step("scout", () => withMetrics(`${id} scout`, { step: id, round: 0, role: "scout" }, () => agent(SCOUT_BRIEF(id, issueText || `${stRun.title}\n\n${stRun.body}`), { ...scoutOpts, title: `${id} parity scout`, subSessions: false })));
-  await tools.write_file({ path: censusPath(id), content: `# ${id} parity census — ${today}\n\n${String(census)}` });
+  // A finished census is reused: the scout is evidence, not a ritual —
+  // re-derive with rederive:true when the server side moved.
+  let censusText = "";
+  try { censusText = await read(censusPath(id)); } catch { /* none yet */ }
+  if (!censusText.trim()) {
+    const census = await step("scout", () => withMetrics(`${id} scout`, { step: id, round: 0, role: "scout" }, () => agent(SCOUT_BRIEF(id, issueText || `${stRun.title}\n\n${stRun.body}`), { ...scoutOpts, title: `${id} parity scout`, subSessions: false })));
+    censusText = `# ${id} parity census — ${today}\n\n${String(census)}`;
+    await tools.write_file({ path: censusPath(id), content: censusText });
+  }
 
-  const derivation = await deriveFor(id, stRun, args.rederive ?? false, seats, issueText, String(census));
-  present(`## ${id} — ${stRun.title}\n\nBranch ${branch}. Census done, derivation done. One kept worker seat, then the battery, then the review pair (diff + renders), then the deriver rules scope; ${maxScopeReviews} scope cycle(s) allowed — needing one more stops. autoLand ${autoLand() ? "ON" : "OFF"}; the landing is a pull request.`);
+  const derivation = await deriveFor(id, stRun, args.rederive ?? false, seats, issueText, censusText);
+  present(`## ${id} — ${stRun.title}\n\nBranch ${branch}. Census done, derivation done. One kept worker seat, then the battery, then the review pair (diff + renders), then the deriver rules scope; ${maxScopeReviews} scope cycle(s) allowed — needing one more stops. autoLand ${autoLand ? "ON" : "OFF"}; the landing is a pull request.`);
 
   seats.worker = await session({ ...workerOpts, title: `${id} worker` });
   const sendWorker = async (round, directives) => {
@@ -566,7 +574,9 @@ try {
     }
   };
 
-  let workerReport = await step("implement", () => withMetrics(`${id} worker`, (r) => ({ step: id, round: 0, role: "worker", reportChars: String(r).length }), () => sendWorker(0, null), () => seats.worker.id));
+  let workerReport = args.resume ?? false
+    ? "(resumed: the diff on the branch is the interrupted run's worker report; verify against the tree, not this text)"
+    : await step("implement", () => withMetrics(`${id} worker`, (r) => ({ step: id, round: 0, role: "worker", reportChars: String(r).length }), () => sendWorker(0, null), () => seats.worker.id));
   let results = await step("battery", () => battery(id));
   let review = await step("review", () => runReview(id, derivation, results.changed, results.captures));
   await tools.write_file({ path: verdictPath(id), content: JSON.stringify({ verdict: review.verdict, directives: review.findings, ledgerNote: `${stRun.title} (${issueNumber ? "#" + issueNumber : id})` }, null, 2) });
@@ -633,8 +643,8 @@ try {
     stopped.push({ step: id, ...halted });
     present(`### ${id} STOPPED\n\n${halted.why}. Nothing landed; the branch keeps the work.`);
   } else if (results.hard && review?.verdict === "clean") {
-    present(`### ${id} PASSED — battery green, review pair clean\n\nCaptures: ${results.captures.length ? results.captures.map((c) => c.split(/[\\/]/).pop()).join(", ") : "none"}\n\n${autoLand() ? "Opening the pull request…" : "**Stopped for your review; run action 'land' to open the pull request.**"}${review.notes ? `\n\nReview notes: ${review.notes}` : ""}`);
-    if (autoLand()) {
+    present(`### ${id} PASSED — battery green, review pair clean\n\nCaptures: ${results.captures.length ? results.captures.map((c) => c.split(/[\\/]/).pop()).join(", ") : "none"}\n\n${autoLand ? "Opening the pull request…" : "**Stopped for your review; run action 'land' to open the pull request.**"}${review.notes ? `\n\nReview notes: ${review.notes}` : ""}`);
+    if (autoLand) {
       prResult = await step("land", () => landStep(id, `feat: ${cleanNote(stRun.title)}${issueNumber ? ` (#${issueNumber})` : ""}`, String(workerReport).slice(0, 1500)));
       present(`### ${id} pull request opened\n\n${String(prResult.pr).split("\n")[0]}`);
     }

@@ -2353,6 +2353,185 @@ let tests =
       })
 
     testCaseAsync
+      "a press on the back line returns to the log"
+      (async {
+        let! window = startShell(signedInStore(), threadApi() :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "It was DNS.")
+
+        let! thread = showsText(window, "Back to the log")
+
+        Expect.isTrue thread "the thread never rendered"
+
+        do! settleAsync()
+
+        let! back =
+          probeUiAsync(fun () -> buttonWithText(window, "Back to the log"))
+
+        Expect.isSome back "the back line never appeared"
+
+        do! pressControlAsync(window, back.Value)
+
+        let! returned =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              hasText(root, "Following")
+              && not(hasText(root, "Back to the log")))
+          )
+
+        Expect.isTrue returned "the press never returned to the log"
+      })
+
+    testCaseAsync
+      "the back line sits below the drag band and owns its center"
+      (async {
+        let! window = startShell(signedInStore(), threadApi() :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "It was DNS.")
+
+        let! thread = showsText(window, "Back to the log")
+
+        Expect.isTrue thread "the thread never rendered"
+
+        do!
+          probeUiAsync(fun () ->
+            match window.CaptureRenderedFrame() with
+            | null -> ()
+            | bitmap -> bitmap.Dispose())
+
+        do! settleAsync()
+
+        let! measured =
+          probeUiAsync(fun () ->
+            buttonWithText(window, "Back to the log")
+            |> Option.bind(fun button ->
+              let top = button.TranslatePoint(Point(0.0, 0.0), window)
+
+              if top.HasValue then
+                let center =
+                  Point(
+                    top.Value.X + button.Bounds.Width / 2.0,
+                    top.Value.Y + button.Bounds.Height / 2.0
+                  )
+
+                Some(top.Value, center, button)
+              else
+                None))
+
+        Expect.isSome measured "the back line never measured"
+
+        let top, center, back = measured.Value
+
+        let! owns =
+          probeUiAsync(fun () ->
+            let target = back :> Visual
+
+            match window.GetVisualAt(center) with
+            | null -> false
+            | hit ->
+              hit = target
+              || hit.GetVisualAncestors()
+                 |> Seq.exists(fun ancestor -> ancestor = target))
+
+        Expect.isTrue
+          owns
+          "the drag band took the point instead of the back line"
+
+        Expect.isGreaterThanOrEqual
+          top.Y
+          Theme.bandHeight
+          "the back line still sits under the drag band"
+      })
+
+    testCaseAsync
+      "the search box clears the band and takes a press"
+      (async {
+        let! window =
+          startShell(signedInStore(), searchApi(false, false) :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Search")
+
+        let! input =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "SearchInput")),
+            Option.isSome
+          )
+
+        Expect.isTrue input "the search palette never opened"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "SearchInput")
+            |> Option.iter(fun control ->
+              (control :?> TextBox).Text <- "shippin"))
+
+        let! settled = seesVisible(window, "@kai-kou")
+
+        Expect.isTrue settled "the search never settled"
+
+        do! clickWhenShown(window, "See all matching commits")
+
+        let! counted = seesVisible(window, "1 match")
+
+        Expect.isTrue counted "the results page never counted its match"
+
+        let! boxShown =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "SearchBox")),
+            Option.isSome
+          )
+
+        Expect.isTrue boxShown "the results page never showed its box"
+
+        do! settleAsync()
+
+        let! box =
+          probeUiAsync(fun () ->
+            controlByName(window, "SearchBox")
+            |> Option.map(fun control -> control :?> TextBox))
+
+        Expect.isSome box "the results page's box never measured"
+
+        let! top =
+          probeUiAsync(fun () ->
+            let origin = box.Value.TranslatePoint(Point(0.0, 0.0), window)
+
+            if origin.HasValue then origin.Value.Y else nan)
+
+        Expect.isGreaterThanOrEqual
+          top
+          Theme.bandHeight
+          "the search box still reaches into the drag band"
+
+        do! pressControlAsync(window, box.Value)
+
+        let! focused =
+          probeUiAsync(fun () ->
+            obj.ReferenceEquals(
+              window.FocusManager.GetFocusedElement(),
+              box.Value
+            ))
+
+        Expect.isTrue focused "the press never focused the search box"
+      })
+
+    testCaseAsync
       "opening a commit shows the thread with its replies"
       (async {
         let api = threadApi()
@@ -2528,30 +2707,6 @@ let tests =
       })
 
     testCaseAsync
-      "giving a pastel posts the pastel"
-      (async {
-        let! window = startShell(signedInStore(), threadApi() :> IHttp)
-
-        let! shown = showsText(window, "It was DNS.")
-
-        Expect.isTrue shown "the log never rendered"
-
-        do!
-          onUiAsync(fun () ->
-            buttonWithText(window, "It was DNS.") |> Option.iter click)
-
-        let! thread = showsText(window, "Back to the log")
-
-        Expect.isTrue thread "the thread never rendered"
-
-        do! clickWhenShown(window, "Give a pastel")
-
-        let! note = showsText(window, "Pastel given. 6 left this cycle.")
-
-        Expect.isTrue note "the pastel note never showed"
-      })
-
-    testCaseAsync
       "the pastel card action posts the pastel from the log"
       (async {
         let api = threadApi()
@@ -2591,40 +2746,6 @@ let tests =
           )
 
         Expect.isTrue posted "the pastel was never posted"
-      })
-
-    testCaseAsync
-      "pastel controls stay hidden while pasteis mode is off"
-      (async {
-        let! window =
-          startShell(signedInStoreWithoutPasteis(), threadApi() :> IHttp)
-
-        let! shown = showsText(window, "The Octocat")
-
-        Expect.isTrue shown "the log never rendered"
-
-        let! leakedCard =
-          probeUiAsync(fun () -> controlByName(window, "PastelButton"))
-
-        Expect.isNone leakedCard "the card pastel action leaked"
-
-        do!
-          onUiAsync(fun () ->
-            buttonWithText(window, "It was DNS.") |> Option.iter click)
-
-        let! thread = showsText(window, "Back to the log")
-
-        Expect.isTrue thread "the thread never rendered"
-
-        let! leakedThread =
-          probeUiAsync(fun () -> buttonWithText(window, "Give a pastel"))
-
-        Expect.isNone leakedThread "the thread pastel button leaked"
-
-        let! leakedReply =
-          probeUiAsync(fun () -> controlByName(window, "PastelButton"))
-
-        Expect.isNone leakedReply "the reply pastel action leaked"
       })
 
     testCaseAsync

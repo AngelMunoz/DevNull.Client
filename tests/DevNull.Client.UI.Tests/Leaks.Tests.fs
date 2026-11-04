@@ -329,13 +329,13 @@ let tests =
       "a removed staged image collects on the transition"
       (async {
         // Two-megabyte payloads cross the large-object threshold the
-        // way real photos do; the PNG head passes the sniffing parser.
+        // way real photos do; the real PNG head passes the sniffing
+        // parser and the camera session's true decode (the trailing
+        // zeros ride past IEND, where the decoder stops).
         let staged(name: string) : ImageAttachment = {
           stagedImage(name) with
               Bytes =
-                Array.append
-                  [| 137uy; 80uy; 78uy; 71uy; 13uy; 10uy; 26uy; 10uy |]
-                  (Array.create (2 * 1024 * 1024) 0uy)
+                Array.append imageBytes (Array.create (2 * 1024 * 1024) 0uy)
         }
 
         let attachments = FakeAttachments()

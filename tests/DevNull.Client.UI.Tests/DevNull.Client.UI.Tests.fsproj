@@ -24,11 +24,13 @@
     <Compile Include="Feed.Tests.fs" />
     <Compile Include="RemotesView.Tests.fs" />
     <Compile Include="OrganizationView.Tests.fs" />
+    <Compile Include="Snapshots.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Avalonia.Headless" />
+    <PackageReference Include="Avalonia.Skia" />
     <PackageReference Include="Expecto" />
   </ItemGroup>
 

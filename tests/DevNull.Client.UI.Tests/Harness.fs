@@ -18,11 +18,24 @@ open Avalonia.VisualTree
 
 open DevNull.Client.Startup
 
+/// The carrier for the whole suite's session: the real theme and app
+/// styles over the Skia renderer, so a captured frame carries text and
+/// theme as a user sees them. The emulated headless drawing would leave
+/// the camera with nothing it can save.
+type HarnessApp() =
+  inherit App()
+
+  static member BuildAvaloniaApp() =
+    AppBuilder
+      .Configure<HarnessApp>()
+      .UseSkia()
+      .UseHeadless(AvaloniaHeadlessPlatformOptions(UseHeadlessDrawing = false))
+
 /// One headless session for the whole assembly; the app type carries
 /// the Fluent theme and the app styles.
 let private session =
   HeadlessUnitTestSession.StartNew(
-    typeof<App>,
+    typeof<HarnessApp>,
     AvaloniaTestIsolationLevel.PerAssembly
   )
 
@@ -119,6 +132,31 @@ let showAsync(window: Window) : Async<Window> =
   probeUiAsync(fun () ->
     window.Show()
     window)
+
+/// Saves one rendered frame of a shown window as the named PNG under
+/// artifacts/snapshots (gitignored: captures are evidence, not fixtures)
+/// and returns its path. The session renders through Skia, so the pixels
+/// carry the theme and the text; a feature's visual states all save this
+/// one way.
+let captureAsync(name: string, window: Window) : Async<string> = async {
+  do! settleAsync()
+
+  return!
+    probeUiAsync(fun () ->
+      match window.CaptureRenderedFrame() with
+      | null -> failwith $"no rendered frame to capture for {name}"
+      | bitmap ->
+        let file = IO.Path.Combine("artifacts", "snapshots", name + ".png")
+
+        try
+          IO.Directory.CreateDirectory(IO.Path.GetDirectoryName file) |> ignore
+
+          use stream = IO.File.Create(file)
+          bitmap.Save(stream)
+          file
+        with ex ->
+          failwith $"the capture {name} failed: {ex.Message}")
+}
 
 /// Builds and shows one control inside a fresh window.
 let mountAsync(control: Control) : Async<Window> =

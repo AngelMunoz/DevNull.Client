@@ -74,15 +74,18 @@ type FixedPkceSource(verifier: string) =
   interface IPkceSource with
     member _.NewVerifier() = verifier
 
-/// Bytes served for every commit image. The headless decode stub never
-/// parses them, so any payload exercises the full load path.
-let imageBytes: byte array = [| 137uy; 80uy; 78uy; 71uy; 13uy; 10uy |]
+/// Bytes served for every commit image: one real 1x1 PNG. The camera
+/// session decodes through Skia, so the payload must parse; the load
+/// path is still exercised in full — decode, cache, hand-off, dispose.
+let imageBytes: byte array =
+  Convert.FromBase64String
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
 
-/// One staged image with the true PNG signature, so the sniffing
-/// parser accepts it.
+/// One staged image with a true PNG, so both the sniffing parser and
+/// the camera session's real decode accept it.
 let stagedImage(name: string) : ImageAttachment = {
   FileName = name
-  Bytes = [| 137uy; 80uy; 78uy; 71uy; 13uy; 10uy; 26uy; 10uy |]
+  Bytes = imageBytes
 }
 
 /// The fake attachment sources: every answer is a property the test

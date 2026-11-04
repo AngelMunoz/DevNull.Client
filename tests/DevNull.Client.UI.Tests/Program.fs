@@ -11,6 +11,7 @@ open DevNull.Client.UI.Tests.Remotes
 open DevNull.Client.UI.Tests.RemotesView
 open DevNull.Client.UI.Tests.Scheduled
 open DevNull.Client.UI.Tests.Search
+open DevNull.Client.UI.Tests.Snapshots
 open DevNull.Client.UI.Tests.Translation
 open DevNull.Client.UI.Tests.WhoToFollow
 
@@ -48,6 +49,7 @@ let main argv =
       RemotesView.pingTests
       RemotesView.pinTests
       OrganizationView.tests
+      Snapshots.captureTests
     ]
 
   runTestsWithCLIArgs [] argv tests

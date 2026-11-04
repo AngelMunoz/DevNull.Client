@@ -19,7 +19,7 @@ and the readiness checks.
 
 | Step | Status | Note |
 |---|---|---|
-| F15 | pending | #15 the back button under the drag band |
+| F15 | pr 2026-11-04 | #15 the back button under the drag band |
 | F8 | pending | #8 the app's name and id at device approval |
 | F13 | pending | #13 the emoji picker |
 | F16 | pending | #16 back to the log the reader left |
@@ -30,7 +30,7 @@ and the readiness checks.
 | F4 | pending | #4 follower and following lists |
 | F2 | pending | #2 search: organizations and the deprecated people search |
 
-- [ ] **F15 — the back button under the drag band** (#15)
+- [x] **F15 — the back button under the drag band** (#15)
 
   One element role or one margin, plus the sweep of the top strip.
 

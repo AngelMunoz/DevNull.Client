@@ -550,11 +550,18 @@ const issueText = await fetchIssue(issueNumber);
 const seats = { deriver: null, worker: null };
 const stopped = [];
 try {
-  const census = await step("scout", () => withMetrics(`${id} scout`, { step: id, round: 0, role: "scout" }, () => agent(SCOUT_BRIEF(id, issueText || `${stRun.title}\n\n${stRun.body}`), { ...scoutOpts, title: `${id} parity scout`, subSessions: false })));
-  await tools.write_file({ path: censusPath(id), content: `# ${id} parity census — ${today}\n\n${String(census)}` });
+  // A finished census is reused: the scout is evidence, not a ritual —
+  // re-derive with rederive:true when the server side moved.
+  let censusText = "";
+  try { censusText = await read(censusPath(id)); } catch { /* none yet */ }
+  if (!censusText.trim()) {
+    const census = await step("scout", () => withMetrics(`${id} scout`, { step: id, round: 0, role: "scout" }, () => agent(SCOUT_BRIEF(id, issueText || `${stRun.title}\n\n${stRun.body}`), { ...scoutOpts, title: `${id} parity scout`, subSessions: false })));
+    censusText = `# ${id} parity census — ${today}\n\n${String(census)}`;
+    await tools.write_file({ path: censusPath(id), content: censusText });
+  }
 
-  const derivation = await deriveFor(id, stRun, args.rederive ?? false, seats, issueText, String(census));
-  present(`## ${id} — ${stRun.title}\n\nBranch ${branch}. Census done, derivation done. One kept worker seat, then the battery, then the review pair (diff + renders), then the deriver rules scope; ${maxScopeReviews} scope cycle(s) allowed — needing one more stops. autoLand ${autoLand() ? "ON" : "OFF"}; the landing is a pull request.`);
+  const derivation = await deriveFor(id, stRun, args.rederive ?? false, seats, issueText, censusText);
+  present(`## ${id} — ${stRun.title}\n\nBranch ${branch}. Census done, derivation done. One kept worker seat, then the battery, then the review pair (diff + renders), then the deriver rules scope; ${maxScopeReviews} scope cycle(s) allowed — needing one more stops. autoLand ${autoLand ? "ON" : "OFF"}; the landing is a pull request.`);
 
   seats.worker = await session({ ...workerOpts, title: `${id} worker` });
   const sendWorker = async (round, directives) => {
@@ -633,8 +640,8 @@ try {
     stopped.push({ step: id, ...halted });
     present(`### ${id} STOPPED\n\n${halted.why}. Nothing landed; the branch keeps the work.`);
   } else if (results.hard && review?.verdict === "clean") {
-    present(`### ${id} PASSED — battery green, review pair clean\n\nCaptures: ${results.captures.length ? results.captures.map((c) => c.split(/[\\/]/).pop()).join(", ") : "none"}\n\n${autoLand() ? "Opening the pull request…" : "**Stopped for your review; run action 'land' to open the pull request.**"}${review.notes ? `\n\nReview notes: ${review.notes}` : ""}`);
-    if (autoLand()) {
+    present(`### ${id} PASSED — battery green, review pair clean\n\nCaptures: ${results.captures.length ? results.captures.map((c) => c.split(/[\\/]/).pop()).join(", ") : "none"}\n\n${autoLand ? "Opening the pull request…" : "**Stopped for your review; run action 'land' to open the pull request.**"}${review.notes ? `\n\nReview notes: ${review.notes}` : ""}`);
+    if (autoLand) {
       prResult = await step("land", () => landStep(id, `feat: ${cleanNote(stRun.title)}${issueNumber ? ` (#${issueNumber})` : ""}`, String(workerReport).slice(0, 1500)));
       present(`### ${id} pull request opened\n\n${String(prResult.pr).split("\n")[0]}`);
     }

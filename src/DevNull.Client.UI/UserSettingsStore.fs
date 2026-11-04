@@ -3,6 +3,7 @@ module DevNull.Client.UserSettingsStore
 open System
 open System.Reactive.Subjects
 open System.Threading
+open Avalonia.Threading
 open Microsoft.Extensions.Logging
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Errors
@@ -18,6 +19,14 @@ type UserSettingsStore =
 type IProvideUserSettings =
   abstract UserSettings: UserSettingsStore
 
+[<Struct>]
+type UserSettingsStoreSetup = {
+  Session: SessionStore
+  Fetch: unit -> Async<Result<UserSettings, AppError>>
+  Log: ILogger
+  Dispatcher: IDispatcher
+}
+
 module UserSettingsStore =
 
   type State = {
@@ -26,13 +35,14 @@ module UserSettingsStore =
     Log: ILogger
     Subject: BehaviorSubject<UserSettings option>
     Reading: int ref
+    Dispatcher: IDispatcher
   }
 
   let emit(state: State, value: UserSettings option) =
-    if Avalonia.Threading.Dispatcher.UIThread.CheckAccess() then
+    if state.Dispatcher.CheckAccess() then
       state.Subject.OnNext value
     else
-      emitOnUi(state.Subject, value)
+      emitOnUi(state.Dispatcher, state.Subject, value)
 
   let apply(state: State, settings: UserSettings) =
     emit(state, Some settings)
@@ -75,18 +85,14 @@ module UserSettingsStore =
 
   let observe(state: State) : IObservable<UserSettings option> = state.Subject
 
-  let create
-    (
-      session: SessionStore,
-      fetch: unit -> Async<Result<UserSettings, AppError>>,
-      log: ILogger
-    ) =
+  let create(setup: UserSettingsStoreSetup) =
     let state: State = {
-      Session = session
-      Fetch = fetch
-      Log = log
+      Session = setup.Session
+      Fetch = setup.Fetch
+      Log = setup.Log
       Subject = new BehaviorSubject<UserSettings option>(None)
       Reading = ref 0
+      Dispatcher = setup.Dispatcher
     }
 
     {

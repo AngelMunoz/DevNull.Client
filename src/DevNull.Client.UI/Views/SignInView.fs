@@ -28,6 +28,7 @@ type Props<'env
   and 'env :> IProvidePkceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideSession
   and 'env :> IProvideLogging> = {
   Env: 'env
@@ -323,6 +324,7 @@ type Page<'env
   and 'env :> IProvidePkceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideSession
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
@@ -331,7 +333,7 @@ type Page<'env
     let program =
       Program.mkProgram (State.init props) (State.update props) (view props)
 
-    let root, lifetime = Program.runWithLifecycle () program
+    let root, lifetime = Programs.runPage(props.Env.Dispatcher, program)
 
     this.Content <- root
     props.Context.AddDisposable lifetime

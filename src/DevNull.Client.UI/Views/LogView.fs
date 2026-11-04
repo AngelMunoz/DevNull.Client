@@ -38,6 +38,7 @@ type Props<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideSession
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
@@ -846,6 +847,7 @@ module Parts =
     and 'env :> IProvideNonceSource
     and 'env :> IProvideSigner
     and 'env :> IProvideHttp
+    and 'env :> IProvideDispatcher
     and 'env :> IProvideSession
     and 'env :> IProvideUiClock
     and 'env :> IProvideImageCache
@@ -1150,6 +1152,7 @@ type Page<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideSession
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
@@ -1168,7 +1171,7 @@ type Page<'env
       Program.mkProgram (State.init props) (State.update props) (view props)
       |> Program.withSubscription(State.subscribe props)
 
-    let root, lifetime = Program.runWithLifecycle () program
+    let root, lifetime = Programs.runPage(props.Env.Dispatcher, program)
 
     this.Content <- root
     props.Context.AddDisposable lifetime

@@ -433,7 +433,10 @@ let composeDialog
                   // The box attaches with the dialog; the focus lands
                   // after that layout pass.
                   box.AttachedToVisualTree.Add(fun _ ->
-                    Dispatcher.UIThread.Post(fun () -> ignore(box.Focus()))))
+                    env.Dispatcher.Post(
+                      (fun () -> ignore(box.Focus())),
+                      DispatcherPriority.Default
+                    )))
             }
           )
       )
@@ -661,6 +664,7 @@ type AsideProps<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideSession
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
@@ -713,6 +717,7 @@ type ChromeProps<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLogging
@@ -770,6 +775,7 @@ type Shell<'env
   and 'env :> IProvidePkceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideSession
   and 'env :> IProvideSettings
   and 'env :> IProvideLogging
@@ -964,7 +970,7 @@ type Shell<'env
     let helpLayer =
       DialogChrome.layer {
         Open = helpOpen :> IObservable<bool>
-        Content = Shortcuts.helpCard
+        Content = fun () -> Shortcuts.helpCard(env.Dispatcher)
         Scrim = true
         OnScrimClick = ValueSome closeHelp
         Place = DialogChrome.Center
@@ -1021,14 +1027,15 @@ type Shell<'env
 
     let dismissUndo(commitId: string) =
       match undoToast.Value with
-      | ValueSome(id, _) when id = commitId -> emitOnUi(undoToast, ValueNone)
+      | ValueSome(id, _) when id = commitId ->
+        emitOnUi(env.Dispatcher, undoToast, ValueNone)
       | _ -> ()
 
     let timeline = (env :> IProvideTimeline).Timeline
 
     timeline.Deletions
     |> Observable.add(fun commitId ->
-      emitOnUi(undoToast, ValueSome(commitId, None))
+      emitOnUi(env.Dispatcher, undoToast, ValueSome(commitId, None))
 
       asyncEx {
         do! Async.Sleep undoWindow
@@ -1050,14 +1057,18 @@ type Shell<'env
 
         match outcome with
         | Ok commit ->
-          emitOnUi(undoToast, ValueNone)
+          emitOnUi(env.Dispatcher, undoToast, ValueNone)
           timeline.CommitLanded()
 
           log.LogInformation("The commit {Commit} was restored.", commit.Id)
         | Error error ->
           // The window's own words: expired, or no longer deleted.
-          emitOnUi(undoToast, ValueSome(commitId, Some(describe error)))
-      | SignedOut -> emitOnUi(undoToast, ValueNone)
+          emitOnUi(
+            env.Dispatcher,
+            undoToast,
+            ValueSome(commitId, Some(describe error))
+          )
+      | SignedOut -> emitOnUi(env.Dispatcher, undoToast, ValueNone)
     }
 
     let undoContent() : Control =
@@ -1535,7 +1546,8 @@ type Shell<'env
             | _, _, _ -> this.ExitFullScreen()
         Navigate = navigate
         ToggleFullScreen = this.ToggleFullScreen
-        WalkCards = fun step -> Shortcuts.moveCardFocus(this, step)
+        WalkCards =
+          fun step -> Shortcuts.moveCardFocus(env.Dispatcher, this, step)
       }
       OverlayOpen =
         fun () -> composeOpen.Value || helpOpen.Value || searchOpen.Value

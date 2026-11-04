@@ -1,6 +1,7 @@
 module DevNull.Client.UserSettingsStore
 
 open System
+open Avalonia.Threading
 open Microsoft.Extensions.Logging
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Errors
@@ -27,12 +28,18 @@ type UserSettingsStore =
 type IProvideUserSettings =
   abstract UserSettings: UserSettingsStore
 
+/// What a user settings store is built from: the session, the read
+/// leaf, the logger, and the dispatcher every emission lands on.
+[<Struct>]
+type UserSettingsStoreSetup = {
+  Session: SessionStore
+  Fetch: unit -> Async<Result<UserSettings, AppError>>
+  Log: ILogger
+  Dispatcher: IDispatcher
+}
+
 /// The user settings over one session, read leaf, and logger.
 module UserSettingsStore =
 
   /// The settings store over the given session, read leaf, and logger.
-  val create:
-    session: SessionStore *
-    fetch: (unit -> Async<Result<UserSettings, AppError>>) *
-    log: ILogger ->
-      UserSettingsStore
+  val create: setup: UserSettingsStoreSetup -> UserSettingsStore

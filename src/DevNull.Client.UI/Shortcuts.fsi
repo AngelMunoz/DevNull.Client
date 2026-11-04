@@ -1,6 +1,7 @@
 module DevNull.Client.Shortcuts
 
 open Avalonia.Controls
+open Avalonia.Threading
 
 /// The actions the key table reaches. Every one outlives the pages:
 /// the shell supplies its own navigation, overlays, and window state.
@@ -46,9 +47,9 @@ val install: props: Props -> unit
 /// Moves keyboard focus between the commit cards under the root, in
 /// reading order, clamped at the ends. The first forward step enters
 /// the first card; a back step from outside enters the last.
-val moveCardFocus: root: Window * step: int -> unit
+val moveCardFocus: dispatcher: IDispatcher * root: Window * step: int -> unit
 
 /// The bindings list the help key opens: one card over a scrim the
 /// shell layers above the panes. The card takes the keyboard when it
 /// attaches, so the cards under the scrim answer no keys.
-val helpCard: unit -> Control
+val helpCard: dispatcher: IDispatcher -> Control

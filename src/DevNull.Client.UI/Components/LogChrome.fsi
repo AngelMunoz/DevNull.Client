@@ -29,7 +29,10 @@ val view: props: Props -> Control
 
 /// The log host's input: the route store, the navigation, and the
 /// slots the shell builds for the shared chrome.
-type PageProps<'env when 'env :> IProvideRoutes and 'env :> IProvideLogging> = {
+type PageProps<'env
+  when 'env :> IProvideRoutes
+  and 'env :> IProvideLogging
+  and 'env :> IProvideDispatcher> = {
   Env: 'env
   Nav: INavigable
   Composer: unit -> Control
@@ -41,7 +44,10 @@ type PageProps<'env when 'env :> IProvideRoutes and 'env :> IProvideLogging> = {
 /// The log chrome page: the route-following tabs over the slots. A
 /// click on the active tab asks the host to reload; every other click
 /// navigates to its log.
-type Page<'env when 'env :> IProvideRoutes and 'env :> IProvideLogging> =
+type Page<'env
+  when 'env :> IProvideRoutes
+  and 'env :> IProvideLogging
+  and 'env :> IProvideDispatcher> =
   inherit UserControl
 
   new: props: PageProps<'env> -> Page<'env>

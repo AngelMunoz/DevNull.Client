@@ -45,15 +45,27 @@ the surface meant to survive.
 Learned the hard way, twice. Read before touching `Harness.fs` or
 adding anything that touches the dispatcher.
 
-### One session, no parallel collections
+### One session; the pool runs, the global-state suites run alone
 
-`Dispatcher.UIThread` is process-global. Two headless sessions (or
-PerTest isolation, which resets the global dispatcher) make the MVUish
-update loop's posts land on a ghost dispatcher. The harness therefore
-uses ONE `HeadlessUnitTestSession` with
+`Dispatcher.UIThread` is process-global, and
+`HeadlessUnitTestSession` pumps it. The harness therefore uses ONE
+`HeadlessUnitTestSession` with
 `AvaloniaTestIsolationLevel.PerAssembly` for the whole assembly, and
 the first session dispatch captures the dispatcher (`Harness.ui`)
 before any test thread can touch it.
+
+Every env the tests build hands that dispatcher to every MVUish program
+(`Program.withDispatcher` via the `Programs` helper), so a replaced
+global can no longer strand a running program. The suite runs in
+Expecto's parallel pool by default, capped at four workers: every UI
+test shares the one session thread, and a processor-count pool
+interleaves them past their real-time waits (`--parallel-workers`
+overrides the cap). Focus, input, and the clipboard stay
+process-global, and so does the managed heap a memory budget measures,
+so the memory-leak suite and the keyboard suite carry `testSequenced`,
+and the two tests that depend on global focus or on a transient
+animation also run alone: Expecto drains the pool, then runs them one
+test at a time.
 
 ### Never create dispatcher-bound objects off the session thread
 

@@ -8,6 +8,7 @@ open System.Net.Http.Headers
 open System.Security.Cryptography
 open System.Text
 open IcedTasks
+open Avalonia.Threading
 open Avalonia.Controls
 open Avalonia.Controls.ApplicationLifetimes
 open Microsoft.Extensions.Logging
@@ -36,6 +37,18 @@ open DevNull.Client.Remotes
 
 type IProvideLogging =
   abstract LoggerFactory: ILoggerFactory
+
+type IProvideDispatcher =
+  abstract Dispatcher: IDispatcher
+
+[<Struct>]
+type AppEnvInputs = {
+  BaseAddress: string
+  Session: SessionStore
+  Natives: Natives.NativeServices
+  Logging: ILoggerFactory
+  Dispatcher: IDispatcher
+}
 
 module SystemClock =
 
@@ -287,13 +300,13 @@ module HttpClientTransport =
         member _.GetBytes(target) = getBytes(state, target)
     }
 
-type AppEnv
-  (
-    baseAddress: string,
-    session: SessionStore,
-    natives: Natives.NativeServices,
-    logging: ILoggerFactory
-  ) as this =
+type AppEnv(inputs: AppEnvInputs) as this =
+
+  let baseAddress = inputs.BaseAddress
+  let session = inputs.Session
+  let natives = inputs.Natives
+  let logging = inputs.Logging
+  let dispatcher = inputs.Dispatcher
 
   let clock = SystemClock.create()
   let nonceSource = RandomNonceSource.create()
@@ -407,14 +420,17 @@ type AppEnv
     )
 
   let userSettings =
-    UserSettingsStore.create(
-      session,
-      (fun () ->
-        match session.SignedIn with
-        | ValueSome current -> Me.settings(this, { KeyFile = current.KeyFile })
-        | ValueNone -> async { return Error(SignInFailed "signed out") }),
-      logging.CreateLogger "DevNull.Client.UserSettings"
-    )
+    UserSettingsStore.create {
+      Session = session
+      Fetch =
+        (fun () ->
+          match session.SignedIn with
+          | ValueSome current ->
+            Me.settings(this, { KeyFile = current.KeyFile })
+          | ValueNone -> async { return Error(SignInFailed "signed out") })
+      Log = logging.CreateLogger "DevNull.Client.UserSettings"
+      Dispatcher = dispatcher
+    }
 
   let translations =
     TranslationCache.create(
@@ -434,6 +450,7 @@ type AppEnv
         NonceSource = nonceSource
         Signer = signer
         Http = http
+        Dispatcher = dispatcher
       },
       session,
       logging.CreateLogger "DevNull.Client.Remotes"
@@ -462,6 +479,9 @@ type AppEnv
 
   interface IProvideSession with
     member _.Session = session
+
+  interface IProvideDispatcher with
+    member _.Dispatcher = dispatcher
 
   interface IProvideNatives with
     member _.Natives = natives

@@ -31,23 +31,25 @@ open DevNull.Client.UI.Tests.Remotes
 
 /// One signed-in session with the direct messages on.
 let remotesOnStore(requests: bool, unread: int) : SessionStore =
-  SessionStore.create(
-    Some(
-      {
-        sessionOf "octocat" with
-            Remotes =
-              Some {
-                From = FromEveryone
-                PullReceipts = true
-                Requests = requests
-                Everyone = true
-                UnreadCount = unread
-              }
-      }
-    ),
-    devicePrivateKeyPath,
-    ignore
-  )
+  SessionStore.create {
+    Initial =
+      Some(
+        {
+          sessionOf "octocat" with
+              Remotes =
+                Some {
+                  From = FromEveryone
+                  PullReceipts = true
+                  Requests = requests
+                  Everyone = true
+                  UnreadCount = unread
+                }
+        }
+      )
+    KeyFile = devicePrivateKeyPath
+    Forget = ignore
+    Dispatcher = Harness.ui
+  }
 
 /// One conversation row: the partner, the moment of its last message,
 /// and how many messages sit ahead.
@@ -1563,118 +1565,123 @@ let threadTests =
         Expect.isTrue refused "the unreachable ghost never said so"
       })
 
-    testCaseAsync
-      "a landing flash follows a row the panel realizes late"
-      (async {
-        let thread =
-          Remotes
-            .threadJson(
-              [
-                for at in 1..60 ->
-                  Remotes.messageJson(
-                    at,
-                    (if at % 2 = 0 then viewerId else partnerId),
-                    $"message number {at}",
-                    $"c-{at}"
-                  )
-              ],
-              60,
-              "",
-              false,
-              0
+    testSequenced(
+      testCaseAsync
+        "a landing flash follows a row the panel realizes late"
+        (async {
+          let thread =
+            Remotes
+              .threadJson(
+                [
+                  for at in 1..60 ->
+                    Remotes.messageJson(
+                      at,
+                      (if at % 2 = 0 then viewerId else partnerId),
+                      $"message number {at}",
+                      $"c-{at}"
+                    )
+                ],
+                60,
+                "",
+                false,
+                0
+              )
+              .Replace(
+                "\"client_id\":\"c-60\",\"body\":\"message number 60\",\"body_segments\":[{\"type\":\"text\",\"text\":\"message number 60\"}],\"mentions\":[],\"reply_to_id\":null",
+                "\"client_id\":\"c-60\",\"body\":\"message number 60\",\"body_segments\":[{\"type\":\"text\",\"text\":\"message number 60\"}],\"mentions\":[],\"reply_to_id\":30,\"reply_to\":{\"id\":30,\"user_id\":\""
+                + viewerId
+                + "\",\"body\":\"the original\",\"images_count\":0,\"has_voice\":false}"
+              )
+
+          let api = threadApi(thread, thread)
+          let! window = startShell(remotesOnStore(false, 0), api)
+
+          do! openConversationAsync window
+
+          let! ghost =
+            waitForAsync(
+              5000,
+              (fun () -> window),
+              (fun root -> hasText(root, "the original"))
             )
-            .Replace(
-              "\"client_id\":\"c-60\",\"body\":\"message number 60\",\"body_segments\":[{\"type\":\"text\",\"text\":\"message number 60\"}],\"mentions\":[],\"reply_to_id\":null",
-              "\"client_id\":\"c-60\",\"body\":\"message number 60\",\"body_segments\":[{\"type\":\"text\",\"text\":\"message number 60\"}],\"mentions\":[],\"reply_to_id\":30,\"reply_to\":{\"id\":30,\"user_id\":\""
-              + viewerId
-              + "\",\"body\":\"the original\",\"images_count\":0,\"has_voice\":false}"
+
+          Expect.isTrue ghost "the reply ghost never showed"
+
+          let flashShown(root: Control) =
+            root.GetVisualDescendants()
+            |> Seq.exists(fun visual ->
+              match visual with
+              | :? Border as border when border.Name = "ChatMessage30" ->
+                border.Classes.Contains "flash-ring"
+              | _ -> false)
+
+          let threadScroller() =
+            window.GetVisualDescendants()
+            |> Seq.tryPick(fun visual ->
+              match visual with
+              | :? ScrollViewer as scroller when
+                scroller.Name = "RemotesThread"
+                ->
+                Some scroller
+              | _ -> None)
+
+          do! clickWhenShown(window, "the original")
+
+          // At this height the landing target sits outside the realized
+          // window. Let the ask land, then grow the viewport so the
+          // virtualizer builds the row: the row's own class binding is
+          // what has to find it.
+          do! Async.Sleep 300
+          do! onUiAsync(fun () -> window.Height <- 2200.0)
+          do! settleAsync()
+
+          let! lit = waitForAsync(5000, (fun () -> window), flashShown)
+
+          Expect.isTrue lit "the landing flash never reached the row"
+
+          let! faded =
+            waitForAsync(
+              5000,
+              (fun () -> window),
+              fun root -> not(flashShown root)
             )
 
-        let api = threadApi(thread, thread)
-        let! window = startShell(remotesOnStore(false, 0), api)
+          Expect.isTrue faded "the landing flash never ended"
 
-        do! openConversationAsync window
+          do! onUiAsync(fun () -> window.Height <- 600.0)
+          do! settleAsync()
 
-        let! ghost =
-          waitForAsync(
-            5000,
-            (fun () -> window),
-            (fun root -> hasText(root, "the original"))
-          )
+          do!
+            onUiAsync(fun () -> threadScroller() |> Option.iter _.ScrollToEnd())
 
-        Expect.isTrue ghost "the reply ghost never showed"
+          let! again =
+            waitForAsync(
+              5000,
+              (fun () -> window),
+              (fun root -> hasText(root, "the original"))
+            )
 
-        let flashShown(root: Control) =
-          root.GetVisualDescendants()
-          |> Seq.exists(fun visual ->
-            match visual with
-            | :? Border as border when border.Name = "ChatMessage30" ->
-              border.Classes.Contains "flash-ring"
-            | _ -> false)
+          Expect.isTrue again "the ghost never came back with the tail"
 
-        let threadScroller() =
-          window.GetVisualDescendants()
-          |> Seq.tryPick(fun visual ->
-            match visual with
-            | :? ScrollViewer as scroller when scroller.Name = "RemotesThread" ->
-              Some scroller
-            | _ -> None)
+          do! clickWhenShown(window, "the original")
+          do! Async.Sleep 300
+          do! onUiAsync(fun () -> window.Height <- 2200.0)
+          do! settleAsync()
 
-        do! clickWhenShown(window, "the original")
+          let! litAgain = waitForAsync(5000, (fun () -> window), flashShown)
 
-        // At this height the landing target sits outside the realized
-        // window. Let the ask land, then grow the viewport so the
-        // virtualizer builds the row: the row's own class binding is
-        // what has to find it.
-        do! Async.Sleep 300
-        do! onUiAsync(fun () -> window.Height <- 2200.0)
-        do! settleAsync()
+          Expect.isTrue litAgain "the second landing never flashed"
 
-        let! lit = waitForAsync(5000, (fun () -> window), flashShown)
+          let! fadedAgain =
+            waitForAsync(
+              5000,
+              (fun () -> window),
+              fun root -> not(flashShown root)
+            )
 
-        Expect.isTrue lit "the landing flash never reached the row"
-
-        let! faded =
-          waitForAsync(
-            5000,
-            (fun () -> window),
-            fun root -> not(flashShown root)
-          )
-
-        Expect.isTrue faded "the landing flash never ended"
-
-        do! onUiAsync(fun () -> window.Height <- 600.0)
-        do! settleAsync()
-
-        do! onUiAsync(fun () -> threadScroller() |> Option.iter _.ScrollToEnd())
-
-        let! again =
-          waitForAsync(
-            5000,
-            (fun () -> window),
-            (fun root -> hasText(root, "the original"))
-          )
-
-        Expect.isTrue again "the ghost never came back with the tail"
-
-        do! clickWhenShown(window, "the original")
-        do! Async.Sleep 300
-        do! onUiAsync(fun () -> window.Height <- 2200.0)
-        do! settleAsync()
-
-        let! litAgain = waitForAsync(5000, (fun () -> window), flashShown)
-
-        Expect.isTrue litAgain "the second landing never flashed"
-
-        let! fadedAgain =
-          waitForAsync(
-            5000,
-            (fun () -> window),
-            fun root -> not(flashShown root)
-          )
-
-        Expect.isTrue fadedAgain "the second landing left its flash running"
-      })
+          Expect.isTrue fadedAgain "the second landing left its flash running"
+        })
+    )
 
     testCaseAsync
       "a landing still scrolls after the reader switches conversations"

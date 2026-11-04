@@ -20,13 +20,11 @@ let main argv =
   let tests =
     testList "devnull client ui" [
       Natives.tests
-      // The memory budgets measure deltas, so the leak suite runs
-      // first, before any page test: every mounted shell and store
-      // that ran earlier settles into the measured window (12.5 MB
-      // with the app suite alone, 16.1 MB once the scheduled pages
-      // joined), and the gate must measure the soak's own work, not
-      // the order it ran in.
-      Leaks.tests
+      // The memory budgets and the keyboard checks read process-global
+      // state (the heap, focus), so Expecto runs them alone:
+      // testSequenced drains the parallel pool, then runs the suite one
+      // test at a time.
+      testSequenced Leaks.tests
       FeedTests.tests
       App.tests
       App.notificationDayTests
@@ -34,7 +32,9 @@ let main argv =
       Search.completionTests
       Composer.tests
       Scheduled.tests
-      Shortcuts.tests
+      // Focus and key routing are process-global too; the suite runs
+      // alone like the memory budgets.
+      testSequenced Shortcuts.tests
       WhoToFollow.tests
       Translation.tests
       Unread.tests
@@ -52,4 +52,8 @@ let main argv =
       Snapshots.captureTests
     ]
 
-  runTestsWithCLIArgs [] argv tests
+  // Every UI test shares the one headless session thread, so a pool the
+  // size of the processor count interleaves them past their real-time
+  // waits. Four workers keep the pool while the waits hold;
+  // `--parallel-workers` overrides the cap.
+  runTestsWithCLIArgs [ CLIArguments.Parallel_Workers 4 ] argv tests

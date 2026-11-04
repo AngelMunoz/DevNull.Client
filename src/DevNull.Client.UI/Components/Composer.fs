@@ -9,6 +9,7 @@ open Avalonia.Threading
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
+open DevNull.Client
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
@@ -41,6 +42,7 @@ type Props<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLogging> = {
@@ -207,8 +209,8 @@ module State =
   // the mode that returns the emptied regions to the OS: a Forced
   // compaction reclaims the arrays but leaves their committed regions
   // mapped, so the resting app keeps their footprint.
-  let collectStaged() : unit =
-    Dispatcher.UIThread.Post(
+  let collectStaged(props: Props<'env>) : unit =
+    props.Env.Dispatcher.Post(
       (fun () ->
         GCSettings.LargeObjectHeapCompactionMode <-
           GCLargeObjectHeapCompactionMode.CompactOnce
@@ -379,7 +381,7 @@ module State =
       model, Cmd.OfAsync.perform props.Env.Attachments.PickFiles () ImagesAdded
     | ImagesAdded staged ->
       let combined = model.Attachments @ staged
-      let reclaim = Cmd.ofEffect(fun _ -> collectStaged())
+      let reclaim = Cmd.ofEffect(fun _ -> collectStaged props)
 
       // The same parse the post runs, at stage time: the count, the
       // size, and the content sniff speak before the post.
@@ -421,7 +423,7 @@ module State =
             Attachments = attachments
             Descriptions = descriptions
       },
-      Cmd.ofEffect(fun _ -> collectStaged())
+      Cmd.ofEffect(fun _ -> collectStaged props)
     | DescriptionChanged(index, text) ->
       let changed =
         model.Descriptions
@@ -446,7 +448,7 @@ module State =
       let reclaim =
         match model.Attachments with
         | [] -> Cmd.none
-        | _ -> Cmd.ofEffect(fun _ -> collectStaged())
+        | _ -> Cmd.ofEffect(fun _ -> collectStaged props)
 
       {
         model with
@@ -627,7 +629,7 @@ module State =
         Cmd.batch [
           Cmd.ofEffect(fun _ ->
             props.OnCommitted commit
-            collectStaged())
+            collectStaged props)
 
           Cmd.ofAction(fun () ->
             log.LogInformation("The commit {Hash} was posted.", commit.Id))
@@ -655,7 +657,7 @@ module State =
           | ValueSome on -> Cmd.ofEffect(fun _ -> on queued)
           | ValueNone -> ()
 
-          Cmd.ofEffect(fun _ -> collectStaged())
+          Cmd.ofEffect(fun _ -> collectStaged props)
 
           Cmd.ofAction(fun () ->
             log.LogInformation(
@@ -740,10 +742,13 @@ module Parts =
         // The caret rides one beat later: a text set from code reports
         // its change before the caret move that follows it, and the
         // completion reads the caret only here.
-        Dispatcher.UIThread.Post(fun () ->
-          let caret = min box.CaretIndex text.Length
+        props.Env.Dispatcher.Post(
+          (fun () ->
+            let caret = min box.CaretIndex text.Length
 
-          dispatch(State.CompletionTracked(text, caret))))
+            dispatch(State.CompletionTracked(text, caret))),
+          DispatcherPriority.Default
+        ))
 
   // The composer's own completion session: the site's suggestions,
   // gated by the composer's own reply or quote context. A reply's
@@ -947,6 +952,7 @@ type Page<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
@@ -963,9 +969,9 @@ type Page<'env
       |> Program.withSubscription(State.subscribe session)
 
     // The composer is replace-only: the first detach ends the program.
-    let root, _ = Program.runWithLifetime this () program
+    let root, _ = Programs.runComponent(this, props.Env.Dispatcher, program)
     this.Content <- root
 
     // A host left with staged images collects them on the composer's
     // one live teardown.
-    this.DetachedFromVisualTree.Add(fun _ -> State.collectStaged())
+    this.DetachedFromVisualTree.Add(fun _ -> State.collectStaged props)

@@ -97,10 +97,13 @@ type Loader(props: Props) as this =
 
             match decoded with
             | Ok bitmap ->
-              Dispatcher.UIThread.Post(fun () ->
-                // A detach between the decode and this post cancels the
-                // load; the bitmap decoded for it still needs a drop path.
-                handOver (source.IsCancellationRequested, show) bitmap)
+              this.Dispatcher.Post(
+                (fun () ->
+                  // A detach between the decode and this post cancels the
+                  // load; the bitmap decoded for it still needs a drop path.
+                  handOver (source.IsCancellationRequested, show) bitmap),
+                DispatcherPriority.Default
+              )
             | Error _ -> ())
 
         return ()

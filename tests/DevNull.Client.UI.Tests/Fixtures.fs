@@ -31,6 +31,7 @@ open DevNull.Client.UiClock
 open DevNull.Client.Unread
 open DevNull.Client.UserSettingsStore
 open DevNull.Client.TranslationCache
+open DevNull.Client.UI.Tests.Harness
 
 /// The cache's file tier in memory: one dictionary the tests share across
 /// cache instances, with a hook that ages one file as the disk's clock
@@ -462,14 +463,17 @@ type TestEnv
       ))
 
   let userSettings =
-    UserSettingsStore.create(
-      store,
-      (fun () ->
-        match store.SignedIn with
-        | ValueSome current -> Me.settings(this, { KeyFile = current.KeyFile })
-        | ValueNone -> async { return Error(SignInFailed "signed out") }),
-      NullLogger.Instance
-    )
+    UserSettingsStore.create {
+      Session = store
+      Fetch =
+        (fun () ->
+          match store.SignedIn with
+          | ValueSome current ->
+            Me.settings(this, { KeyFile = current.KeyFile })
+          | ValueNone -> async { return Error(SignInFailed "signed out") })
+      Log = NullLogger.Instance
+      Dispatcher = Harness.ui
+    }
 
   let remotes =
     RemotesStore.create(
@@ -478,6 +482,7 @@ type TestEnv
         NonceSource = nonceSource
         Signer = signer
         Http = http
+        Dispatcher = Harness.ui
       },
       store,
       NullLogger.Instance
@@ -564,6 +569,9 @@ type TestEnv
   interface IProvideSshKeys with
     member _.SshKeys = keySource
 
+  interface IProvideDispatcher with
+    member _.Dispatcher = Harness.ui
+
   interface IProvideNatives with
     member _.Natives = natives
 
@@ -588,67 +596,85 @@ let sessionOf(username: string) : DeviceSession = {
 }
 
 let signedInStore() =
-  SessionStore.create(Some(sessionOf "octocat"), devicePrivateKeyPath, ignore)
+  SessionStore.create {
+    Initial = Some(sessionOf "octocat")
+    KeyFile = devicePrivateKeyPath
+    Forget = ignore
+    Dispatcher = Harness.ui
+  }
 
 /// A signed-in store whose viewer has pastéis mode off, so the pastel
 /// controls must stay hidden everywhere.
 let signedInStoreWithoutPasteis() =
-  SessionStore.create(
-    Some(
-      {
-        sessionOf "octocat" with
-            PasteisMode = false
-      }
-    ),
-    devicePrivateKeyPath,
-    ignore
-  )
+  SessionStore.create {
+    Initial =
+      Some(
+        {
+          sessionOf "octocat" with
+              PasteisMode = false
+        }
+      )
+    KeyFile = devicePrivateKeyPath
+    Forget = ignore
+    Dispatcher = Harness.ui
+  }
 
 /// A signed-in store with a custom unread notification count, so the
 /// badge assertions can use a count no canned commit carries.
 let signedInStoreWithUnread(unread: int) =
-  SessionStore.create(
-    Some(
-      {
-        sessionOf "octocat" with
-            UnreadNotificationsCount = unread
-      }
-    ),
-    devicePrivateKeyPath,
-    ignore
-  )
+  SessionStore.create {
+    Initial =
+      Some(
+        {
+          sessionOf "octocat" with
+              UnreadNotificationsCount = unread
+        }
+      )
+    KeyFile = devicePrivateKeyPath
+    Forget = ignore
+    Dispatcher = Harness.ui
+  }
 
 let signedOutStore() =
-  SessionStore.create(None, devicePrivateKeyPath, ignore)
+  SessionStore.create {
+    Initial = None
+    KeyFile = devicePrivateKeyPath
+    Forget = ignore
+    Dispatcher = Harness.ui
+  }
 
 /// A signed-in store whose account has not accepted the terms, so the
 /// gate dialog stands over the app.
 let signedInStoreWithoutTerms() =
-  SessionStore.create(
-    Some(
-      {
-        sessionOf "octocat" with
-            TermsAccepted = Some false
-      }
-    ),
-    devicePrivateKeyPath,
-    ignore
-  )
+  SessionStore.create {
+    Initial =
+      Some(
+        {
+          sessionOf "octocat" with
+              TermsAccepted = Some false
+        }
+      )
+    KeyFile = devicePrivateKeyPath
+    Forget = ignore
+    Dispatcher = Harness.ui
+  }
 
 /// A signed-in store whose stored session predates the terms state, so
 /// nothing knows the answer yet and the gate must stay down.
 let signedInStoreWithUnknownTerms() =
-  SessionStore.create(
-    Some(
-      {
-        sessionOf "octocat" with
-            TermsAccepted = None
-            TermsVersion = ""
-      }
-    ),
-    devicePrivateKeyPath,
-    ignore
-  )
+  SessionStore.create {
+    Initial =
+      Some(
+        {
+          sessionOf "octocat" with
+              TermsAccepted = None
+              TermsVersion = ""
+        }
+      )
+    KeyFile = devicePrivateKeyPath
+    Forget = ignore
+    Dispatcher = Harness.ui
+  }
 
 /// One commit as the server returns it, with one author, one body, and
 /// one image.

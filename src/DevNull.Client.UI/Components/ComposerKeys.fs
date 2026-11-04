@@ -68,15 +68,12 @@ let attach(props: Props) : unit =
           let! image = props.Attachments.ReadClipboardImage()
 
           match image with
-          | Some staged ->
-            Dispatcher.UIThread.Post(fun () -> props.OnStaged staged)
+          | Some staged -> props.OnStaged staged
           | None ->
             let! text = props.Attachments.ReadClipboardText()
 
             match text with
-            | Some pasted ->
-              Dispatcher.UIThread.Post(fun () ->
-                props.Body.SelectedText <- pasted)
+            | Some pasted -> props.Body.SelectedText <- pasted
             | None -> ()
         }
         |> Async.StartImmediate

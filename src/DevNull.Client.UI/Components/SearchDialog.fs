@@ -34,6 +34,7 @@ type Props<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
@@ -672,10 +673,13 @@ let view
       )
 
   card.AttachedToVisualTree.Add(fun _ ->
-    Dispatcher.UIThread.Post(fun () ->
-      card.GetVisualDescendants()
-      |> Seq.tryFind(fun visual -> visual.Name = "SearchInput")
-      |> Option.iter(fun visual -> (visual :?> TextBox).Focus() |> ignore)))
+    props.Env.Dispatcher.Post(
+      (fun () ->
+        card.GetVisualDescendants()
+        |> Seq.tryFind(fun visual -> visual.Name = "SearchInput")
+        |> Option.iter(fun visual -> (visual :?> TextBox).Focus() |> ignore)),
+      DispatcherPriority.Default
+    ))
 
   card
 
@@ -684,6 +688,7 @@ type Page<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
@@ -695,7 +700,7 @@ type Page<'env
       Program.mkProgram (State.initial props) (State.update props) (view props)
       |> Program.withSubscription(State.subscribe props)
 
-    let root, _ = Program.runWithLifetime this () program
+    let root, _ = Programs.runComponent(this, props.Env.Dispatcher, program)
 
     this.Content <- root
 

@@ -5,8 +5,10 @@ open System.Reactive.Subjects
 open Avalonia.Threading
 open DevNull.Client.Core.ApiTypes
 
-let emitOnUi<'value>(subject: BehaviorSubject<'value>, value: 'value) : unit =
-  Dispatcher.UIThread.Post(fun () -> subject.OnNext value)
+let emitOnUi<'value>
+  (dispatcher: IDispatcher, subject: BehaviorSubject<'value>, value: 'value)
+  : unit =
+  dispatcher.Post((fun () -> subject.OnNext value), DispatcherPriority.Default)
 
 type SignedInSession = {
   Session: DeviceSession
@@ -28,14 +30,27 @@ type SessionStore =
 type IProvideSession =
   abstract Session: SessionStore
 
+[<Struct>]
+type SessionStoreSetup = {
+  Initial: DeviceSession option
+  KeyFile: string
+  Forget: unit -> unit
+  Dispatcher: IDispatcher
+}
+
 module SessionStore =
 
-  let emit(subject: BehaviorSubject<SessionState>, value: SessionState) =
+  let emit
+    (
+      dispatcher: IDispatcher,
+      subject: BehaviorSubject<SessionState>,
+      value: SessionState
+    ) =
     if subject.Value <> value then
-      if Dispatcher.UIThread.CheckAccess() then
+      if dispatcher.CheckAccess() then
         subject.OnNext value
       else
-        emitOnUi(subject, value)
+        emitOnUi(dispatcher, subject, value)
 
   let current(subject: BehaviorSubject<SessionState>) : SessionState =
     subject.Value
@@ -52,26 +67,42 @@ module SessionStore =
     | SignedIn session -> ValueSome session
     | SignedOut -> ValueNone
 
-  let enter(subject: BehaviorSubject<SessionState>, session: SignedInSession) =
-    emit(subject, SignedIn session)
+  let enter
+    (
+      dispatcher: IDispatcher,
+      subject: BehaviorSubject<SessionState>,
+      session: SignedInSession
+    ) =
+    emit(dispatcher, subject, SignedIn session)
 
-  let leave(subject: BehaviorSubject<SessionState>, forget: unit -> unit) =
+  let leave
+    (
+      dispatcher: IDispatcher,
+      subject: BehaviorSubject<SessionState>,
+      forget: unit -> unit
+    ) =
     forget()
-    emit(subject, SignedOut)
+    emit(dispatcher, subject, SignedOut)
 
-  let refresh(subject: BehaviorSubject<SessionState>, session: DeviceSession) =
+  let refresh
+    (
+      dispatcher: IDispatcher,
+      subject: BehaviorSubject<SessionState>,
+      session: DeviceSession
+    ) =
     match subject.Value with
     | SignedIn current when current.Session.User.Id = session.User.Id ->
-      emit(subject, SignedIn { current with Session = session })
+      emit(dispatcher, subject, SignedIn { current with Session = session })
     | _ -> ()
 
-  let create
-    (initial: DeviceSession option, keyFile: string, forget: unit -> unit)
-    =
+  let create(setup: SessionStoreSetup) =
     let state =
-      initial
+      setup.Initial
       |> Option.map(fun session ->
-        SignedIn { Session = session; KeyFile = keyFile })
+        SignedIn {
+          Session = session
+          KeyFile = setup.KeyFile
+        })
       |> Option.defaultValue SignedOut
 
     let subject = new BehaviorSubject<SessionState>(state)
@@ -81,7 +112,13 @@ module SessionStore =
         member _.Current = current subject
         member _.Observe = observe subject
         member _.SignedIn = signedIn subject
-        member _.Enter(session) = enter(subject, session)
-        member _.Leave() = leave(subject, forget)
-        member _.Refresh(session) = refresh(subject, session)
+
+        member _.Enter(session) =
+          enter(setup.Dispatcher, subject, session)
+
+        member _.Leave() =
+          leave(setup.Dispatcher, subject, setup.Forget)
+
+        member _.Refresh(session) =
+          refresh(setup.Dispatcher, subject, session)
     }

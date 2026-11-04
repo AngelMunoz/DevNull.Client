@@ -555,7 +555,7 @@ type VoicePlayer(voice: VoiceCtx) as this =
         | _ -> false)
         Player.stop
 
-    let root, _ = Program.runWithLifecycle () program
+    let root, _ = Programs.runPage(this.Dispatcher, program)
 
     this.Content <- root
 

@@ -130,7 +130,7 @@ let install(props: Props) : unit =
     RoutingStrategies.Tunnel
   )
 
-let moveCardFocus(root: Window, step: int) : unit =
+let moveCardFocus(dispatcher: IDispatcher, root: Window, step: int) : unit =
   // The realized cards under the root. A virtualized feed realizes only
   // its viewport plus a band, and recycling hands containers new items,
   // so the walk orders by feed position, never by visual order.
@@ -268,9 +268,16 @@ let moveCardFocus(root: Window, step: int) : unit =
             landNearest(placedOf(items, settled), from |> Option.toValueOption)
             |> ignore)
 
-        Dispatcher.UIThread.Post(fun () ->
-          settleLand()
-          Dispatcher.UIThread.Post settleLand)
+        dispatcher.Post(
+          (fun () ->
+            settleLand()
+
+            dispatcher.Post(
+              (fun () -> settleLand()),
+              DispatcherPriority.Default
+            )),
+          DispatcherPriority.Default
+        )
     | None -> ()
 
 // The bindings the window answers, as the list shows them.
@@ -320,7 +327,7 @@ let row(label: string, keys: string array) : Control =
       .Children([| for key in keys -> chip key |])
   )
 
-let helpCard() : Control =
+let helpCard(dispatcher: IDispatcher) : Control =
   let card =
     Border()
       .Name("ShortcutsCard")
@@ -352,6 +359,9 @@ let helpCard() : Control =
   // The list takes the keyboard when it appears, so the cards under
   // the scrim answer no keys while it is open.
   card.AttachedToVisualTree.Add(fun _ ->
-    Dispatcher.UIThread.Post(fun () -> card.Focus() |> ignore))
+    dispatcher.Post(
+      (fun () -> card.Focus() |> ignore),
+      DispatcherPriority.Default
+    ))
 
   card

@@ -123,7 +123,7 @@ let waitForAsync
       if found then
         return true
       else
-        do! Async.Sleep 100
+        do! Async.Sleep 20
         do! pumpAsync()
         return! loop()
   }

@@ -29,6 +29,7 @@ export const meta = {
     maxReviewRounds: { type: "integer", description: "Hard backstop on total worker passes before stopping for the user; the scope gate usually stops first.", default: 3 },
     maxScopeReviews: { type: "integer", description: "Scope-review cycles allowed per issue. The budget is multiplicity, never wall clock: needing one more cycle than this stops for the user's judgment.", default: 2 },
     rederive: { type: "boolean", description: "Regenerate the derivation.", default: false },
+    resume: { type: "boolean", description: "The tree already carries the implementation of an interrupted run: skip the worker first pass and start at the battery.", default: false },
     force: { type: "boolean", description: "Run inside a peak window anyway.", default: false },
     snapshotsDir: { type: "string", description: "Where capture PNGs land (gitignored evidence).", default: "artifacts/snapshots" },
     message: { type: "string", description: "land: the commit/PR title.", default: "" },

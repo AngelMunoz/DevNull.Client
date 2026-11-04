@@ -544,7 +544,7 @@ let view
   PageChrome.page {
     Model = model
     TitleOf = fun _ -> ""
-    Padding = Thickness(0.0, 8.0, 0.0, 0.0)
+    Padding = Thickness(0.0, Theme.bandHeight + 8.0, 0.0, 0.0)
     ErrorOf = fun _ -> None
     Busy = fun _ -> PageChrome.Off
     Empty = fun _ -> PageChrome.Off

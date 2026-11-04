@@ -1192,6 +1192,7 @@ let view
   // cards — a horizontal inset here narrows every card below it.
   ScrollViewer()
     .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
+    .Margin(0.0, Theme.bandHeight, 0.0, 0.0)
     .Content(content)
 
 type Page<'env

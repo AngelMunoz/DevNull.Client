@@ -13,6 +13,7 @@ open System.Threading
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Headless
+open Avalonia.Input
 open Avalonia.Threading
 open Avalonia.VisualTree
 
@@ -267,3 +268,18 @@ let scrollFeedToTopAsync(window: Window) : Async<unit> =
 /// Clicks through the routed event, the way MigrondiUI's tests do.
 let click(button: Button) : unit =
   button.RaiseEvent(Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent))
+
+/// Presses the center of one control through the window's pointer
+/// pipeline, so hit testing resolves the target the way the platform
+/// does.
+let pressControlAsync(window: Window, control: Control) : Async<unit> =
+  onUiAsync(fun () ->
+    let center =
+      control.TranslatePoint(
+        Point(control.Bounds.Width / 2.0, control.Bounds.Height / 2.0),
+        window
+      )
+
+    if center.HasValue then
+      window.MouseDown(center.Value, MouseButton.Left, RawInputModifiers.None)
+      window.MouseUp(center.Value, MouseButton.Left, RawInputModifiers.None))

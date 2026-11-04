@@ -574,7 +574,9 @@ try {
     }
   };
 
-  let workerReport = await step("implement", () => withMetrics(`${id} worker`, (r) => ({ step: id, round: 0, role: "worker", reportChars: String(r).length }), () => sendWorker(0, null), () => seats.worker.id));
+  let workerReport = args.resume ?? false
+    ? "(resumed: the diff on the branch is the interrupted run's worker report; verify against the tree, not this text)"
+    : await step("implement", () => withMetrics(`${id} worker`, (r) => ({ step: id, round: 0, role: "worker", reportChars: String(r).length }), () => sendWorker(0, null), () => seats.worker.id));
   let results = await step("battery", () => battery(id));
   let review = await step("review", () => runReview(id, derivation, results.changed, results.captures));
   await tools.write_file({ path: verdictPath(id), content: JSON.stringify({ verdict: review.verdict, directives: review.findings, ledgerNote: `${stRun.title} (${issueNumber ? "#" + issueNumber : id})` }, null, 2) });

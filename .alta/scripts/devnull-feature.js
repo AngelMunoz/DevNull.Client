@@ -84,49 +84,10 @@ const prBodyPath = ".alta/derived/PR-body.md";
 // kept seats report session-cumulative numbers, so their lines carry d*
 // deltas since the seat's previous line. Best-effort: the loop never
 // stops for a metrics failure.
-let metricsQueue = Promise.resolve();
-const withMetrics = (title, extra, run, sid) => {
-  const started = Date.now();
-  return Promise.resolve(run()).then(
-    (result) => {
-      const sidVal = typeof sid === "function" ? sid() : sid;
-      metricsQueue = metricsQueue.then(async () => {
-        try {
-          let hitRef;
-          let report;
-          if (sidVal) {
-            report = await alta.session.report({ sessionId: sidVal, include: "metrics" });
-          } else {
-            const list = await alta.session.list({ limit: 40 });
-            const items = Array.isArray(list) ? list : (list.items ?? []);
-            const hit = items.find((s) => s.title === title && Date.parse(s.createdAt ?? "") > started - 60000);
-            if (!hit) return;
-            hitRef = hit.modelSelection?.modelRef;
-            report = await alta.session.report({ sessionId: hit.sessionId, include: "metrics" });
-          }
-          const it = Array.isArray(report) ? report.find((x) => x.type === "alta.session.report.item") : report;
-          const po = it?.metrics?.providerOperations ?? {};
-          let prior = "";
-          try { prior = await read(".alta/derived/loop-metrics.jsonl"); } catch { /* first line */ }
-          const separated = prior === "" || prior.endsWith("\n") ? prior : `${prior}\n`;
-          const prev = sidVal ? prior.split(/\r?\n/).filter(Boolean).map((l) => { try { const j = JSON.parse(l); return j.sid === sidVal ? j : null; } catch { return null; } }).filter(Boolean).pop() : null;
-          if (sidVal && !prev && !hitRef) {
-            try {
-              const list = await alta.session.list({ limit: 40 });
-              const items = Array.isArray(list) ? list : (list.items ?? []);
-              hitRef = items.find((s) => s.title === title && Date.parse(s.createdAt ?? "") > started - 60000)?.modelSelection?.modelRef;
-            } catch { /* telemetry is best-effort */ }
-          }
-          const enrich = typeof extra === "function" ? extra(result) : (extra ?? {});
-          const line = { ts: new Date().toISOString(), title, ...(sidVal ? { sid: String(sidVal).slice(0, 8) } : {}), ...enrich, model: hitRef ?? prev?.model ?? "(kept seat)", inTok: po.inputTokens ?? 0, cachedIn: po.cachedInputTokens ?? 0, outTok: po.outputTokens ?? 0, reasonTok: po.reasoningTokens ?? 0, dIn: (po.inputTokens ?? 0) - (prev?.inTok ?? 0), dOut: (po.outputTokens ?? 0) - (prev?.outTok ?? 0), dReason: (po.reasoningTokens ?? 0) - (prev?.reasonTok ?? 0), durMs: it?.metrics?.durationMs ?? 0, durMin: Math.round((it?.metrics?.durationMs ?? 0) / 6000) / 10, dMin: Math.round(((it?.metrics?.durationMs ?? 0) - (prev?.durMs ?? 0)) / 6000) / 10 };
-          await tools.write_file({ path: ".alta/derived/loop-metrics.jsonl", content: separated + JSON.stringify(line) + "\n" });
-        } catch { /* telemetry is best-effort */ }
-      });
-      return result;
-    },
-    (err) => { throw err; }
-  );
-};
+// Telemetry rode the evaluation records that left the repo with the
+// .alta cleanup: the loop depends on git alone, and a run's cost story
+// lives on its own card, not in a local file.
+const withMetrics = (title, extra, run, sid) => Promise.resolve(run());
 
 const stepText = (planText, id) => {
   const open = new RegExp(`- \\[ \\] \\*\\*${id} —([^*]*)\\*\\*(.*?)(?=\\n- \\[ |\\n## |$)`, "s").exec(planText);

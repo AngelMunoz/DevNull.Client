@@ -151,7 +151,7 @@ const pr = await step("pr", async () => {
     ``,
     `## Diff size`, ``, "```", changes, "```",
     ``,
-    `Every step passed the mechanical battery (fantomas, build, both suites, gates) and the architect + red-team review before landing; verdict history in \`.alta/derived/*.verdict.json\`. Review per commit or per area — the ledger in \`${plan}\` carries one line per step.`,
+    `Every step passed the mechanical battery (fantomas, build, both suites, gates) and the architect + red-team review before landing. Review per commit or per area — the ledger in \`${plan}\` carries one line per step.`,
     ``,
     `_This pull request was written by [CodeAlta](https://codealta.github.io), an AI coding agent._`,
   ].filter((s) => s !== "").join("\n");

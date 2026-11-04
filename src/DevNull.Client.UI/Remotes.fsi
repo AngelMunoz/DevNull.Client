@@ -17,6 +17,8 @@ type RemotesWorkers = {
   NonceSource: INonceSource
   Signer: ISigner
   Http: IHttp
+  /// The dispatcher every subject emission lands on.
+  Dispatcher: Avalonia.Threading.IDispatcher
 }
 
 /// The chat's state machine: one mailbox owns the whole state, every

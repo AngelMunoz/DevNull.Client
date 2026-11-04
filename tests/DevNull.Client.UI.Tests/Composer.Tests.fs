@@ -289,8 +289,15 @@ let tests =
         for _ in 1..7 do
           do! press(window, Key.Down)
 
-        do! Async.Sleep 300
-        do! pumpAsync()
+        let! moved =
+          waitForAsync(
+            5000,
+            (fun () -> scroller() |> Option.map _.Offset.Y),
+            fun offset ->
+              offset |> Option.exists(fun value -> value > before.Value + 1.0)
+          )
+
+        Expect.isTrue moved "the walk never scrolled the list"
 
         let! after =
           probeUiAsync(fun () ->
@@ -313,10 +320,9 @@ let tests =
         // must be visible, even when the caption above it scrolls out.
         do! press(window, Key.Down)
         do! press(window, Key.Down)
-        do! Async.Sleep 300
-        do! pumpAsync()
 
-        let! wrapped = probeUiAsync(fun () -> rowVisible "CompletionRow0")
+        let! wrapped =
+          waitForAsync(5000, (fun () -> rowVisible "CompletionRow0"), id)
 
         Expect.isTrue wrapped "row zero is visible after the wrap"
 

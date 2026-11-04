@@ -4,6 +4,7 @@ open System
 open Avalonia.Controls
 open FSharp.Control.Reactive
 open MVUish.Avalonia
+open DevNull.Client
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Components
 open DevNull.Client.Core.Capabilities
@@ -38,6 +39,7 @@ type Page<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideSession
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
@@ -57,7 +59,7 @@ type Page<'env
         (view props)
       |> Program.withSubscription(RemotesModel.subscribe props)
 
-    let root, lifetime = Program.runWithLifecycle () program
+    let root, lifetime = Programs.runPage(props.Env.Dispatcher, program)
 
     this.Content <- root
     props.Context.AddDisposable lifetime

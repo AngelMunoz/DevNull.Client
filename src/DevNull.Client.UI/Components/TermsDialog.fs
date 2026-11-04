@@ -24,6 +24,7 @@ type Props<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
@@ -161,6 +162,7 @@ type Page<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 
@@ -173,6 +175,6 @@ type Page<'env
         (State.update props)
         (view props)
 
-    let root, _ = Program.runWithLifetime this () program
+    let root, _ = Programs.runComponent(this, props.Env.Dispatcher, program)
 
     this.Content <- root

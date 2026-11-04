@@ -24,6 +24,7 @@ type RemotesWorkers = {
   NonceSource: INonceSource
   Signer: ISigner
   Http: IHttp
+  Dispatcher: Avalonia.Threading.IDispatcher
 }
 
 type RemotesStore =
@@ -1275,7 +1276,10 @@ module RemotesStore =
             if next <> state then
               published.OnNext next
 
-              Dispatcher.UIThread.Post(fun () -> changes.OnNext next)
+              workers.Dispatcher.Post(
+                (fun () -> changes.OnNext next),
+                Avalonia.Threading.DispatcherPriority.Default
+              )
 
             return! loop next
           | Read reply ->

@@ -28,7 +28,10 @@ type Props = {
 
 /// The log host's input: the route store, the navigation, and the
 /// slots the shell builds for the shared chrome.
-type PageProps<'env when 'env :> IProvideRoutes and 'env :> IProvideLogging> = {
+type PageProps<'env
+  when 'env :> IProvideRoutes
+  and 'env :> IProvideLogging
+  and 'env :> IProvideDispatcher> = {
   Env: 'env
   Nav: INavigable
   Composer: unit -> Control
@@ -193,8 +196,10 @@ let view(props: Props) : Control =
 
   root.Margin(Thickness(0.0, Theme.bandHeight, 0.0, 0.0)).Children(rows)
 
-type Page<'env when 'env :> IProvideRoutes and 'env :> IProvideLogging>
-  (props: PageProps<'env>) as this =
+type Page<'env
+  when 'env :> IProvideRoutes
+  and 'env :> IProvideLogging
+  and 'env :> IProvideDispatcher>(props: PageProps<'env>) as this =
   inherit UserControl()
 
   do
@@ -219,6 +224,6 @@ type Page<'env when 'env :> IProvideRoutes and 'env :> IProvideLogging>
 
     // The chrome is replaced, never re-shown, so its program ends on
     // the first detach.
-    let root, _ = Program.runWithLifetime this () program
+    let root, _ = Programs.runComponent(this, props.Env.Dispatcher, program)
 
     this.Content <- root

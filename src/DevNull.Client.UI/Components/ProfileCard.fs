@@ -13,6 +13,7 @@ open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.ImageCache
 open DevNull.Client.Stores
@@ -22,6 +23,7 @@ type Props<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideSession
   and 'env :> IProvideImageCache> = { Env: 'env; Session: SignedInSession }
 
@@ -203,6 +205,7 @@ type Page<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideSession
   and 'env :> IProvideImageCache>(props: Props<'env>) as this =
   inherit UserControl()
@@ -210,6 +213,6 @@ type Page<'env
   do
     let program = Program.mkProgram (State.init props) State.update (view props)
 
-    let root, _ = Program.runWithLifetime this () program
+    let root, _ = Programs.runComponent(this, props.Env.Dispatcher, program)
 
     this.Content <- root

@@ -16,6 +16,7 @@ type Props<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
   and 'env :> IProvideRoutes
@@ -33,6 +34,7 @@ type Page<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
   and 'env :> IProvideRoutes

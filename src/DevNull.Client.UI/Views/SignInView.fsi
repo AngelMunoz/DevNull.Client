@@ -16,6 +16,7 @@ type Props<'env
   and 'env :> IProvidePkceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideSession
   and 'env :> IProvideLogging> = {
   Env: 'env
@@ -32,6 +33,7 @@ type Page<'env
   and 'env :> IProvidePkceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideSession
   and 'env :> IProvideLogging> =
   new: props: Props<'env> -> Page<'env>

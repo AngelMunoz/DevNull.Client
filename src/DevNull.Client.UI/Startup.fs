@@ -3,6 +3,7 @@ module DevNull.Client.Startup
 open System
 open System.IO
 open Avalonia
+open Avalonia.Threading
 open Avalonia.Controls.ApplicationLifetimes
 open Avalonia.Themes.Fluent
 open Microsoft.Extensions.Logging
@@ -154,14 +155,26 @@ let start(logging: ILoggerFactory, natives: NativeServices, argv: string[]) =
       log.LogDebug("No stored session; the client starts signed out.")
       None
 
-  let store =
-    SessionStore.create(
-      restored,
-      devicePrivateKeyPath,
-      fun () -> clearSession sessionLog
-    )
+  // One capture for the process: the store, the env, and every program
+  // the env feeds post to this instance for the session's lifetime.
+  let dispatcher = Dispatcher.UIThread
 
-  let env = AppEnv(baseAddress, store, natives, logging)
+  let store =
+    SessionStore.create {
+      Initial = restored
+      KeyFile = devicePrivateKeyPath
+      Forget = (fun () -> clearSession sessionLog)
+      Dispatcher = dispatcher
+    }
+
+  let env =
+    AppEnv {
+      BaseAddress = baseAddress
+      Session = store
+      Natives = natives
+      Logging = logging
+      Dispatcher = dispatcher
+    }
 
   // The theme choice follows the store at app level, not window level.
   // The store replays its current value here, but no application

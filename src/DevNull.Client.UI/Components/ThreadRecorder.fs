@@ -313,7 +313,7 @@ type RecordLane(audio: IAudioEngine voption, report: Recorder.Report -> unit) as
         | _ -> false)
         (fun _ -> ())
 
-    let root, lifetime = Program.runWithLifecycle () program
+    let root, lifetime = Programs.runPage(this.Dispatcher, program)
 
     this.Content <- root
 

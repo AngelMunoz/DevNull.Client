@@ -1,5 +1,6 @@
 module DevNull.Client.Env
 
+open Avalonia.Threading
 open Microsoft.Extensions.Logging
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.Capabilities
@@ -25,17 +26,28 @@ open DevNull.Client.Natives
 type IProvideLogging =
   abstract LoggerFactory: ILoggerFactory
 
+/// The dispatcher capability: the one the head captured at startup, so
+/// programs, stores, and controls post to it instead of reading the
+/// process global.
+type IProvideDispatcher =
+  abstract Dispatcher: IDispatcher
+
+/// The head-provided inputs of the production environment.
+[<Struct>]
+type AppEnvInputs = {
+  BaseAddress: string
+  Session: SessionStore
+  Natives: NativeServices
+  Logging: ILoggerFactory
+  Dispatcher: IDispatcher
+}
+
 /// The production environment: system clock, crypto nonce source,
 /// ssh-keygen signer, http transport, the live session store, the
 /// local settings store, the app services (unread poll, clock, image
 /// cache), and the native services the platform head built.
 type AppEnv =
-  new:
-    baseAddress: string *
-    session: SessionStore *
-    natives: NativeServices *
-    logging: ILoggerFactory ->
-      AppEnv
+  new: inputs: AppEnvInputs -> AppEnv
 
   interface IProvideClock
   interface IProvideNonceSource
@@ -43,6 +55,7 @@ type AppEnv =
   interface IProvidePkceSource
   interface IProvideHttp
   interface IProvideSession
+  interface IProvideDispatcher
   interface IProvideNatives
   interface IProvideSettings
   interface IProvideLogging

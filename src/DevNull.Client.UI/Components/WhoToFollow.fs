@@ -31,6 +31,7 @@ type Props<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
   and 'env :> IProvideRoutes
@@ -713,6 +714,7 @@ type Page<'env
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
   and 'env :> IProvideRoutes
@@ -726,6 +728,6 @@ type Page<'env
 
     // The aside replaces the rail when the signed-in user changes; it is
     // never cached or re-shown, so the first detach ends its program.
-    let root, _ = Program.runWithLifetime this () program
+    let root, _ = Programs.runComponent(this, props.Env.Dispatcher, program)
 
     this.Content <- root

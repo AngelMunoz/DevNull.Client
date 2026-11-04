@@ -2,11 +2,14 @@ module DevNull.Client.Stores
 
 open System
 open System.Reactive.Subjects
+open Avalonia.Threading
 open DevNull.Client.Core.ApiTypes
 
-/// Posts one subject value on the UI thread, so a producer on any
-/// thread never re-enters a control off the dispatcher.
-val emitOnUi: subject: BehaviorSubject<'value> * value: 'value -> unit
+/// Posts one subject value on the given dispatcher, so a producer on
+/// any thread never re-enters a control off the UI thread.
+val emitOnUi:
+  dispatcher: IDispatcher * subject: BehaviorSubject<'value> * value: 'value ->
+    unit
 
 /// One sign-in worth of state: the server session plus the device key
 /// file every signed request needs.
@@ -46,11 +49,19 @@ type SessionStore =
 type IProvideSession =
   abstract Session: SessionStore
 
+/// What a session store is built from: the boot state, the device key
+/// file, the sign-out hook, and the dispatcher every emission lands on.
+[<Struct>]
+type SessionStoreSetup = {
+  Initial: DeviceSession option
+  KeyFile: string
+  Forget: unit -> unit
+  Dispatcher: IDispatcher
+}
+
 /// The live sign-in state over one subject.
 module SessionStore =
 
-  /// The state at boot, from the stored session file. `forget` clears
+  /// The state at boot, from the stored session file. `Forget` clears
   /// the stored session on sign-out.
-  val create:
-    initial: DeviceSession option * keyFile: string * forget: (unit -> unit) ->
-      SessionStore
+  val create: setup: SessionStoreSetup -> SessionStore

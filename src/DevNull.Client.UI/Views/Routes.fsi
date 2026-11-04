@@ -42,6 +42,7 @@ val build:
     and 'env :> IProvideSigner
     and 'env :> IProvidePkceSource
     and 'env :> IProvideHttp
+    and 'env :> IProvideDispatcher
     and 'env :> IProvideSession
     and 'env :> IProvideUiClock
     and 'env :> IProvideImageCache

@@ -2453,83 +2453,85 @@ let tests =
           "the back line still sits under the drag band"
       })
 
-    testCaseAsync
-      "the search box clears the band and takes a press"
-      (async {
-        let! window =
-          startShell(signedInStore(), searchApi(false, false) :> IHttp)
+    testSequenced(
+      testCaseAsync
+        "the search box clears the band and takes a press"
+        (async {
+          let! window =
+            startShell(signedInStore(), searchApi(false, false) :> IHttp)
 
-        let! shown = showsText(window, "The Octocat")
+          let! shown = showsText(window, "The Octocat")
 
-        Expect.isTrue shown "the log never rendered"
+          Expect.isTrue shown "the log never rendered"
 
-        do! clickWhenShown(window, "Search")
+          do! clickWhenShown(window, "Search")
 
-        let! input =
-          waitForAsync(
-            5000,
-            (fun () -> controlByName(window, "SearchInput")),
-            Option.isSome
-          )
+          let! input =
+            waitForAsync(
+              5000,
+              (fun () -> controlByName(window, "SearchInput")),
+              Option.isSome
+            )
 
-        Expect.isTrue input "the search palette never opened"
+          Expect.isTrue input "the search palette never opened"
 
-        do!
-          onUiAsync(fun () ->
-            controlByName(window, "SearchInput")
-            |> Option.iter(fun control ->
-              (control :?> TextBox).Text <- "shippin"))
+          do!
+            onUiAsync(fun () ->
+              controlByName(window, "SearchInput")
+              |> Option.iter(fun control ->
+                (control :?> TextBox).Text <- "shippin"))
 
-        let! settled = seesVisible(window, "@kai-kou")
+          let! settled = seesVisible(window, "@kai-kou")
 
-        Expect.isTrue settled "the search never settled"
+          Expect.isTrue settled "the search never settled"
 
-        do! clickWhenShown(window, "See all matching commits")
+          do! clickWhenShown(window, "See all matching commits")
 
-        let! counted = seesVisible(window, "1 match")
+          let! counted = seesVisible(window, "1 match")
 
-        Expect.isTrue counted "the results page never counted its match"
+          Expect.isTrue counted "the results page never counted its match"
 
-        let! boxShown =
-          waitForAsync(
-            5000,
-            (fun () -> controlByName(window, "SearchBox")),
-            Option.isSome
-          )
+          let! boxShown =
+            waitForAsync(
+              5000,
+              (fun () -> controlByName(window, "SearchBox")),
+              Option.isSome
+            )
 
-        Expect.isTrue boxShown "the results page never showed its box"
+          Expect.isTrue boxShown "the results page never showed its box"
 
-        do! settleAsync()
+          do! settleAsync()
 
-        let! box =
-          probeUiAsync(fun () ->
-            controlByName(window, "SearchBox")
-            |> Option.map(fun control -> control :?> TextBox))
+          let! box =
+            probeUiAsync(fun () ->
+              controlByName(window, "SearchBox")
+              |> Option.map(fun control -> control :?> TextBox))
 
-        Expect.isSome box "the results page's box never measured"
+          Expect.isSome box "the results page's box never measured"
 
-        let! top =
-          probeUiAsync(fun () ->
-            let origin = box.Value.TranslatePoint(Point(0.0, 0.0), window)
+          let! top =
+            probeUiAsync(fun () ->
+              let origin = box.Value.TranslatePoint(Point(0.0, 0.0), window)
 
-            if origin.HasValue then origin.Value.Y else nan)
+              if origin.HasValue then origin.Value.Y else nan)
 
-        Expect.isGreaterThanOrEqual
-          top
-          Theme.bandHeight
-          "the search box still reaches into the drag band"
+          Expect.isGreaterThanOrEqual
+            top
+            Theme.bandHeight
+            "the search box still reaches into the drag band"
 
-        do! pressControlAsync(window, box.Value)
+          do! pressControlAsync(window, box.Value)
 
-        let! focused =
-          probeUiAsync(fun () ->
-            obj.ReferenceEquals(
-              window.FocusManager.GetFocusedElement(),
-              box.Value
-            ))
+          let! focused =
+            probeUiAsync(fun () ->
+              obj.ReferenceEquals(
+                window.FocusManager.GetFocusedElement(),
+                box.Value
+              ))
 
-        Expect.isTrue focused "the press never focused the search box"
-      })
+          Expect.isTrue focused "the press never focused the search box"
+        })
+    )
 
     testCaseAsync
       "opening a commit shows the thread with its replies"

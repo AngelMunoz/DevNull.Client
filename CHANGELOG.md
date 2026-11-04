@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **UI:** every page and component binds the dispatcher the app captured at startup (MVUish.Avalonia 3.0.0), and the stores, images, dialogs, and shell post through that same instance; a replaced process-global dispatcher can no longer strand or hijack a running page.
+- **Tests:** the UI suite runs in the parallel pool again, capped at four workers because every UI test shares the one headless session; the memory-budget and keyboard checks, and the two tests that need global focus or a transient animation, mark themselves sequenced so Expecto runs them alone.
 - **UI:** commit-card stars, pastels, and poll votes run through one shared action flow on every feed and thread page, and each result settles into the page that owns the card; a star on a search result now shows at once instead of waiting for the next search.
 - **UI:** every page's pinned title, error card, and busy or empty line now render through one shared header, and the log, notifications, saved, scheduled, search, profile, organization, settings, about, and sign-in pages all project through it.
 - **Sign-in:** the terms gate now says plainly what this is: an unofficial, third-party app that talks to /dev/null's public API, which may change and break the app without notice. The terms and the privacy policy remain /dev/null's own.

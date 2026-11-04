@@ -141,7 +141,7 @@ let attach(source: Source, user: User, child: Control) : Control =
   let fill() = asyncEx {
     let! details = source.Fetch user.Handle
 
-    Dispatcher.UIThread.Post(fun () -> show(details))
+    show(details)
   }
 
   let openNow() =

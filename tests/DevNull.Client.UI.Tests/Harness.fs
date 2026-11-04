@@ -1,11 +1,13 @@
 module DevNull.Client.UI.Tests.Harness
 
 // The headless harness, proven in Briple.Trainer: one session for the
-// whole assembly in PerAssembly isolation (PerTest resets the global UI
-// dispatcher, which strands the MVUish update loop on a ghost
-// dispatcher), every control touch through onUiAsync, and a
+// whole assembly in PerAssembly isolation (the session pumps the
+// process-global dispatcher, and focus, input, and the clipboard are
+// process-global too), every control touch through onUiAsync, and a
 // deterministic Background-priority frame pump for dispatcher work
-// queued from other threads.
+// queued from other threads. The session's dispatcher (`ui`) reaches
+// every program through the env, so each MVUish loop stays bound to it
+// instead of reading the global per message.
 
 open System
 open System.Threading
@@ -44,8 +46,9 @@ let private session =
 /// `Dispatcher.UIThread`, and the headless platform creates it on the
 /// session thread inside the first setup. Capturing it there keeps a
 /// test thread's first `UIThread` access from creating a dispatcher on
-/// that thread instead.
-let private ui: Dispatcher =
+/// that thread instead. The test env hands it to every program, so a
+/// replaced global can no longer strand a running one.
+let ui: Dispatcher =
   session
     .Dispatch(
       Func<Dispatcher>(fun () -> Dispatcher.UIThread),
@@ -120,7 +123,7 @@ let waitForAsync
       if found then
         return true
       else
-        do! Async.Sleep 100
+        do! Async.Sleep 20
         do! pumpAsync()
         return! loop()
   }

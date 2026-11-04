@@ -931,26 +931,6 @@ module Parts =
       dispatch: Dispatch<State.Msg>,
       model: IObservable<State.Model>
     ) : Control =
-    let pastelButton =
-      let button =
-        Button()
-          .Name("ThreadPastelButton")
-          .Classes(Theme.name Theme.NavButton)
-          .Content("Give a pastel")
-          .OnClickHandler(fun _ _ ->
-            dispatch(State.PastelRequested props.CommitId))
-
-      // The control exists only while the mode is on.
-      ContentControl()
-        .Content(
-          PageChrome.rebuildOn(
-            model,
-            (fun current -> current.Pasteis),
-            (fun current -> if current.Pasteis then button else Panel())
-          )
-          |> _.ToBinding()
-        )
-
     let deleteButton =
       Button()
         .Classes(Theme.name Theme.DangerButton)
@@ -965,15 +945,11 @@ module Parts =
         )
         .OnClickHandler(fun _ _ -> dispatch State.DeleteRequested)
 
-    // The viewer with pastéis mode off sees no pastel control at all,
-    // the way the site hides them; the flag is live.
-    let actionChildren: Control array = [| pastelButton; deleteButton |]
-
     StackPanel()
       .Orientation(Orientation.Horizontal)
       .Spacing(8.0)
       .Margin(0.0, 8.0, 0.0, 12.0)
-      .Children(actionChildren)
+      .Children(deleteButton)
 
   // The ancestor chain above the card.
   let ancestors(props: Props<'env>, model: IObservable<State.Model>) : Control =

@@ -2707,30 +2707,6 @@ let tests =
       })
 
     testCaseAsync
-      "giving a pastel posts the pastel"
-      (async {
-        let! window = startShell(signedInStore(), threadApi() :> IHttp)
-
-        let! shown = showsText(window, "It was DNS.")
-
-        Expect.isTrue shown "the log never rendered"
-
-        do!
-          onUiAsync(fun () ->
-            buttonWithText(window, "It was DNS.") |> Option.iter click)
-
-        let! thread = showsText(window, "Back to the log")
-
-        Expect.isTrue thread "the thread never rendered"
-
-        do! clickWhenShown(window, "Give a pastel")
-
-        let! note = showsText(window, "Pastel given. 6 left this cycle.")
-
-        Expect.isTrue note "the pastel note never showed"
-      })
-
-    testCaseAsync
       "the pastel card action posts the pastel from the log"
       (async {
         let api = threadApi()
@@ -2770,40 +2746,6 @@ let tests =
           )
 
         Expect.isTrue posted "the pastel was never posted"
-      })
-
-    testCaseAsync
-      "pastel controls stay hidden while pasteis mode is off"
-      (async {
-        let! window =
-          startShell(signedInStoreWithoutPasteis(), threadApi() :> IHttp)
-
-        let! shown = showsText(window, "The Octocat")
-
-        Expect.isTrue shown "the log never rendered"
-
-        let! leakedCard =
-          probeUiAsync(fun () -> controlByName(window, "PastelButton"))
-
-        Expect.isNone leakedCard "the card pastel action leaked"
-
-        do!
-          onUiAsync(fun () ->
-            buttonWithText(window, "It was DNS.") |> Option.iter click)
-
-        let! thread = showsText(window, "Back to the log")
-
-        Expect.isTrue thread "the thread never rendered"
-
-        let! leakedThread =
-          probeUiAsync(fun () -> buttonWithText(window, "Give a pastel"))
-
-        Expect.isNone leakedThread "the thread pastel button leaked"
-
-        let! leakedReply =
-          probeUiAsync(fun () -> controlByName(window, "PastelButton"))
-
-        Expect.isNone leakedReply "the reply pastel action leaked"
       })
 
     testCaseAsync

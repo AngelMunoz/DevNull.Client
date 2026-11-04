@@ -213,7 +213,7 @@ Rules:
 - Numbers are copied exactly, never rounded or paraphrased.
 - You produce evidence for the deriver, not a design: no recommendations, just the two sides of the parity ledger.
 
-Answer as Markdown with three sections — ## Server facts (each with file:line), ## Client parity (item -> has/lacks, file:line), ## Gaps. Cap: 50 lines.`;
+Answer as Markdown with three sections — ## Server facts (each with file:line), ## Client parity (item -> has/lacks, file:line), ## Gaps. One line per fact, no prose padding: concise, but never at the cost of an item left out.`;
 
 const DERIVE_BRIEF = (id, st, issueText, census) => `You derive the working parameters for feature step ${id} of DevNull.Client (repo root ${ROOT}). READ-ONLY: no edits, no commits. Read AGENTS.md, ${plan} (step ${id}), and the code the feature names — ground everything in file:line evidence you actually read. The server repository sits at ${SERVER}: read the primary sources YOURSELF; the parity census below is evidence to reconcile, not truth — promote each line you confirm, refute each you cannot, and add what it missed.
 
@@ -241,7 +241,7 @@ Mandatory, every derivation:
 - **Public-surface flag.** Any exported type or .fsi change is named as the structural risk with its consumer ripple.
 - **Sanitization.** Every constant, wording, and flow leaves this derivation already free of server names; the worker never sees them.
 
-Cap: 40 lines beyond these. Only what is specific to this feature and this tree.`;
+One line per fact, no prose padding; concise, never at the cost of an item. Only what is specific to this feature and this tree.`;
 
 const WORKER_BRIEF = (id, st, derivation, extra) => `You are the implementer for feature step ${id} of the work plan in DevNull.Client (repo root ${ROOT} — stay on the current branch). Read AGENTS.md (binding), ${plan} (step ${id} — its scope below is binding), and the skills under .agents/skills/ named in the derivation; if none, read mvuish-element-shapes, mvuish-controls, devnull-mvuish-audit.
 
@@ -290,7 +290,7 @@ const REVIEW_BRIEF = (ref, id, derivation, changed, captures) => `You are the RE
 
 Read first: .alta/derived/rejections.md (the casebook — find each class's next instance), and the derivation below — the behavior spec, the visual spec, and the negative space are the contract.
 
-${derivation ? `## The derivation (contract)\n\n${String(derivation).slice(0, 5000)}\n` : ""}## Your two passes
+${derivation ? `## The derivation (contract)\n\n${derivation}\n` : ""}## Your two passes
 
 1. **The diff.** git diff over the changed files (run it yourself):
 ${changed.map((f) => `- ${f}`).join("\n")}

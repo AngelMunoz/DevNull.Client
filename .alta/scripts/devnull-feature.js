@@ -433,7 +433,16 @@ const landStep = async (id, title, summary) => {
   const body = `## What\n\n${summary || finalTitle}\n\n## Verification\n\n- fantomas clean, build 0 errors\n- Core and UI suites green (sequenced)\n- review pair clean over the diff and the rendered captures\n\n_This pull request was opened by CodeAlta, an AI coding agent, at the user's direction._\n`;
   await tools.write_file({ path: prBodyPath, content: body });
   const pr = await sh(`gh pr create --base main --title "${safeTitle}" --body-file "${prBodyPath}"`, 180000);
-  return { title: finalTitle, commit: commit.text.trim().split("\n").slice(0, 2).join(" "), push: push.code === 0, pr: pr.text.trim() };
+  // The final captures attach to the pull request itself, through gh's
+  // uploader: no image ever enters git. Up to 50 files per command; a body
+  // the attachments do not reference keeps its text, the images append.
+  const prNumber = /\/pull\/(\d+)/.exec(pr.text.trim())?.[1] ?? "";
+  const shots = (await sh(`(Get-ChildItem "${snapshotsDir}/${id}" -Filter *.png -ErrorAction SilentlyContinue | Sort-Object Name).Name`)).text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  if (prNumber && shots.length) {
+    const attachFlags = shots.map((f) => `--attach "${snapshotsDir}/${id}/${f}#${f.replace(/^f\d+-/, "").replace(/^_/, "").replace(/\.png$/, "").replace(/-/g, " ")}"`).join(" ");
+    await sh(`gh pr edit ${prNumber} ${attachFlags}`, 600000);
+  }
+  return { title: finalTitle, commit: commit.text.trim().split("\n").slice(0, 2).join(" "), push: push.code === 0, captures: shots.length, pr: pr.text.trim() };
 };
 
 // ---------------- standalone actions ----------------

@@ -11,6 +11,7 @@ open DevNull.Client.Errors
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
 open DevNull.Client.Profiles
+open DevNull.Client.Remotes
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.Timeline
@@ -36,6 +37,7 @@ type Props<'env
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
   and 'env :> IProvideSshKeys
+  and 'env :> IProvideRemotes
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
   and 'env :> IProvideLogging> = {
@@ -149,6 +151,7 @@ module State =
     | TranslationsAuto of (Commit * Result<TranslationPayload, AppError>) list
     | TranslationRecalled of Commit * TranslationModel.Book option
     | PrefsArrived of settings: UserSettings option
+    | Shared
 
   /// The fresh page state.
   val initial: Model
@@ -199,6 +202,7 @@ type Page<'env
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
   and 'env :> IProvideSshKeys
+  and 'env :> IProvideRemotes
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
   and 'env :> IProvideLogging> =

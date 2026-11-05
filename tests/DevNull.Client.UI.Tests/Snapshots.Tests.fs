@@ -6,6 +6,7 @@ module DevNull.Client.UI.Tests.Snapshots
 // gitignored: captures are evidence for a review round, never fixtures.
 
 open System
+open System.Reactive.Subjects
 open System.Threading.Tasks
 open Avalonia
 open Avalonia.Controls
@@ -14,11 +15,20 @@ open Avalonia.Input
 open Avalonia.VisualTree
 open Expecto
 
+open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Http
+open DevNull.Client.Formatting
+open DevNull.Client.ImageCache
+open DevNull.Client.Remotes
+open DevNull.Client.RemotesState
 open DevNull.Client.UI.Tests.App
 open DevNull.Client.UI.Tests.Composer
 open DevNull.Client.UI.Tests.Fixtures
 open DevNull.Client.UI.Tests.Harness
+open DevNull.Client.UI.Tests.Remotes
+open DevNull.Client.UI.Tests.Share
+
+module CommitCard = DevNull.Client.Components.CommitCard
 
 /// A thread with enough replies to scroll one page, so the capture
 /// shows content under the band after a scroll.
@@ -198,6 +208,41 @@ type private HeldDevicesApi(inner: IHttp, gate: TaskCompletionSource<unit>) =
         inner.Send request
 
     member _.GetBytes(target) = inner.GetBytes target
+
+/// One api that holds a pushed message until the test opens its
+/// gate, so the staged bubble can be captured.
+type private HeldMessagesApi(inner: IHttp, gate: TaskCompletionSource<unit>) =
+  interface IHttp with
+    member _.Send(request) = async {
+      if request.Method = "POST" && request.Target.EndsWith "/messages" then
+        do! gate.Task |> Async.AwaitTask
+
+      return! inner.Send request
+    }
+
+    member _.GetBytes(target: string) = inner.GetBytes target
+
+/// One api that holds a candidate search until the test opens its
+/// gate, so the picker's quiet loading can be captured.
+type private HeldCandidatesApi(inner: IHttp, gate: TaskCompletionSource<unit>) =
+  interface IHttp with
+    member _.Send(request) = async {
+      if request.Target.StartsWith "/api/v1/remotes/candidates" then
+        do! gate.Task |> Async.AwaitTask
+
+      return! inner.Send request
+    }
+
+    member _.GetBytes(target: string) = inner.GetBytes target
+
+/// The commit the share log carries, decoded through the wire reader.
+let private shareCommit() : Commit =
+  match LogPage.decode shareLogJson with
+  | Ok page ->
+    match page.Page.Items with
+    | [ LiveCommit commit ] -> commit
+    | _ -> failwith "the share log never carried its commit"
+  | Error failure -> failwith $"the share log never decoded: {failure.Message}"
 
 /// The thread page's own scroller, found above the back line.
 let private threadOffset(window: Window) : float =
@@ -812,6 +857,677 @@ let captureTests =
       let! path = captureAsync("F13/f13-panel-narrow", window)
       let bytes = IO.File.ReadAllBytes(path)
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+
+    testAsync "the approved card offers share" {
+      let api =
+        shareApi {
+          Log = shareLogJson
+          Candidates = (fun _ -> candidatesAnswer [])
+          Post = (fun _ -> ok "{}")
+          Sent = None
+        }
+
+      let! window, _ = startShareShell(remotesStoreOn(), api :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      let! offered =
+        waitForAsync(5000, (fun () -> shareButton window), Option.isSome)
+
+      Expect.isTrue offered "the approved card offered no share control"
+
+      let! path = captureAsync("F12/f12-card-approved", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the card hides share with the remotes off" {
+      let api =
+        shareApi {
+          Log = shareLogJson
+          Candidates = (fun _ -> candidatesAnswer [])
+          Post = (fun _ -> ok "{}")
+          Sent = None
+        }
+
+      let! window, _ = startShareShell(signedInStore(), api :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+      do! settleAsync()
+
+      let! absent = probeUiAsync(fun () -> shareButton window |> Option.isNone)
+      Expect.isTrue absent "the card offered share with the remotes off"
+
+      let! path = captureAsync("F12/f12-card-remotes-off", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the card hides share on a commit that is not approved" {
+      for status in [ "pending"; "rejected" ] do
+        let api =
+          shareApi {
+            Log =
+              shareLogJson.Replace(
+                "\"status\":\"approved\"",
+                "\"status\":\"" + status + "\""
+              )
+            Candidates = (fun _ -> candidatesAnswer [])
+            Post = (fun _ -> ok "{}")
+            Sent = None
+          }
+
+        let! window, _ = startShareShell(remotesStoreOn(), api :> IHttp)
+        let! shown = showsText(window, "The Octocat")
+        Expect.isTrue shown $"the {status} log never rendered"
+        do! settleAsync()
+
+        let! absent =
+          probeUiAsync(fun () -> shareButton window |> Option.isNone)
+
+        Expect.isTrue absent $"the {status} card offered share"
+
+        let! path = captureAsync($"F12/f12-card-{status}", window)
+        let bytes = IO.File.ReadAllBytes(path)
+        Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the own commit offers the same share control" {
+      let api =
+        shareApi {
+          Log = ownLogJson
+          Candidates = (fun _ -> candidatesAnswer [])
+          Post = (fun _ -> ok "{}")
+          Sent = None
+        }
+
+      let! window, _ = startShareShell(remotesStoreOn(), api :> IHttp)
+      let! shown = showsText(window, "My own commit.")
+      Expect.isTrue shown "the own log never rendered"
+
+      let! offered =
+        waitForAsync(5000, (fun () -> shareButton window), Option.isSome)
+
+      Expect.isTrue offered "the own commit offered no share control"
+
+      let! path = captureAsync("F12/f12-card-own", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the card keeps the share control in a narrow window" {
+      let api =
+        shareApi {
+          Log = shareLogJson
+          Candidates = (fun _ -> candidatesAnswer [])
+          Post = (fun _ -> ok "{}")
+          Sent = None
+        }
+
+      let! window, _ = startShareShell(remotesStoreOn(), api :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do! onUiAsync(fun () -> window.Width <- 380.0)
+      do! settleAsync()
+
+      let! offered =
+        waitForAsync(5000, (fun () -> shareButton window), Option.isSome)
+
+      Expect.isTrue offered "the narrow card offered no share control"
+
+      let! path = captureAsync("F12/f12-card-narrow", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+
+    testAsync "a host that offers no share draws no control" {
+      let api =
+        shareApi {
+          Log = shareLogJson
+          Candidates = (fun _ -> candidatesAnswer [])
+          Post = (fun _ -> ok "{}")
+          Sent = None
+        }
+
+      let! window, _ = startShareShell(remotesStoreOn(), api :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do! clickWhenShown(window, "Profile")
+
+      let! profile = showsText(window, "Builds things.")
+      Expect.isTrue profile "the profile page never rendered"
+
+      let! commits = showsText(window, "It was DNS.")
+      Expect.isTrue commits "the profile feed never rendered its commit"
+      do! settleAsync()
+
+      let! link =
+        waitForAsync(
+          5000,
+          (fun () -> controlByName(window, "LinkButton")),
+          Option.isSome
+        )
+
+      Expect.isTrue link "the profile card offered no link action"
+
+      do!
+        onUiAsync(fun () ->
+          controlByName(window, "LinkButton") |> Option.iter _.BringIntoView())
+
+      do! settleAsync()
+
+      let! absent = probeUiAsync(fun () -> shareButton window |> Option.isNone)
+      Expect.isTrue absent "the unwired card offered share"
+
+      let! path = captureAsync("F12/f12-card-unwired", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the dense card carries the share control" {
+      let env = TestEnv(signedInStore(), logApi() :> IHttp)
+      let commit = shareCommit()
+
+      let now = new BehaviorSubject<DateTimeOffset>(DateTimeOffset.UtcNow)
+      let pastels = new BehaviorSubject<bool>(true)
+      let choices = new BehaviorSubject<Map<string, string>>(Map.empty)
+
+      let translation =
+        new BehaviorSubject<Commit -> CommitCard.TranslationView voption>(fun _ ->
+          ValueNone)
+
+      let props: CommitCard.RowProps = {
+        OnEvent = ignore
+        ViewerId = commit.Author.Id
+        Pasteis = pastels
+        Now = now
+        PollChoices = choices
+        Dense = true
+        Images = (env :> IProvideImageCache).ImageCache
+        Flyout = ValueNone
+        Pin = ValueNone
+        Star = ValueNone
+        Vote = ValueNone
+        Pastel = ValueNone
+        Share = ValueSome ignore
+        Translation = translation
+        Zone = zoneOf(None: UserSettings option)
+      }
+
+      let! window =
+        probeUiAsync(fun () ->
+          let window =
+            Window(
+              Content = CommitCard.feedRow props (LiveCommit commit),
+              Width = 720.0,
+              Height = 480.0
+            )
+
+          window.Show()
+          window)
+
+      do! settleAsync()
+
+      let! offered = probeUiAsync(fun () -> shareButton window |> Option.isSome)
+      Expect.isTrue offered "the dense card offered no share control"
+
+      let! path = captureAsync("F12/f12-card-dense", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the picker opens empty and lists the reachable first" {
+      let api =
+        shareApi {
+          Log = shareLogJson
+          Candidates =
+            (fun _ ->
+              candidatesAnswer [
+                candidateJson(bobJson, Some "doesn't follow you")
+                candidateJson(hubotJson, None)
+              ])
+          Post = (fun _ -> ok "{}")
+          Sent = None
+        }
+
+      let! window, _ = startShareShell(remotesStoreOn(), api :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do! openSharePickerAsync window
+
+      let! emptyPath = captureAsync("F12/f12-picker-empty", window)
+      let emptyBytes = IO.File.ReadAllBytes(emptyPath)
+      Expect.isTrue (emptyBytes.Length > 1000) "the frame saved real pixels"
+
+      do! typeShareTermAsync(window, "hub")
+
+      let! rows =
+        waitForAsync(
+          5000,
+          (fun () -> controlByName(window, "ShareCandidate1")),
+          Option.isSome
+        )
+
+      Expect.isTrue rows "the mixed rows never listed"
+
+      let! path = captureAsync("F12/f12-picker-rows", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+
+    testAsync "the picker shows its quiet loading" {
+      let gate = TaskCompletionSource<unit>()
+
+      let inner =
+        shareApi {
+          Log = shareLogJson
+          Candidates =
+            (fun _ -> candidatesAnswer [ candidateJson(hubotJson, None) ])
+          Post = (fun _ -> ok "{}")
+          Sent = None
+        }
+
+      let held = HeldCandidatesApi(inner :> IHttp, gate)
+      let! window, _ = startShareShell(remotesStoreOn(), held :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do! openSharePickerAsync window
+      do! typeShareTermAsync(window, "hub")
+
+      let! loading =
+        waitForAsync(
+          5000,
+          (fun () -> controlByName(window, "ShareLoading")),
+          fun control -> control |> Option.exists effectiveVisible
+        )
+
+      Expect.isTrue loading "the picker showed no quiet loading"
+
+      let! path = captureAsync("F12/f12-picker-loading", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      gate.SetResult(())
+      do! settleAsync()
+    }
+
+    testAsync "the picker trims a long developer row" {
+      let longUser =
+        userJsonOf(
+          "01a151db-cccc-727b-a7ce-c911a7556243",
+          "a-very-long-handle-that-fills-the-row",
+          "A Developer Whose Name Runs Past The Row"
+        )
+
+      let api =
+        shareApi {
+          Log = shareLogJson
+          Candidates =
+            (fun _ ->
+              candidatesAnswer [
+                candidateJson(
+                  longUser,
+                  Some
+                    "your request is waiting to be merged after the long name in this row"
+                )
+              ])
+          Post = (fun _ -> ok "{}")
+          Sent = None
+        }
+
+      let! window, _ = startShareShell(remotesStoreOn(), api :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do! openSharePickerAsync window
+      do! typeShareTermAsync(window, "long")
+
+      let! rows =
+        waitForAsync(
+          5000,
+          (fun () -> controlByName(window, "ShareCandidate0")),
+          Option.isSome
+        )
+
+      Expect.isTrue rows "the long row never listed"
+
+      let! path = captureAsync("F12/f12-picker-long", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the picker shows a quiet empty answer" {
+      let answered = TaskCompletionSource<unit>()
+
+      let api =
+        shareApi {
+          Log = shareLogJson
+          Candidates =
+            (fun _ ->
+              answered.TrySetResult(()) |> ignore
+              candidatesAnswer [])
+          Post = (fun _ -> ok "{}")
+          Sent = None
+        }
+
+      let! window, _ = startShareShell(remotesStoreOn(), api :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do! openSharePickerAsync window
+      do! typeShareTermAsync(window, "nobody")
+      do! Async.AwaitTask answered.Task
+      do! settleAsync()
+
+      let! quiet =
+        waitForAsync(
+          5000,
+          (fun () -> controlByName(window, "ShareLoading")),
+          fun control ->
+            control |> Option.exists(fun visual -> not(effectiveVisible visual))
+        )
+
+      Expect.isTrue quiet "the empty answer stayed loading"
+
+      let! rows =
+        probeUiAsync(fun () -> controlByName(window, "ShareCandidate0"))
+
+      Expect.isNone rows "the empty answer listed a row"
+
+      let! path = captureAsync("F12/f12-picker-none", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the picker shows a failed read" {
+      let api =
+        shareApi {
+          Log = shareLogJson
+          Candidates =
+            (fun request ->
+              if request.Target.Contains "q=hub" then
+                candidatesAnswer [ candidateJson(hubotJson, None) ]
+              else
+                refused(500, "the server said no"))
+          Post = (fun _ -> ok "{}")
+          Sent = None
+        }
+
+      let! window, _ = startShareShell(remotesStoreOn(), api :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do! openSharePickerAsync window
+      do! typeShareTermAsync(window, "hub")
+
+      let! loaded =
+        waitForAsync(
+          5000,
+          (fun () -> controlByName(window, "ShareCandidate0")),
+          Option.isSome
+        )
+
+      Expect.isTrue loaded "the picker never listed the first answer"
+
+      do! typeShareTermAsync(window, "other")
+
+      let! failure = showsWords(window, "the server said no")
+      Expect.isTrue failure "the picker hid the refusal"
+
+      let! gone =
+        probeUiAsync(fun () -> controlByName(window, "ShareCandidate0"))
+
+      Expect.isNone gone "the refused read kept the last rows"
+
+      let! term =
+        probeUiAsync(fun () ->
+          controlByName(window, "ShareSearch")
+          |> Option.bind(fun control ->
+            (control :?> TextBox).Text |> Option.ofObj))
+
+      Expect.equal term (Some "other") "the refused read cleared the input"
+
+      let! path = captureAsync("F12/f12-picker-failed", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the picker narrows with the window" {
+      let api =
+        shareApi {
+          Log = shareLogJson
+          Candidates =
+            (fun _ ->
+              candidatesAnswer [
+                candidateJson(bobJson, Some "doesn't follow you")
+                candidateJson(hubotJson, None)
+              ])
+          Post = (fun _ -> ok "{}")
+          Sent = None
+        }
+
+      let! window, _ = startShareShell(remotesStoreOn(), api :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do! openSharePickerAsync window
+      do! typeShareTermAsync(window, "hub")
+
+      let! rows =
+        waitForAsync(
+          5000,
+          (fun () -> controlByName(window, "ShareCandidate1")),
+          Option.isSome
+        )
+
+      Expect.isTrue rows "the mixed rows never listed"
+
+      do! onUiAsync(fun () -> window.Width <- 380.0)
+      do! settleAsync()
+
+      let! path = captureAsync("F12/f12-picker-narrow", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the confirm step names the recipient" {
+      let api =
+        shareApi {
+          Log = shareLogJson
+          Candidates =
+            (fun _ -> candidatesAnswer [ candidateJson(hubotJson, None) ])
+          Post = (fun _ -> ok "{}")
+          Sent = None
+        }
+
+      let! window, _ = startShareShell(remotesStoreOn(), api :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do! openSharePickerAsync window
+      do! typeShareTermAsync(window, "hub")
+      do! pickShareCandidateAsync(window, 0)
+
+      let! titled = showsText(window, "Send commit to @hubot?")
+      Expect.isTrue titled "the confirm step never named the recipient"
+
+      let! path = captureAsync("F12/f12-confirm", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the confirm step caps a long preview" {
+      let longBody = String.replicate 8 "A long sentence about the commit. "
+
+      let api =
+        shareApi {
+          Log =
+            shareLogJson.Replace(
+              "\"body\":\"It was DNS.\"",
+              "\"body\":\"" + longBody + "\""
+            )
+          Candidates =
+            (fun _ -> candidatesAnswer [ candidateJson(hubotJson, None) ])
+          Post = (fun _ -> ok "{}")
+          Sent = None
+        }
+
+      let! window, _ = startShareShell(remotesStoreOn(), api :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the long log never rendered"
+
+      do! openSharePickerAsync window
+      do! typeShareTermAsync(window, "hub")
+      do! pickShareCandidateAsync(window, 0)
+
+      let! titled = showsText(window, "Send commit to @hubot?")
+      Expect.isTrue titled "the confirm step never named the recipient"
+
+      let! path = captureAsync("F12/f12-confirm-long", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the confirm step keeps its buttons in a narrow window" {
+      let api =
+        shareApi {
+          Log = shareLogJson
+          Candidates =
+            (fun _ -> candidatesAnswer [ candidateJson(hubotJson, None) ])
+          Post = (fun _ -> ok "{}")
+          Sent = None
+        }
+
+      let! window, _ = startShareShell(remotesStoreOn(), api :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do! openSharePickerAsync window
+      do! typeShareTermAsync(window, "hub")
+      do! pickShareCandidateAsync(window, 0)
+
+      let! titled = showsText(window, "Send commit to @hubot?")
+      Expect.isTrue titled "the confirm step never named the recipient"
+
+      do! onUiAsync(fun () -> window.Width <- 380.0)
+      do! settleAsync()
+
+      let! send =
+        waitForAsync(
+          5000,
+          (fun () -> buttonWithText(window, "Send")),
+          Option.isSome
+        )
+
+      Expect.isTrue send "the narrow confirm lost its Send"
+
+      let! path = captureAsync("F12/f12-confirm-narrow", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the delivered share shows the link in the thread" {
+      let api =
+        shareApi {
+          Log = shareLogJson
+          Candidates =
+            (fun _ -> candidatesAnswer [ candidateJson(hubotJson, None) ])
+          Post = (fun request -> sharedPushAnswer(request, shareUrl))
+          Sent = None
+        }
+
+      let! window, _ = startShareShell(remotesStoreOn(), api :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do! openSharePickerAsync window
+      do! typeShareTermAsync(window, "hub")
+      do! pickShareCandidateAsync(window, 0)
+      do! clickWhenShown(window, "Send")
+
+      let! landed = showsText(window, shareUrl)
+      Expect.isTrue landed "the delivered thread never showed the link"
+
+      let! delivered = seesVisible(window, "pushed")
+      Expect.isTrue delivered "the delivered thread kept its staged mark"
+
+      let! path = captureAsync("F12/f12-thread-delivered", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the refused share shows the rejected bubble" {
+      let api =
+        shareApi {
+          Log = shareLogJson
+          Candidates =
+            (fun _ -> candidatesAnswer [ candidateJson(hubotJson, None) ])
+          Post = (fun _ -> refused(403, "the server said no"))
+          Sent = None
+        }
+
+      let! window, _ = startShareShell(remotesStoreOn(), api :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do! openSharePickerAsync window
+      do! typeShareTermAsync(window, "hub")
+      do! pickShareCandidateAsync(window, 0)
+      do! clickWhenShown(window, "Send")
+
+      let! rejected = showsText(window, shareUrl)
+      Expect.isTrue rejected "the refused thread never showed the link"
+
+      let! marked = seesVisible(window, "rejected · retry")
+      Expect.isTrue marked "the refused thread kept its staged mark"
+
+      let! path = captureAsync("F12/f12-thread-refused", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the staged share shows the link before the server answers" {
+      let gate = TaskCompletionSource<unit>()
+
+      let inner =
+        shareApi {
+          Log = shareLogJson
+          Candidates =
+            (fun _ -> candidatesAnswer [ candidateJson(hubotJson, None) ])
+          Post = (fun request -> sharedPushAnswer(request, shareUrl))
+          Sent = None
+        }
+
+      let held = HeldMessagesApi(inner :> IHttp, gate)
+      let! window, _ = startShareShell(remotesStoreOn(), held :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do! openSharePickerAsync window
+      do! typeShareTermAsync(window, "hub")
+      do! pickShareCandidateAsync(window, 0)
+      do! clickWhenShown(window, "Send")
+
+      let! staged = showsText(window, shareUrl)
+      Expect.isTrue staged "the staged thread never showed the link"
+
+      let! marked = seesVisible(window, "staged")
+      Expect.isTrue marked "the thread did not mark the bubble staged"
+
+      let! path = captureAsync("F12/f12-thread-staged", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      gate.SetResult(())
+      do! settleAsync()
     }
 
     testAsync "the picker flips above a composer near the window bottom" {

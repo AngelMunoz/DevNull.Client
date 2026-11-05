@@ -7,6 +7,7 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Env
 open DevNull.Client.ImageCache
 open DevNull.Client.Profiles
+open DevNull.Client.Remotes
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.Timeline
@@ -30,6 +31,7 @@ type Props<'env
   and 'env :> IProvideProfiles
   and 'env :> IProvideSshKeys
   and 'env :> IProvideTimeline
+  and 'env :> IProvideRemotes
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
   and 'env :> IProvideLogging> = {
@@ -58,6 +60,7 @@ type Page<'env
   and 'env :> IProvideProfiles
   and 'env :> IProvideSshKeys
   and 'env :> IProvideTimeline
+  and 'env :> IProvideRemotes
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
   and 'env :> IProvideLogging> =

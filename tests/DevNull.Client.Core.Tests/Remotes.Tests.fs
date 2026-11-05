@@ -873,6 +873,23 @@ let endpointTests =
         ""
     }
 
+    test "searches share candidates" {
+      expectCall
+        (fun http ->
+          Remotes.candidates(
+            envFor http,
+            {
+              KeyFile = "key-file"
+              Search = Some "octo"
+              Org = None
+              For = Some Remotes.ForShare
+            }
+          ))
+        "GET"
+        "/api/v1/remotes/candidates?q=octo&for=share"
+        ""
+    }
+
     test "searches candidates for a new org" {
       expectCall
         (fun http ->

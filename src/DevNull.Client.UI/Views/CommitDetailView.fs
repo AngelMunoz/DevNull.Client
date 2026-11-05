@@ -2,6 +2,7 @@ module DevNull.Client.Views.CommitDetailView
 
 open System
 open System.Collections.Generic
+open System.Reactive.Subjects
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
@@ -28,6 +29,7 @@ open Microsoft.Extensions.Logging
 open DevNull.Client.ImageCache
 open DevNull.Client.Formatting
 open DevNull.Client.Profiles
+open DevNull.Client.Remotes
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.Timeline
@@ -52,6 +54,7 @@ type Props<'env
   and 'env :> IProvideProfiles
   and 'env :> IProvideSshKeys
   and 'env :> IProvideTimeline
+  and 'env :> IProvideRemotes
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
   and 'env :> IProvideLogging> = {
@@ -130,6 +133,7 @@ module State =
     | NodeRepliesLoaded of commitId: string * Result<Page<CommitNode>, AppError>
     | TranslationDone of Commit * Result<TranslationPayload, AppError>
     | TranslationRecalled of Commit * TranslationModel.Book option
+    | Shared
 
   let initial = {
     Loading = true
@@ -456,6 +460,7 @@ module State =
               TranslationModel.showOriginal(model.Translations, commit.Id)
       },
       Cmd.none
+    | CardEvent(CommitCard.ShareRequested _) -> model, Cmd.none
     | PinToggled commit ->
       // The card's own gate already says this is the author's
       // top-level commit; the flag on it says which way the toggle
@@ -705,6 +710,8 @@ module State =
             args
           )
         ))
+    | Shared ->
+      model, Cmd.ofEffect(fun _ -> Navigation.go(props.Nav, "/remotes", ignore))
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
@@ -739,6 +746,7 @@ module Parts =
     and 'env :> IProvideProfiles
     and 'env :> IProvideSshKeys
     and 'env :> IProvideTimeline
+    and 'env :> IProvideRemotes
     and 'env :> IProvideUserSettings
     and 'env :> IProvideTranslations
     and 'env :> IProvideLogging>
@@ -1105,6 +1113,12 @@ let view
   (dispatch: Dispatch<State.Msg>)
   : Control =
 
+  let shareOpen = new BehaviorSubject<Commit voption>(ValueNone)
+
+  let closeShare() = shareOpen.OnNext ValueNone
+
+  let openShare(commit: Commit) = shareOpen.OnNext(ValueSome commit)
+
   let rows =
     CommitRows.row(
       {
@@ -1114,6 +1128,11 @@ let view
         Flyout = Parts.flyoutOf props
         Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
         OnPin = ValueSome(State.PinToggled >> dispatch)
+        OnShare =
+          if props.Session.Session.Remotes.IsSome then
+            ValueSome openShare
+          else
+            ValueNone
         Actions = true
         OnStar = fun commit -> dispatch(State.StarToggled commit)
         OnVote = fun commit -> dispatch(State.PollVoteRequested commit)
@@ -1168,10 +1187,36 @@ let view
   // against the column, never an unbounded extent. The rows run edge
   // to edge of the reading column, the width the feed hands its own
   // cards — a horizontal inset here narrows every card below it.
-  ScrollViewer()
-    .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
-    .Margin(0.0, Theme.bandHeight, 0.0, 0.0)
-    .Content(content)
+  let page =
+    ScrollViewer()
+      .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
+      .Margin(0.0, Theme.bandHeight, 0.0, 0.0)
+      .Content(content)
+
+  let shareLayer =
+    DialogChrome.layer {
+      Open = shareOpen |> Observable.map ValueOption.isSome
+      Content =
+        fun () ->
+          match shareOpen.Value with
+          | ValueSome commit ->
+            ShareDialog.Page {
+              Env = props.Env
+              Session = props.Session
+              Commit = commit
+              Sent =
+                fun _ ->
+                  closeShare()
+                  dispatch State.Shared
+              Close = closeShare
+            }
+          | ValueNone -> Panel()
+      Scrim = true
+      OnScrimClick = ValueSome closeShare
+      Place = DialogChrome.Center
+    }
+
+  Grid().Children(page, shareLayer)
 
 type Page<'env
   when 'env :> IProvideClock
@@ -1186,6 +1231,7 @@ type Page<'env
   and 'env :> IProvideProfiles
   and 'env :> IProvideSshKeys
   and 'env :> IProvideTimeline
+  and 'env :> IProvideRemotes
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
   and 'env :> IProvideLogging>(props: Props<'env>) as this =

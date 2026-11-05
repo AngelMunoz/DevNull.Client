@@ -24,6 +24,7 @@ type Host = {
   Flyout: Source voption
   Zone: Zone
   OnPin: (Commit -> unit) voption
+  OnShare: (Commit -> unit) voption
   Actions: bool
   OnStar: Commit -> unit
   OnVote: Commit -> unit
@@ -66,6 +67,7 @@ let row
     Star = slot host.OnStar
     Vote = offered host.OnVote
     Pastel = offered host.OnPastel
+    Share = host.OnShare
     Translation = host.Translation
     Zone = host.Zone
   }

@@ -1284,6 +1284,7 @@ module Remotes =
   type CandidateFor =
     | ForRemote
     | ForOrg
+    | ForShare
 
   /// One candidate search: a term, the org picked for, and whether the
   /// org does not exist yet.

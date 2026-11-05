@@ -9,7 +9,8 @@ open DevNull.Client.Components.UserFlyout
 
 /// What one card reports up: open the thread, reveal the reply
 /// composer, walk more replies of a thread preview, start a quote,
-/// choose a poll option, or show the commit translated.
+/// choose a poll option, show the commit translated, or ask the host
+/// to share it.
 [<Struct>]
 type Event =
   | Opened of Commit
@@ -19,6 +20,7 @@ type Event =
   | PollChoiceChanged of Commit * PollOption * chosen: bool
   | TranslateRequested of Commit
   | OriginalRequested of Commit
+  | ShareRequested of Commit
 
 /// The pin affordance one host may offer: the command the toggle runs,
 /// and the commit id whose pin call is in flight, so its button
@@ -86,6 +88,9 @@ type Props = {
   Star: ActionSlot voption
   Vote: ActionSlot voption
   Pastel: ActionSlot voption
+  /// The share action the host offers on an approved commit; an
+  /// absent slot leaves the control out of the card.
+  Share: (Commit -> unit) voption
   Translation: IObservable<TranslationView voption>
   /// The zone the header's time tooltip shows.
   Zone: Zone
@@ -154,6 +159,7 @@ type RowProps = {
   Star: ActionSlot voption
   Vote: ActionSlot voption
   Pastel: ActionSlot voption
+  Share: (Commit -> unit) voption
   Translation: IObservable<Commit -> TranslationView voption>
   Zone: Zone
 }

@@ -25,10 +25,18 @@
     <Compile Include="Commit.fs" />
     <Compile Include="Completion.fsi" />
     <Compile Include="Completion.fs" />
+    <Compile Include="Emoji.fsi" />
+    <Compile Include="Emoji.fs" />
     <Compile Include="RemotesText.fsi" />
     <Compile Include="RemotesText.fs" />
     <Compile Include="Api.fsi" />
     <Compile Include="Api.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Data\emoji-catalog.json">
+      <LogicalName>emoji-catalog.json</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <ItemGroup>

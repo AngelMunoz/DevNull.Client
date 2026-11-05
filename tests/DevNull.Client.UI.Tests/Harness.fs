@@ -286,3 +286,23 @@ let pressControlAsync(window: Window, control: Control) : Async<unit> =
     if center.HasValue then
       window.MouseDown(center.Value, MouseButton.Left, RawInputModifiers.None)
       window.MouseUp(center.Value, MouseButton.Left, RawInputModifiers.None))
+
+/// Presses one control and releases over another, so the press ends
+/// without the click a release over the pressed control raises.
+let pressOutsideAsync
+  (window: Window, control: Control, release: Control)
+  : Async<unit> =
+  onUiAsync(fun () ->
+    let centerOf(target: Control) =
+      target.TranslatePoint(
+        Point(target.Bounds.Width / 2.0, target.Bounds.Height / 2.0),
+        window
+      )
+      |> Option.ofNullable
+
+    (centerOf control, centerOf release)
+    ||> Option.map2(fun pressed released ->
+      window.MouseDown(pressed, MouseButton.Left, RawInputModifiers.None)
+      window.MouseUp(released, MouseButton.Left, RawInputModifiers.None))
+    |> Option.defaultWith(fun () ->
+      failwith "the pressed or release control was not laid out"))

@@ -36,7 +36,8 @@ type Props = {
 /// Installs the one global key handler on the window, tunneling ahead
 /// of every focused control: the site's shortcuts — j/k walk commits, c
 /// composes, ctrl k searches, g then l/e/p/s navigates, ? shows the
-/// bindings, F11 and Escape answer the chrome — with the site's guards.
+/// bindings, and F11 answers the chrome — with the site's guards.
+/// The window acts on Escape only when no focused control handled it.
 /// The chrome pairs and the search's pair answer even mid-sentence;
 /// plain keys stop at a text caret and at an open overlay, and any
 /// other held ctrl, meta, or alt passes through untouched. The handler

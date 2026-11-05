@@ -12,6 +12,7 @@ let main args =
       Tests.PkceTests.tests
       Tests.Payload.tests
       Tests.Completion.tests
+      Tests.Emoji.tests
       Tests.Api.tests
       Tests.Api.deviceTests
       Tests.Api.redeemDeviceTests

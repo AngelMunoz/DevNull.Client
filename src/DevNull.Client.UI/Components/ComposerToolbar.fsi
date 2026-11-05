@@ -21,9 +21,21 @@ type Props = {
   OnAttach: unit -> unit
   OnPoll: unit -> unit
   OnSchedule: unit -> unit
+  /// The body selection as it stands when the trigger asks for it.
+  BodySelection: unit -> int * int
+  OnEmoji: int * int -> unit
   OnSubmit: unit -> unit
 }
 
-/// The action row: the attach, poll, and schedule buttons and the
-/// commit button docked right, the error line filling the rest.
-val view: props: Props -> Control
+/// The action row and the emoji trigger.
+[<Struct>]
+type View = { Row: Control; Emoji: Button }
+
+/// The action row: the attach, poll, schedule, and emoji buttons and
+/// the commit button docked right, the error line filling the rest. A
+/// pointer press on the emoji trigger records the body selection before
+/// focus reaches the button; the click that follows hands it to
+/// OnEmoji. A press released away from the trigger drops the recording,
+/// so only the click that completes that press sees it. A keyboard
+/// click hands over the body selection as it stands.
+val view: props: Props -> View

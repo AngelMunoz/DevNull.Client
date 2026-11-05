@@ -72,16 +72,13 @@ let install(props: Props) : unit =
   props.Root.AddHandler(
     InputElement.KeyDownEvent,
     (fun _ args ->
-      // The chrome pair answers even mid-sentence: fullscreen and the
-      // escape own the window, not the caret. The search's pair joins
-      // them — the site's own Ctrl K opens the palette while typing.
+      // The chrome pair answers even mid-sentence: fullscreen owns the
+      // window, not the caret. The search's pair joins it — the site's
+      // own Ctrl K opens the palette while typing.
       match args.Key, args.KeyModifiers with
       | Key.F11, modifiers when modifiers = KeyModifiers.None ->
         args.Handled <- true
         props.Actions.ToggleFullScreen()
-      | Key.Escape, modifiers when modifiers = KeyModifiers.None ->
-        args.Handled <- true
-        props.Actions.Escape()
       | Key.K, modifiers when
         modifiers &&& (KeyModifiers.Control ||| KeyModifiers.Meta)
         <> KeyModifiers.None
@@ -128,6 +125,17 @@ let install(props: Props) : unit =
           props.Actions.Help()
         | _ -> ()),
     RoutingStrategies.Tunnel
+  )
+
+  // The escape lands after the focused control had its turn: a control
+  // that handles it keeps it, and the window acts only on the rest.
+  props.Root.AddHandler(
+    InputElement.KeyDownEvent,
+    (fun _ args ->
+      if args.Key = Key.Escape && args.KeyModifiers = KeyModifiers.None then
+        args.Handled <- true
+        props.Actions.Escape()),
+    RoutingStrategies.Bubble
   )
 
 let moveCardFocus(dispatcher: IDispatcher, root: Window, step: int) : unit =

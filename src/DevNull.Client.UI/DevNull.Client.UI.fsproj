@@ -121,6 +121,8 @@
     <Compile Include="Components\ComposerKeys.fs" />
     <Compile Include="Components\CompletionLane.fsi" />
     <Compile Include="Components\CompletionLane.fs" />
+    <Compile Include="Components\EmojiPicker.fsi" />
+    <Compile Include="Components\EmojiPicker.fs" />
     <Compile Include="Components\PollEditor.fsi" />
     <Compile Include="Components\PollEditor.fs" />
     <Compile Include="Components\SchedulePicker.fsi" />

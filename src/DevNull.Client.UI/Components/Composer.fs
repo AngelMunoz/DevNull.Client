@@ -85,6 +85,22 @@ module State =
     Dismissed = ValueNone
   }
 
+  // The emoji picker over the body: whether it stands, the query as
+  // typed, the cell the keys hold, and the selection a pick replaces.
+  type EmojiState = {
+    Open: bool
+    Query: string
+    Active: int
+    Selection: int * int
+  }
+
+  let closedEmoji = {
+    Open = false
+    Query = ""
+    Active = 0
+    Selection = (0, 0)
+  }
+
   // The query the trigger holds, empty for a bare `@`.
   let inline queryOf(completion: CompletionState) =
     match completion.Trigger with
@@ -159,6 +175,8 @@ module State =
     Picked: SchedulePicker.Pick voption
     // The completion lane over the body.
     Completion: CompletionState
+    // The emoji picker over the body.
+    Emoji: EmojiState
   }
 
   type Msg =
@@ -186,6 +204,11 @@ module State =
     | CompletionHovered of index: int
     | CompletionClosed
     | CompletionPicked of CompletionLane.Choice
+    | EmojiToggled of start: int * finish: int
+    | EmojiQueryChanged of query: string
+    | EmojiActiveChanged of active: int
+    | EmojiClosed
+    | EmojiPicked of emoji: string
 
   let initial = {
     Busy = false
@@ -198,6 +221,7 @@ module State =
     Scheduling = false
     Picked = ValueNone
     Completion = closedCompletion
+    Emoji = closedEmoji
   }
 
   // The staging path allocates large-object arrays an idle composer
@@ -376,6 +400,49 @@ module State =
       model,
       Cmd.ofAction(fun () ->
         log.LogDebug("The issue completion picked {Number}.", number))
+    | EmojiToggled(start, finish) ->
+      if model.Emoji.Open then
+        { model with Emoji = closedEmoji }, Cmd.none
+      else
+        {
+          model with
+              Emoji = {
+                closedEmoji with
+                    Open = true
+                    Selection = (start, finish)
+              }
+        },
+        Cmd.none
+    | EmojiQueryChanged query ->
+      if not model.Emoji.Open then
+        model, Cmd.none
+      else
+        {
+          model with
+              Emoji = {
+                model.Emoji with
+                    Query = query
+                    Active = 0
+              }
+        },
+        Cmd.none
+    | EmojiActiveChanged active ->
+      if not model.Emoji.Open || active = model.Emoji.Active then
+        model, Cmd.none
+      else
+        {
+          model with
+              Emoji = {
+                model.Emoji with
+                    Active = max 0 active
+              }
+        },
+        Cmd.none
+    | EmojiClosed -> { model with Emoji = closedEmoji }, Cmd.none
+    | EmojiPicked emoji ->
+      { model with Emoji = closedEmoji },
+      Cmd.ofAction(fun () ->
+        log.LogDebug("The emoji {Emoji} was picked.", emoji))
     | AttachRequested ->
       // The picker is modal; the answer arrives as one message.
       model, Cmd.OfAsync.perform props.Env.Attachments.PickFiles () ImagesAdded
@@ -717,6 +784,7 @@ module Parts =
     TextBox()
       .Name("ComposerBody")
       .AcceptsReturn(true)
+      .ClearSelectionOnLostFocus(false)
       .MinHeight(44.0)
       .MaxHeight(300.0)
       .TextWrapping(TextWrapping.Wrap)
@@ -937,7 +1005,29 @@ let view
       OnAttach = fun () -> dispatch State.AttachRequested
       OnPoll = fun () -> dispatch State.PollToggled
       OnSchedule = fun () -> dispatch State.ScheduleToggled
+      BodySelection = fun () -> body.SelectionStart, body.SelectionEnd
+      OnEmoji =
+        fun (start, finish) -> dispatch(State.EmojiToggled(start, finish))
       OnSubmit = submit
+    }
+
+  let emoji =
+    EmojiPicker.view {
+      Open = model |> Observable.map _.Emoji.Open
+      Query = model |> Observable.map _.Emoji.Query
+      Active = model |> Observable.map _.Emoji.Active
+      Selection = model |> Observable.map _.Emoji.Selection
+      Body = body
+      Trigger = toolbar.Emoji
+      Events =
+        fun event ->
+          match event with
+          | EmojiPicker.QueryChanged query ->
+            dispatch(State.EmojiQueryChanged query)
+          | EmojiPicker.ActiveChanged active ->
+            dispatch(State.EmojiActiveChanged active)
+          | EmojiPicker.Closed -> dispatch State.EmojiClosed
+          | EmojiPicker.Picked emoji -> dispatch(State.EmojiPicked emoji)
     }
 
   // No box: the composer rides the rail plain, the way the site's does
@@ -945,7 +1035,7 @@ let view
   StackPanel()
     .Margin(0.0, 0.0, 0.0, 12.0)
     .Spacing(8.0)
-    .Children(body, completion, strip, poll, schedule, toolbar)
+    .Children(body, completion, emoji, strip, poll, schedule, toolbar.Row)
 
 type Page<'env
   when 'env :> IProvideClock

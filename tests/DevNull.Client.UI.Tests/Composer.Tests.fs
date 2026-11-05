@@ -12,6 +12,7 @@ open Avalonia
 open Avalonia.Automation
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
+open Avalonia.Headless
 open Avalonia.Input
 open Avalonia.Interactivity
 open Avalonia.VisualTree
@@ -177,6 +178,17 @@ let openEmojiPicker(window: Window) : Async<unit> = async {
   Expect.isTrue search "the emoji panel never opened"
 }
 
+/// Opens or closes the picker through the trigger's real pointer path:
+/// the press hands focus to the button and the click that follows runs.
+let pressEmojiTrigger(window: Window) : Async<unit> = async {
+  let! trigger =
+    probeUiAsync(fun () -> visibleEmojiButtons window |> List.tryHead)
+
+  match trigger with
+  | Some button -> do! pressControlAsync(window, button)
+  | None -> failwith "the emoji trigger was not offered"
+}
+
 /// Opens the picker from the lowest visible trigger: the composer
 /// nearest the window's bottom.
 let openBottomEmojiPicker(window: Window) : Async<unit> = async {
@@ -276,6 +288,33 @@ let pressSearch(window: Window, key: Key) : Async<unit> =
 let typeSearch(window: Window, text: string) : Async<unit> =
   onUiAsync(fun () ->
     emojiSearch window |> Option.iter(fun box -> box.Text <- text))
+
+/// Tabs from the focused control until the emoji trigger holds focus,
+/// at most 20 stops.
+[<TailCall>]
+let rec tabToEmojiTriggerFrom(window: Window, remaining: int) : Async<unit> =
+  let holdsTrigger() =
+    match window.FocusManager.GetFocusedElement() with
+    | :? Button as button -> button.Name = "EmojiButton"
+    | _ -> false
+
+  async {
+    let! held = probeUiAsync holdsTrigger
+
+    match held, remaining with
+    | true, _ -> return ()
+    | false, 0 -> return failwith "the Tab walk never reached the emoji trigger"
+    | false, _ ->
+      do!
+        onUiAsync(fun () ->
+          window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.None))
+
+      do! pumpAsync()
+      return! tabToEmojiTriggerFrom(window, remaining - 1)
+  }
+
+let tabToEmojiTrigger(window: Window) : Async<unit> =
+  tabToEmojiTriggerFrom(window, 20)
 
 /// The picker's scroller offset.
 let emojiOffset(window: Window) : float option =
@@ -744,8 +783,20 @@ let tests =
           labels
           "the prefix block"
 
-        let! header = showsText(window, "Results")
-        Expect.isTrue header "the Results section never stood"
+        let! named =
+          probeUiAsync(fun () ->
+            controlByName(window, "EmojiResults")
+            |> Option.map(fun control ->
+              AutomationProperties.GetName control |> Option.ofObj))
+
+        Expect.equal
+          (Some(Some "Results"))
+          named
+          "the results section lost its automation name"
+
+        let! header = probeUiAsync(fun () -> visibleText(window, "Results"))
+
+        Expect.isFalse header "the results section kept a visible header"
 
         let! active = probeUiAsync(fun () -> activeCell window)
         Expect.equal (Some "EmojiCellShell0") active "the first result is armed"
@@ -954,6 +1005,58 @@ let tests =
       })
 
     testCaseAsync
+      "an Escape handled before the picker leaves the panel open"
+      (async {
+        let! window =
+          startShell(signedInStore(), completionApi ValueNone :> IHttp)
+
+        let! _ = showsText(window, "The Octocat")
+
+        do! openEmojiPicker window
+
+        let marksHandled =
+          EventHandler<KeyEventArgs>(fun _ args ->
+            if args.Key = Key.Escape then
+              args.Handled <- true)
+
+        do!
+          onUiAsync(fun () ->
+            emojiPanelBody window
+            |> Option.iter(fun panel ->
+              panel.AddHandler(
+                InputElement.KeyDownEvent,
+                marksHandled,
+                RoutingStrategies.Tunnel
+              )))
+
+        do! pressSearch(window, Key.Escape)
+        do! settleAsync()
+
+        let! held =
+          probeUiAsync(fun () ->
+            emojiSearch window |> Option.map effectiveVisible)
+
+        Expect.equal (Some true) held "the handled Escape closed the panel"
+
+        do!
+          onUiAsync(fun () ->
+            emojiPanelBody window
+            |> Option.iter(fun panel ->
+              panel.RemoveHandler(InputElement.KeyDownEvent, marksHandled)))
+
+        do! pressSearch(window, Key.Escape)
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> emojiSearch window |> Option.map effectiveVisible),
+            fun visible -> not(Option.contains true visible)
+          )
+
+        Expect.isTrue closed "the plain Escape never closed the panel"
+      })
+
+    testCaseAsync
       "a pick inserts at the caret and leaves the caret after the emoji"
       (async {
         let! window =
@@ -1040,6 +1143,104 @@ let tests =
           )
 
         Expect.isTrue replaced "the selection was not replaced"
+      })
+
+    testCaseAsync
+      "a pick replaces a selection dragged backwards"
+      (async {
+        let! window =
+          startShell(signedInStore(), completionApi ValueNone :> IHttp)
+
+        let! _ = showsText(window, "The Octocat")
+
+        do! setComposerSelection(window, "shipped it", 10, 8)
+        do! openEmojiPicker window
+        do! typeSearch(window, "tada")
+
+        let! tada =
+          waitForAsync(
+            5000,
+            (fun () -> cellLabel(window, 0)),
+            Option.contains ":tada:"
+          )
+
+        Expect.isTrue tada "the tada result never stood"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "EmojiCell0")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! replaced =
+          waitForAsync(
+            5000,
+            (fun () ->
+              textBoxWithWatermark(window, "What did you ship?")
+              |> Option.map(fun box -> box.Text, box.CaretIndex)),
+            Option.contains("shipped 🎉", 10)
+          )
+
+        Expect.isTrue replaced "the right-to-left selection was not replaced"
+      })
+
+    testCaseAsync
+      "a refused pick restores a standing range"
+      (async {
+        let! window =
+          startShell(signedInStore(), completionApi ValueNone :> IHttp)
+
+        let! _ = showsText(window, "The Octocat")
+
+        let full = String.replicate 40000 "a"
+
+        do! setComposerSelection(window, full, full.Length - 1, full.Length)
+
+        do! openEmojiPicker window
+        do! typeSearch(window, "rocket")
+
+        let! rocket =
+          waitForAsync(
+            5000,
+            (fun () -> cellLabel(window, 0)),
+            Option.contains ":rocket:"
+          )
+
+        Expect.isTrue rocket "the rocket result never stood"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "EmojiCell0")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> emojiSearch window |> Option.map effectiveVisible),
+            fun visible -> not(Option.contains true visible)
+          )
+
+        Expect.isTrue closed "the panel stayed open after the refusal"
+
+        let! restored =
+          probeUiAsync(fun () ->
+            textBoxWithWatermark(window, "What did you ship?")
+            |> Option.map(fun box ->
+              box.Text = full,
+              box.SelectionStart,
+              box.SelectionEnd,
+              box.CaretIndex,
+              box.IsFocused))
+
+        Expect.equal
+          (Some(true, full.Length - 1, full.Length, full.Length, true))
+          restored
+          "the refusal did not restore the standing range"
       })
 
     testCaseAsync
@@ -1197,6 +1398,463 @@ let tests =
           )
 
         Expect.isTrue state "the unchanged pick lost the caret or the focus"
+      })
+
+    testCaseAsync
+      "the trigger toggles the panel and a reopen starts from the catalog top"
+      (async {
+        let! window =
+          startShell(signedInStore(), completionApi ValueNone :> IHttp)
+
+        let! _ = showsText(window, "The Octocat")
+
+        do! setComposerSelection(window, "kept", 4, 4)
+        do! openEmojiPicker window
+        do! typeSearch(window, "smi")
+
+        let! ranked =
+          waitForAsync(
+            5000,
+            (fun () -> cellLabel(window, 0)),
+            Option.contains ":smile:"
+          )
+
+        Expect.isTrue ranked "the smi results never stood"
+
+        do!
+          onUiAsync(fun () ->
+            visibleEmojiButtons window |> List.tryHead |> Option.iter click)
+
+        do! settleAsync()
+
+        let! panel =
+          probeUiAsync(fun () ->
+            emojiSearch window |> Option.map effectiveVisible)
+
+        match panel with
+        | Some true -> do! pressSearch(window, Key.Enter)
+        | _ -> ()
+
+        let! bodyAfter =
+          probeUiAsync(fun () ->
+            textBoxWithWatermark(window, "What did you ship?")
+            |> Option.map(fun box ->
+              box.Text |> Option.ofObj |> Option.defaultValue "",
+              box.CaretIndex))
+
+        Expect.isFalse
+          (Option.contains true panel)
+          "the second click left the panel open"
+
+        Expect.equal
+          (Some("kept", 4))
+          bodyAfter
+          "the second click changed the body"
+
+        do! openEmojiPicker window
+
+        let! reopened =
+          waitForAsync(
+            5000,
+            (fun () ->
+              emojiSearch window
+              |> Option.bind(fun box -> box.Text |> Option.ofObj),
+              activeCell window,
+              textOf(window, "EmojiFooterName")),
+            fun (query, active, footer) ->
+              Option.contains "" query
+              && Option.contains "EmojiCellShell0" active
+              && footer = ":grinning:"
+          )
+
+        Expect.isTrue reopened "the reopened panel kept the stale query"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "EmojiScroller")
+            |> Option.iter(fun control ->
+              match control with
+              | :? ScrollViewer as scroller ->
+                scroller.Offset <- Vector(0.0, 120.0)
+              | _ -> ()))
+
+        let! scrolled =
+          waitForAsync(
+            5000,
+            (fun () -> emojiOffset window),
+            fun offset -> offset |> Option.exists(fun value -> value > 0.0)
+          )
+
+        Expect.isTrue scrolled "the reopened catalog did not scroll"
+
+        do!
+          onUiAsync(fun () ->
+            visibleEmojiButtons window |> List.tryHead |> Option.iter click)
+
+        do! settleAsync()
+
+        let! closedAgain =
+          probeUiAsync(fun () ->
+            emojiSearch window |> Option.map effectiveVisible)
+
+        Expect.isFalse
+          (Option.contains true closedAgain)
+          "the click did not close the scrolled panel"
+
+        do! openEmojiPicker window
+
+        let! topped =
+          waitForAsync(
+            5000,
+            (fun () ->
+              emojiSearch window
+              |> Option.bind(fun box -> box.Text |> Option.ofObj),
+              activeCell window,
+              textOf(window, "EmojiFooterName"),
+              emojiOffset window),
+            fun (query, active, footer, offset) ->
+              Option.contains "" query
+              && Option.contains "EmojiCellShell0" active
+              && footer = ":grinning:"
+              && Option.contains 0.0 offset
+          )
+
+        Expect.isTrue
+          topped
+          "the reopen after a scroll did not start at the catalog top"
+
+        do! pressSearch(window, Key.Enter)
+
+        let! inserted =
+          waitForAsync(
+            5000,
+            (fun () ->
+              textBoxWithWatermark(window, "What did you ship?")
+              |> Option.map(fun box -> box.Text, box.CaretIndex, box.IsFocused)),
+            Option.contains("kept😀", 6, true)
+          )
+
+        Expect.isTrue inserted "Enter did not insert the armed first cell"
+      })
+
+    testCaseAsync
+      "the trigger opens the picker from the keyboard"
+      (async {
+        let! window =
+          startShell(signedInStore(), completionApi ValueNone :> IHttp)
+
+        let! _ = showsText(window, "The Octocat")
+
+        do! setComposerSelection(window, "shipped it", 8, 8)
+
+        do!
+          onUiAsync(fun () ->
+            textBoxWithWatermark(window, "What did you ship?")
+            |> Option.iter(fun box -> ignore(box.Focus())))
+
+        do! tabToEmojiTrigger window
+
+        let! focused =
+          probeUiAsync(fun () ->
+            match window.FocusManager.GetFocusedElement() with
+            | :? Button as button ->
+              button.Name |> Option.ofObj |> Option.defaultValue ""
+            | _ -> "")
+
+        Expect.equal "EmojiButton" focused "the Tab walk landed elsewhere"
+
+        let! named =
+          probeUiAsync(fun () ->
+            visibleEmojiButtons window
+            |> List.tryHead
+            |> Option.bind(fun button ->
+              AutomationProperties.GetName button |> Option.ofObj))
+
+        Expect.equal (Some "Add emoji") named "the trigger carries no name"
+
+        do!
+          onUiAsync(fun () ->
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None))
+
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> emojiSearch window),
+            fun search -> search |> Option.exists _.IsFocused
+          )
+
+        Expect.isTrue opened "Enter on the trigger never opened the picker"
+
+        do! pressSearch(window, Key.Enter)
+
+        let! inserted =
+          waitForAsync(
+            5000,
+            (fun () ->
+              textBoxWithWatermark(window, "What did you ship?")
+              |> Option.map(fun box ->
+                box.Text |> Option.ofObj |> Option.defaultValue "",
+                box.CaretIndex,
+                box.IsFocused)),
+            Option.contains("shipped 😀it", 10, true)
+          )
+
+        Expect.isTrue
+          inserted
+          "the pick ignored the caret the body held before Tab"
+      })
+
+    testCaseAsync
+      "a keyboard activation after an abandoned pointer press uses the live selection"
+      (async {
+        let! window =
+          startShell(signedInStore(), completionApi ValueNone :> IHttp)
+
+        let! _ = showsText(window, "The Octocat")
+
+        do!
+          onUiAsync(fun () ->
+            textBoxWithWatermark(window, "What did you ship?")
+            |> Option.iter(fun box -> ignore(box.Focus())))
+
+        do! setComposerSelection(window, "shipped it", 8, 10)
+
+        let! trigger =
+          probeUiAsync(fun () -> visibleEmojiButtons window |> List.tryHead)
+
+        let! body =
+          probeUiAsync(fun () ->
+            textBoxWithWatermark(window, "What did you ship?"))
+
+        match trigger, body with
+        | Some button, Some box ->
+          do! pressOutsideAsync(window, button, box)
+          do! settleAsync()
+
+          let! opened =
+            probeUiAsync(fun () ->
+              emojiSearch window |> Option.map effectiveVisible)
+
+          Expect.isFalse
+            (Option.contains true opened)
+            "the abandoned press opened the picker"
+
+          do! pressControlAsync(window, box)
+
+          let! bodyFocused = probeUiAsync(fun () -> box.IsFocused)
+
+          Expect.isTrue bodyFocused "the body never took pointer focus"
+
+          do! setComposerSelection(window, "fresh text", 0, 5)
+
+          let! selected =
+            probeUiAsync(fun () ->
+              box.Text |> Option.ofObj |> Option.defaultValue "",
+              box.SelectionStart,
+              box.SelectionEnd)
+
+          Expect.equal
+            selected
+            ("fresh text", 0, 5)
+            "the body did not hold the fresh selection"
+
+          do! onUiAsync(fun () -> ignore(button.Focus()))
+
+          let! afterFocus =
+            probeUiAsync(fun () -> box.SelectionStart, box.SelectionEnd)
+
+          Expect.equal
+            afterFocus
+            (0, 5)
+            "the trigger focus collapsed the body selection"
+
+          let! focused = probeUiAsync(fun () -> button.IsFocused)
+
+          Expect.isTrue focused "the trigger never took keyboard focus"
+
+          do!
+            onUiAsync(fun () ->
+              window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None))
+
+          let! search =
+            waitForAsync(
+              5000,
+              (fun () -> emojiSearch window),
+              fun search -> search |> Option.exists _.IsFocused
+            )
+
+          Expect.isTrue search "Enter on the trigger never opened the picker"
+
+          do! typeSearch(window, "tada")
+
+          let! tada =
+            waitForAsync(
+              5000,
+              (fun () -> cellLabel(window, 0)),
+              Option.contains ":tada:"
+            )
+
+          Expect.isTrue tada "the tada result never stood"
+
+          do! pressSearch(window, Key.Enter)
+          do! settleAsync()
+
+          let! inserted =
+            probeUiAsync(fun () ->
+              textBoxWithWatermark(window, "What did you ship?")
+              |> Option.map(fun box ->
+                box.Text |> Option.ofObj |> Option.defaultValue "",
+                box.CaretIndex))
+
+          Expect.equal
+            inserted
+            (Some("🎉 text", 2))
+            "the pick used the selection the abandoned press recorded"
+        | _ -> failwith "the composer or its emoji trigger never stood"
+      })
+
+    testCaseAsync
+      "a pointer pick replaces the selection the body held"
+      (async {
+        let! window =
+          startShell(signedInStore(), completionApi ValueNone :> IHttp)
+
+        let! _ = showsText(window, "The Octocat")
+
+        do!
+          onUiAsync(fun () ->
+            textBoxWithWatermark(window, "What did you ship?")
+            |> Option.iter(fun box -> ignore(box.Focus())))
+
+        do! setComposerSelection(window, "shipped it", 8, 10)
+        do! pressEmojiTrigger window
+
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> emojiSearch window),
+            fun search -> search |> Option.exists _.IsFocused
+          )
+
+        Expect.isTrue opened "the pointer never opened the picker"
+
+        do! typeSearch(window, "tada")
+
+        let! tada =
+          waitForAsync(
+            5000,
+            (fun () -> cellLabel(window, 0)),
+            Option.contains ":tada:"
+          )
+
+        Expect.isTrue tada "the tada result never stood"
+
+        do! pressSearch(window, Key.Enter)
+
+        let! replaced =
+          waitForAsync(
+            5000,
+            (fun () ->
+              textBoxWithWatermark(window, "What did you ship?")
+              |> Option.map(fun box -> box.Text, box.CaretIndex)),
+            Option.contains("shipped 🎉", 10)
+          )
+
+        Expect.isTrue
+          replaced
+          "the pointer press collapsed the selection before the pick"
+      })
+
+    testCaseAsync
+      "a pointer re-click closes the panel and the reopen starts from the catalog top"
+      (async {
+        let! window =
+          startShell(signedInStore(), completionApi ValueNone :> IHttp)
+
+        let! _ = showsText(window, "The Octocat")
+
+        do!
+          onUiAsync(fun () ->
+            textBoxWithWatermark(window, "What did you ship?")
+            |> Option.iter(fun box -> ignore(box.Focus())))
+
+        do! setComposerSelection(window, "kept", 4, 4)
+        do! pressEmojiTrigger window
+
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> emojiSearch window),
+            fun search -> search |> Option.exists _.IsFocused
+          )
+
+        Expect.isTrue opened "the pointer never opened the picker"
+
+        do! typeSearch(window, "smi")
+
+        let! ranked =
+          waitForAsync(
+            5000,
+            (fun () -> cellLabel(window, 0)),
+            Option.contains ":smile:"
+          )
+
+        Expect.isTrue ranked "the smi results never stood"
+
+        do! pressEmojiTrigger window
+        do! settleAsync()
+
+        let! closed =
+          probeUiAsync(fun () ->
+            emojiSearch window |> Option.map effectiveVisible)
+
+        Expect.isFalse
+          (Option.contains true closed)
+          "the pointer re-click did not close the panel"
+
+        let! body =
+          probeUiAsync(fun () ->
+            textBoxWithWatermark(window, "What did you ship?")
+            |> Option.map(fun box ->
+              box.Text |> Option.ofObj |> Option.defaultValue "",
+              box.CaretIndex,
+              box.IsFocused))
+
+        Expect.equal
+          (Some("kept", 4, true))
+          body
+          "the pointer re-click changed the body or lost its focus"
+
+        do! pressEmojiTrigger window
+
+        let! reopened =
+          waitForAsync(
+            5000,
+            (fun () ->
+              emojiSearch window
+              |> Option.bind(fun box -> box.Text |> Option.ofObj),
+              activeCell window,
+              textOf(window, "EmojiFooterName")),
+            fun (query, active, footer) ->
+              Option.contains "" query
+              && Option.contains "EmojiCellShell0" active
+              && footer = ":grinning:"
+          )
+
+        Expect.isTrue reopened "the reopened panel kept the stale query"
+
+        do! pressSearch(window, Key.Enter)
+
+        let! inserted =
+          waitForAsync(
+            5000,
+            (fun () ->
+              textBoxWithWatermark(window, "What did you ship?")
+              |> Option.map(fun box -> box.Text, box.CaretIndex, box.IsFocused)),
+            Option.contains("kept😀", 6, true)
+          )
+
+        Expect.isTrue inserted "Enter did not insert the armed first cell"
       })
 
   ]

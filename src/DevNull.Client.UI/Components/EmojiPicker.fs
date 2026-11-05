@@ -16,7 +16,6 @@ open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
 open DevNull.Client
-open DevNull.Client.Core.Emoji
 open DevNull.Client.Core.Types
 
 module Emoji = DevNull.Client.Core.Emoji
@@ -34,6 +33,7 @@ type Props = {
   Active: IObservable<int>
   Selection: IObservable<int * int>
   Body: TextBox
+  Trigger: Control
   Events: Event -> unit
 }
 
@@ -185,16 +185,23 @@ let resultsView
   : Control * Border array =
   let matches = Emoji.search query
 
+  let section(children: Control array) =
+    let content =
+      StackPanel().Name("EmojiResults").Spacing(4.0).Children(children)
+
+    AutomationProperties.SetName(content, "Results")
+    content :> Control
+
   if matches.Length = 0 then
     let empty =
       TextBlock()
-        .Classes(Theme.name Theme.FgMuted)
+        .Classes(Theme.name Theme.Muted)
         .FontSize(13.0)
         .HorizontalAlignment(HorizontalAlignment.Center)
         .Margin(0.0, 24.0, 0.0, 24.0)
         .Text($"no emoji for “{query.Trim()}”")
 
-    StackPanel().Children(empty) :> Control, [||]
+    section [| empty :> Control |], [||]
   else
     let cells =
       matches
@@ -207,21 +214,12 @@ let resultsView
           Pick = pick
         })
 
-    let content =
-      StackPanel()
-        .Spacing(4.0)
-        .Children(
-          TextBlock()
-            .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
-            .FontSize(11.0)
-            .Margin(4.0, 6.0, 4.0, 2.0)
-            .Text("Results"),
-          UniformGrid()
-            .Columns(8)
-            .Children(cells |> Array.map(fun cell -> cell :> Control))
-        )
+    let grid =
+      UniformGrid()
+        .Columns(8)
+        .Children(cells |> Array.map(fun cell -> cell :> Control))
 
-    content :> Control, cells
+    section [| grid :> Control |], cells
 
 let groupItems =
   lazy
@@ -425,15 +423,21 @@ let view(props: Props) : Control =
     let query = search.Text |> Option.ofObj |> Option.defaultValue ""
     props.Events(QueryChanged query))
 
-  search.LostFocus.Add(fun _ ->
-    if popup.IsOpen && not panel.IsKeyboardFocusWithin then
+  search.LostFocus.Add(fun args ->
+    let holdsTheClick =
+      args.NavigationMethod = NavigationMethod.Pointer
+      && props.Trigger.IsKeyboardFocusWithin
+
+    if
+      popup.IsOpen && not panel.IsKeyboardFocusWithin && not holdsTheClick
+    then
       popup.IsOpen <- false
       props.Events Closed)
 
   search.AddHandler(
     InputElement.KeyDownEvent,
     (fun _ args ->
-      if args.Key = Key.Escape && popup.IsOpen then
+      if not args.Handled && args.Key = Key.Escape && popup.IsOpen then
         args.Handled <- true
         close()
       elif not args.Handled then
@@ -494,6 +498,8 @@ let view(props: Props) : Control =
       props.Open
       |> Observable.distinctUntilChanged
       |> Observable.subscribe(fun isOpen ->
+        let wasOpen = popup.IsOpen
+
         if isOpen then
           let mode, height = placementOf(spaceOf props.Body)
           popup.Placement <- mode
@@ -504,7 +510,9 @@ let view(props: Props) : Control =
         if isOpen then
           search.Text <- ""
           search.Focus() |> ignore
-          show "")
+          show ""
+        elif wasOpen then
+          ignore(props.Body.Focus()))
     )
 
     feeds.Add(

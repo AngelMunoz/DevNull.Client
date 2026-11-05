@@ -5,6 +5,7 @@ module DevNull.Client.UI.Tests.Shortcuts
 // own quiet keys.
 
 open Avalonia.Controls
+open Avalonia.Controls.Primitives
 open Avalonia.Input
 open Avalonia.Interactivity
 open Avalonia.VisualTree
@@ -314,6 +315,90 @@ let tests =
         let! opened = showsText(window, "Add your take")
 
         Expect.isTrue opened "q never opened the quote page"
+      })
+
+    testCaseAsync
+      "escape from a popup control without a handler reaches the window"
+      (async {
+        let hits = System.Collections.Generic.List<unit>()
+
+        let! window, field =
+          probeUiAsync(fun () ->
+            let anchor = Button(Content = "anchor")
+            let input = TextBox(Name = "PopupField")
+
+            let popup =
+              Popup(
+                Name = "TestFlyout",
+                IsLightDismissEnabled = false,
+                PlacementTarget = anchor,
+                Child = Border(Child = input)
+              )
+
+            let content = Panel()
+            content.Children.Add anchor
+            content.Children.Add popup
+
+            let window = Window(Content = content)
+
+            Shortcuts.install {
+              Root = window
+              Actions = {
+                Compose = ignore
+                Search = ignore
+                Help = ignore
+                Escape = fun () -> hits.Add()
+                Navigate = ignore
+                ToggleFullScreen = ignore
+                WalkCards = ignore
+              }
+              OverlayOpen = fun () -> false
+            }
+
+            window.Show()
+            popup.IsOpen <- true
+            window, input)
+
+        do! settleAsync()
+
+        let! focused =
+          probeUiAsync(fun () ->
+            field.Focus()
+            && obj.ReferenceEquals(
+              window.FocusManager.GetFocusedElement(),
+              field
+            ))
+
+        Expect.isTrue focused "the popup control never took focus"
+
+        do! onUiAsync(fun () -> pressKey(field, Key.Escape))
+        do! settleAsync()
+
+        let! count = probeUiAsync(fun () -> hits.Count)
+
+        Expect.equal count 1 "the window never received the unhandled Escape"
+
+        let markHandled =
+          System.EventHandler<KeyEventArgs>(fun _ args ->
+            if args.Key = Key.Escape then
+              args.Handled <- true)
+
+        do!
+          onUiAsync(fun () ->
+            field.AddHandler(
+              InputElement.KeyDownEvent,
+              markHandled,
+              RoutingStrategies.Tunnel
+            ))
+
+        do! onUiAsync(fun () -> pressKey(field, Key.Escape))
+        do! settleAsync()
+
+        let! afterHandled = probeUiAsync(fun () -> hits.Count)
+
+        Expect.equal afterHandled 1 "a handled Escape reached the window"
+
+        do! onUiAsync(fun () -> window.Close())
       })
 
     testCaseAsync

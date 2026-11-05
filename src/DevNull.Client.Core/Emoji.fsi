@@ -15,7 +15,8 @@ type Match = {
 }
 
 /// One insertion: the body, the selection it replaces, the emoji to
-/// place there, and the raw cap in UTF-16 units.
+/// place there, and the raw cap in UTF-16 units. Start and Finish may
+/// arrive in either order.
 [<Struct>]
 type Insert = {
   Text: string
@@ -53,8 +54,9 @@ val normalize: raw: string -> string
 /// break by ordinal name. A blank query answers no results.
 val search: query: string -> Match array
 
-/// Inserts the emoji at the selection, or at the caret when the
-/// selection is empty, and answers the text with the caret after the
-/// emoji. The selection is clamped into the text. An insertion that
-/// would take the text past the raw cap is refused.
+/// Inserts the emoji over the range between Start and Finish, or at
+/// the caret when the range is empty, and answers the text with the
+/// caret after the emoji. The range is ordered and clamped into the
+/// text, so a selection dragged in either direction is replaced. An
+/// insertion that would take the text past the raw cap is refused.
 val insertAt: insert: Insert -> Inserted voption

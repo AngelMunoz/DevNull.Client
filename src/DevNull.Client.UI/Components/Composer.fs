@@ -204,7 +204,7 @@ module State =
     | CompletionHovered of index: int
     | CompletionClosed
     | CompletionPicked of CompletionLane.Choice
-    | EmojiOpened of start: int * finish: int
+    | EmojiToggled of start: int * finish: int
     | EmojiQueryChanged of query: string
     | EmojiActiveChanged of active: int
     | EmojiClosed
@@ -400,16 +400,19 @@ module State =
       model,
       Cmd.ofAction(fun () ->
         log.LogDebug("The issue completion picked {Number}.", number))
-    | EmojiOpened(start, finish) ->
-      {
-        model with
-            Emoji = {
-              closedEmoji with
-                  Open = true
-                  Selection = (start, finish)
-            }
-      },
-      Cmd.none
+    | EmojiToggled(start, finish) ->
+      if model.Emoji.Open then
+        { model with Emoji = closedEmoji }, Cmd.none
+      else
+        {
+          model with
+              Emoji = {
+                closedEmoji with
+                    Open = true
+                    Selection = (start, finish)
+              }
+        },
+        Cmd.none
     | EmojiQueryChanged query ->
       if not model.Emoji.Open then
         model, Cmd.none
@@ -781,6 +784,7 @@ module Parts =
     TextBox()
       .Name("ComposerBody")
       .AcceptsReturn(true)
+      .ClearSelectionOnLostFocus(false)
       .MinHeight(44.0)
       .MaxHeight(300.0)
       .TextWrapping(TextWrapping.Wrap)
@@ -935,24 +939,6 @@ let view
       Images = props.Env.ImageCache
     }
 
-  let emoji =
-    EmojiPicker.view {
-      Open = model |> Observable.map _.Emoji.Open
-      Query = model |> Observable.map _.Emoji.Query
-      Active = model |> Observable.map _.Emoji.Active
-      Selection = model |> Observable.map _.Emoji.Selection
-      Body = body
-      Events =
-        fun event ->
-          match event with
-          | EmojiPicker.QueryChanged query ->
-            dispatch(State.EmojiQueryChanged query)
-          | EmojiPicker.ActiveChanged active ->
-            dispatch(State.EmojiActiveChanged active)
-          | EmojiPicker.Closed -> dispatch State.EmojiClosed
-          | EmojiPicker.Picked emoji -> dispatch(State.EmojiPicked emoji)
-    }
-
   let strip =
     AttachmentStrip.view {
       Images = model |> Observable.map _.Attachments
@@ -1019,10 +1005,29 @@ let view
       OnAttach = fun () -> dispatch State.AttachRequested
       OnPoll = fun () -> dispatch State.PollToggled
       OnSchedule = fun () -> dispatch State.ScheduleToggled
+      BodySelection = fun () -> body.SelectionStart, body.SelectionEnd
       OnEmoji =
-        fun () ->
-          dispatch(State.EmojiOpened(body.SelectionStart, body.SelectionEnd))
+        fun (start, finish) -> dispatch(State.EmojiToggled(start, finish))
       OnSubmit = submit
+    }
+
+  let emoji =
+    EmojiPicker.view {
+      Open = model |> Observable.map _.Emoji.Open
+      Query = model |> Observable.map _.Emoji.Query
+      Active = model |> Observable.map _.Emoji.Active
+      Selection = model |> Observable.map _.Emoji.Selection
+      Body = body
+      Trigger = toolbar.Emoji
+      Events =
+        fun event ->
+          match event with
+          | EmojiPicker.QueryChanged query ->
+            dispatch(State.EmojiQueryChanged query)
+          | EmojiPicker.ActiveChanged active ->
+            dispatch(State.EmojiActiveChanged active)
+          | EmojiPicker.Closed -> dispatch State.EmojiClosed
+          | EmojiPicker.Picked emoji -> dispatch(State.EmojiPicked emoji)
     }
 
   // No box: the composer rides the rail plain, the way the site's does
@@ -1030,7 +1035,7 @@ let view
   StackPanel()
     .Margin(0.0, 0.0, 0.0, 12.0)
     .Spacing(8.0)
-    .Children(body, completion, emoji, strip, poll, schedule, toolbar)
+    .Children(body, completion, emoji, strip, poll, schedule, toolbar.Row)
 
 type Page<'env
   when 'env :> IProvideClock

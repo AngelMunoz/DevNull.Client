@@ -143,6 +143,23 @@ let tests =
       | ValueNone -> failtest "the insertion was refused"
     }
 
+    test "an insertion replaces a selection dragged backwards" {
+      let inserted =
+        insertAt {
+          Text = "shipped it"
+          Start = 10
+          Finish = 8
+          Emoji = "🎉"
+          MaxLength = 40000
+        }
+
+      match inserted with
+      | ValueSome result ->
+        Expect.equal "shipped 🎉" result.Text "the text"
+        Expect.equal 10 result.Caret "the caret"
+      | ValueNone -> failtest "the insertion was refused"
+    }
+
     test "an insertion at the end appends" {
       let inserted =
         insertAt {

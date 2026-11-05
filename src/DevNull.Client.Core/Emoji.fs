@@ -110,22 +110,25 @@ let normalize(raw: string) = raw.Trim().ToLowerInvariant().Trim(':')
 let rankOf(name: string, query: string) =
   let lower = name.ToLowerInvariant()
 
-  if lower.StartsWith(query, StringComparison.Ordinal) then
-    0
-  else
-    let parts =
+  let laterWordPrefix() =
+    let words =
       lower.Split([| '_'; '-' |], StringSplitOptions.RemoveEmptyEntries)
 
-    let laterWord =
-      parts.Length > 1
-      && parts
-         |> Array.skip 1
-         |> Array.exists(fun part ->
-           part.StartsWith(query, StringComparison.Ordinal))
+    words.Length > 1
+    && words
+       |> Array.skip 1
+       |> Array.exists(fun word ->
+         word.StartsWith(query, StringComparison.Ordinal))
 
-    if laterWord then 1
-    elif lower.Contains(query, StringComparison.Ordinal) then 2
-    else 3
+  let rules = [
+    (fun () -> lower.StartsWith(query, StringComparison.Ordinal)), 0
+    laterWordPrefix, 1
+    (fun () -> lower.Contains(query, StringComparison.Ordinal)), 2
+  ]
+
+  rules
+  |> List.tryPick(fun (matches, rank) -> if matches() then Some rank else None)
+  |> Option.defaultValue 3
 
 let compareMatches (a: Match) (b: Match) =
   let byRank = compare a.Rank b.Rank
@@ -160,14 +163,7 @@ let search(query: string) : Match array =
 
         match best.TryGetValue emoji with
         | true, current ->
-          let better =
-            rank < current.Rank
-            || (rank = current.Rank
-                && (name.Length < current.Name.Length
-                    || (name.Length = current.Name.Length
-                        && String.CompareOrdinal(name, current.Name) < 0)))
-
-          if better then
+          if compareMatches candidate current < 0 then
             best[emoji] <- candidate
         | _ -> best[emoji] <- candidate
 
@@ -176,9 +172,12 @@ let search(query: string) : Match array =
 let insertAt(insert: Insert) : Inserted voption =
   let text = insert.Text
 
-  let start = max 0 (min insert.Start text.Length)
+  let first = min insert.Start insert.Finish
+  let last = max insert.Start insert.Finish
 
-  let finish = max start (min insert.Finish text.Length)
+  let start = max 0 (min first text.Length)
+
+  let finish = max start (min last text.Length)
 
   let next = text.Substring(0, start) + insert.Emoji + text.Substring(finish)
 

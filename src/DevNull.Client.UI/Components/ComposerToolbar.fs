@@ -2,9 +2,13 @@ module DevNull.Client.Components.ComposerToolbar
 
 open System
 open Avalonia
+open Avalonia.Automation
 open Avalonia.Controls
+open Avalonia.Input
+open Avalonia.Interactivity
 open Avalonia.Layout
 open Avalonia.Media
+open Avalonia.VisualTree
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open DevNull.Client
@@ -25,9 +29,13 @@ type Props = {
   OnAttach: unit -> unit
   OnPoll: unit -> unit
   OnSchedule: unit -> unit
-  OnEmoji: unit -> unit
+  BodySelection: unit -> int * int
+  OnEmoji: int * int -> unit
   OnSubmit: unit -> unit
 }
+
+[<Struct>]
+type View = { Row: Control; Emoji: Button }
 
 // Sets one control's tooltip and returns it, so the composition stays
 // one expression.
@@ -107,8 +115,11 @@ let scheduleButton(props: Props) : Control =
   withTip("Schedule for later", button)
 
 // The emoji button: every composer offers it, and a post in flight
-// leaves it off until the answer lands.
-let emojiButton(props: Props) : Control =
+// leaves it off until the answer lands. A pointer press records the
+// body selection before the press hands focus to the button, and the
+// click that follows consumes it; a keyboard click reads the body as it
+// stands.
+let emojiButton(props: Props, pressed: (int * int) option ref) : Button =
   let button =
     Button()
       .Name("EmojiButton")
@@ -116,12 +127,19 @@ let emojiButton(props: Props) : Control =
       .Width(32.0)
       .Height(32.0)
       .Padding(Thickness(0.0))
-      .Focusable(false)
       .Content(Icons.iconAt(Glyph.Reaction, 20.0))
       .IsEnabled(props.Busy |> Observable.map not)
-      .OnClickHandler(fun _ _ -> props.OnEmoji())
+      .OnClickHandler(fun _ _ ->
+        let selection = pressed.Value |> Option.defaultWith props.BodySelection
 
-  withTip("Add emoji", button)
+        pressed.Value <- None
+        props.OnEmoji selection)
+
+  button.PointerCaptureLost.Add(fun _ -> pressed.Value <- None)
+
+  AutomationProperties.SetName(button, "Add emoji")
+  ToolTip.SetTip(button, "Add emoji")
+  button
 
 // The commit button: its word follows the schedule mode, and it
 // stays off while a request is out or no moment is picked.
@@ -158,14 +176,38 @@ let errorLine(props: Props) : Control =
     )
     .IsVisible(props.Error |> Observable.map Option.isSome)
 
-let view(props: Props) : Control =
-  DockPanel()
-    .LastChildFill(true)
-    .Children(
-      commitButton props,
-      attachButton props,
-      pollButton props,
-      scheduleButton props,
-      emojiButton props,
-      errorLine props
-    )
+let view(props: Props) : View =
+  let pressed = ref None
+  let trigger = emojiButton(props, pressed)
+
+  let row =
+    DockPanel()
+      .LastChildFill(true)
+      .Children(
+        commitButton props,
+        attachButton props,
+        pollButton props,
+        scheduleButton props,
+        trigger,
+        errorLine props
+      )
+
+  row.AddHandler(
+    InputElement.PointerPressedEvent,
+    (fun _ args ->
+      let onTrigger =
+        match args.Source with
+        | :? Visual as source ->
+          obj.ReferenceEquals(source, trigger)
+          || trigger.IsVisualAncestorOf source
+        | _ -> false
+
+      if
+        onTrigger
+        && args.GetCurrentPoint(trigger).Properties.IsLeftButtonPressed
+      then
+        pressed.Value <- Some(props.BodySelection())),
+    RoutingStrategies.Tunnel
+  )
+
+  { Row = row; Emoji = trigger }

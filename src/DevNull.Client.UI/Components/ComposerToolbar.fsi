@@ -21,9 +21,10 @@ type Props = {
   OnAttach: unit -> unit
   OnPoll: unit -> unit
   OnSchedule: unit -> unit
+  OnEmoji: unit -> unit
   OnSubmit: unit -> unit
 }
 
-/// The action row: the attach, poll, and schedule buttons and the
-/// commit button docked right, the error line filling the rest.
+/// The action row: the attach, poll, schedule, and emoji buttons and
+/// the commit button docked right, the error line filling the rest.
 val view: props: Props -> Control

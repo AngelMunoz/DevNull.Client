@@ -25,6 +25,7 @@ type Props = {
   OnAttach: unit -> unit
   OnPoll: unit -> unit
   OnSchedule: unit -> unit
+  OnEmoji: unit -> unit
   OnSubmit: unit -> unit
 }
 
@@ -105,6 +106,23 @@ let scheduleButton(props: Props) : Control =
 
   withTip("Schedule for later", button)
 
+// The emoji button: every composer offers it, and a post in flight
+// leaves it off until the answer lands.
+let emojiButton(props: Props) : Control =
+  let button =
+    Button()
+      .Name("EmojiButton")
+      .Classes(Theme.name Theme.GhostButton)
+      .Width(32.0)
+      .Height(32.0)
+      .Padding(Thickness(0.0))
+      .Focusable(false)
+      .Content(Icons.iconAt(Glyph.Reaction, 20.0))
+      .IsEnabled(props.Busy |> Observable.map not)
+      .OnClickHandler(fun _ _ -> props.OnEmoji())
+
+  withTip("Add emoji", button)
+
 // The commit button: its word follows the schedule mode, and it
 // stays off while a request is out or no moment is picked.
 let commitButton(props: Props) : Control =
@@ -148,5 +166,6 @@ let view(props: Props) : Control =
       attachButton props,
       pollButton props,
       scheduleButton props,
+      emojiButton props,
       errorLine props
     )

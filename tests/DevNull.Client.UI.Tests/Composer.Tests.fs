@@ -7,8 +7,11 @@ module DevNull.Client.UI.Tests.Composer
 // refusal to slow down shows its sentence.
 
 open System
+open System.Threading.Tasks
 open Avalonia
+open Avalonia.Automation
 open Avalonia.Controls
+open Avalonia.Controls.Primitives
 open Avalonia.Input
 open Avalonia.Interactivity
 open Avalonia.VisualTree
@@ -104,6 +107,197 @@ let press(window: Window, key: Key) : Async<unit> =
       box.RaiseEvent(
         KeyEventArgs(RoutedEvent = InputElement.KeyDownEvent, Key = key)
       )))
+
+/// The emoji trigger buttons under the window.
+let emojiButtons(window: Window) : Button list =
+  window.GetVisualDescendants()
+  |> Seq.choose(fun visual ->
+    match visual with
+    | :? Button as button when button.Name = "EmojiButton" -> Some button
+    | _ -> None)
+  |> List.ofSeq
+
+let visibleEmojiButtons(window: Window) : Button list =
+  emojiButtons window |> List.filter effectiveVisible
+
+/// The picker popup attached to one composer body.
+let emojiPopupFor(window: Window, body: Control) : Popup option =
+  window.GetVisualDescendants()
+  |> Seq.choose(fun visual ->
+    match visual with
+    | :? Popup as popup when popup.Name = "EmojiPanel" -> Some popup
+    | _ -> None)
+  |> Seq.tryFind(fun popup ->
+    popup.PlacementTarget
+    |> Option.ofObj
+    |> Option.exists(fun target -> obj.ReferenceEquals(target, body)))
+
+/// The picker's popup control, once the view stands.
+let emojiPopup(window: Window) : Popup option =
+  controlByName(window, "EmojiPanel")
+  |> Option.bind(fun control ->
+    match control with
+    | :? Popup as popup -> Some popup
+    | _ -> None)
+
+/// The picker's panel body, once the panel stands.
+let emojiPanelBody(window: Window) : Border option =
+  controlByName(window, "EmojiPanelBody")
+  |> Option.bind(fun control ->
+    match control with
+    | :? Border as panel -> Some panel
+    | _ -> None)
+
+/// The picker's search field, once the panel stands.
+let emojiSearch(window: Window) : TextBox option =
+  controlByName(window, "EmojiSearch")
+  |> Option.bind(fun control ->
+    match control with
+    | :? TextBox as box -> Some box
+    | _ -> None)
+
+/// Opens the composer's emoji picker and waits for its search field.
+let openEmojiPicker(window: Window) : Async<unit> = async {
+  let! offered =
+    waitForAsync(
+      5000,
+      (fun () -> visibleEmojiButtons window |> List.tryHead),
+      Option.isSome
+    )
+
+  Expect.isTrue offered "the emoji trigger never appeared"
+
+  do!
+    onUiAsync(fun () ->
+      visibleEmojiButtons window |> List.tryHead |> Option.iter click)
+
+  let! search =
+    waitForAsync(5000, (fun () -> emojiSearch window), Option.isSome)
+
+  Expect.isTrue search "the emoji panel never opened"
+}
+
+/// Opens the picker from the lowest visible trigger: the composer
+/// nearest the window's bottom.
+let openBottomEmojiPicker(window: Window) : Async<unit> = async {
+  let! offered =
+    waitForAsync(
+      5000,
+      (fun () -> visibleEmojiButtons window |> List.length),
+      fun count -> count >= 1
+    )
+
+  Expect.isTrue offered "the composer never offered a trigger"
+
+  do!
+    onUiAsync(fun () ->
+      visibleEmojiButtons window
+      |> List.sortBy(fun button ->
+        button.TranslatePoint(Point(0.0, 0.0), window)
+        |> Option.ofNullable
+        |> Option.map _.Y
+        |> Option.defaultValue 0.0)
+      |> List.tryLast
+      |> Option.iter click)
+
+  let! search =
+    waitForAsync(5000, (fun () -> emojiSearch window), Option.isSome)
+
+  Expect.isTrue search "the emoji panel never opened"
+}
+
+/// The label the cell at the index carries.
+let cellLabel(window: Window, index: int) : string option =
+  controlByName(window, $"EmojiCell{index}")
+  |> Option.map(fun control ->
+    AutomationProperties.GetName control
+    |> Option.ofObj
+    |> Option.defaultValue "")
+
+/// The name of the cell the picker has armed.
+let activeCell(window: Window) : string option =
+  window.GetVisualDescendants()
+  |> Seq.choose(fun visual ->
+    match visual with
+    | :? Border as border when
+      border.Name
+      |> Option.ofObj
+      |> Option.exists(fun name -> name.StartsWith("EmojiCellShell"))
+      ->
+      Some border
+    | _ -> None)
+  |> Seq.tryFind(fun border -> border.Classes.Contains "accent-back")
+  |> Option.bind(fun border -> border.Name |> Option.ofObj)
+
+/// True when a visible error line stands under the window.
+let errorLineShown(window: Window) : bool =
+  window.GetVisualDescendants()
+  |> Seq.exists(fun visual ->
+    match visual with
+    | :? TextBlock as block ->
+      (block.Text
+       |> Option.ofObj
+       |> Option.exists(fun text -> text.StartsWith("error:")))
+      && effectiveVisible block
+    | _ -> false)
+
+/// The text one named TextBlock carries.
+let textOf(window: Window, name: string) : string =
+  controlByName(window, name)
+  |> Option.bind(fun control ->
+    match control with
+    | :? TextBlock as block -> block.Text |> Option.ofObj
+    | _ -> None)
+  |> Option.defaultValue ""
+
+/// Sets the composer's text and its selection, the way a person can
+/// leave both before reaching for the picker.
+let setComposerSelection
+  (window: Window, text: string, start: int, finish: int)
+  : Async<unit> =
+  onUiAsync(fun () ->
+    textBoxWithWatermark(window, "What did you ship?")
+    |> Option.iter(fun box ->
+      box.Text <- text
+      box.CaretIndex <- finish
+      box.SelectionStart <- start
+      box.SelectionEnd <- finish))
+
+/// Presses one key on the picker's search field.
+let pressSearch(window: Window, key: Key) : Async<unit> =
+  onUiAsync(fun () ->
+    emojiSearch window
+    |> Option.iter(fun box ->
+      box.RaiseEvent(
+        KeyEventArgs(RoutedEvent = InputElement.KeyDownEvent, Key = key)
+      )))
+
+/// Types into the picker's search field.
+let typeSearch(window: Window, text: string) : Async<unit> =
+  onUiAsync(fun () ->
+    emojiSearch window |> Option.iter(fun box -> box.Text <- text))
+
+/// The picker's scroller offset.
+let emojiOffset(window: Window) : float option =
+  controlByName(window, "EmojiScroller")
+  |> Option.bind(fun control ->
+    match control with
+    | :? ScrollViewer as scroller -> Some scroller.Offset.Y
+    | _ -> None)
+
+/// An api that holds the commit post until the gate opens.
+type HeldCommitApi(inner: IHttp, gate: TaskCompletionSource<unit>) =
+  interface IHttp with
+    member _.Send(request) =
+      if request.Method = "POST" && request.Target = "/api/v1/commits" then
+        async {
+          do! gate.Task |> Async.AwaitTask
+          return! inner.Send request
+        }
+      else
+        inner.Send request
+
+    member _.GetBytes(target) = inner.GetBytes target
 
 let tests =
   testList "composer completions" [
@@ -359,4 +553,650 @@ let tests =
 
         Expect.isTrue slowed "the slow-down sentence never showed"
       })
+
+    testCaseAsync
+      "the fresh composer offers the emoji trigger"
+      (async {
+        let! window =
+          startShell(signedInStore(), completionApi ValueNone :> IHttp)
+
+        let! _ = showsText(window, "The Octocat")
+
+        let! offered =
+          waitForAsync(
+            5000,
+            (fun () -> visibleEmojiButtons window |> List.tryHead),
+            Option.isSome
+          )
+
+        Expect.isTrue offered "the fresh composer has no emoji trigger"
+
+        let! enabled =
+          probeUiAsync(fun () ->
+            visibleEmojiButtons window
+            |> List.tryHead
+            |> Option.map _.IsEnabled)
+
+        Expect.equal (Some true) enabled "the trigger starts enabled"
+      })
+
+    testCaseAsync
+      "the reply composer offers the emoji trigger"
+      (async {
+        let! window =
+          startShell(signedInStore(), completionApi ValueNone :> IHttp)
+
+        let! _ = showsText(window, "The Octocat")
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "ReplyButton")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! reply =
+          waitForAsync(
+            5000,
+            (fun () -> visibleBoxWithWatermark(window, "Write your reply…")),
+            Option.isSome
+          )
+
+        Expect.isTrue reply "the reply composer never opened"
+
+        let! offered =
+          waitForAsync(
+            5000,
+            (fun () -> visibleEmojiButtons window |> List.length),
+            fun count -> count >= 2
+          )
+
+        Expect.isTrue offered "the reply composer has no emoji trigger"
+      })
+
+    testCaseAsync
+      "the emoji trigger is disabled while a post is in flight"
+      (async {
+        let gate = TaskCompletionSource<unit>()
+
+        let api = HeldCommitApi(logApi(), gate)
+
+        let! window = startShell(signedInStore(), api :> IHttp)
+        let! _ = showsText(window, "The Octocat")
+
+        do! typeIntoComposer(window, "A slow one")
+        do! settleAsync()
+
+        do!
+          onUiAsync(fun () ->
+            textBoxWithWatermark(window, "What did you ship?")
+            |> Option.iter(fun box ->
+              buttonNear(box, "Commit") |> Option.iter click))
+
+        let! disabled =
+          waitForAsync(
+            5000,
+            (fun () ->
+              visibleEmojiButtons window
+              |> List.tryHead
+              |> Option.map _.IsEnabled),
+            fun enabled -> enabled = Some false
+          )
+
+        Expect.isTrue disabled "the trigger stayed on while the post was out"
+
+        gate.SetResult(())
+
+        let! enabled =
+          waitForAsync(
+            8000,
+            (fun () ->
+              visibleEmojiButtons window
+              |> List.tryHead
+              |> Option.map _.IsEnabled),
+            fun state -> state = Some true
+          )
+
+        Expect.isTrue enabled "the trigger never came back"
+      })
+
+    testCaseAsync
+      "opening the picker shows the search field, the groups, and the first cell"
+      (async {
+        let! window =
+          startShell(signedInStore(), completionApi ValueNone :> IHttp)
+
+        let! _ = showsText(window, "The Octocat")
+
+        do! openEmojiPicker window
+
+        let! focused =
+          waitForAsync(
+            5000,
+            (fun () -> emojiSearch window),
+            fun search -> search |> Option.exists _.IsFocused
+          )
+
+        Expect.isTrue focused "the search field never took focus"
+
+        for group in
+          [
+            "Smileys & people"
+            "Animals & nature"
+            "Food & drink"
+            "Travel & places"
+            "Activities"
+            "Objects"
+            "Symbols"
+            "Flags"
+          ] do
+          let! header = probeUiAsync(fun () -> hasText(window, group))
+          Expect.isTrue header $"the {group} header never stood"
+
+        let! active = probeUiAsync(fun () -> activeCell window)
+
+        Expect.equal
+          (Some "EmojiCellShell0")
+          active
+          "the first cell starts armed"
+
+        let! footer = probeUiAsync(fun () -> textOf(window, "EmojiFooterName"))
+        Expect.equal ":grinning:" footer "the footer names the armed cell"
+      })
+
+    testCaseAsync
+      "a query collapses to the ranked Results section"
+      (async {
+        let! window =
+          startShell(signedInStore(), completionApi ValueNone :> IHttp)
+
+        let! _ = showsText(window, "The Octocat")
+
+        do! openEmojiPicker window
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "EmojiScroller")
+            |> Option.iter(fun control ->
+              match control with
+              | :? ScrollViewer as scroller ->
+                scroller.Offset <- Vector(0.0, 120.0)
+              | _ -> ()))
+
+        do! typeSearch(window, "smi")
+
+        let! labelled =
+          waitForAsync(
+            5000,
+            (fun () -> cellLabel(window, 0)),
+            fun label -> label = Some ":smile:"
+          )
+
+        Expect.isTrue labelled "the first result never settled"
+
+        let! labels =
+          probeUiAsync(fun () ->
+            [ 0..2 ] |> List.map(fun index -> cellLabel(window, index)))
+
+        Expect.equal
+          [ Some ":smile:"; Some ":smirk:"; Some ":smiley:" ]
+          labels
+          "the prefix block"
+
+        let! header = showsText(window, "Results")
+        Expect.isTrue header "the Results section never stood"
+
+        let! active = probeUiAsync(fun () -> activeCell window)
+        Expect.equal (Some "EmojiCellShell0") active "the first result is armed"
+
+        let! top =
+          waitForAsync(
+            5000,
+            (fun () -> emojiOffset window),
+            fun offset -> offset = Some 0.0
+          )
+
+        Expect.isTrue top "the results did not scroll to the top"
+      })
+
+    testCaseAsync
+      "an unknown query shows the empty line and an empty footer"
+      (async {
+        let! window =
+          startShell(signedInStore(), completionApi ValueNone :> IHttp)
+
+        let! _ = showsText(window, "The Octocat")
+
+        do! openEmojiPicker window
+        do! typeSearch(window, "zzqq")
+
+        let! empty = showsText(window, "no emoji for “zzqq”")
+        Expect.isTrue empty "the empty line never showed"
+
+        let! footer =
+          probeUiAsync(fun () ->
+            textOf(window, "EmojiFooterName"),
+            textOf(window, "EmojiFooterGlyph"))
+
+        Expect.equal ("", "") footer "the footer stayed empty"
+      })
+
+    testCaseAsync
+      "focus leaving the picker closes it without touching the body"
+      (async {
+        let! window =
+          startShell(signedInStore(), completionApi ValueNone :> IHttp)
+
+        let! _ = showsText(window, "The Octocat")
+
+        do! setComposerSelection(window, "kept", 4, 4)
+        do! openEmojiPicker window
+
+        do!
+          onUiAsync(fun () ->
+            textBoxWithWatermark(window, "What did you ship?")
+            |> Option.iter(fun box ->
+              box.Focus() |> ignore
+              box.Text <- "kept it"
+              box.CaretIndex <- 7))
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> emojiSearch window |> Option.map effectiveVisible),
+            fun visible -> visible <> Some true
+          )
+
+        Expect.isTrue closed "the panel stayed open after focus left"
+
+        let! body =
+          probeUiAsync(fun () ->
+            textBoxWithWatermark(window, "What did you ship?")
+            |> Option.bind(fun box ->
+              box.Text
+              |> Option.ofObj
+              |> Option.map(fun text -> text, box.CaretIndex)))
+
+        Expect.equal (Some("kept it", 7)) body "the picker touched the body"
+      })
+
+    testCaseAsync
+      "the keys walk the grid and Escape leaves the body alone"
+      (async {
+        let! window =
+          startShell(signedInStore(), completionApi ValueNone :> IHttp)
+
+        let! _ = showsText(window, "The Octocat")
+
+        do! setComposerSelection(window, "kept", 4, 4)
+        do! openEmojiPicker window
+
+        do! pressSearch(window, Key.Left)
+        do! pressSearch(window, Key.Up)
+        do! settleAsync()
+
+        let! held = probeUiAsync(fun () -> activeCell window)
+
+        Expect.equal (Some "EmojiCellShell0") held "the walk left the start"
+
+        do! pressSearch(window, Key.Right)
+
+        let! right =
+          waitForAsync(
+            3000,
+            (fun () -> activeCell window),
+            fun active -> active = Some "EmojiCellShell1"
+          )
+
+        Expect.isTrue right "Right never moved one cell"
+
+        do! pressSearch(window, Key.Left)
+
+        let! left =
+          waitForAsync(
+            3000,
+            (fun () -> activeCell window),
+            fun active -> active = Some "EmojiCellShell0"
+          )
+
+        Expect.isTrue left "Left never moved back"
+
+        do! pressSearch(window, Key.Down)
+
+        let! down =
+          waitForAsync(
+            3000,
+            (fun () -> activeCell window),
+            fun active -> active = Some "EmojiCellShell8"
+          )
+
+        Expect.isTrue down "Down never moved a row"
+
+        do! pressSearch(window, Key.Up)
+
+        let! up =
+          waitForAsync(
+            3000,
+            (fun () -> activeCell window),
+            fun active -> active = Some "EmojiCellShell0"
+          )
+
+        Expect.isTrue up "Up never moved back a row"
+
+        do! pressSearch(window, Key.Escape)
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> emojiSearch window |> Option.map effectiveVisible),
+            fun visible -> visible <> Some true
+          )
+
+        Expect.isTrue closed "Escape never closed the panel"
+
+        let! body =
+          probeUiAsync(fun () ->
+            textBoxWithWatermark(window, "What did you ship?")
+            |> Option.bind(fun box ->
+              box.Text
+              |> Option.ofObj
+              |> Option.map(fun text ->
+                text, box.SelectionStart, box.SelectionEnd)))
+
+        Expect.equal (Some("kept", 4, 4)) body "Escape touched the body"
+
+        do! openEmojiPicker window
+        do! typeSearch(window, "apple")
+
+        let! apple =
+          waitForAsync(
+            5000,
+            (fun () -> cellLabel(window, 0)),
+            fun label -> label = Some ":apple:"
+          )
+
+        Expect.isTrue apple "the apple result never stood"
+
+        for _ in 1..3 do
+          do! pressSearch(window, Key.Right)
+
+        do! settleAsync()
+
+        let! last = probeUiAsync(fun () -> activeCell window)
+
+        Expect.equal
+          (Some "EmojiCellShell2")
+          last
+          "the walk left the last result"
+
+        do! pressSearch(window, Key.Enter)
+
+        let! picked =
+          waitForAsync(
+            5000,
+            (fun () ->
+              textBoxWithWatermark(window, "What did you ship?")
+              |> Option.map(fun box -> box.Text, box.CaretIndex, box.IsFocused)),
+            fun state -> state = Some("kept🍍", 6, true)
+          )
+
+        Expect.isTrue picked "Enter never picked the armed cell"
+
+        let! closedAgain =
+          waitForAsync(
+            5000,
+            (fun () -> emojiSearch window |> Option.map effectiveVisible),
+            fun visible -> visible <> Some true
+          )
+
+        Expect.isTrue closedAgain "Enter never closed the panel"
+      })
+
+    testCaseAsync
+      "a pick inserts at the caret and leaves the caret after the emoji"
+      (async {
+        let! window =
+          startShell(signedInStore(), completionApi ValueNone :> IHttp)
+
+        let! _ = showsText(window, "The Octocat")
+
+        do! setComposerSelection(window, "shipped it", 8, 8)
+        do! openEmojiPicker window
+        do! typeSearch(window, "rocket")
+
+        let! rocket =
+          waitForAsync(
+            5000,
+            (fun () -> cellLabel(window, 0)),
+            fun label -> label = Some ":rocket:"
+          )
+
+        Expect.isTrue rocket "the rocket result never stood"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "EmojiCell0")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! inserted =
+          waitForAsync(
+            5000,
+            (fun () ->
+              textBoxWithWatermark(window, "What did you ship?")
+              |> Option.map(fun box -> box.Text, box.CaretIndex, box.IsFocused)),
+            fun state -> state = Some("shipped 🚀it", 10, true)
+          )
+
+        Expect.isTrue inserted "the emoji never landed at the caret"
+
+        let! lane =
+          probeUiAsync(fun () ->
+            controlByName(window, "CompletionRow0")
+            |> Option.map effectiveVisible)
+
+        Expect.isTrue (lane <> Some true) "the completion lane reopened"
+      })
+
+    testCaseAsync
+      "a pick replaces the selection"
+      (async {
+        let! window =
+          startShell(signedInStore(), completionApi ValueNone :> IHttp)
+
+        let! _ = showsText(window, "The Octocat")
+
+        do! setComposerSelection(window, "shipped it", 8, 10)
+        do! openEmojiPicker window
+        do! typeSearch(window, "tada")
+
+        let! tada =
+          waitForAsync(
+            5000,
+            (fun () -> cellLabel(window, 0)),
+            fun label -> label = Some ":tada:"
+          )
+
+        Expect.isTrue tada "the tada result never stood"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "EmojiCell0")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! replaced =
+          waitForAsync(
+            5000,
+            (fun () ->
+              textBoxWithWatermark(window, "What did you ship?")
+              |> Option.map(fun box -> box.Text, box.CaretIndex)),
+            fun state -> state = Some("shipped 🎉", 10)
+          )
+
+        Expect.isTrue replaced "the selection was not replaced"
+      })
+
+    testCaseAsync
+      "a pick over the cap refuses silently"
+      (async {
+        let! window =
+          startShell(signedInStore(), completionApi ValueNone :> IHttp)
+
+        let! _ = showsText(window, "The Octocat")
+
+        let full = String.replicate 40000 "a"
+
+        do! setComposerSelection(window, full, full.Length, full.Length)
+        do! openEmojiPicker window
+        do! typeSearch(window, "rocket")
+
+        let! rocket =
+          waitForAsync(
+            5000,
+            (fun () -> cellLabel(window, 0)),
+            fun label -> label = Some ":rocket:"
+          )
+
+        Expect.isTrue rocket "the rocket result never stood"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "EmojiCell0")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> emojiSearch window |> Option.map effectiveVisible),
+            fun visible -> visible <> Some true
+          )
+
+        Expect.isTrue closed "the panel stayed open after the refusal"
+
+        let! unchanged =
+          probeUiAsync(fun () ->
+            textBoxWithWatermark(window, "What did you ship?")
+            |> Option.map(fun box ->
+              box.Text = full,
+              box.SelectionStart,
+              box.SelectionEnd,
+              box.CaretIndex,
+              box.IsFocused))
+
+        Expect.equal
+          (Some(true, full.Length, full.Length, full.Length, true))
+          unchanged
+          "the refusal changed the body"
+
+        let! errorLine = probeUiAsync(fun () -> errorLineShown window)
+        Expect.isFalse errorLine "the refusal wrote an error line"
+      })
+
+    testCaseAsync
+      "a pick closes the panel and returns focus to the body"
+      (async {
+        let! window =
+          startShell(signedInStore(), completionApi ValueNone :> IHttp)
+
+        let! _ = showsText(window, "The Octocat")
+
+        do! setComposerSelection(window, "no mention", 10, 10)
+        do! openEmojiPicker window
+        do! typeSearch(window, "tada")
+
+        let! tada =
+          waitForAsync(
+            5000,
+            (fun () -> cellLabel(window, 0)),
+            fun label -> label = Some ":tada:"
+          )
+
+        Expect.isTrue tada "the tada result never stood"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "EmojiCell0")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> emojiSearch window |> Option.map effectiveVisible),
+            fun visible -> visible <> Some true
+          )
+
+        Expect.isTrue closed "the panel stayed open after the pick"
+
+        let! focused =
+          waitForAsync(
+            5000,
+            (fun () ->
+              textBoxWithWatermark(window, "What did you ship?")
+              |> Option.map _.IsFocused),
+            fun state -> state = Some true
+          )
+
+        Expect.isTrue focused "the body never took focus back"
+
+        let! lane =
+          probeUiAsync(fun () ->
+            controlByName(window, "CompletionRow0")
+            |> Option.map effectiveVisible)
+
+        Expect.isTrue (lane <> Some true) "the completion lane reopened"
+      })
+
+    testCaseAsync
+      "a pick that leaves the body unchanged still focuses it at the caret"
+      (async {
+        let! window =
+          startShell(signedInStore(), completionApi ValueNone :> IHttp)
+
+        let! _ = showsText(window, "The Octocat")
+
+        do! setComposerSelection(window, "🚀", 0, 2)
+        do! openEmojiPicker window
+        do! typeSearch(window, "rocket")
+
+        let! rocket =
+          waitForAsync(
+            5000,
+            (fun () -> cellLabel(window, 0)),
+            fun label -> label = Some ":rocket:"
+          )
+
+        Expect.isTrue rocket "the rocket result never stood"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "EmojiCell0")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! state =
+          waitForAsync(
+            5000,
+            (fun () ->
+              textBoxWithWatermark(window, "What did you ship?")
+              |> Option.map(fun box -> box.Text, box.CaretIndex, box.IsFocused)),
+            Option.contains("🚀", 2, true)
+          )
+
+        Expect.isTrue state "the unchanged pick lost the caret or the focus"
+      })
+
   ]

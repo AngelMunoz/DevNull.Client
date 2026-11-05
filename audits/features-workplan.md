@@ -23,7 +23,7 @@ and the readiness checks.
 |---|---|---|
 | F15 | pr 2026-11-04 | #15 the back button under the drag band |
 | F8 | pr 2026-11-05 | feat: the app's name and id at device approval (#8) |
-| F13 | pending | #13 the emoji picker |
+| F13 | pr 2026-11-05 | feat: the emoji picker (#13) |
 | F16 | pending | #16 back to the log the reader left |
 | F12 | pending | #12 share commits into remotes |
 | F10 | pending | #10 images on commit reports |
@@ -40,7 +40,7 @@ and the readiness checks.
 
   Two query parameters and one decode.
 
-- [ ] **F13 — the emoji picker** (#13)
+- [x] **F13 — the emoji picker** (#13)
 
   Client-side only, no API.
 

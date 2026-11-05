@@ -26,6 +26,7 @@ type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvidePkceSource
+  and 'env :> IProvideMachineName
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
@@ -153,7 +154,7 @@ module State =
     match msg with
     | StartRequested ->
       let work() = asyncResult {
-        let! key = ensureKey log
+        let! key = ensureKey(log, props.Env.MachineName)
 
         return! prepare(log, props.Env, key)
       }
@@ -322,6 +323,7 @@ type Page<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvidePkceSource
+  and 'env :> IProvideMachineName
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher

@@ -18,6 +18,9 @@ type IPkceSource =
 type IProvidePkceSource =
   abstract PkceSource: IPkceSource
 
+type IProvideMachineName =
+  abstract MachineName: string
+
 type SignRequest = {
   KeyFile: string
   Namespace: string

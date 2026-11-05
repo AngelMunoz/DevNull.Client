@@ -44,15 +44,18 @@ module Helpers =
 
   let publicKeyPath = devicePrivateKeyPath + ".pub"
 
-  // The name this install carries on the site's devices page, and the
-  // comment its key file wears.
-  let deviceName =
-    let platform =
-      if OperatingSystem.IsWindows() then "Windows"
-      elif OperatingSystem.IsMacOS() then "macOS"
-      else "Linux"
+  let appName = "DevNull Client"
 
-    $"devnull on {platform}"
+  // The server shapes an app id as a platform prefix and a bundle id
+  // (its rule is ^[a-z]+:[A-Za-z0-9._-]+$, one hundred characters at
+  // most), and one app's id stays the same on every install.
+  let appId =
+    let platform =
+      if OperatingSystem.IsWindows() then "windows"
+      elif OperatingSystem.IsMacOS() then "macos"
+      else "linux"
+
+    $"{platform}:me.tunaxor.devnull.client"
 
   let parseQuery(query: string) =
     query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
@@ -112,7 +115,9 @@ let fingerprintOf(publicPath: string) : Async<Result<string, string>> =
       return! Error $"Unexpected fingerprint: {token}"
   }
 
-let ensureKey(log: ILogger) : Async<Result<DeviceKey, string>> = asyncResult {
+let ensureKey
+  (log: ILogger, deviceName: string)
+  : Async<Result<DeviceKey, string>> = asyncResult {
   try
     Directory.CreateDirectory(Helpers.keyDirectory) |> ignore
 
@@ -132,7 +137,7 @@ let ensureKey(log: ILogger) : Async<Result<DeviceKey, string>> = asyncResult {
 
       do!
         SshKeygen.run(
-          $"-t ed25519 -f \"{devicePrivateKeyPath}\" -N \"\" -C \"{Helpers.deviceName}\""
+          $"-t ed25519 -f \"{devicePrivateKeyPath}\" -N \"\" -C \"{deviceName}\""
         )
         |> Async.Ignore
 
@@ -150,12 +155,16 @@ let ensureKey(log: ILogger) : Async<Result<DeviceKey, string>> = asyncResult {
 }
 
 let startAuthorization
-  (env: #IProvidePkceSource & #IProvideNonceSource, key: DeviceKey)
-  : SignInStart =
+  (
+    env: #IProvidePkceSource & #IProvideNonceSource & #IProvideMachineName,
+    key: DeviceKey
+  ) : SignInStart =
   let request: Device.AuthorizationRequest = {
     BaseAddress = baseAddress
     Fingerprint = key.Fingerprint
-    DeviceName = Helpers.deviceName
+    DeviceName = env.MachineName
+    AppName = Helpers.appName
+    AppId = Helpers.appId
     RedirectUri = "devnull://auth/callback"
   }
 
@@ -254,11 +263,12 @@ let callbackUri(argv: string array) : string option =
 
 let finish
   (
-    env: #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp,
+    env:
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideMachineName,
     uri: string,
     log: ILogger
   ) : Async<Result<DeviceSession, AppError>> = asyncEx {
-  match! ensureKey log with
+  match! ensureKey(log, env.MachineName) with
   | Error message ->
     log.LogWarning(
       "The sign-in callback could not prepare the key: {Error}",

@@ -471,6 +471,13 @@ type AppEnv(inputs: AppEnvInputs) as this =
   interface IProvidePkceSource with
     member _.PkceSource = pkceSource
 
+  interface IProvideMachineName with
+    member _.MachineName =
+      try
+        Environment.MachineName
+      with :? InvalidOperationException ->
+        Net.Dns.GetHostName()
+
   interface IProvideSigner with
     member _.Signer = signer
 

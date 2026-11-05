@@ -386,6 +386,8 @@ module Device =
     BaseAddress: string
     Fingerprint: string
     DeviceName: string
+    AppName: string
+    AppId: string
     RedirectUri: string
   }
 
@@ -403,6 +405,8 @@ module Device =
       [
         "fingerprint", request.Fingerprint
         "device_name", request.DeviceName
+        "app_name", request.AppName
+        "app_id", request.AppId
         "code_challenge", challenge
         "code_challenge_method", "S256"
         "state", state
@@ -823,8 +827,8 @@ module Users =
     let context =
       match request.Context with
       | General -> []
-      | Profile handle -> [ "handle", handle ]
-      | CommitThread commitId -> [ "commit_id", commitId ]
+      | Profile handle -> List.singleton("handle", handle)
+      | CommitThread commitId -> List.singleton("commit_id", commitId)
 
     let target =
       Internal.withQuery(
@@ -1701,7 +1705,7 @@ module Suggestions =
         Target =
           Internal.withQuery(
             "/api/v1/search/issues",
-            [ "q", IssueNumber.value request.Number ]
+            List.singleton("q", IssueNumber.value request.Number)
           )
         Body = ""
         Decode = IssueSuggestions.decode

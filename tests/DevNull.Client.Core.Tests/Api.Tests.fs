@@ -1,6 +1,7 @@
 module Tests.Api
 
 open System
+open System.Text.RegularExpressions
 open Expecto
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
@@ -155,6 +156,8 @@ let deviceRequest: Device.AuthorizationRequest = {
   BaseAddress = "https://dev-null.sh/"
   Fingerprint = "SHA256:abc+/="
   DeviceName = "devnull on Windows"
+  AppName = "DevNull Client"
+  AppId = "windows:sh.dev-null.client"
   RedirectUri = "devnull://auth/callback"
 }
 
@@ -169,9 +172,39 @@ let deviceTests =
         )
 
       Expect.equal
-        "https://dev-null.sh/mobile/authorize?fingerprint=SHA256%3Aabc%2B%2F%3D&device_name=devnull%20on%20Windows&code_challenge=challenge&code_challenge_method=S256&state=state&redirect_uri=devnull%3A%2F%2Fauth%2Fcallback"
+        "https://dev-null.sh/mobile/authorize?fingerprint=SHA256%3Aabc%2B%2F%3D&device_name=devnull%20on%20Windows&app_name=DevNull%20Client&app_id=windows%3Ash.dev-null.client&code_challenge=challenge&code_challenge_method=S256&state=state&redirect_uri=devnull%3A%2F%2Fauth%2Fcallback"
         url
         "url"
+    }
+
+    test "the app parameters match the wire pattern" {
+      let url =
+        DevNull.Client.Core.Api.Device.authorizationUrl(
+          deviceRequest,
+          "challenge",
+          "state"
+        )
+
+      let query =
+        Uri(url)
+          .Query.TrimStart('?')
+          .Split('&', StringSplitOptions.RemoveEmptyEntries)
+        |> Array.map(fun part ->
+          match part.Split([| '=' |], 2) with
+          | [| name; value |] -> name, Uri.UnescapeDataString value
+          | _ -> part, "")
+        |> Map.ofArray
+
+      let appName = Map.find "app_name" query
+      let appId = Map.find "app_id" query
+
+      Expect.equal "DevNull Client" appName "app name"
+
+      Expect.isTrue
+        (Regex.IsMatch(appId, "^[a-z]+:[A-Za-z0-9._-]+$"))
+        "app id shape"
+
+      Expect.isLessThanOrEqual appName.Length 100 "app name length"
     }
 
     test "generates the verifier, state, challenge and URL" {
@@ -199,7 +232,7 @@ let deviceTests =
         "challenge"
 
       Expect.equal
-        "https://dev-null.sh/mobile/authorize?fingerprint=SHA256%3Aabc%2B%2F%3D&device_name=devnull%20on%20Windows&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&state=00112233445566778899aabbccddeeff&redirect_uri=devnull%3A%2F%2Fauth%2Fcallback"
+        "https://dev-null.sh/mobile/authorize?fingerprint=SHA256%3Aabc%2B%2F%3D&device_name=devnull%20on%20Windows&app_name=DevNull%20Client&app_id=windows%3Ash.dev-null.client&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&state=00112233445566778899aabbccddeeff&redirect_uri=devnull%3A%2F%2Fauth%2Fcallback"
         authorization.Url
         "url"
     }
@@ -841,7 +874,7 @@ let richCommitTests =
   ]
 
 let devicesListJson =
-  """{"data":[{"id":"018f4c1e-dev0-7c3a-9b2d-5e6f7a8b9c0d","name":"This Fedora desktop","fingerprint":"SHA256:OwnDeviceFingerprint0123456789012345","approved_at":"2026-10-01T00:00:00Z","last_used_at":"2026-10-28T00:00:00Z"},{"id":"018f4c1e-dev1-7c3a-9b2d-5e6f7a8b9c0d","name":"A Mac laptop","fingerprint":"SHA256:AnotherDeviceFingerprint0123456789012","approved_at":"2026-09-01T00:00:00Z","last_used_at":null}]}"""
+  """{"data":[{"id":"018f4c1e-dev0-7c3a-9b2d-5e6f7a8b9c0d","name":"This Fedora desktop","app_name":null,"fingerprint":"SHA256:OwnDeviceFingerprint0123456789012345","approved_at":"2026-10-01T00:00:00Z","last_used_at":"2026-10-28T00:00:00Z"},{"id":"018f4c1e-dev1-7c3a-9b2d-5e6f7a8b9c0d","name":"A Mac laptop","app_name":"DevNull Client","fingerprint":"SHA256:AnotherDeviceFingerprint0123456789012","approved_at":"2026-09-01T00:00:00Z","last_used_at":null},{"id":"018f4c1e-dev2-7c3a-9b2d-5e6f7a8b9c0d","name":"A Linux desktop","fingerprint":"SHA256:ThirdDeviceFingerprint01234567890123","approved_at":"2026-08-01T00:00:00Z","last_used_at":null}]}"""
 
 let devicesTests =
   testList "Api.devices" [
@@ -853,11 +886,12 @@ let devicesTests =
 
       match result with
       | Ok devices ->
-        Expect.equal 2 devices.Length "count"
+        Expect.equal 3 devices.Length "count"
 
         let own = List.head devices
 
         Expect.equal "This Fedora desktop" own.Name "name"
+        Expect.equal None own.AppName "own app name"
 
         Expect.equal
           (Some(DateTimeOffset(2026, 10, 28, 0, 0, 0, TimeSpan.Zero)))
@@ -867,7 +901,13 @@ let devicesTests =
         let other = List.item 1 devices
 
         Expect.equal "A Mac laptop" other.Name "name"
+        Expect.equal (Some "DevNull Client") other.AppName "other app name"
         Expect.equal None other.LastUsedAt "never used"
+
+        let missing = List.item 2 devices
+
+        Expect.equal "A Linux desktop" missing.Name "name"
+        Expect.equal None missing.AppName "missing app name"
       | Error error -> failtestf "%A" error
 
       let sent = http.Requests |> List.exactlyOne

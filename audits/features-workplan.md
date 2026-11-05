@@ -10,8 +10,10 @@ behavior spec, visual spec) -> worker (code, tests, snapshot captures,
 changelog) -> battery (fantomas, build, both suites, gates, captures) ->
 review pair (the diff and the renders, both models, vision) -> the
 deriver's scope ruling on every finding. Two scope cycles per issue; the
-need for a third stops for the user. The architect stays with the
-refactor loop.
+need for a third stops for the user. From the second scope cycle the
+derivation is frozen: an in-scope ruling cites a spec line, and a real
+defect the spec never promised becomes a recorded task, not another
+worker pass. The architect stays with the refactor loop.
 
 The run refuses the peak windows for both providers (weekdays 01:00-04:00
 and 06:00-10:00 UTC) unless forced; `action: "window"` reports the status
@@ -20,7 +22,7 @@ and the readiness checks.
 | Step | Status | Note |
 |---|---|---|
 | F15 | pr 2026-11-04 | #15 the back button under the drag band |
-| F8 | pending | #8 the app's name and id at device approval |
+| F8 | pr 2026-11-05 | feat: the app's name and id at device approval (#8) |
 | F13 | pending | #13 the emoji picker |
 | F16 | pending | #16 back to the log the reader left |
 | F12 | pending | #12 share commits into remotes |
@@ -34,7 +36,7 @@ and the readiness checks.
 
   One element role or one margin, plus the sweep of the top strip.
 
-- [ ] **F8 — the app's name and id at device approval** (#8)
+- [x] **F8 — the app's name and id at device approval** (#8)
 
   Two query parameters and one decode.
 

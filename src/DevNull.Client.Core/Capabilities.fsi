@@ -25,6 +25,12 @@ type IPkceSource =
 type IProvidePkceSource =
   abstract PkceSource: IPkceSource
 
+/// The machine this install runs on, so the device it approves carries
+/// the name the user knows it by.
+type IProvideMachineName =
+  /// The machine's own name, as the host reports it.
+  abstract MachineName: string
+
 /// A signing request, all values it needs, together.
 type SignRequest = {
   KeyFile: string

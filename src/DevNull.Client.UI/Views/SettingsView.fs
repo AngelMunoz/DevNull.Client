@@ -1071,6 +1071,28 @@ module Parts =
     let rowOf(device: Device) : Control =
       let isSelf = own <> "" && own = device.Fingerprint
 
+      let labelOf(style, text) : Control =
+        TextBlock()
+          .Classes(Theme.name style)
+          .TextWrapping(TextWrapping.Wrap)
+          .Text(text)
+
+      let badge: Control =
+        TextBlock()
+          .Classes(Theme.name Theme.Muted)
+          .VerticalAlignment(VerticalAlignment.Center)
+          .Text("This device")
+          .IsVisible(isSelf)
+
+      let names =
+        match device.AppName with
+        | Some appName -> [|
+            labelOf(Theme.Subtitle, appName)
+            badge
+            labelOf(Theme.Muted, $"on {device.Name}")
+          |]
+        | None -> [| labelOf(Theme.Subtitle, device.Name); badge |]
+
       Border()
         .Classes(Theme.name Theme.Card)
         .Padding(12.0)
@@ -1078,19 +1100,7 @@ module Parts =
           StackPanel()
             .Spacing(6.0)
             .Children(
-              StackPanel()
-                .Orientation(Orientation.Horizontal)
-                .Spacing(8.0)
-                .Children(
-                  TextBlock()
-                    .Classes(Theme.name Theme.Subtitle)
-                    .Text(device.Name),
-                  TextBlock()
-                    .Classes(Theme.name Theme.Muted)
-                    .VerticalAlignment(VerticalAlignment.Center)
-                    .Text("This device")
-                    .IsVisible(isSelf)
-                ),
+              WrapPanel().ItemSpacing(8.0).Children(names),
               TextBlock()
                 .Classes(Theme.name Theme.Mono, Theme.name Theme.Muted)
                 .Text(device.Fingerprint),

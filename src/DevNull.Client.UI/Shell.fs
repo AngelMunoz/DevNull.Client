@@ -773,6 +773,7 @@ type Shell<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvidePkceSource
+  and 'env :> IProvideMachineName
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher

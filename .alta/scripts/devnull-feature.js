@@ -65,14 +65,18 @@ const sh = async (command, timeoutMs = 1200000) => {
   const out = await tools.shell_command({ command, timeoutMs, login: false });
   return { code: out.exitCode, text: (out.stdout ?? "") + (out.stderr ? "\n" + out.stderr : "") };
 };
-const ROOT = (await sh("pwd", 30000)).text.trim().split(/\r?\n/)[0];
-// The contract source: the server repository beside the client.
-const SERVER = (args.server ?? "").trim() || (() => {
-  const parts = ROOT.split(/[\\/]/);
-  parts.pop();
-  parts.push("dev-null");
-  return parts.join("/");
-})();
+// Everything is relative to the project root: this script runs from it,
+// and every seat it starts works from it too. The contract source is the
+// server repository beside the client, under either of its two folder names.
+const ROOT = ".";
+const serverFrom = async (arg) => {
+  if (arg.trim()) return arg.trim();
+  for (const name of ["../dev-null", "../dev-null.sh"]) {
+    if ((await sh(`Test-Path "${name}"`, 30000)).text.includes("True")) return name;
+  }
+  return "../dev-null";
+};
+const SERVER = await serverFrom(args.server ?? "");
 const read = async (path) => (await tools.read_file({ path })).content ?? "";
 const derivedPath = (id) => `.alta/derived/${id}.md`;
 const verdictPath = (id) => `.alta/derived/${id}.verdict.json`;
@@ -194,7 +198,7 @@ ${census}
 Produce, as Markdown:
 1. **Worker brief additions** — concrete targets (file:line as they sit TODAY, greps that locate drifted numbers), the existing page/module this feature mirrors as the pattern to copy, boundaries it must not cross (which other issues own what), and stop conditions where the worker halts and reports instead of improvising.
 2. **Behavior spec** — each user-visible behavior the feature adds, each with the test that proves it through the public surface.
-3. **Visual spec** — the states worth capturing (empty, content, loading, error, narrow, as the feature has them) and what each must show; write "no visual states" only if the feature has no visual face at all.
+3. **Visual spec** — the feature's new state space as a cross product: each surface the feature touches × each new value or flag it introduces (present/absent, own/other, long/short, empty, loading, error, narrow — as the feature has them). Name every cell worth capturing and what it must show, and name the cells you rule uninteresting; a cell left unlisted is a spec omission a later review will collect. Write "no visual states" only if the feature has no visual face at all.
 4. **Negative space** — from the gate table: wire inputs get parse leaves; bindings only through the page model or Sub; no store observable in a view; themed brushes as classes; at most 3 tupled parameters; new Api modules follow the request-record pattern; failures compose into the edge type.
 5. **Changelog bullet** — the Unreleased -> Added entry this feature ships, bold area prefix, user-facing wording.
 
@@ -262,7 +266,7 @@ ${captures.length ? captures.map((c) => `- ${c}`).join("\n") : "- (NONE PRODUCED
 
 Also weigh the feature rules: wire inputs get parse leaves; bindings only through the page model or Sub; no store observable in a view; at most 3 tupled parameters; .fsi pairing; the changelog bullet is user-facing and name-free.
 
-Do NOT re-run the battery and do not restate known justified survivors. Answer: clean, or findings — each file-anchored or state-anchored (name the capture), concrete, one worker pass. Only what would embarrass us in a human review.`;
+Do NOT re-run the battery and do not restate known justified survivors. Answer: clean, or findings — each file-anchored or state-anchored (name the capture), concrete, one worker pass. Prefix a finding with [spec-omission] when the derivation never named the state or behavior it asks for: the referee routes it, it is not automatically another worker pass. A regression of existing behavior is always a plain finding. Only what would embarrass us in a human review.`;
 
 const SCOPE_SCHEMA = {
   type: "object", required: ["rulings"],
@@ -286,7 +290,7 @@ const SCOPE_SCHEMA = {
   },
 };
 
-const SCOPE_BRIEF = (id, st, findings) => `Scope review for feature step ${id} of the DevNull.Client work (repo root ${ROOT}). This session derived the step; that derivation is the scope authority. If this session does not hold it, read .alta/derived/${id}.md first, then rule. READ-ONLY: no edits, no commits.
+const SCOPE_BRIEF = (id, st, findings, round) => `Scope review for feature step ${id} of the DevNull.Client work (repo root ${ROOT}). This session derived the step; that derivation is the scope authority. If this session does not hold it, read .alta/derived/${id}.md first, then rule. READ-ONLY: no edits, no commits.
 
 The review pair returned these findings on the step's diff:
 
@@ -299,6 +303,7 @@ Rule EACH finding against the step's own text (below) and your derivation — ca
 
 Binding precedents:
 - The derivation's negative space wins: a finding that grows surface it excluded is out of scope even when the code it points at is real.
+${round >= 2 ? `- Scope cycle ${round}: the derivation is FROZEN. "in-scope" cites the line of the frozen derivation (behavior spec, visual spec, negative space) or the step's own text that the finding enforces; a [spec-omission] finding, or any real defect the frozen spec never promised, is "task" — the next issue's work, never another worker pass here.` : ""}
 - A fix whose shape dwarfs its bug is itself a finding: rule the shape, not just the symptom.
 - A reviewer is not right because it spoke, and the worker is not excused because it tried. Read the code each finding names before ruling.
 
@@ -343,7 +348,7 @@ const parseCounts = (text) => ({
 const suiteOk = (run, counts) => run.code === 0 && (Number.isNaN(counts.failed) || (counts.failed === 0 && counts.errored === 0));
 
 const battery = async (stepId) => {
-  await sh(`Get-Process DevNull* -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '${ROOT}*' } | Stop-Process -Force`);
+  await sh(`Get-Process DevNull* -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$((Get-Location).Path)*" } | Stop-Process -Force`);
   const fantomas = await sh("dotnet fantomas .");
   const build = await sh("dotnet build DevNull.Client.slnx -v q");
   const buildErrors = /error/i.test(build.text) && !/0 Errores/.test(build.text);
@@ -399,10 +404,10 @@ const deriveFor = async (id, st, force, seats, issueText, census) => {
   await tools.write_file({ path: derivedPath(id), content: `# ${id} derivation — ${today}\n\n${String(text)}` });
   return String(text);
 };
-const runScope = async (seats, id, st, findings) => {
+const runScope = async (seats, id, st, findings, round) => {
   const attempt = async () => {
     if (!seats.deriver) seats.deriver = await session({ ...deriveOpts(), title: `${id} deriver + scope referee` });
-    return seats.deriver.run(SCOPE_BRIEF(id, st, findings), { schema: SCOPE_SCHEMA });
+    return seats.deriver.run(SCOPE_BRIEF(id, st, findings, round), { schema: SCOPE_SCHEMA });
   };
   try {
     return await attempt();
@@ -571,7 +576,7 @@ try {
       break;
     }
     scopeReviews++;
-    const ruling = await step("scope", () => withMetrics(`${id} scope r${scopeReviews}`, (r) => ({ step: id, round: scopeReviews, role: "scope", findings: findings.length, rulings: r?.rulings?.length ?? 0 }), () => runScope(seats, id, stRun, findings), () => seats.deriver?.id));
+    const ruling = await step("scope", () => withMetrics(`${id} scope r${scopeReviews}`, (r) => ({ step: id, round: scopeReviews, role: "scope", findings: findings.length, rulings: r?.rulings?.length ?? 0 }), () => runScope(seats, id, stRun, findings, scopeReviews), () => seats.deriver?.id));
     await saveScope(id, scopeReviews, findings, ruling);
     for (const t of (ruling.rulings ?? []).filter((r) => r.ruling === "task" && r.taskTitle)) {
       await alta.task.create({ title: t.taskTitle, kind: t.taskKind ?? "improvement", summary: t.taskSummary ?? t.reason, content: `## Why\n\nFound while reviewing feature step ${id}: ${t.finding}\n\nThe scope referee ruled it real, but beyond this feature's promise.\n\n## What to do\n\n${t.reason}\n\n## Where\n\nA review finding on the ${id} diff.` });

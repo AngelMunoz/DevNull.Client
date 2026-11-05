@@ -9,11 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Devices:** the approval page now names the app it approves — "DevNull Client on *device*" instead of a bare device name — and Settings → Devices shows each device's app name the same way, so two apps on one computer read apart.
 - **Installer (Windows):** the terminal command `devnull` starts the app from any shell; the full `DevNull.Client.exe` shim stays beside it.
 - **Threads:** returning to a thread you left restores your reading position in what you had loaded.
 
 ### Changed
 
+- **Devices:** an install now introduces itself with the machine's own name on the site's devices page — the way the site's official apps do — instead of "devnull on Windows", and it sends a stable app id of the form `windows:me.tunaxor.devnull.client`; approvals made before this change keep the names they were given.
 - **UI:** every page and component binds the dispatcher the app captured at startup (MVUish.Avalonia 3.0.0), and the stores, images, dialogs, and shell post through that same instance; a replaced process-global dispatcher can no longer strand or hijack a running page.
 - **Tests:** the UI suite runs in the parallel pool again, capped at four workers because every UI test shares the one headless session; the memory-budget and keyboard checks, and the two tests that need global focus or a transient animation, mark themselves sequenced so Expecto runs them alone.
 - **UI:** commit-card stars, pastels, and poll votes run through one shared action flow on every feed and thread page, and each result settles into the page that owns the card; a star on a search result now shows at once instead of waiting for the next search.
@@ -22,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **UI:** danger buttons read clearly in the dark theme: their labels sit in the theme's on-danger color instead of red on red.
 - **Threads:** a click on "Back to the log" works again on Windows — the window's drag strip no longer covers it, and the search box's top edge clears the same strip.
 - **UI:** a commit thread's card no longer rebuilds on every clock tick; the per-tick copies stayed bound until the thread closed, so long sessions no longer grow with the clock.
 - **UI:** the timeline's scroll-to-top works after the log is stashed and brought back: the feed follows the page's own return-to-top signal, so every request reaches the open log instead of stopping after the first leave.

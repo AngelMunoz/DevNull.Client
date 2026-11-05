@@ -41,6 +41,7 @@ val build:
     and 'env :> IProvideNonceSource
     and 'env :> IProvideSigner
     and 'env :> IProvidePkceSource
+    and 'env :> IProvideMachineName
     and 'env :> IProvideHttp
     and 'env :> IProvideDispatcher
     and 'env :> IProvideSession

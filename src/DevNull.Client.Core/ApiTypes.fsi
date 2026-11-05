@@ -883,10 +883,12 @@ module Me =
   val decode: body: string -> Result<Me, DecodeFailure>
 
 /// One device the account approved, as GET /api/v1/me/devices lists
-/// them: never the key itself, only its fingerprint.
+/// them: the app's name and the device label it chose, never the key
+/// itself, only its fingerprint.
 type Device = {
   Id: string
   Name: string
+  AppName: string option
   Fingerprint: string
   ApprovedAt: DateTimeOffset
   LastUsedAt: DateTimeOffset option

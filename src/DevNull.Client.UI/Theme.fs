@@ -31,6 +31,7 @@ module Keys =
   let onAccent = "AppOnAccent"
   let danger = "AppDanger"
   let dangerText = "AppDangerText"
+  let onDanger = "AppOnDanger"
   let warning = "AppWarning"
   let success = "AppSuccess"
   let popover = "AppPopover"
@@ -506,7 +507,7 @@ let styleTable: (StyleClass * (unit -> Style)) list = [
       (fun selector -> selector.OfType<Button>().Class(name DangerButton)),
       [|
         Button.BackgroundProperty, themed Keys.danger
-        Button.ForegroundProperty, themed Keys.dangerText
+        Button.ForegroundProperty, themed Keys.onDanger
         Button.BorderThicknessProperty, box(Thickness(0.0))
         Button.CornerRadiusProperty, box(CornerRadius(8.0))
         Button.PaddingProperty, box(Thickness(16.0, 9.0, 16.0, 9.0))
@@ -1314,6 +1315,7 @@ let darks() =
   color(Keys.onAccent, "#111112")
   color(Keys.danger, "#ff6b6b")
   color(Keys.dangerText, "#ff8787")
+  color(Keys.onDanger, "#111112")
   color(Keys.warning, "#fbbf24")
   color(Keys.success, "#51cf66")
   color(Keys.popover, "#1f1f22")
@@ -1351,6 +1353,7 @@ let lights() =
   color(Keys.onAccent, "#ffffff")
   color(Keys.danger, "#c92a2a")
   color(Keys.dangerText, "#ffffff")
+  color(Keys.onDanger, "#ffffff")
   color(Keys.warning, "#b45309")
   color(Keys.success, "#2f9e44")
   color(Keys.popover, "#ffffff")

@@ -515,6 +515,10 @@ type TestEnv
   interface IProvidePkceSource with
     member _.PkceSource = pkceSource
 
+  /// The machine the tests sign in from.
+  interface IProvideMachineName with
+    member _.MachineName = "A test machine"
+
   interface IProvideHttp with
     member _.Http = http
 
@@ -1137,8 +1141,20 @@ let termsApi() =
 /// them: this app's own key beside an older laptop.
 let devicesJson =
   sprintf
-    """{"data":[{"id":"018f4c1e-dev0-7c3a-9b2d-5e6f7a8b9c0d","name":"This Fedora desktop","fingerprint":"%s","approved_at":"2026-10-01T00:00:00Z","last_used_at":"2026-10-28T00:00:00Z"},{"id":"018f4c1e-dev1-7c3a-9b2d-5e6f7a8b9c0d","name":"A Mac laptop","fingerprint":"SHA256:AnotherDeviceFingerprint0123456789012","approved_at":"2026-09-01T00:00:00Z","last_used_at":null}]}"""
+    """{"data":[{"id":"018f4c1e-dev1-7c3a-9b2d-5e6f7a8b9c0d","name":"A Mac laptop","app_name":"DevNull Client","fingerprint":"SHA256:AnotherDeviceFingerprint0123456789012","approved_at":"2026-09-01T00:00:00Z","last_used_at":null},{"id":"018f4c1e-dev0-7c3a-9b2d-5e6f7a8b9c0d","name":"This Fedora desktop","app_name":"DevNull Client","fingerprint":"%s","approved_at":"2026-10-01T00:00:00Z","last_used_at":"2026-10-28T00:00:00Z"}]}"""
     ownFingerprint
+
+/// A long app name that stays inside the wire cap and wraps in the
+/// devices column.
+let longAppName =
+  "DevNull Client with a long descriptive name that cannot fit on one line inside the devices column"
+
+/// The account's approved devices where the laptop row names a long app.
+let longAppNameDevicesJson =
+  sprintf
+    """{"data":[{"id":"018f4c1e-dev0-7c3a-9b2d-5e6f7a8b9c0d","name":"This Fedora desktop","app_name":null,"fingerprint":"%s","approved_at":"2026-10-01T00:00:00Z","last_used_at":"2026-10-28T00:00:00Z"},{"id":"018f4c1e-dev1-7c3a-9b2d-5e6f7a8b9c0d","name":"A Mac laptop","app_name":"%s","fingerprint":"SHA256:AnotherDeviceFingerprint0123456789012","approved_at":"2026-09-01T00:00:00Z","last_used_at":null}]}"""
+    ownFingerprint
+    longAppName
 
 /// The api of the devices tests: the settings boot answers the account
 /// and the device list, and a revoke answers with nothing.
@@ -1151,6 +1167,36 @@ let devicesApi() =
       && request.Target.StartsWith "/api/v1/me/devices/"
     then
       ok ""
+    elif request.Target = "/api/v1/me" then
+      ok meJson
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+/// The api of the long app-name state: the laptop row names an app
+/// that wraps inside the devices column.
+let longAppNameDevicesApi() =
+  FakeApi(fun request ->
+    if request.Method = "GET" && request.Target = "/api/v1/me/devices" then
+      ok longAppNameDevicesJson
+    elif request.Target = "/api/v1/me" then
+      ok meJson
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+/// The api of the empty devices state: the account and log answer,
+/// and the list carries no devices.
+let emptyDevicesApi() =
+  FakeApi(fun request ->
+    if request.Method = "GET" && request.Target = "/api/v1/me/devices" then
+      ok """{"data":[]}"""
     elif request.Target = "/api/v1/me" then
       ok meJson
     elif request.Target.StartsWith "/api/v1/log/" then

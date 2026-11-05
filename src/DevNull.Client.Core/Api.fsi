@@ -85,11 +85,15 @@ module Signing =
 
 module Device =
 
-  /// The values the browser authorization page needs.
+  /// The values the browser authorization page needs: the key
+  /// fingerprint, the device label, the app's own name and id, and the
+  /// redirect back into the app.
   type AuthorizationRequest = {
     BaseAddress: string
     Fingerprint: string
     DeviceName: string
+    AppName: string
+    AppId: string
     RedirectUri: string
   }
 

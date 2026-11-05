@@ -628,6 +628,48 @@ let tests =
         Expect.isTrue settings "the settings page never rendered"
       })
 
+    testCase "the approval URL carries this app's name and id" (fun () ->
+      let env = TestEnv(signedInStore(), logApi() :> IHttp)
+
+      let key: DevNull.Client.DeviceAuth.DeviceKey = {
+        PrivatePath = "unused"
+        PublicPath = "unused"
+        Fingerprint = "SHA256:unused"
+      }
+
+      let start = DevNull.Client.DeviceAuth.startAuthorization(env, key)
+
+      let query =
+        Uri(start.Url)
+          .Query.TrimStart('?')
+          .Split('&', StringSplitOptions.RemoveEmptyEntries)
+        |> Array.map(fun part ->
+          match part.Split([| '=' |], 2) with
+          | [| name; value |] -> name, Uri.UnescapeDataString value
+          | _ -> part, "")
+        |> Map.ofArray
+
+      let appName = Map.find "app_name" query
+      let appId = Map.find "app_id" query
+      let deviceName = Map.find "device_name" query
+
+      Expect.equal "DevNull Client" appName "app name"
+      Expect.isLessThanOrEqual appName.Length 100 "app name length"
+
+      Expect.equal
+        "A test machine"
+        deviceName
+        "the device name never came from the env"
+
+      Expect.isTrue
+        (System.Text.RegularExpressions.Regex.IsMatch(
+          appId,
+          "^(windows|linux|macos):me\\.tunaxor\\.devnull\\.client$"
+        ))
+        "app id shape"
+
+      Expect.isLessThanOrEqual appId.Length 100 "app id length")
+
     testCaseAsync
       "the settings page lists the devices and revokes one"
       (async {
@@ -636,13 +678,131 @@ let tests =
 
         do! clickWhenShown(window, "Settings")
 
-        let! listed = showsText(window, "A Mac laptop")
+        let! listed = showsText(window, "on A Mac laptop")
 
         Expect.isTrue listed "the other device never listed"
 
-        let! selfNamed = showsText(window, "This device")
+        let! appNamed = showsText(window, "DevNull Client")
 
-        Expect.isTrue selfNamed "this device never named"
+        Expect.isTrue appNamed "the app name never listed"
+
+        let! styled =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              let blocks =
+                root.GetVisualDescendants()
+                |> Seq.choose(fun visual ->
+                  match visual with
+                  | :? TextBlock as block -> Some block
+                  | _ -> None)
+                |> List.ofSeq
+
+              let app =
+                blocks
+                |> List.tryFind(fun block -> block.Text = "DevNull Client")
+
+              let device =
+                blocks
+                |> List.tryFind(fun block -> block.Text = "on A Mac laptop")
+
+              let panelOf(block: TextBlock) =
+                block.GetVisualAncestors()
+                |> Seq.tryPick(function
+                  | :? WrapPanel as panel -> Some panel
+                  | _ -> None)
+
+              match app, device with
+              | Some appBlock, Some deviceBlock ->
+                match panelOf appBlock, panelOf deviceBlock with
+                | Some appPanel, Some devicePanel ->
+                  let children =
+                    appPanel.Children
+                    |> Seq.choose(fun child ->
+                      match child with
+                      | :? TextBlock as block -> Some block
+                      | _ -> None)
+                    |> List.ofSeq
+
+                  let indexOf(block: TextBlock) =
+                    children
+                    |> List.tryFindIndex(fun child ->
+                      obj.ReferenceEquals(child, block))
+
+                  let appFirst =
+                    children
+                    |> List.tryHead
+                    |> Option.exists(fun first ->
+                      obj.ReferenceEquals(first, appBlock))
+
+                  appBlock.Classes.Contains(Theme.name Theme.Subtitle)
+                  && deviceBlock.Classes.Contains(Theme.name Theme.Muted)
+                  && obj.ReferenceEquals(appPanel, devicePanel)
+                  && appFirst
+                  && (match indexOf appBlock, indexOf deviceBlock with
+                      | Some appIndex, Some deviceIndex ->
+                        appIndex < deviceIndex
+                      | _ -> false)
+                | _ -> false
+              | _ -> false)
+          )
+
+        Expect.isTrue
+          styled
+          "the app name never stood first in its subtitle style"
+
+        let! selfNamed = showsText(window, "on This Fedora desktop")
+
+        Expect.isTrue selfNamed "this device never named its machine"
+
+        let! selfBadge = showsText(window, "This device")
+
+        Expect.isTrue selfBadge "this device never named"
+
+        let! ownOrdered =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              let blocks =
+                root.GetVisualDescendants()
+                |> Seq.choose(fun visual ->
+                  match visual with
+                  | :? TextBlock as block -> Some block
+                  | _ -> None)
+                |> List.ofSeq
+
+              let panelOf(block: TextBlock) =
+                block.GetVisualAncestors()
+                |> Seq.tryPick(fun visual ->
+                  match visual with
+                  | :? WrapPanel as panel -> Some panel
+                  | _ -> None)
+
+              blocks
+              |> List.tryFind(fun block ->
+                block.Text = "on This Fedora desktop")
+              |> Option.bind(panelOf)
+              |> Option.map(fun panel ->
+                panel.Children
+                |> Seq.choose(fun child ->
+                  match child with
+                  | :? TextBlock as block -> Some block
+                  | _ -> None)
+                |> List.ofSeq)
+              |> Option.exists(fun nameBlocks ->
+                match nameBlocks with
+                | [ app; badge; onMachine ] ->
+                  app.Text = "DevNull Client"
+                  && badge.Text = "This device"
+                  && onMachine.Text = "on This Fedora desktop"
+                | _ -> false))
+          )
+
+        Expect.isTrue
+          ownOrdered
+          "this device's badge never stood between the app name and the machine"
 
         do! clickWhenShown(window, "Revoke")
 

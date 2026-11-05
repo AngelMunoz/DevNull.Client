@@ -27,13 +27,16 @@ val baseAddress: string
 /// request after sign-in uses.
 val devicePrivateKeyPath: string
 
-/// Creates the app key when it is missing, and returns its SSH
-/// fingerprint.
-val ensureKey: log: ILogger -> Async<Result<DeviceKey, string>>
+/// Creates the app key when it is missing — its comment carries the
+/// device's name — and returns its SSH fingerprint.
+val ensureKey:
+  log: ILogger * deviceName: string -> Async<Result<DeviceKey, string>>
 
-/// Starts one device authorization and returns the browser URL.
+/// Starts one device authorization and returns the browser URL; the
+/// device introduces itself with the machine's own name.
 val startAuthorization:
-  env: #IProvidePkceSource & #IProvideNonceSource * key: DeviceKey ->
+  env: #IProvidePkceSource & #IProvideNonceSource & #IProvideMachineName *
+  key: DeviceKey ->
     SignInStart
 
 /// Completes one sign-in callback end to end: prepares the key,
@@ -42,7 +45,8 @@ val startAuthorization:
 /// refuses. The one sequence both the running window and the headless
 /// second instance run.
 val finish:
-  env: #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp *
+  env:
+    #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideMachineName *
   uri: string *
   log: ILogger ->
     Async<Result<DeviceSession, AppError>>

@@ -6,6 +6,8 @@ module DevNull.Client.UI.Tests.Snapshots
 // gitignored: captures are evidence for a review round, never fixtures.
 
 open System
+open System.Threading.Tasks
+open Avalonia
 open Avalonia.Controls
 open Avalonia.VisualTree
 open Expecto
@@ -105,6 +107,59 @@ let private openSearchPageAsync() : Async<Window> = async {
   return window
 }
 
+/// Opens Settings over the given api and waits for the devices section.
+let private openSettingsAsync(api: IHttp) : Async<Window> = async {
+  let! window = startShell(signedInStore(), api)
+  let! shown = showsText(window, "The Octocat")
+  Expect.isTrue shown "the log never rendered"
+  do! clickWhenShown(window, "Settings")
+  let! settings = showsText(window, "Devices")
+  Expect.isTrue settings "the settings page never rendered"
+  do! settleAsync()
+  return window
+}
+
+/// The Settings page's own scroller, found above the devices heading.
+let private scrollSettingsToEndAsync(window: Window) : Async<unit> =
+  onUiAsync(fun () ->
+    window.GetVisualDescendants()
+    |> Seq.choose(fun visual ->
+      match visual with
+      | :? TextBlock as block when block.Text = "Devices" -> Some block
+      | _ -> None)
+    |> Seq.tryHead
+    |> Option.bind(fun block ->
+      block.GetVisualAncestors()
+      |> Seq.tryPick(function
+        | :? ScrollViewer as scroller -> Some scroller
+        | _ -> None))
+    |> Option.iter _.ScrollToEnd())
+
+/// Opens Settings with the device list loaded and scrolled into view.
+let private openDevicesAsync(api: IHttp) : Async<Window> = async {
+  let! window = openSettingsAsync api
+  let! listed = showsText(window, "on A Mac laptop")
+  Expect.isTrue listed "the devices never listed"
+  do! scrollSettingsToEndAsync window
+  do! settleAsync()
+  return window
+}
+
+/// One api whose device list waits at a gate, so the page can be
+/// captured in its loading state.
+type private HeldDevicesApi(inner: IHttp, gate: TaskCompletionSource<unit>) =
+  interface IHttp with
+    member _.Send(request) =
+      if request.Method = "GET" && request.Target = "/api/v1/me/devices" then
+        async {
+          do! gate.Task |> Async.AwaitTask
+          return! inner.Send request
+        }
+      else
+        inner.Send request
+
+    member _.GetBytes(target) = inner.GetBytes target
+
 /// The thread page's own scroller, found above the back line.
 let private threadOffset(window: Window) : float =
   buttonWithText(window, "Back to the log")
@@ -191,5 +246,109 @@ let captureTests =
       let! path = captureAsync("F15/f15-search-top", window)
       let bytes = IO.File.ReadAllBytes(path)
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the devices section names the app first" {
+      let! window = openDevicesAsync(devicesApi() :> IHttp)
+
+      let! appNamed = seesVisible(window, "DevNull Client")
+      Expect.isTrue appNamed "the app-named row never showed"
+
+      let! machine = seesVisible(window, "on This Fedora desktop")
+      Expect.isTrue machine "the own row never named its machine"
+
+      let! path = captureAsync("F8/f8-devices-wide", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the devices section wraps a long app name at a fitting width" {
+      Expect.isLessThanOrEqual
+        longAppName.Length
+        100
+        "the fixture stays inside the wire cap"
+
+      let! window = openDevicesAsync(longAppNameDevicesApi() :> IHttp)
+
+      do! onUiAsync(fun () -> window.Width <- 720.0)
+      do! settleAsync()
+      do! scrollSettingsToEndAsync window
+      do! settleAsync()
+
+      let fingerprint = "SHA256:AnotherDeviceFingerprint0123456789012"
+
+      do!
+        onUiAsync(fun () ->
+          let blocks =
+            window.GetVisualDescendants()
+            |> Seq.choose(fun visual ->
+              match visual with
+              | :? TextBlock as block -> Some block
+              | _ -> None)
+            |> List.ofSeq
+
+          let app =
+            blocks |> List.tryFind(fun block -> block.Text = longAppName)
+
+          let print =
+            blocks |> List.tryFind(fun block -> block.Text = fingerprint)
+
+          let wrapped =
+            app
+            |> Option.exists(fun block ->
+              block.Bounds.Height > block.FontSize * 1.5)
+
+          let inside =
+            print
+            |> Option.exists(fun block ->
+              let at = block.TranslatePoint(Point(0.0, 0.0), window)
+
+              at.HasValue
+              && at.Value.X >= 0.0
+              && at.Value.Y >= 0.0
+              && at.Value.X + block.Bounds.Width <= window.Bounds.Width + 0.5
+              && at.Value.Y + block.Bounds.Height
+                 <= window.Bounds.Height + 0.5)
+
+          Expect.isTrue wrapped "the long app name did not wrap"
+          Expect.isTrue inside "the fingerprint left the window")
+
+      let! path = captureAsync("F8/f8-devices-narrow", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the devices section shows its empty line" {
+      let! window = openSettingsAsync(emptyDevicesApi() :> IHttp)
+
+      do! scrollSettingsToEndAsync window
+      do! settleAsync()
+
+      let! empty = seesVisible(window, "No devices.")
+      Expect.isTrue empty "the empty line never showed"
+
+      let! path = captureAsync("F8/f8-devices-empty", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the devices section shows its loading line" {
+      let gate = TaskCompletionSource<unit>()
+      let api = HeldDevicesApi(devicesApi() :> IHttp, gate)
+
+      let! window = openSettingsAsync(api :> IHttp)
+
+      do! scrollSettingsToEndAsync window
+      do! settleAsync()
+
+      let! loading = seesVisible(window, "Loading the devices…")
+      Expect.isTrue loading "the loading line never showed"
+
+      let! path = captureAsync("F8/f8-devices-loading", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      gate.SetResult(())
+      do! settleAsync()
     }
   ]

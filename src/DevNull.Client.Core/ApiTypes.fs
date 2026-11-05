@@ -2803,6 +2803,7 @@ module CommitTranslation =
 type Device = {
   Id: string
   Name: string
+  AppName: string option
   Fingerprint: string
   ApprovedAt: DateTimeOffset
   LastUsedAt: DateTimeOffset option
@@ -2812,6 +2813,10 @@ let deviceDecoder(element: JsonElement) = decode {
   let! id = Required.Property.get ("id", Required.string) element
 
   let! name = Required.Property.get ("name", Required.string) element
+
+  let! appName =
+    Optional.Property.get ("app_name", Optional.string) element
+    |> Result.map Option.flatten
 
   let! fingerprint =
     Required.Property.get ("fingerprint", Required.string) element
@@ -2826,6 +2831,7 @@ let deviceDecoder(element: JsonElement) = decode {
   return {
     Id = id
     Name = name
+    AppName = appName
     Fingerprint = fingerprint
     ApprovedAt = approvedAt
     LastUsedAt = lastUsedAt

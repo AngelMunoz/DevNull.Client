@@ -365,7 +365,7 @@ let searchPage
 
 let build
   (env:
-    #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideImageCache & #IProvideProfiles & #IProvideTimeline & #IProvideSettings & #IProvideLogging & #IProvideRemotes & #IProvideRecentSearches & #IProvideUserSettings & #IProvideTranslations)
+    #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideMachineName & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideImageCache & #IProvideProfiles & #IProvideTimeline & #IProvideSettings & #IProvideLogging & #IProvideRemotes & #IProvideRecentSearches & #IProvideUserSettings & #IProvideTranslations)
   : RouterShell =
   let bootUrl =
     match env.Session.SignedIn with

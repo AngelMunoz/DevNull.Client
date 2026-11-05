@@ -53,6 +53,7 @@ type AppEnv =
   interface IProvideNonceSource
   interface IProvideSigner
   interface IProvidePkceSource
+  interface IProvideMachineName
   interface IProvideHttp
   interface IProvideSession
   interface IProvideDispatcher

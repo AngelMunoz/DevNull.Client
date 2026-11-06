@@ -303,8 +303,12 @@ jobs:
           rm -rf docs
           mkdir -p docs
           cp -a channel/repo docs/repo
-          cp .github/flatpak/me.tunaxor.devnull.unoffclient.flatpakref docs/
-          cp .github/flatpak/index.html docs/
+          # The flatpak branch forked from a main before the channel
+          # pages landed, so the checked-out tree carries no .github:
+          # the pages come from the release ref instead.
+          git show origin/main:.github/flatpak/me.tunaxor.devnull.unoffclient.flatpakref \
+            > docs/me.tunaxor.devnull.unoffclient.flatpakref
+          git show origin/main:.github/flatpak/index.html > docs/index.html
           touch docs/.nojekyll
           git add -A
           git commit -m "chore: flatpak channel v${VERSION}"

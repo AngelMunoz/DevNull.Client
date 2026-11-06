@@ -66,7 +66,7 @@ let signedIn
 let logPage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideTimeline & #IProvideUserSettings & #IProvideTranslations & #IProvideLogging,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideTimeline & #IProvideUserSettings & #IProvideTranslations & #IProvideRemotes & #IProvideLogging,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -91,7 +91,7 @@ let logPage
 let commitPage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideUserSettings & #IProvideTranslations & #IProvideLogging,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideUserSettings & #IProvideTranslations & #IProvideRemotes & #IProvideLogging,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -118,7 +118,7 @@ let commitPage
 let quotePage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideUserSettings & #IProvideTranslations & #IProvideLogging,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideUserSettings & #IProvideTranslations & #IProvideRemotes & #IProvideLogging,
     nav: INavigable,
     context: RouteContext
   ) : Control =

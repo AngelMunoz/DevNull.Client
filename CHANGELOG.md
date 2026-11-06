@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Remotes:** an approved commit can be shared into a direct remote from its card — pick a developer by name or handle (anyone out of reach says why and stays unpickable), see the commit you are sending, and Send posts the commit's link as the message and opens the conversation.
 - **Devices:** the approval page now names the app it approves — "DevNull Client on *device*" instead of a bare device name — and Settings → Devices shows each device's app name the same way, so two apps on one computer read apart.
 - **Installer (Windows):** the terminal command `devnull` starts the app from any shell; the full `DevNull.Client.exe` shim stays beside it.
 - **Threads:** returning to a thread you left restores your reading position in what you had loaded.

@@ -145,6 +145,8 @@
     <Compile Include="Components\LogChrome.fs" />
     <Compile Include="Components\TermsDialog.fsi" />
     <Compile Include="Components\TermsDialog.fs" />
+    <Compile Include="Components\ShareDialog.fsi" />
+    <Compile Include="Components\ShareDialog.fs" />
     <Compile Include="Components\ThreadVoice.fsi" />
     <Compile Include="Components\ThreadVoice.fs" />
     <Compile Include="Views\CommitActions.fsi" />

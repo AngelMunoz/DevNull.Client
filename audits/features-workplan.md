@@ -25,7 +25,7 @@ and the readiness checks.
 | F8 | pr 2026-11-05 | feat: the app's name and id at device approval (#8) |
 | F13 | pr 2026-11-05 | feat: the emoji picker (#13) |
 | F16 | pending | #16 back to the log the reader left |
-| F12 | pending | #12 share commits into remotes |
+| F12 | pr 2026-11-05 | feat: share commits into remotes (#12) |
 | F10 | pending | #10 images on commit reports |
 | F9 | pending | #9 reply participants |
 | F17 | pending | #17 the profile header in short windows |
@@ -48,7 +48,7 @@ and the readiness checks.
 
   Remember the log kind; the scroll place already parks.
 
-- [ ] **F12 — share commits into remotes** (#12)
+- [x] **F12 — share commits into remotes** (#12)
 
   One candidates mode and one share flow.
 

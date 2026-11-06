@@ -2,6 +2,7 @@ module DevNull.Client.Views.LogView
 
 open System
 open System.Collections.Generic
+open System.Reactive.Subjects
 open System.Runtime.CompilerServices
 open Avalonia
 open Avalonia.Controls
@@ -26,6 +27,7 @@ open DevNull.Client.Icons
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
 open DevNull.Client.Profiles
+open DevNull.Client.Remotes
 open DevNull.Client.SshKeys
 open DevNull.Client.Stores
 open DevNull.Client.Timeline
@@ -47,6 +49,7 @@ type Props<'env
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
   and 'env :> IProvideSshKeys
+  and 'env :> IProvideRemotes
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
   and 'env :> IProvideLogging> = {
@@ -129,6 +132,7 @@ module State =
     | TranslationsAuto of (Commit * Result<TranslationPayload, AppError>) list
     | TranslationRecalled of Commit * TranslationModel.Book option
     | PrefsArrived of settings: UserSettings option
+    | Shared
 
   let initial = {
     Loading = true
@@ -697,6 +701,8 @@ module State =
             args
           )
         ))
+    | Shared ->
+      model, Cmd.ofEffect(fun _ -> Navigation.go(props.Nav, "/remotes", ignore))
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
@@ -856,6 +862,7 @@ module Parts =
     and 'env :> IProvideProfiles
     and 'env :> IProvideTimeline
     and 'env :> IProvideSshKeys
+    and 'env :> IProvideRemotes
     and 'env :> IProvideUserSettings
     and 'env :> IProvideTranslations
     and 'env :> IProvideLogging> = {
@@ -1054,6 +1061,12 @@ let view
   (dispatch: Dispatch<State.Msg>)
   : Control =
 
+  let shareOpen = new BehaviorSubject<Commit voption>(ValueNone)
+
+  let closeShare() = shareOpen.OnNext ValueNone
+
+  let openShare(commit: Commit) = shareOpen.OnNext(ValueSome commit)
+
   let ctx =
     CommitRows.row(
       {
@@ -1072,11 +1085,17 @@ let view
             dispatch(State.TranslateRequested commit)
           | CommitCard.OriginalRequested commit ->
             dispatch(State.OriginalRequested commit)
+          | CommitCard.ShareRequested _ -> ()
         ViewerId = props.Session.Session.User.Id
         Images = props.Env.ImageCache
         Flyout = Parts.flyoutOf props
         Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
         OnPin = ValueNone
+        OnShare =
+          if props.Session.Session.Remotes.IsSome then
+            ValueSome openShare
+          else
+            ValueNone
         Actions = true
         OnStar = fun commit -> dispatch(State.StarToggled commit)
         OnVote = fun commit -> dispatch(State.PollVoteRequested commit)
@@ -1145,7 +1164,30 @@ let view
   pinnedPage.DetachedFromVisualTree.Add(fun _ ->
     dispatch(State.AttachedChanged false))
 
-  pinnedPage
+  let shareLayer =
+    DialogChrome.layer {
+      Open = shareOpen |> Observable.map ValueOption.isSome
+      Content =
+        fun () ->
+          match shareOpen.Value with
+          | ValueSome commit ->
+            ShareDialog.Page {
+              Env = props.Env
+              Session = props.Session
+              Commit = commit
+              Sent =
+                fun _ ->
+                  closeShare()
+                  dispatch State.Shared
+              Close = closeShare
+            }
+          | ValueNone -> Panel()
+      Scrim = true
+      OnScrimClick = ValueSome closeShare
+      Place = DialogChrome.Center
+    }
+
+  Grid().Children(pinnedPage, shareLayer)
 
 type Page<'env
   when 'env :> IProvideClock
@@ -1161,6 +1203,7 @@ type Page<'env
   and 'env :> IProvideProfiles
   and 'env :> IProvideTimeline
   and 'env :> IProvideSshKeys
+  and 'env :> IProvideRemotes
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
   and 'env :> IProvideLogging>(props: Props<'env>) as this =

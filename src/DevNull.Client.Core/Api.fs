@@ -1923,6 +1923,7 @@ module Remotes =
   type CandidateFor =
     | ForRemote
     | ForOrg
+    | ForShare
 
   type CandidatesRequest = {
     KeyFile: string
@@ -2388,6 +2389,7 @@ module Remotes =
               match forWhat with
               | ForRemote -> "remote"
               | ForOrg -> "org"
+              | ForShare -> "share"
             ))
           |> Option.defaultValue []
         ]

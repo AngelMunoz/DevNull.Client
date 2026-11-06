@@ -44,6 +44,7 @@ type Event =
   | PollChoiceChanged of Commit * PollOption * chosen: bool
   | TranslateRequested of Commit
   | OriginalRequested of Commit
+  | ShareRequested of Commit
 
 [<Struct>]
 type PinToggle = {
@@ -82,6 +83,7 @@ type Props = {
   Star: ActionSlot voption
   Vote: ActionSlot voption
   Pastel: ActionSlot voption
+  Share: (Commit -> unit) voption
   Translation: IObservable<TranslationView voption>
   Zone: Zone
 }
@@ -1216,6 +1218,24 @@ module Parts =
         OnClick = fun button -> copyLink(button, commit.HtmlUrl)
       }
 
+    let share: Control =
+      match props.Share with
+      | ValueSome command when commit.Status = Approved ->
+        let button =
+          iconAction {
+            Name = "ShareButton"
+            Glyph = Glyph.Share
+            Label = ValueNone
+            OnClick =
+              fun _ ->
+                onEvent(ShareRequested commit)
+                command commit
+          }
+
+        ToolTip.SetTip(button, "Share")
+        button
+      | _ -> Panel()
+
     // The translate action: the site's Translate, below the body. It
     // shows while the site may translate the commit, and disables while
     // the call runs or the rate limit waits.
@@ -1287,6 +1307,7 @@ module Parts =
       .Margin(0.0, 8.0, 0.0, 0.0)
       .Children(
         link.DockRight(),
+        share.DockRight(),
         StackPanel()
           .Orientation(Orientation.Horizontal)
           .Spacing(2.0)
@@ -1475,6 +1496,7 @@ type RowProps = {
   Star: ActionSlot voption
   Vote: ActionSlot voption
   Pastel: ActionSlot voption
+  Share: (Commit -> unit) voption
   Translation: IObservable<Commit -> TranslationView voption>
   Zone: Zone
 }
@@ -1500,6 +1522,7 @@ let feedRow (props: RowProps) (node: CommitNode) : Control =
       Star = props.Star
       Vote = props.Vote
       Pastel = props.Pastel
+      Share = props.Share
       Translation =
         props.Translation |> Observable.map(fun lookup -> lookup commit)
       Zone = props.Zone

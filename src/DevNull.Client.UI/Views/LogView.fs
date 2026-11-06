@@ -100,6 +100,9 @@ module State =
     Automatic: bool
     Translations: TranslationModel.Book
     AutoRan: bool
+    // The commit whose share dialog stands open; the page model owns
+    // it, and the dialog layer reads it.
+    ShareOpen: Commit voption
   }
 
   type Msg =
@@ -132,6 +135,8 @@ module State =
     | TranslationsAuto of (Commit * Result<TranslationPayload, AppError>) list
     | TranslationRecalled of Commit * TranslationModel.Book option
     | PrefsArrived of settings: UserSettings option
+    | ShareOpened of Commit
+    | ShareClosed
     | Shared
 
   let initial = {
@@ -154,6 +159,7 @@ module State =
     Automatic = false
     Translations = TranslationModel.initial
     AutoRan = false
+    ShareOpen = ValueNone
   }
 
   // The id of the newest commit in a page: the head the since-poll
@@ -307,6 +313,7 @@ module State =
 
   let updateCore (log: ILogger, props: Props<'env>) msg model =
     let kind = LogKinds.wire props.Log
+    let translations = (props.Env :> IProvideTranslations).Translations
 
     // Every log line is an effect: update returns it as a command,
     // and the loop writes it after the computation.
@@ -626,9 +633,7 @@ module State =
       model,
       Cmd.OfAsync.perform
         TranslationModel.recall
-        ((props.Env :> IProvideTranslations).Translations,
-         model.Translations,
-         commit.Id)
+        (translations, model.Translations, commit.Id)
         (fun book -> TranslationRecalled(commit, book))
     | TranslationRecalled(commit, book) ->
       match book with
@@ -695,12 +700,14 @@ module State =
             Translations = TranslationModel.finish args
       },
       Cmd.ofAction(fun () ->
-        Async.Start(
-          TranslationModel.store(
-            (props.Env :> IProvideTranslations).Translations,
-            args
-          )
-        ))
+        Async.Start(TranslationModel.store(translations, args)))
+    | ShareOpened commit ->
+      {
+        model with
+            ShareOpen = ValueSome commit
+      },
+      Cmd.none
+    | ShareClosed -> { model with ShareOpen = ValueNone }, Cmd.none
     | Shared ->
       model, Cmd.ofEffect(fun _ -> Navigation.go(props.Nav, "/remotes", ignore))
 
@@ -1061,12 +1068,6 @@ let view
   (dispatch: Dispatch<State.Msg>)
   : Control =
 
-  let shareOpen = new BehaviorSubject<Commit voption>(ValueNone)
-
-  let closeShare() = shareOpen.OnNext ValueNone
-
-  let openShare(commit: Commit) = shareOpen.OnNext(ValueSome commit)
-
   let ctx =
     CommitRows.row(
       {
@@ -1093,7 +1094,7 @@ let view
         OnPin = ValueNone
         OnShare =
           if props.Session.Session.Remotes.IsSome then
-            ValueSome openShare
+            ValueSome(State.ShareOpened >> dispatch)
           else
             ValueNone
         Actions = true
@@ -1166,10 +1167,22 @@ let view
 
   let shareLayer =
     DialogChrome.layer {
-      Open = shareOpen |> Observable.map ValueOption.isSome
+      Open =
+        model
+        |> Observable.map(fun state -> state.ShareOpen)
+        |> Observable.map ValueOption.isSome
       Content =
         fun () ->
-          match shareOpen.Value with
+          let isOpen =
+            model
+            |> Observable.first
+            |> Observable.toEnumerable
+            |> Seq.tryHead
+            |> function
+              | Some state -> state.ShareOpen
+              | None -> ValueNone
+
+          match isOpen with
           | ValueSome commit ->
             ShareDialog.Page {
               Env = props.Env
@@ -1177,13 +1190,13 @@ let view
               Commit = commit
               Sent =
                 fun _ ->
-                  closeShare()
+                  dispatch State.ShareClosed
                   dispatch State.Shared
-              Close = closeShare
+              Close = fun () -> dispatch State.ShareClosed
             }
           | ValueNone -> Panel()
       Scrim = true
-      OnScrimClick = ValueSome closeShare
+      OnScrimClick = ValueSome(fun () -> dispatch State.ShareClosed)
       Place = DialogChrome.Center
     }
 

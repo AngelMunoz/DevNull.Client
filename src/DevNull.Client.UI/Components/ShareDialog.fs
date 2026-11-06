@@ -49,7 +49,6 @@ module State =
     Answer: (string * RemoteCandidate list) option
     Failure: string voption
     Recipient: User option
-    Sending: bool
   }
 
   type Msg =
@@ -68,7 +67,6 @@ module State =
     Answer = None
     Failure = ValueNone
     Recipient = None
-    Sending = false
   }
 
   let search
@@ -86,10 +84,11 @@ module State =
       )
   }
 
-  let send(props: Props<'env>, recipient: User) : Async<unit> = asyncEx {
-    // The staging posts land, then the open target, then the dialog
-    // closes and the host navigates; the delivery stays detached and
-    // never holds that path.
+  let handOff(props: Props<'env>, recipient: User) =
+    // The engine stages the link first — the thread opens already
+    // carrying it — and owns its delivery; a refusal stays as the
+    // thread's refused bubble, so the dialog never waits and never
+    // carries the outcome.
     Async.StartImmediate(
       props.Env.Remotes.Push(
         Partner recipient,
@@ -105,7 +104,6 @@ module State =
     )
 
     props.Env.Remotes.SetOpenTarget(Some(Partner recipient))
-  }
 
   let answered(model: Model) : bool =
     model.Answer |> Option.exists(fun (term, _) -> term = termOf model.Term)
@@ -166,14 +164,13 @@ module State =
     | CloseRequested -> model, Cmd.ofAction props.Close
     | SendRequested ->
       match model.Recipient with
-      | Some recipient when not model.Sending ->
-        { model with Sending = true },
-        Cmd.OfAsync.perform send (props, recipient) (fun () ->
-          SendDone recipient)
+      | Some recipient ->
+        model,
+        Cmd.ofEffect(fun dispatch ->
+          handOff(props, recipient)
+          dispatch(SendDone recipient))
       | _ -> model, Cmd.none
-    | SendDone recipient ->
-      { model with Sending = false },
-      Cmd.ofAction(fun () -> props.Sent recipient)
+    | SendDone recipient -> model, Cmd.ofAction(fun () -> props.Sent recipient)
 
 module Parts =
 
@@ -373,9 +370,7 @@ module Parts =
         )
 
     let canSend =
-      model
-      |> Observable.map(fun current ->
-        current.Recipient.IsSome && not current.Sending)
+      model |> Observable.map(fun current -> current.Recipient.IsSome)
 
     StackPanel()
       .Spacing(12.0)

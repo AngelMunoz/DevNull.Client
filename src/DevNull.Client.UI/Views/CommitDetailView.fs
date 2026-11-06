@@ -107,6 +107,9 @@ module State =
     Automatic: bool
     // Every commit's translation on this page.
     Translations: TranslationModel.Book
+    // The commit whose share dialog stands open; the page model owns
+    // it, and the dialog layer reads it.
+    ShareOpen: Commit voption
   }
 
   type Msg =
@@ -133,6 +136,8 @@ module State =
     | NodeRepliesLoaded of commitId: string * Result<Page<CommitNode>, AppError>
     | TranslationDone of Commit * Result<TranslationPayload, AppError>
     | TranslationRecalled of Commit * TranslationModel.Book option
+    | ShareOpened of Commit
+    | ShareClosed
     | Shared
 
   let initial = {
@@ -153,6 +158,7 @@ module State =
     Expanded = Map.empty
     Automatic = false
     Translations = TranslationModel.initial
+    ShareOpen = ValueNone
   }
 
   let thread(env, session: SignedInSession, commitId: string) =
@@ -710,6 +716,13 @@ module State =
             args
           )
         ))
+    | ShareOpened commit ->
+      {
+        model with
+            ShareOpen = ValueSome commit
+      },
+      Cmd.none
+    | ShareClosed -> { model with ShareOpen = ValueNone }, Cmd.none
     | Shared ->
       model, Cmd.ofEffect(fun _ -> Navigation.go(props.Nav, "/remotes", ignore))
 
@@ -1113,12 +1126,6 @@ let view
   (dispatch: Dispatch<State.Msg>)
   : Control =
 
-  let shareOpen = new BehaviorSubject<Commit voption>(ValueNone)
-
-  let closeShare() = shareOpen.OnNext ValueNone
-
-  let openShare(commit: Commit) = shareOpen.OnNext(ValueSome commit)
-
   let rows =
     CommitRows.row(
       {
@@ -1130,7 +1137,7 @@ let view
         OnPin = ValueSome(State.PinToggled >> dispatch)
         OnShare =
           if props.Session.Session.Remotes.IsSome then
-            ValueSome openShare
+            ValueSome(State.ShareOpened >> dispatch)
           else
             ValueNone
         Actions = true
@@ -1183,6 +1190,47 @@ let view
         Parts.related(ctx, model)
       )
 
+  /// The share dialog's overlay layer: it opens from the model's open
+  /// share and samples the class-owned subject on each open edge, the
+  /// one synchronous read the content factory needs.
+  let shareLayer
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : Control =
+    DialogChrome.layer {
+      Open =
+        model
+        |> Observable.map(_.ShareOpen)
+        |> Observable.map ValueOption.isSome
+      Content =
+        fun () ->
+          let isOpen =
+            model
+            |> Observable.first
+            |> Observable.toEnumerable
+            |> Seq.tryHead
+            |> function
+              | Some state -> state.ShareOpen
+              | None -> ValueNone
+
+
+          match isOpen with
+          | ValueSome commit ->
+            ShareDialog.Page {
+              Env = props.Env
+              Session = props.Session
+              Commit = commit
+              Sent =
+                fun _ ->
+                  dispatch State.ShareClosed
+                  dispatch State.Shared
+              Close = fun () -> dispatch State.ShareClosed
+            }
+          | ValueNone -> Panel()
+      Scrim = true
+      OnScrimClick = ValueSome(fun () -> dispatch State.ShareClosed)
+      Place = DialogChrome.Center
+    }
+
   // The page scrolls one axis: a wrapped body and composer measure
   // against the column, never an unbounded extent. The rows run edge
   // to edge of the reading column, the width the feed hands its own
@@ -1193,30 +1241,8 @@ let view
       .Margin(0.0, Theme.bandHeight, 0.0, 0.0)
       .Content(content)
 
-  let shareLayer =
-    DialogChrome.layer {
-      Open = shareOpen |> Observable.map ValueOption.isSome
-      Content =
-        fun () ->
-          match shareOpen.Value with
-          | ValueSome commit ->
-            ShareDialog.Page {
-              Env = props.Env
-              Session = props.Session
-              Commit = commit
-              Sent =
-                fun _ ->
-                  closeShare()
-                  dispatch State.Shared
-              Close = closeShare
-            }
-          | ValueNone -> Panel()
-      Scrim = true
-      OnScrimClick = ValueSome closeShare
-      Place = DialogChrome.Center
-    }
 
-  Grid().Children(page, shareLayer)
+  Grid().Children(page, shareLayer(model, dispatch))
 
 type Page<'env
   when 'env :> IProvideClock

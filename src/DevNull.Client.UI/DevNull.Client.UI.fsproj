@@ -121,6 +121,8 @@
     <Compile Include="Components\ComposerKeys.fs" />
     <Compile Include="Components\CompletionLane.fsi" />
     <Compile Include="Components\CompletionLane.fs" />
+    <Compile Include="Components\Feed.fsi" />
+    <Compile Include="Components\Feed.fs" />
     <Compile Include="Components\EmojiPicker.fsi" />
     <Compile Include="Components\EmojiPicker.fs" />
     <Compile Include="Components\PollEditor.fsi" />
@@ -137,8 +139,6 @@
     <Compile Include="Components\SearchDialog.fs" />
     <Compile Include="Components\Composer.fsi" />
     <Compile Include="Components\Composer.fs" />
-    <Compile Include="Components\Feed.fsi" />
-    <Compile Include="Components\Feed.fs" />
     <Compile Include="Components\ProfileShell.fsi" />
     <Compile Include="Components\ProfileShell.fs" />
     <Compile Include="Components\LogChrome.fsi" />

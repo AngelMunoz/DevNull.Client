@@ -16,6 +16,7 @@ open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
 open DevNull.Client
+open DevNull.Client.Components.Feed
 open DevNull.Client.Core.Types
 
 module Emoji = DevNull.Client.Core.Emoji
@@ -71,16 +72,53 @@ let inline labelOf(emoji: string, name: string) =
 let inline clamp(count: int, at: int) =
   if count = 0 then 0 else max 0 (min at (count - 1))
 
-let markActive(cells: Border array, active: int) =
-  cells
-  |> Array.iteri(fun index cell ->
-    let on = index = active
-    let carries = cell.Classes.Contains activeClass
+// One line of the picker's virtualized list: a group's header, one
+// eight-wide row of cells, or the line a query with no matches shows.
+type Block =
+  | Header of key: string * name: string
+  | Row of key: string * start: int * cells: (string * string) array
+  | Nothing of key: string * query: string
 
-    if on && not carries then
-      cell.Classes.Add activeClass
-    elif not on && carries then
-      cell.Classes.Remove activeClass |> ignore)
+let inline keyOf(block: Block) : string =
+  match block with
+  | Header(key, _)
+  | Row(key, _, _)
+  | Nothing(key, _) -> key
+
+let inline cellCount(blocks: Block[]) : int =
+  blocks
+  |> Array.sumBy(fun block ->
+    match block with
+    | Row(_, _, cells) -> cells.Length
+    | _ -> 0)
+
+let groupBlocks() : Block[] =
+  let offsets =
+    Emoji.groups |> Array.scan (fun at group -> at + group.Emoji.Length) 0
+
+  Emoji.groups
+  |> Array.mapi(fun index group -> [|
+    Header($"g{index}", group.Name)
+
+    yield!
+      group.Emoji
+      |> Array.map(fun emoji -> emoji, Emoji.nameOf emoji)
+      |> Array.chunkBySize 8
+      |> Array.mapi(fun row chunk ->
+        Row($"g{index}r{row}", offsets[index] + row * 8, chunk))
+  |])
+  |> Array.collect id
+
+let resultBlocks(query: string) : Block[] =
+  let matches = Emoji.search query
+
+  if Array.isEmpty matches then
+    Array.singleton(Nothing("empty", query))
+  else
+    matches
+    |> Array.map(fun found -> found.Emoji, found.Name)
+    |> Array.chunkBySize 8
+    |> Array.mapi(fun row chunk -> Row($"r{row}", row * 8, chunk))
 
 [<Struct>]
 type CellArgs = {
@@ -91,12 +129,124 @@ type CellArgs = {
   Pick: string -> unit
 }
 
+let cellShellPrefix = "EmojiCellShell"
+
+let headerPrefix = "EmojiHeader"
+
+let inline named(name: string | null, prefix: string) : bool =
+  name |> Option.ofObj |> Option.exists(fun actual -> actual.StartsWith prefix)
+
+let inline cellIndexOf(name: string | null) : int voption =
+  match Option.ofObj name with
+  | Some name when named(name, cellShellPrefix) ->
+    match Int32.TryParse(name.Substring cellShellPrefix.Length) with
+    | true, index -> ValueSome index
+    | _ -> ValueNone
+  | _ -> ValueNone
+
+let realizedCells(scroller: ScrollViewer) : (int * Border) list =
+  scroller.GetVisualDescendants()
+  |> Seq.choose(fun visual ->
+    match visual with
+    | :? Border as border ->
+      cellIndexOf border.Name
+      |> ValueOption.map(fun index -> index, border)
+      |> ValueOption.toOption
+    | _ -> None)
+  |> List.ofSeq
+
+// The pinned group name comes from the block walk, not from the
+// realized headers: a virtualized panel keeps only the rows near the
+// viewport, so the header of the group being read is usually not in
+// the tree at all.
 [<Struct>]
-type GroupLayout = {
-  Content: Control
-  Cells: Border array
-  Sections: Control array
+type Walk = {
+  Blocks: Block list
+  Offset: float
+  RowPitch: float
+  HeaderPitch: float
 }
+
+[<TailCall>]
+let rec pinnedAt(y: float, walk: Walk, name: string | null) : string | null =
+  match walk.Blocks with
+  | [] -> name
+  | Header(_, next) :: tail ->
+    let carried = if y <= walk.Offset - 0.5 then next else name
+
+    pinnedAt(y + walk.HeaderPitch, { walk with Blocks = tail }, carried)
+  | Row(_, _, _) :: tail ->
+    pinnedAt(y + walk.RowPitch, { walk with Blocks = tail }, name)
+  | Nothing _ :: tail -> pinnedAt(y, { walk with Blocks = tail }, name)
+
+let pitchOf(scroller: ScrollViewer, prefix: string, fallback: float) : float =
+  scroller.GetVisualDescendants()
+  |> Seq.tryPick(fun visual ->
+    match visual with
+    | :? Control as control when named(control.Name, prefix) ->
+      Some control.Bounds.Height
+    | _ -> None)
+  |> Option.defaultValue fallback
+
+// The blocks walk a pitch estimate, so a key walk can land on a row
+// the panel has not realized: the height of the first realized block
+// of each kind sets the pitch for the rest.
+[<Struct>]
+type Place = {
+  Blocks: Block list
+  At: int
+  RowPitch: float
+  HeaderPitch: float
+}
+
+[<TailCall>]
+let rec placeAt(y: float, walk: Place) : float voption =
+  match walk.Blocks with
+  | [] -> ValueNone
+  | Header _ :: tail ->
+    placeAt(y + walk.HeaderPitch, { walk with Blocks = tail })
+  | Row(_, start, cells) :: tail ->
+    let at = walk.At
+
+    if at >= start && at < start + cells.Length then
+      ValueSome y
+    else
+      placeAt(y + walk.RowPitch, { walk with Blocks = tail })
+  | Nothing _ :: tail -> placeAt(y, { walk with Blocks = tail })
+
+let scrollTo(scroller: ScrollViewer, blocks: Block list, at: int) =
+  let walk = {
+    Blocks = blocks
+    At = at
+    RowPitch = pitchOf(scroller, cellShellPrefix, 34.0)
+    HeaderPitch = pitchOf(scroller, headerPrefix, 27.0)
+  }
+
+  match placeAt(0.0, walk) with
+  | ValueSome y ->
+    let room = max 0.0 (scroller.Extent.Height - scroller.Viewport.Height)
+    let target = min room (max 0.0 (y - scroller.Viewport.Height / 2.0))
+
+    scroller.Offset <- Vector(0.0, target)
+  | ValueNone -> ()
+
+let markRealized(scroller: ScrollViewer, at: int) =
+  realizedCells scroller
+  |> List.iter(fun (index, border) ->
+    let on = index = at
+    let carries = border.Classes.Contains activeClass
+
+    if on && not carries then
+      border.Classes.Add activeClass
+    elif not on && carries then
+      border.Classes.Remove activeClass |> ignore)
+
+let arm(scroller: ScrollViewer, blocks: Block list, at: int) =
+  markRealized(scroller, at)
+
+  match realizedCells scroller |> List.tryFind(fst >> (=) at) with
+  | Some(_, border) -> border.BringIntoView()
+  | None -> scrollTo(scroller, blocks, at)
 
 let cell(args: CellArgs) : Border =
   let label = labelOf(args.Emoji, args.Name)
@@ -134,92 +284,41 @@ let cell(args: CellArgs) : Border =
     .Height(34.0)
     .Child(button)
 
-let groupsView(props: Props, pick: string -> unit) : GroupLayout =
-  let offsets =
-    Emoji.groups |> Array.scan (fun at group -> at + group.Emoji.Length) 0
-
-  let groupCells =
-    Emoji.groups
-    |> Array.mapi(fun groupIndex group ->
-      let offset = offsets[groupIndex]
-
-      group.Emoji
-      |> Array.mapi(fun index emoji ->
-        cell {
-          Props = props
-          Emoji = emoji
-          Name = Emoji.nameOf emoji
-          Index = offset + index
-          Pick = pick
-        }))
-
-  let cells = groupCells |> Array.collect id
-
-  let sections =
-    Emoji.groups
-    |> Array.mapi(fun groupIndex group ->
-      StackPanel()
-        .Spacing(4.0)
-        .Children(
-          TextBlock()
-            .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
-            .FontSize(11.0)
-            .Margin(4.0, 6.0, 4.0, 2.0)
-            .Text(group.Name),
-          UniformGrid()
-            .Columns(8)
-            .Children(
-              groupCells[groupIndex] |> Array.map(fun cell -> cell :> Control)
-            )
-        )
-      :> Control)
-
-  {
-    Content = StackPanel().Spacing(8.0).Children(sections) :> Control
-    Cells = cells
-    Sections = sections
-  }
-
-let resultsView
-  (props: Props, query: string, pick: string -> unit)
-  : Control * Border array =
-  let matches = Emoji.search query
-
-  let section(children: Control array) =
-    let content =
-      StackPanel().Name("EmojiResults").Spacing(4.0).Children(children)
-
-    AutomationProperties.SetName(content, "Results")
-    content :> Control
-
-  if matches.Length = 0 then
-    let empty =
-      TextBlock()
-        .Classes(Theme.name Theme.Muted)
-        .FontSize(13.0)
-        .HorizontalAlignment(HorizontalAlignment.Center)
-        .Margin(0.0, 24.0, 0.0, 24.0)
-        .Text($"no emoji for “{query.Trim()}”")
-
-    section [| empty :> Control |], [||]
-  else
-    let cells =
-      matches
-      |> Array.mapi(fun index found ->
-        cell {
-          Props = props
-          Emoji = found.Emoji
-          Name = found.Name
-          Index = index
-          Pick = pick
-        })
-
-    let grid =
-      UniformGrid()
-        .Columns(8)
-        .Children(cells |> Array.map(fun cell -> cell :> Control))
-
-    section [| grid :> Control |], cells
+let blockView(props: Props, pick: string -> unit, block: Block) : Control =
+  match block with
+  | Header(key, name) ->
+    TextBlock()
+      .Name($"{headerPrefix}{key}")
+      .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
+      .FontSize(11.0)
+      .Margin(4.0, 6.0, 4.0, 2.0)
+      .Text(name)
+    :> Control
+  | Row(_, start, cells) ->
+    UniformGrid()
+      .Columns(8)
+      .Children(
+        cells
+        |> Array.mapi(fun at (emoji, name) ->
+          cell {
+            Props = props
+            Emoji = emoji
+            Name = name
+            Index = start + at
+            Pick = pick
+          }
+          :> Control)
+      )
+    :> Control
+  | Nothing(_, query) ->
+    TextBlock()
+      .Name("EmojiEmpty")
+      .Classes(Theme.name Theme.Muted)
+      .FontSize(13.0)
+      .HorizontalAlignment(HorizontalAlignment.Center)
+      .Margin(0.0, 24.0, 0.0, 24.0)
+      .Text($"no emoji for “{query.Trim()}”")
+    :> Control
 
 let groupItems =
   lazy
@@ -300,7 +399,13 @@ let view(props: Props) : Control =
       .FontSize(13.0)
       .Margin(8.0, 8.0, 8.0, 6.0)
 
-  let contentHost = ContentControl()
+  let catalog = groupBlocks()
+
+  let blocks = new BehaviorSubject<Block list>(catalog |> List.ofArray)
+
+  let cellTotal = new BehaviorSubject<int>(cellCount catalog)
+
+  let noMore = new BehaviorSubject<bool>(false)
 
   let footerEmoji =
     TextBlock()
@@ -327,7 +432,21 @@ let view(props: Props) : Control =
           .Children(footerEmoji, footerName)
       )
 
-  let scroller = ScrollViewer().Name("EmojiScroller").Content(contentHost)
+  let scroller =
+    Feed.view {
+      Items = blocks
+      KeyOf = keyOf
+      Row = fun block -> blockView(props, pick, block)
+      Footer = ValueNone
+      HasMore = noMore
+      ScrollTo = ValueNone
+      Ride = false
+      Restore = ValueNone
+      OnScroll = ValueNone
+      OnRide = ValueNone
+      OnNeedMore = ValueNone
+    }
+    |> fun feed -> feed.Name("EmojiScroller")
 
   let pinnedName =
     TextBlock()
@@ -346,61 +465,59 @@ let view(props: Props) : Control =
       .VerticalAlignment(VerticalAlignment.Top)
       .Child(pinnedName)
 
-  let bodyHost = Grid().Children(scroller, pinnedHeader)
+  // The section identities the automation reads: named once at
+  // construction, because a styled element can no longer take a name.
+  // The active mark is the mode's landmark; it carries no content.
+  let groupsMark = Border().Name("EmojiGroups").IsHitTestVisible(false)
+
+  let resultsMark =
+    Border().Name("EmojiResults").IsHitTestVisible(false).IsVisible(false)
+
+  AutomationProperties.SetName(groupsMark, "Emoji groups")
+
+  AutomationProperties.SetName(resultsMark, "Results")
+
+  let bodyHost =
+    Grid().Children(scroller, pinnedHeader, groupsMark, resultsMark)
 
   let activeFeed = new SerialDisposable()
 
-  let groupsContent = lazy (groupsView(props, pick))
-
   let pin() =
-    if not popup.IsOpen then
-      pinnedHeader.IsVisible <- false
-    else
-      let layout = groupsContent.Value
+    let walk = {
+      Blocks = blocks.Value
+      Offset = scroller.Offset.Y
+      RowPitch = pitchOf(scroller, cellShellPrefix, 34.0)
+      HeaderPitch = pitchOf(scroller, headerPrefix, 27.0)
+    }
 
-      if not(obj.ReferenceEquals(contentHost.Content, layout.Content)) then
-        pinnedHeader.IsVisible <- false
-      else
-        let current =
-          layout.Sections
-          |> Array.mapi(fun index section ->
-            let at = section.TranslatePoint(Point(0.0, 0.0), layout.Content)
-
-            let top =
-              if at.HasValue then at.Value.Y - scroller.Offset.Y else nan
-
-            index, top)
-          |> Array.filter(fun (_, top) -> not(Double.IsNaN top) && top <= 0.0)
-          |> Array.tryLast
-
-        match current with
-        | Some(index, top) when top < -0.5 ->
-          pinnedName.Text <- Emoji.groups[index].Name
-          pinnedHeader.IsVisible <- true
-        | _ -> pinnedHeader.IsVisible <- false
+    match popup.IsOpen, pinnedAt(0.0, walk, null) with
+    | true, name when not(isNull name) ->
+      pinnedName.Text <- name
+      pinnedHeader.IsVisible <- true
+    | _ -> pinnedHeader.IsVisible <- false
 
   let show(query: string) =
-    let content, cells =
-      if Emoji.normalize query = "" then
-        let layout = groupsContent.Value
-        layout.Content, layout.Cells
-      else
-        resultsView(props, query, pick)
+    let results = Emoji.normalize query <> ""
+    let next = if results then resultBlocks query else groupBlocks()
 
-    contentHost.Content <- content
+    blocks.OnNext(List.ofArray next)
+    cellTotal.OnNext(cellCount next)
+
+    groupsMark.IsVisible <- not results
+    resultsMark.IsVisible <- results
+
     scroller.Offset <- Vector(0.0, 0.0)
     pin()
 
     activeFeed.Disposable <-
       props.Active
-      |> Observable.map(fun at -> clamp(cells.Length, at))
+      |> Observable.map(fun at -> clamp(cellTotal.Value, at))
       |> Observable.distinctUntilChanged
-      |> Observable.subscribe(fun at ->
-        markActive(cells, at)
+      |> Observable.subscribe(fun at -> arm(scroller, blocks.Value, at))
 
-        cells |> Array.tryItem at |> Option.iter _.BringIntoView())
-
-  scroller.ScrollChanged.Add(fun _ -> pin())
+  scroller.ScrollChanged.Add(fun _ ->
+    markRealized(scroller, standing.Value)
+    pin())
 
   let panel =
     Border()

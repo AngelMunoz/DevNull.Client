@@ -118,6 +118,8 @@ module State =
     Translations: TranslationModel.Book
     /// Whether the page already asked for its automatic translations.
     AutoRan: bool
+    /// The commit whose share dialog stands open.
+    ShareOpen: Commit voption
   }
 
   /// The messages of the log page, including the since-poll pair.
@@ -151,6 +153,8 @@ module State =
     | TranslationsAuto of (Commit * Result<TranslationPayload, AppError>) list
     | TranslationRecalled of Commit * TranslationModel.Book option
     | PrefsArrived of settings: UserSettings option
+    | ShareOpened of Commit
+    | ShareClosed
     | Shared
 
   /// The fresh page state.

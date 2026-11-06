@@ -547,317 +547,332 @@ let captureTests =
       do! settleAsync()
     }
 
-    testAsync "the picker panel shows each query state" {
-      let! window = startShell(signedInStore(), logApi() :> IHttp)
-      let! _ = showsText(window, "The Octocat")
+    testSequenced(
+      testAsync "the picker panel shows each query state" {
+        let! window = startShell(signedInStore(), logApi() :> IHttp)
+        let! _ = showsText(window, "The Octocat")
 
-      do! openEmojiPicker window
+        do! openEmojiPicker window
 
-      let! openPath = captureAsync("F13/f13-trigger-open", window)
-      let openBytes = IO.File.ReadAllBytes(openPath)
-      Expect.isTrue (openBytes.Length > 1000) "the frame saved real pixels"
+        let! openPath = captureAsync("F13/f13-trigger-open", window)
+        let openBytes = IO.File.ReadAllBytes(openPath)
+        Expect.isTrue (openBytes.Length > 1000) "the frame saved real pixels"
 
-      let! emptyPath = captureAsync("F13/f13-panel-empty", window)
-      let emptyBytes = IO.File.ReadAllBytes(emptyPath)
-      Expect.isTrue (emptyBytes.Length > 1000) "the frame saved real pixels"
+        let! emptyPath = captureAsync("F13/f13-panel-empty", window)
+        let emptyBytes = IO.File.ReadAllBytes(emptyPath)
+        Expect.isTrue (emptyBytes.Length > 1000) "the frame saved real pixels"
 
-      do! typeSearch(window, "smi")
+        do! typeSearch(window, "smi")
 
-      let! known =
-        waitForAsync(
-          5000,
-          (fun () -> cellLabel(window, 0)),
-          fun label -> label = Some ":smile:"
-        )
+        let! known =
+          waitForAsync(
+            5000,
+            (fun () -> cellLabel(window, 0)),
+            fun label -> label = Some ":smile:"
+          )
 
-      Expect.isTrue known "the ranked results never stood"
+        Expect.isTrue known "the ranked results never stood"
 
-      let! knownPath = captureAsync("F13/f13-panel-known", window)
-      let knownBytes = IO.File.ReadAllBytes(knownPath)
-      Expect.isTrue (knownBytes.Length > 1000) "the frame saved real pixels"
+        let! knownPath = captureAsync("F13/f13-panel-known", window)
+        let knownBytes = IO.File.ReadAllBytes(knownPath)
+        Expect.isTrue (knownBytes.Length > 1000) "the frame saved real pixels"
 
-      do! typeSearch(window, "zzqq")
+        do! typeSearch(window, "zzqq")
 
-      let! missing =
-        waitForAsync(
-          5000,
-          (fun () -> textOf(window, "EmojiFooterName")),
-          fun text -> text = ""
-        )
+        let! missing =
+          waitForAsync(
+            5000,
+            (fun () -> textOf(window, "EmojiFooterName")),
+            fun text -> text = ""
+          )
 
-      Expect.isTrue missing "the empty footer never stood"
+        Expect.isTrue missing "the empty footer never stood"
 
-      let! unknownPath = captureAsync("F13/f13-panel-unknown", window)
-      let unknownBytes = IO.File.ReadAllBytes(unknownPath)
-      Expect.isTrue (unknownBytes.Length > 1000) "the frame saved real pixels"
+        let! unknownPath = captureAsync("F13/f13-panel-unknown", window)
+        let unknownBytes = IO.File.ReadAllBytes(unknownPath)
+        Expect.isTrue (unknownBytes.Length > 1000) "the frame saved real pixels"
 
-      do! typeSearch(window, "")
-      do! settleAsync()
+        do! typeSearch(window, "")
+        do! settleAsync()
 
-      let! hovered =
-        probeUiAsync(fun () ->
-          controlByName(window, "EmojiCell3")
-          |> Option.bind(fun control ->
-            let at =
-              control.TranslatePoint(
-                Point(control.Bounds.Width / 2.0, control.Bounds.Height / 2.0),
-                window
+        let! hovered =
+          probeUiAsync(fun () ->
+            controlByName(window, "EmojiCell3")
+            |> Option.bind(fun control ->
+              let at =
+                control.TranslatePoint(
+                  Point(
+                    control.Bounds.Width / 2.0,
+                    control.Bounds.Height / 2.0
+                  ),
+                  window
+                )
+
+              if at.HasValue then Some at.Value else None))
+
+        do!
+          onUiAsync(fun () ->
+            hovered
+            |> Option.iter(fun at ->
+              window.MouseMove(at, RawInputModifiers.None)))
+
+        let! armed =
+          waitForAsync(
+            5000,
+            (fun () -> activeCell window),
+            fun active -> active = Some "EmojiCellShell3"
+          )
+
+        Expect.isTrue armed "the pointer never armed a cell"
+
+        let! hoverPath = captureAsync("F13/f13-panel-hover", window)
+        let hoverBytes = IO.File.ReadAllBytes(hoverPath)
+        Expect.isTrue (hoverBytes.Length > 1000) "the frame saved real pixels"
+
+        do! pressSearch(window, Key.Down)
+
+        let! walked =
+          waitForAsync(
+            5000,
+            (fun () -> activeCell window),
+            fun active -> active = Some "EmojiCellShell11"
+          )
+
+        Expect.isTrue walked "the keys never walked a row"
+
+        let! walkPath = captureAsync("F13/f13-panel-key-walk", window)
+        let walkBytes = IO.File.ReadAllBytes(walkPath)
+        Expect.isTrue (walkBytes.Length > 1000) "the frame saved real pixels"
+      }
+    )
+
+    testSequenced(
+      testAsync "a refused pick closes silently" {
+        let! window = startShell(signedInStore(), logApi() :> IHttp)
+        let! _ = showsText(window, "The Octocat")
+
+        let full = String.replicate 40000 "a"
+
+        do! setComposerSelection(window, full, full.Length, full.Length)
+        do! openEmojiPicker window
+        do! typeSearch(window, "rocket")
+
+        let! rocket =
+          waitForAsync(
+            5000,
+            (fun () -> cellLabel(window, 0)),
+            fun label -> label = Some ":rocket:"
+          )
+
+        Expect.isTrue rocket "the rocket result never stood"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "EmojiCell0")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> emojiSearch window |> Option.map effectiveVisible),
+            fun visible -> visible <> Some true
+          )
+
+        Expect.isTrue closed "the panel stayed open"
+
+        let! panelPath = captureAsync("F13/f13-panel-refused", window)
+        let panelBytes = IO.File.ReadAllBytes(panelPath)
+        Expect.isTrue (panelBytes.Length > 1000) "the frame saved real pixels"
+
+        let! bodyPath = captureAsync("F13/f13-body-refused", window)
+        let bodyBytes = IO.File.ReadAllBytes(bodyPath)
+        Expect.isTrue (bodyBytes.Length > 1000) "the frame saved real pixels"
+      }
+    )
+
+    testSequenced(
+      testAsync "a pick leaves the emoji at the caret" {
+        let! window = startShell(signedInStore(), logApi() :> IHttp)
+        let! _ = showsText(window, "The Octocat")
+
+        do! setComposerSelection(window, "shipped it", 8, 8)
+        do! openEmojiPicker window
+        do! typeSearch(window, "rocket")
+
+        let! rocket =
+          waitForAsync(
+            5000,
+            (fun () -> cellLabel(window, 0)),
+            fun label -> label = Some ":rocket:"
+          )
+
+        Expect.isTrue rocket "the rocket result never stood"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "EmojiCell0")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! inserted =
+          waitForAsync(
+            5000,
+            (fun () ->
+              textBoxWithWatermark(window, "What did you ship?")
+              |> Option.map(fun box -> box.Text, box.CaretIndex)),
+            fun state -> state = Some("shipped 🚀it", 10)
+          )
+
+        Expect.isTrue inserted "the emoji never landed"
+
+        let! path = captureAsync("F13/f13-body-inserted", window)
+        let bytes = IO.File.ReadAllBytes(path)
+        Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+      }
+    )
+
+    testSequenced(
+      testAsync "Escape closes the picker and leaves the body" {
+        let! window = startShell(signedInStore(), logApi() :> IHttp)
+        let! _ = showsText(window, "The Octocat")
+
+        do! setComposerSelection(window, "kept", 4, 4)
+        do! openEmojiPicker window
+        do! pressSearch(window, Key.Escape)
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> emojiSearch window |> Option.map effectiveVisible),
+            fun visible -> visible <> Some true
+          )
+
+        Expect.isTrue closed "the panel stayed open"
+
+        let! path = captureAsync("F13/f13-body-cancelled", window)
+        let bytes = IO.File.ReadAllBytes(path)
+        Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+      }
+    )
+
+    testSequenced(
+      testAsync "the open panel pins the group header when scrolled" {
+        let! window = startShell(signedInStore(), logApi() :> IHttp)
+        let! _ = showsText(window, "The Octocat")
+
+        do! openEmojiPicker window
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "EmojiScroller")
+            |> Option.iter(fun control ->
+              match control with
+              | :? ScrollViewer as scroller ->
+                scroller.Offset <- Vector(0.0, 2500.0)
+              | _ -> ()))
+
+        let! pinned =
+          waitForAsync(
+            5000,
+            (fun () -> textOf(window, "EmojiPinnedHeaderName")),
+            fun text -> text = "Animals & nature"
+          )
+
+        Expect.isTrue pinned "the pinned header never followed the scroll"
+
+        let! path = captureAsync("F13/f13-panel-scrolled", window)
+        let bytes = IO.File.ReadAllBytes(path)
+        Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+      }
+    )
+
+    testSequenced(
+      testAsync "the picker stays inside a narrow window" {
+        let! window = startShell(signedInStore(), logApi() :> IHttp)
+        let! _ = showsText(window, "The Octocat")
+
+        do!
+          onUiAsync(fun () ->
+            window.MinHeight <- 0.0
+            window.Width <- 380.0
+            window.Height <- 360.0)
+
+        do! settleAsync()
+
+        do! openEmojiPicker window
+        do! settleAsync()
+
+        let! stand =
+          probeUiAsync(fun () ->
+            let body = textBoxWithWatermark(window, "What did you ship?")
+
+            let room =
+              body
+              |> Option.bind(fun box ->
+                let head: Point option =
+                  box.TranslatePoint(Point(0.0, 0.0), window)
+                  |> Option.ofNullable
+
+                let tail: Point option =
+                  box.TranslatePoint(Point(0.0, box.Bounds.Height), window)
+                  |> Option.ofNullable
+
+                Option.map2
+                  (fun (head: Point) (tail: Point) ->
+                    head.Y,
+                    max 0.0 ((window :> TopLevel).ClientSize.Height - tail.Y))
+                  head
+                  tail)
+
+            match room, emojiPopup window, emojiPanelBody window with
+            | Some(above, below), Some popup, Some panel ->
+              let targeted =
+                body
+                |> Option.exists(fun box ->
+                  popup.PlacementTarget
+                  |> Option.ofObj
+                  |> Option.exists(fun target ->
+                    obj.ReferenceEquals(target, box)))
+
+              Some(
+                popup.Placement,
+                targeted,
+                panel.MaxHeight,
+                panel.Bounds.Height,
+                above,
+                below
               )
+            | _ -> None)
 
-            if at.HasValue then Some at.Value else None))
-
-      do!
-        onUiAsync(fun () ->
-          hovered
-          |> Option.iter(fun at ->
-            window.MouseMove(at, RawInputModifiers.None)))
-
-      let! armed =
-        waitForAsync(
-          5000,
-          (fun () -> activeCell window),
-          fun active -> active = Some "EmojiCellShell3"
-        )
-
-      Expect.isTrue armed "the pointer never armed a cell"
-
-      let! hoverPath = captureAsync("F13/f13-panel-hover", window)
-      let hoverBytes = IO.File.ReadAllBytes(hoverPath)
-      Expect.isTrue (hoverBytes.Length > 1000) "the frame saved real pixels"
-
-      do! pressSearch(window, Key.Down)
-
-      let! walked =
-        waitForAsync(
-          5000,
-          (fun () -> activeCell window),
-          fun active -> active = Some "EmojiCellShell11"
-        )
-
-      Expect.isTrue walked "the keys never walked a row"
-
-      let! walkPath = captureAsync("F13/f13-panel-key-walk", window)
-      let walkBytes = IO.File.ReadAllBytes(walkPath)
-      Expect.isTrue (walkBytes.Length > 1000) "the frame saved real pixels"
-    }
-
-    testAsync "a refused pick closes silently" {
-      let! window = startShell(signedInStore(), logApi() :> IHttp)
-      let! _ = showsText(window, "The Octocat")
-
-      let full = String.replicate 40000 "a"
-
-      do! setComposerSelection(window, full, full.Length, full.Length)
-      do! openEmojiPicker window
-      do! typeSearch(window, "rocket")
-
-      let! rocket =
-        waitForAsync(
-          5000,
-          (fun () -> cellLabel(window, 0)),
-          fun label -> label = Some ":rocket:"
-        )
-
-      Expect.isTrue rocket "the rocket result never stood"
-
-      do!
-        onUiAsync(fun () ->
-          controlByName(window, "EmojiCell0")
-          |> Option.iter(fun control ->
-            match control with
-            | :? Button as button -> click button
-            | _ -> ()))
-
-      let! closed =
-        waitForAsync(
-          5000,
-          (fun () -> emojiSearch window |> Option.map effectiveVisible),
-          fun visible -> visible <> Some true
-        )
-
-      Expect.isTrue closed "the panel stayed open"
-
-      let! panelPath = captureAsync("F13/f13-panel-refused", window)
-      let panelBytes = IO.File.ReadAllBytes(panelPath)
-      Expect.isTrue (panelBytes.Length > 1000) "the frame saved real pixels"
-
-      let! bodyPath = captureAsync("F13/f13-body-refused", window)
-      let bodyBytes = IO.File.ReadAllBytes(bodyPath)
-      Expect.isTrue (bodyBytes.Length > 1000) "the frame saved real pixels"
-    }
-
-    testAsync "a pick leaves the emoji at the caret" {
-      let! window = startShell(signedInStore(), logApi() :> IHttp)
-      let! _ = showsText(window, "The Octocat")
-
-      do! setComposerSelection(window, "shipped it", 8, 8)
-      do! openEmojiPicker window
-      do! typeSearch(window, "rocket")
-
-      let! rocket =
-        waitForAsync(
-          5000,
-          (fun () -> cellLabel(window, 0)),
-          fun label -> label = Some ":rocket:"
-        )
-
-      Expect.isTrue rocket "the rocket result never stood"
-
-      do!
-        onUiAsync(fun () ->
-          controlByName(window, "EmojiCell0")
-          |> Option.iter(fun control ->
-            match control with
-            | :? Button as button -> click button
-            | _ -> ()))
-
-      let! inserted =
-        waitForAsync(
-          5000,
-          (fun () ->
-            textBoxWithWatermark(window, "What did you ship?")
-            |> Option.map(fun box -> box.Text, box.CaretIndex)),
-          fun state -> state = Some("shipped 🚀it", 10)
-        )
-
-      Expect.isTrue inserted "the emoji never landed"
-
-      let! path = captureAsync("F13/f13-body-inserted", window)
-      let bytes = IO.File.ReadAllBytes(path)
-      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
-    }
-
-    testAsync "Escape closes the picker and leaves the body" {
-      let! window = startShell(signedInStore(), logApi() :> IHttp)
-      let! _ = showsText(window, "The Octocat")
-
-      do! setComposerSelection(window, "kept", 4, 4)
-      do! openEmojiPicker window
-      do! pressSearch(window, Key.Escape)
-
-      let! closed =
-        waitForAsync(
-          5000,
-          (fun () -> emojiSearch window |> Option.map effectiveVisible),
-          fun visible -> visible <> Some true
-        )
-
-      Expect.isTrue closed "the panel stayed open"
-
-      let! path = captureAsync("F13/f13-body-cancelled", window)
-      let bytes = IO.File.ReadAllBytes(path)
-      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
-    }
-
-    testAsync "the open panel pins the group header when scrolled" {
-      let! window = startShell(signedInStore(), logApi() :> IHttp)
-      let! _ = showsText(window, "The Octocat")
-
-      do! openEmojiPicker window
-
-      do!
-        onUiAsync(fun () ->
-          controlByName(window, "EmojiScroller")
-          |> Option.iter(fun control ->
-            match control with
-            | :? ScrollViewer as scroller ->
-              scroller.Offset <- Vector(0.0, 2500.0)
-            | _ -> ()))
-
-      let! pinned =
-        waitForAsync(
-          5000,
-          (fun () -> textOf(window, "EmojiPinnedHeaderName")),
-          fun text -> text = "Animals & nature"
-        )
-
-      Expect.isTrue pinned "the pinned header never followed the scroll"
-
-      let! path = captureAsync("F13/f13-panel-scrolled", window)
-      let bytes = IO.File.ReadAllBytes(path)
-      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
-    }
-
-    testAsync "the picker stays inside a narrow window" {
-      let! window = startShell(signedInStore(), logApi() :> IHttp)
-      let! _ = showsText(window, "The Octocat")
-
-      do!
-        onUiAsync(fun () ->
-          window.MinHeight <- 0.0
-          window.Width <- 380.0
-          window.Height <- 360.0)
-
-      do! settleAsync()
-
-      do! openEmojiPicker window
-      do! settleAsync()
-
-      let! stand =
-        probeUiAsync(fun () ->
-          let body = textBoxWithWatermark(window, "What did you ship?")
+        match stand with
+        | Some(mode, targeted, maxHeight, boundsHeight, above, below) ->
+          Expect.isTrue targeted "the panel never attached to the body"
+          Expect.isTrue (maxHeight <= 400.0) "the panel passed the height cap"
 
           let room =
-            body
-            |> Option.bind(fun box ->
-              let head: Point option =
-                box.TranslatePoint(Point(0.0, 0.0), window)
-                |> Option.ofNullable
+            match mode with
+            | PlacementMode.TopEdgeAlignedRight -> above
+            | _ -> below
 
-              let tail: Point option =
-                box.TranslatePoint(Point(0.0, box.Bounds.Height), window)
-                |> Option.ofNullable
+          Expect.isTrue
+            (maxHeight <= room + 0.5)
+            "the panel passed the room on its side"
 
-              Option.map2
-                (fun (head: Point) (tail: Point) ->
-                  head.Y,
-                  max 0.0 ((window :> TopLevel).ClientSize.Height - tail.Y))
-                head
-                tail)
+          Expect.isTrue
+            (boundsHeight <= maxHeight + 0.5)
+            "the panel grew past its cap"
+        | None -> failtest "the panel never stood in the window"
 
-          match room, emojiPopup window, emojiPanelBody window with
-          | Some(above, below), Some popup, Some panel ->
-            let targeted =
-              body
-              |> Option.exists(fun box ->
-                popup.PlacementTarget
-                |> Option.ofObj
-                |> Option.exists(fun target ->
-                  obj.ReferenceEquals(target, box)))
-
-            Some(
-              popup.Placement,
-              targeted,
-              panel.MaxHeight,
-              panel.Bounds.Height,
-              above,
-              below
-            )
-          | _ -> None)
-
-      match stand with
-      | Some(mode, targeted, maxHeight, boundsHeight, above, below) ->
-        Expect.isTrue targeted "the panel never attached to the body"
-        Expect.isTrue (maxHeight <= 400.0) "the panel passed the height cap"
-
-        let room =
-          match mode with
-          | PlacementMode.TopEdgeAlignedRight -> above
-          | _ -> below
-
-        Expect.isTrue
-          (maxHeight <= room + 0.5)
-          "the panel passed the room on its side"
-
-        Expect.isTrue
-          (boundsHeight <= maxHeight + 0.5)
-          "the panel grew past its cap"
-      | None -> failtest "the panel never stood in the window"
-
-      let! path = captureAsync("F13/f13-panel-narrow", window)
-      let bytes = IO.File.ReadAllBytes(path)
-      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
-    }
+        let! path = captureAsync("F13/f13-panel-narrow", window)
+        let bytes = IO.File.ReadAllBytes(path)
+        Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+      }
+    )
 
 
     testAsync "the approved card offers share" {

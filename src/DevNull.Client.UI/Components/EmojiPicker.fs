@@ -172,7 +172,7 @@ let rec pinnedAt(y: float, walk: Walk, name: string | null) : string | null =
   match walk.Blocks with
   | [] -> name
   | Header(_, next) :: tail ->
-    let carried = if y <= walk.Offset - 0.5 then next else name
+    let carried: string | null = if y <= walk.Offset - 0.5 then next else name
 
     pinnedAt(y + walk.HeaderPitch, { walk with Blocks = tail }, carried)
   | Row(_, _, _) :: tail ->

@@ -315,10 +315,11 @@ module internal Wire =
 
       // One step of the walk: a page, plus how many pages came before
       // it in this rebuild.
-      // A compiler-checked tail call is not expressible here: the binding
-      // sits inside a computation expression, where attributes are illegal.
-      // Both recursive arms are trailing `return!`, so the loop is tail by
-      // shape; the bound is the page depth.
+      // A compiler-checked tail call is not available here: the
+      // attribute parses on a binding inside a computation
+      // expression, but the checker validates module-level functions
+      // only. Both recursive arms are trailing `return!`, so the loop
+      // is tail by shape; the bound is the page depth.
       let rec walk(step: WalkState) : Async<WalkStep> = asyncEx {
         match! fetchPage(driver, tab, step.Before) with
         | Error _ -> return { Rows = None; Pages = step.Pages }

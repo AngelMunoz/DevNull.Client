@@ -82,6 +82,7 @@ module AttachmentSources =
       })
   }
 
+  [<TailCall>]
   let rec firstRawImage
     (clipboard: IClipboard, formats: (string * string) list)
     : Async<ImageAttachment option> = asyncEx {

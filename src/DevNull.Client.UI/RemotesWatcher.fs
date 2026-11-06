@@ -59,17 +59,33 @@ module RemotesWatcher =
     | ValueSome at when DateTimeOffset.UtcNow - at < activeWindow -> activePoll
     | _ -> idlePoll
 
+  /// One thread's poll under the pause gate: quiet while the window
+  /// hides or the session is signed out.
+  let pollThread(state: State, target: ChatTarget) : Async<unit> = asyncEx {
+    if canRun state then
+      do! state.Deps.PollThread target
+  }
+
+  /// The thread's tick loop. The body stays a linear bind chain — a
+  /// bare guard before the recursive `return!` would desugar to a
+  /// Combine and void the attribute's tail-call claim.
   [<TailCall>]
   let rec tick(state: State, target: ChatTarget) : Async<unit> = asyncEx {
     let! ct = Async.CancellationToken
 
     if not ct.IsCancellationRequested then
-      if canRun state then
-        do! state.Deps.PollThread target
+      do! pollThread(state, target)
 
       do! Async.Sleep(delayOf(state, target))
 
       return! tick(state, target)
+  }
+
+  /// The inbox's poll under the pause gate, one awaited step for the
+  /// same reason as the thread's.
+  let pollInbox(state: State) : Async<unit> = asyncEx {
+    if canRun state then
+      do! state.Deps.PollInbox()
   }
 
   [<TailCall>]
@@ -77,8 +93,7 @@ module RemotesWatcher =
     let! ct = Async.CancellationToken
 
     if not ct.IsCancellationRequested then
-      if canRun state then
-        do! state.Deps.PollInbox()
+      do! pollInbox state
 
       do!
         Async.Sleep(if threadCount state > 0 then busyInboxPoll else inboxPoll)

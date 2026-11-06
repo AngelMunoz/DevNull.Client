@@ -77,8 +77,13 @@ jobs:
 
       # The global-state and real-time tests mark themselves sequenced
       # in the test list, so the parallel default is safe: Expecto
-      # drains the pool before it runs them alone.
+      # drains the pool before it runs them alone. The cloud runner
+      # still renders the one shared headless session slower than a
+      # desktop, so the wait budgets scale up instead of failing on
+      # starved probes.
       - name: UI tests
+        env:
+          DEVNULL_TEST_WAIT_SCALE: "3"
         run: dotnet run --project tests/DevNull.Client.UI.Tests -- --summary
 
   build:

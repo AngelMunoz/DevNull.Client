@@ -109,13 +109,25 @@ let settleAsync() : Async<unit> = async {
 /// is its own session dispatch: the session's own loop is what drives
 /// both the program loop's posts and layout in headless — one dispatch
 /// holding a nested frame pump runs neither.
+/// The wait budgets scale by environment: the shared cloud runner
+/// renders the one headless session slower than a desktop, so CI
+/// raises the patience once instead of rewriting every test.
+let waitBudget(ms: int) : int =
+  match System.Environment.GetEnvironmentVariable "DEVNULL_TEST_WAIT_SCALE" with
+  | null -> ms
+  | scale ->
+    match System.Double.TryParse scale with
+    | true, factor when factor >= 1.0 -> int(float ms * factor)
+    | _ -> ms
+
 let waitForAsync
   (ms: int, probe: unit -> 'T, predicate: 'T -> bool)
   : Async<bool> =
+  let budget = waitBudget ms
   let watch = Diagnostics.Stopwatch.StartNew()
 
   let rec loop() = async {
-    if watch.ElapsedMilliseconds >= int64 ms then
+    if watch.ElapsedMilliseconds >= int64 budget then
       return false
     else
       let! found = probeUiAsync(fun () -> predicate(probe()))

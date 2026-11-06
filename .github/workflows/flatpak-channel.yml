@@ -1,0 +1,122 @@
+name: Flatpak Channel
+
+# Rebuilds the flatpak channel for one released version and pushes it
+# to the `flatpak` branch, which GitHub Pages serves. The release flow
+# calls it after the release exists; a manual dispatch recovers the
+# channel for a release whose own run failed, without a full re-run.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Released version, without the v (example: 0.10.0)"
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: "Released version, without the v"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  channel:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+      FLATPAK_REPO: ${{ github.workspace }}/channel/repo
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install flatpak-builder and the freedesktop runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak --user install -y --noninteractive flathub \
+            org.freedesktop.Sdk//26.08 org.freedesktop.Platform//26.08
+
+      # The channel builds from the tarball the release carries: the
+      # manual dispatch and the release flow take the same path, and a
+      # recovery run needs nothing but the version.
+      - name: Download the release tarball
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "v${VERSION}" \
+            --pattern "DevNull.Client-${VERSION}-linux-x64.tar.gz" \
+            --dir artifacts
+
+      # The channel's ostree repository lives on the flatpak branch and
+      # only there; main never carries it. Each release builds on top
+      # of the previous state, so updates stay delta-sized.
+      - name: Fetch the channel repository
+        run: |
+          mkdir -p channel
+          if git fetch origin flatpak; then
+            git archive origin/flatpak docs/repo | tar -x -C channel
+            mv channel/docs/repo channel/repo
+            # git cannot carry an ostree repo's empty directories, and
+            # build-update-repo needs refs/remotes to exist.
+            mkdir -p channel/repo/refs/remotes channel/repo/refs/mirrors channel/repo/tmp
+          else
+            echo "No channel branch yet; this release starts it."
+          fi
+
+      - name: Build the flatpak
+        run: |
+          hash="$(sha256sum "artifacts/DevNull.Client-${VERSION}-linux-x64.tar.gz" | cut -d' ' -f1)"
+          .github/flatpak/build.sh "$VERSION" \
+            "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/DevNull.Client-${VERSION}-linux-x64.tar.gz" \
+            "$hash"
+
+      - name: Bundle for direct install
+        run: |
+          flatpak build-bundle \
+            --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+            "$FLATPAK_REPO" \
+            "DevNull.Client-${VERSION}-linux-x64.flatpak" \
+            me.tunaxor.devnull.unoffclient stable
+
+      - name: Attach the bundle to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "v${VERSION}" \
+            "DevNull.Client-${VERSION}-linux-x64.flatpak" \
+            --repo "${{ github.repository }}" --clobber
+
+      # Static deltas are not optional on a plain-HTTPS host: without
+      # them every update walks the object list one file at a time.
+      # Prune keeps the site under the 1 GB Pages cap.
+      - name: Update the channel repository
+        run: |
+          flatpak build-update-repo \
+            --generate-static-deltas --prune --prune-depth=2 \
+            channel/repo
+
+      - name: Publish the channel branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch origin flatpak; then
+            git checkout -B flatpak FETCH_HEAD
+          else
+            git checkout --orphan flatpak
+            git rm -rf .
+          fi
+          rm -rf docs
+          mkdir -p docs
+          cp -a channel/repo docs/repo
+          # The flatpak branch forked from a main before the channel
+          # pages landed, so the checked-out tree carries no .github:
+          # the pages come from the release ref instead.
+          git show origin/main:.github/flatpak/me.tunaxor.devnull.unoffclient.flatpakref \
+            > docs/me.tunaxor.devnull.unoffclient.flatpakref
+          git show origin/main:.github/flatpak/index.html > docs/index.html
+          touch docs/.nojekyll
+          git add -A
+          git commit -m "chore: flatpak channel v${VERSION}"
+          git push origin flatpak

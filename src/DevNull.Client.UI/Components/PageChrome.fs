@@ -6,7 +6,6 @@ open System.Runtime.CompilerServices
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Layout
-open Microsoft.FSharp.Reflection
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open DevNull.Client
@@ -19,6 +18,9 @@ type Line =
   | Off
   | Words of string
 
+// Boxed tuples answer ITuple — System.Tuple and ValueTuple both do —
+// so the walk needs no FSharp.Reflection: the AOT publish's trim
+// analysis rejects reflection over a plain GetType() value.
 let rec sameRebuildKey (left: objnull) (right: objnull) : bool =
   if obj.ReferenceEquals(left, right) then
     true
@@ -27,20 +29,20 @@ let rec sameRebuildKey (left: objnull) (right: objnull) : bool =
   else
     let left = nonNull left
     let right = nonNull right
-    let kind = left.GetType()
 
-    if kind <> right.GetType() then
-      false
-    elif FSharpType.IsTuple kind then
-      let leftFields = FSharpValue.GetTupleFields left
-      let rightFields = FSharpValue.GetTupleFields right
+    match left, right with
+    | (:? ITuple as leftTuple), (:? ITuple as rightTuple) ->
+      leftTuple.Length = rightTuple.Length
+      && Seq.init leftTuple.Length (fun i ->
+           sameRebuildKey leftTuple[i] rightTuple[i])
+         |> Seq.forall id
+    | _ ->
+      let kind = left.GetType()
 
-      leftFields.Length = rightFields.Length
-      && Array.forall2 sameRebuildKey leftFields rightFields
-    elif kind = typeof<string> || kind.IsValueType then
-      left.Equals right
-    else
-      false
+      if kind = typeof<string> || kind.IsValueType then
+        left.Equals right
+      else
+        false
 
 let rec hashRebuildKey(key: objnull) : int =
   if isNull key then
@@ -49,15 +51,12 @@ let rec hashRebuildKey(key: objnull) : int =
     let key = nonNull key
     let kind = key.GetType()
 
-    if FSharpType.IsTuple kind then
-      let fields = FSharpValue.GetTupleFields key
-
-      (17, fields)
-      ||> Array.fold(fun hash field -> hash * 397 + hashRebuildKey field)
-    elif kind = typeof<string> || kind.IsValueType then
-      key.GetHashCode()
-    else
-      RuntimeHelpers.GetHashCode key
+    match key with
+    | :? ITuple as tuple ->
+      (17, Seq.init tuple.Length (fun i -> hashRebuildKey tuple[i]))
+      ||> Seq.fold(fun hash field -> hash * 397 + field)
+    | _ when kind = typeof<string> || kind.IsValueType -> key.GetHashCode()
+    | _ -> RuntimeHelpers.GetHashCode key
 
 type RebuildKeyComparer() =
   interface IEqualityComparer<objnull> with

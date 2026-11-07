@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-07
+
 ### Added
 
 - **UI:** the commit card's secondary actions gather into one More menu — copy link, send in Remotes, follow, mute, block, report, and delete for your own commits — with the site's confirm asks for block and delete and the undo toast after a delete.

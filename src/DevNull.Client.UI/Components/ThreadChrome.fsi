@@ -2,6 +2,7 @@ module DevNull.Client.Components.ThreadChrome
 
 open System
 open Avalonia.Controls
+open DevNull.Client.Components.MenuPicks
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.RemotesState
 
@@ -44,15 +45,7 @@ type PinDialogProps = {
 /// One destructive confirm: the pick that opens it, its question and
 /// consequences, the destructive verb and command, and whether a call
 /// is in flight that keeps the verb disabled.
-[<Struct>]
-type ConfirmProps = {
-  Label: string
-  Title: string
-  Words: string
-  Verb: string
-  OnConfirm: unit -> unit
-  Busy: IObservable<bool>
-}
+type ConfirmProps = DevNull.Client.Components.MenuPicks.ConfirmProps
 
 /// The bar that takes the composer's place when the viewer cannot
 /// push: a fetched request to settle, or the word on why. The

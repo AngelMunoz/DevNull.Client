@@ -23,10 +23,10 @@ type RowSlices = {
 /// What one page adds to the shared row builder: where its card events
 /// go, the signed-in viewer, the page's image cache, hover card source,
 /// and zone, the pin command where the page offers one — the card's own
-/// gate decides whether a row arms it — the share command where the
-/// account carries the direct messages, whether the vote and pastel
-/// actions show, the three host-run action commands, and the
-/// translation lookup the page builds from its own book.
+/// gate decides whether a row arms it — the More actions slot the page
+/// builds, whether the vote and pastel actions show, the three host-run
+/// action commands, and the translation lookup the page builds from its
+/// own book.
 type Host = {
   OnEvent: Event -> unit
   ViewerId: string
@@ -34,12 +34,9 @@ type Host = {
   Flyout: Source voption
   Zone: Zone
   OnPin: (Commit -> unit) voption
-  /// The share action the page offers on an approved commit, when the
-  /// account carries the direct messages.
-  OnShare: (Commit -> unit) voption
-  /// The report action the page offers on another author's approved
-  /// commit.
-  OnReport: (Commit -> unit) voption
+  /// The More actions slot: copy link, share, report, delete, follow,
+  /// mute, block. An absent slot draws no trigger at all.
+  Menu: MenuSlot voption
   /// Whether the row offers the page's vote and pastel actions. A
   /// search row keeps its star and hides both.
   Actions: bool

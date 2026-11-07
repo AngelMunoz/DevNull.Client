@@ -2,6 +2,7 @@ module DevNull.Client.Components.CommitCard
 
 open System
 open Avalonia
+open Avalonia.Automation
 open Avalonia.Controls
 open Avalonia.Controls.Documents
 open Avalonia.Controls.Primitives
@@ -14,6 +15,7 @@ open IcedTasks
 open FSharp.Control.Reactive
 open DevNull.Client
 open DevNull.Client.Components.AsyncImage
+open DevNull.Client.Components.CommitMenu
 open DevNull.Client.Components.UserFlyout
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Formatting
@@ -44,8 +46,7 @@ type Event =
   | PollChoiceChanged of Commit * PollOption * chosen: bool
   | TranslateRequested of Commit
   | OriginalRequested of Commit
-  | ShareRequested of Commit
-  | ReportRequested of Commit
+  | MenuOpened of Commit
 
 [<Struct>]
 type PinToggle = {
@@ -58,6 +59,10 @@ type ActionSlot = {
   Command: Commit -> unit
   Busy: IObservable<string option>
 }
+
+type AuthorRelation = DevNull.Client.Components.CommitMenu.AuthorRelation
+
+type MenuSlot = DevNull.Client.Components.CommitMenu.MenuSlot
 
 [<Struct>]
 type TranslationView = {
@@ -84,8 +89,7 @@ type Props = {
   Star: ActionSlot voption
   Vote: ActionSlot voption
   Pastel: ActionSlot voption
-  Share: (Commit -> unit) voption
-  Report: (Commit -> unit) voption
+  Menu: MenuSlot voption
   Translation: IObservable<TranslationView voption>
   Zone: Zone
 }
@@ -408,15 +412,21 @@ module Parts =
             .ClipToBounds(true)
             .Child(loaded.Name("CardImage"))
 
-        Button()
-          .Name("CardImageButton")
-          .Classes(Theme.name Theme.GhostButton)
-          .Padding(0.0)
-          .Content(box)
-          .OnClickHandler(fun _ args ->
-            // The gallery never opens the commit behind the cell.
-            args.Handled <- true
-            gallery(box, index))
+        let imageButton =
+          Button()
+            .Name("CardImageButton")
+            .Classes(Theme.name Theme.GhostButton)
+            .Padding(0.0)
+            .Content(box)
+            .OnClickHandler(fun _ args ->
+              // The gallery never opens the commit behind the cell.
+              args.Handled <- true
+              gallery(box, index))
+
+        AutomationProperties.SetName(imageButton, "Commit image")
+        ToolTip.SetTip(imageButton, "Commit image")
+
+        imageButton
 
     match images with
     | [ single ] -> cellAt (Stretch.Uniform, 320.0) (0, single)
@@ -698,20 +708,25 @@ module Parts =
       Observable.combineLatest canVoteNow idle
       |> Observable.map(fun (allowed, ready) -> allowed && ready)
 
-    ToggleButton()
-      .Name($"PollChoice{option.Id}")
-      .Classes(Theme.name Theme.PollOption)
-      .Content(content)
-      .IsChecked(chosen |> Observable.map(fun value -> Nullable value))
-      .IsEnabled(enabled)
-      .OnIsCheckedChangedHandler(fun toggle _ ->
-        toggle.IsChecked
-        |> Option.ofNullable
-        |> Option.iter(fun selected ->
-          ctx.OnEvent(PollChoiceChanged(ctx.Commit, option, selected))))
-      // The toggle's click must stop here: the card's own row button
-      // opens the thread, and an unhandled click bubbles to it.
-      .OnClickHandler(fun _ args -> args.Handled <- true)
+    let toggle =
+      ToggleButton()
+        .Name($"PollChoice{option.Id}")
+        .Classes(Theme.name Theme.PollOption)
+        .Content(content)
+        .IsChecked(chosen |> Observable.map(fun value -> Nullable value))
+        .IsEnabled(enabled)
+        .OnIsCheckedChangedHandler(fun toggle _ ->
+          toggle.IsChecked
+          |> Option.ofNullable
+          |> Option.iter(fun selected ->
+            ctx.OnEvent(PollChoiceChanged(ctx.Commit, option, selected))))
+        // The toggle's click must stop here: the card's own row button
+        // opens the thread, and an unhandled click bubbles to it.
+        .OnClickHandler(fun _ args -> args.Handled <- true)
+
+    AutomationProperties.SetName(toggle, option.Label)
+
+    toggle
 
   // The poll block: the results once the server publishes them, the
   // choices and the Vote button while the poll takes votes, or a
@@ -868,6 +883,9 @@ module Parts =
     Glyph: Glyph
     Label: string voption
     OnClick: Button -> unit
+    /// The word the screen reader and the tooltip say for an
+    /// icon-only action, where the card carries no other label.
+    Aria: string voption
   }
 
   // One quiet action of the row: an icon, an optional mono count, no
@@ -881,19 +899,28 @@ module Parts =
         TextBlock().Classes(Theme.name Theme.Mono).Text(count)
     |]
 
-    Button()
-      .Name(action.Name)
-      .Classes(Theme.name Theme.GhostButton)
-      .Padding(6.0, 2.0, 6.0, 2.0)
-      .Content(
-        StackPanel()
-          .Orientation(Orientation.Horizontal)
-          .Spacing(4.0)
-          .Children(children)
-      )
-      .OnClickHandler(fun sender args ->
-        args.Handled <- true
-        action.OnClick sender)
+    let button =
+      Button()
+        .Name(action.Name)
+        .Classes(Theme.name Theme.GhostButton)
+        .Padding(6.0, 2.0, 6.0, 2.0)
+        .Content(
+          StackPanel()
+            .Orientation(Orientation.Horizontal)
+            .Spacing(4.0)
+            .Children(children)
+        )
+        .OnClickHandler(fun sender args ->
+          args.Handled <- true
+          action.OnClick sender)
+
+    match action.Aria with
+    | ValueSome word ->
+      AutomationProperties.SetName(button, word)
+      ToolTip.SetTip(button, word)
+    | ValueNone -> ()
+
+    button
 
   // Puts the commit's web URL on the clipboard.
   let copyLink(source: Control, url: string) : unit =
@@ -1099,6 +1126,7 @@ module Parts =
         Glyph = Glyph.Reply
         Label = replyLabel
         OnClick = fun _ -> onEvent(ReplyToggled commit)
+        Aria = ValueSome "Reply"
       }
 
     let starLabel =
@@ -1119,6 +1147,7 @@ module Parts =
           Glyph = Glyph.Star
           Label = starLabel
           OnClick = fun _ -> ()
+          Aria = ValueSome "Stars"
         })
           .IsEnabled(false)
           .Classes(Theme.name Theme.FgMuted)
@@ -1128,6 +1157,7 @@ module Parts =
           Glyph = Glyph.Star
           Label = starLabel
           OnClick = fun _ -> slot.Command commit
+          Aria = ValueSome "Star"
         })
           .IsEnabled(
             slot.Busy
@@ -1152,6 +1182,7 @@ module Parts =
             Glyph = Glyph.Pastel
             Label = count
             OnClick = fun _ -> slot.Command commit
+            Aria = ValueSome "Pastel"
           })
             .IsEnabled(
               slot.Busy
@@ -1178,6 +1209,7 @@ module Parts =
         Glyph = Glyph.Quote
         Label = ValueNone
         OnClick = fun _ -> onEvent(QuoteRequested commit)
+        Aria = ValueSome "Quote"
       }
 
     // The profile pin: the author's own top-level commits only — the
@@ -1199,6 +1231,7 @@ module Parts =
             Glyph = glyph
             Label = ValueSome word
             OnClick = fun _ -> toggle.Command commit
+            Aria = ValueNone
           }
 
         ToolTip.SetTip(
@@ -1212,51 +1245,19 @@ module Parts =
         )
       | _ -> Panel()
 
-    let link =
-      iconAction {
-        Name = "LinkButton"
-        Glyph = Glyph.Link
-        Label = ValueNone
-        OnClick = fun button -> copyLink(button, commit.HtmlUrl)
-      }
-
-    let share: Control =
-      match props.Share with
-      | ValueSome command when commit.Status = Approved ->
-        let button =
-          iconAction {
-            Name = "ShareButton"
-            Glyph = Glyph.Share
-            Label = ValueNone
-            OnClick =
-              fun _ ->
-                onEvent(ShareRequested commit)
-                command commit
-          }
-
-        ToolTip.SetTip(button, "Share")
-        button
-      | _ -> Panel()
-
-    let report: Control =
-      match props.Report with
-      | ValueSome command when
-        commit.Status = Approved && commit.Author.Id <> props.ViewerId
-        ->
-        let button =
-          iconAction {
-            Name = "ReportButton"
-            Glyph = Glyph.Report
-            Label = ValueNone
-            OnClick =
-              fun _ ->
-                onEvent(ReportRequested commit)
-                command commit
-          }
-
-        ToolTip.SetTip(button, "Report")
-        button
-      | _ -> Panel()
+    // The More actions menu: the card's whole right end. The trigger
+    // toggles the site's rows under it; an absent slot draws nothing.
+    let menu: Control =
+      match props.Menu with
+      | ValueSome slot ->
+        CommitMenu.view {
+          Commit = commit
+          ViewerId = props.ViewerId
+          Slot = slot
+          OnOpened = fun commit -> onEvent(MenuOpened commit)
+          CopyLink = fun source -> copyLink(source, commit.HtmlUrl)
+        }
+      | ValueNone -> Panel()
 
     // The translate action: the site's Translate, below the body. It
     // shows while the site may translate the commit, and disables while
@@ -1285,6 +1286,7 @@ module Parts =
             Glyph = Glyph.Translate
             Label = ValueNone
             OnClick = fun _ -> onEvent(TranslateRequested commit)
+            Aria = ValueNone
           }
 
         built
@@ -1328,9 +1330,7 @@ module Parts =
       .LastChildFill(true)
       .Margin(0.0, 8.0, 0.0, 0.0)
       .Children(
-        link.DockRight(),
-        share.DockRight(),
-        report.DockRight(),
+        menu.DockRight(),
         StackPanel()
           .Orientation(Orientation.Horizontal)
           .Spacing(2.0)
@@ -1436,29 +1436,37 @@ let view(props: Props) : Control =
       Continues = continues
     }
 
-  Button()
-    .Classes(Theme.name Theme.CommitRow)
-    .Focusable(true)
-    .Content(grid.Children(rail.Column(0), contentColumn.Column(1)))
-    .OnClickHandler(fun _ _ -> props.OnEvent(Opened commit))
-    .OnKeyDownHandler(fun sender args ->
-      // The focused card answers its own quiet keys: the same events
-      // the row's buttons dispatch, the way the site's key shortcuts
-      // click the focused commit's buttons.
-      match args.Key, args.KeyModifiers with
-      | Key.Enter, KeyModifiers.None ->
-        args.Handled <- true
-        props.OnEvent(Opened commit)
-      | Key.R, KeyModifiers.None ->
-        args.Handled <- true
-        props.OnEvent(ReplyToggled commit)
-      | Key.Q, KeyModifiers.None ->
-        args.Handled <- true
-        props.OnEvent(QuoteRequested commit)
-      | Key.Y, KeyModifiers.None ->
-        args.Handled <- true
-        Parts.copyLink(sender, commit.HtmlUrl)
-      | _ -> ())
+  let rowButton =
+    Button()
+      .Classes(Theme.name Theme.CommitRow)
+      .Focusable(true)
+      .Content(grid.Children(rail.Column(0), contentColumn.Column(1)))
+      .OnClickHandler(fun _ _ -> props.OnEvent(Opened commit))
+      .OnKeyDownHandler(fun sender args ->
+        // The focused card answers its own quiet keys: the same events
+        // the row's buttons dispatch, the way the site's key shortcuts
+        // click the focused commit's buttons.
+        match args.Key, args.KeyModifiers with
+        | Key.Enter, KeyModifiers.None ->
+          args.Handled <- true
+          props.OnEvent(Opened commit)
+        | Key.R, KeyModifiers.None ->
+          args.Handled <- true
+          props.OnEvent(ReplyToggled commit)
+        | Key.Q, KeyModifiers.None ->
+          args.Handled <- true
+          props.OnEvent(QuoteRequested commit)
+        | Key.Y, KeyModifiers.None ->
+          args.Handled <- true
+          Parts.copyLink(sender, commit.HtmlUrl)
+        | _ -> ())
+
+  AutomationProperties.SetName(
+    rowButton,
+    $"Commit {commit.ShortHash} by @{commit.Author.Handle}"
+  )
+
+  rowButton
 
 let tombstone() : Control =
   let line =
@@ -1519,8 +1527,7 @@ type RowProps = {
   Star: ActionSlot voption
   Vote: ActionSlot voption
   Pastel: ActionSlot voption
-  Share: (Commit -> unit) voption
-  Report: (Commit -> unit) voption
+  Menu: MenuSlot voption
   Translation: IObservable<Commit -> TranslationView voption>
   Zone: Zone
 }
@@ -1546,8 +1553,7 @@ let feedRow (props: RowProps) (node: CommitNode) : Control =
       Star = props.Star
       Vote = props.Vote
       Pastel = props.Pastel
-      Share = props.Share
-      Report = props.Report
+      Menu = props.Menu
       Translation =
         props.Translation |> Observable.map(fun lookup -> lookup commit)
       Zone = props.Zone

@@ -5,12 +5,24 @@ open Avalonia.Controls
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.ImageCache
 open DevNull.Client.Formatting
+open DevNull.Client.Components.CommitMenu
 open DevNull.Client.Components.UserFlyout
+
+/// The viewer's relation to one commit's author, as the More menu
+/// asks for it: none until the page's read lands.
+type AuthorRelation = DevNull.Client.Components.CommitMenu.AuthorRelation
+
+/// The More actions one host offers a card: the share, report, and
+/// delete commands, the follow, mute, and block commands for another
+/// author, the relations the page has read (a function of the commit,
+/// the shape the translation slot uses), and the commit id whose menu
+/// action is in flight.
+type MenuSlot = DevNull.Client.Components.CommitMenu.MenuSlot
 
 /// What one card reports up: open the thread, reveal the reply
 /// composer, walk more replies of a thread preview, start a quote,
-/// choose a poll option, show the commit translated, ask the host to
-/// share it, or ask it to report it.
+/// choose a poll option, show the commit translated, or open the
+/// More menu — the page's cue to load the author relation.
 [<Struct>]
 type Event =
   | Opened of Commit
@@ -20,8 +32,7 @@ type Event =
   | PollChoiceChanged of Commit * PollOption * chosen: bool
   | TranslateRequested of Commit
   | OriginalRequested of Commit
-  | ShareRequested of Commit
-  | ReportRequested of Commit
+  | MenuOpened of Commit
 
 /// The pin affordance one host may offer: the command the toggle runs,
 /// and the commit id whose pin call is in flight, so its button
@@ -72,8 +83,9 @@ type TranslationView = {
 /// model holds for this commit; `Pin` offers the profile pin on the
 /// author's own top-level commits, where the host decides to show it at
 /// all; `Star`, `Vote`, and `Pastel` are the host-run actions, and a
-/// slot left absent leaves its control out of the card; `Translation`
-/// is what the card shows about the commit's translation.
+/// slot left absent leaves its control out of the card; `Menu` is the
+/// More actions the host offers the card; `Translation` is what the
+/// card shows about the commit's translation.
 [<Struct>]
 type Props = {
   Commit: Commit
@@ -89,12 +101,10 @@ type Props = {
   Star: ActionSlot voption
   Vote: ActionSlot voption
   Pastel: ActionSlot voption
-  /// The share action the host offers on an approved commit; an
-  /// absent slot leaves the control out of the card.
-  Share: (Commit -> unit) voption
-  /// The report action the host offers on another author's approved
-  /// commit; an absent slot leaves the control out of the card.
-  Report: (Commit -> unit) voption
+  /// The More actions the host offers this card — copy link, share,
+  /// report, delete, follow, mute, block — under the `···` trigger; an
+  /// absent slot draws nothing at the right end of the toolbar.
+  Menu: MenuSlot voption
   Translation: IObservable<TranslationView voption>
   /// The zone the header's time tooltip shows.
   Zone: Zone
@@ -163,8 +173,7 @@ type RowProps = {
   Star: ActionSlot voption
   Vote: ActionSlot voption
   Pastel: ActionSlot voption
-  Share: (Commit -> unit) voption
-  Report: (Commit -> unit) voption
+  Menu: MenuSlot voption
   Translation: IObservable<Commit -> TranslationView voption>
   Zone: Zone
 }

@@ -1,4 +1,4 @@
-module DevNull.Client.Views.LogView
+﻿module DevNull.Client.Views.LogView
 
 open System
 open System.Collections.Generic
@@ -14,6 +14,7 @@ open Navs
 open DevNull.Client
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Components
+open DevNull.Client.Components.CommitCard
 open DevNull.Client.Components.UserFlyout
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
@@ -105,6 +106,11 @@ module State =
     ShareOpen: Commit voption
     // The commit whose report dialog stands open.
     ReportOpen: Commit voption
+    // The viewer's relation per author handle, as the More menu reads
+    // it.
+    Relations: Map<string, AuthorRelation>
+    // The commit whose menu action is in flight, so its items disable.
+    MenuBusy: string option
   }
 
   type Msg =
@@ -142,6 +148,16 @@ module State =
     | Shared
     | ReportOpened of Commit
     | ReportClosed
+    | MenuOpened of Commit
+    | RelationLoaded of handle: string * AuthorRelation voption
+    | AuthorFollowToggled of Commit
+    | AuthorFollowDone of Commit * Result<unit, AppError>
+    | AuthorMuteToggled of Commit
+    | AuthorMuteDone of Commit * Result<MuteResult, AppError>
+    | AuthorBlockRequested of Commit
+    | AuthorBlockDone of Commit * Result<BlockResult, AppError>
+    | DeleteRequested of Commit
+    | Deleted of commitId: string * Result<unit, AppError>
 
   let initial = {
     Loading = true
@@ -165,6 +181,8 @@ module State =
     AutoRan = false
     ShareOpen = ValueNone
     ReportOpen = ValueNone
+    Relations = Map.empty
+    MenuBusy = None
   }
 
   // The id of the newest commit in a page: the head the since-poll
@@ -276,6 +294,26 @@ module State =
     |> List.map(function
       | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
       | node -> node)
+
+  // The marker one deleted commit folds to.
+  let tombstoneOf(commit: Commit) : Tombstone = {
+    Id = commit.Id
+    ParentId = commit.ParentId
+    DeletedAt = DateTimeOffset.UtcNow
+    RepliesCount = commit.RepliesCount
+  }
+
+  // The unread state the menu's words start from.
+  let unreadRelation: AuthorRelation = {
+    IsFollowing = false
+    IsMuting = false
+    IsBlocking = false
+  }
+
+  // The relation the page holds for one author handle, defaulting to
+  // the unread state the menu's words start from.
+  let heldRelation(model: Model, handle: string) : AuthorRelation =
+    model.Relations |> Map.tryFind handle |> Option.defaultValue unreadRelation
 
   // The batch that asks for the page's unknown translations, once the
   // settings say translations show by themselves. The batch's commits go
@@ -722,6 +760,223 @@ module State =
       },
       Cmd.none
     | ReportClosed -> { model with ReportOpen = ValueNone }, Cmd.none
+    | MenuOpened commit ->
+      // The relation the menu speaks loads once per author handle; the
+      // read carries no block flag, so that flag moves only when a
+      // block answers. The viewer's own commit needs no read at all.
+      if
+        commit.Author.Id = props.Session.Session.User.Id
+        || model.Relations |> Map.containsKey commit.Author.Handle
+      then
+        model, Cmd.none
+      else
+        model,
+        Cmd.OfAsync.perform
+          props.Env.Profiles.Fetch
+          commit.Author.Handle
+          (fun details ->
+            let toRelation(loaded: ProfileDetails) : AuthorRelation = {
+              IsFollowing = loaded.IsFollowing
+              IsMuting = loaded.IsMuting
+              IsBlocking = false
+            }
+
+            let relation =
+              details |> Option.map toRelation |> ValueOption.ofOption
+
+            RelationLoaded(commit.Author.Handle, relation))
+    | RelationLoaded(handle, relation) ->
+      (match relation with
+       | ValueSome current -> {
+           model with
+               Relations = model.Relations |> Map.add handle current
+         }
+       | ValueNone -> model),
+      Cmd.none
+    | AuthorFollowToggled commit ->
+      // The word flips at once and rolls back on a refusal, the way
+      // the site's toggle answers before the server does.
+      let held = heldRelation(model, commit.Author.Handle)
+
+      {
+        model with
+            MenuBusy = Some commit.Id
+            Relations =
+              model.Relations
+              |> Map.add commit.Author.Handle {
+                held with
+                    IsFollowing = not held.IsFollowing
+              }
+      },
+      Cmd.OfAsync.perform
+        CommitActions.toggleFollow
+        (props.Env,
+         {
+           Session = props.Session
+           Author = commit.Author
+           Flag = held.IsFollowing
+         })
+        (fun result -> AuthorFollowDone(commit, result))
+    | AuthorFollowDone(commit, result) ->
+      match result with
+      | Ok() ->
+        { model with MenuBusy = None },
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The follow of @{Author} settled.",
+            commit.Author.Handle
+          ))
+      | Error error ->
+        let held = heldRelation(model, commit.Author.Handle)
+
+        {
+          model with
+              MenuBusy = None
+              Relations =
+                model.Relations
+                |> Map.add commit.Author.Handle {
+                  held with
+                      IsFollowing = not held.IsFollowing
+                }
+        },
+        failed "the follow toggle" error
+    | AuthorMuteToggled commit ->
+      let held = heldRelation(model, commit.Author.Handle)
+
+      {
+        model with
+            MenuBusy = Some commit.Id
+            Relations =
+              model.Relations
+              |> Map.add commit.Author.Handle {
+                held with
+                    IsMuting = not held.IsMuting
+              }
+      },
+      Cmd.OfAsync.perform
+        CommitActions.toggleMute
+        (props.Env,
+         {
+           Session = props.Session
+           Author = commit.Author
+           Flag = held.IsMuting
+         })
+        (fun result -> AuthorMuteDone(commit, result))
+    | AuthorMuteDone(commit, result) ->
+      match result with
+      | Ok mute ->
+        // The server's answer is the truth the state keeps.
+        let held = heldRelation(model, commit.Author.Handle)
+
+        {
+          model with
+              MenuBusy = None
+              Relations =
+                model.Relations
+                |> Map.add commit.Author.Handle {
+                  held with
+                      IsMuting = mute.IsMuting
+                }
+        },
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The mute of @{Author} settled.", commit.Author.Handle))
+      | Error error ->
+        let held = heldRelation(model, commit.Author.Handle)
+
+        {
+          model with
+              MenuBusy = None
+              Relations =
+                model.Relations
+                |> Map.add commit.Author.Handle {
+                  held with
+                      IsMuting = not held.IsMuting
+                }
+        },
+        failed "the mute toggle" error
+    | AuthorBlockRequested commit ->
+      let held = heldRelation(model, commit.Author.Handle)
+
+      { model with MenuBusy = Some commit.Id },
+      Cmd.OfAsync.perform
+        CommitActions.blockAuthor
+        (props.Env,
+         {
+           Session = props.Session
+           Author = commit.Author
+           Flag = held.IsBlocking
+         })
+        (fun result -> AuthorBlockDone(commit, result))
+    | AuthorBlockDone(commit, result) ->
+      match result with
+      | Ok blocked ->
+        let held = heldRelation(model, commit.Author.Handle)
+
+        {
+          model with
+              MenuBusy = None
+              Relations =
+                model.Relations
+                |> Map.add commit.Author.Handle {
+                  held with
+                      IsBlocking = blocked.IsBlocking
+                }
+        },
+        Cmd.ofAction(fun () ->
+          log.LogInformation(
+            "The block of @{Author} settled.",
+            commit.Author.Handle
+          ))
+      | Error error ->
+        {
+          model with
+              MenuBusy = None
+              Error = Some error
+        },
+        failed "the block toggle" error
+    | DeleteRequested commit ->
+      {
+        model with
+            MenuBusy = Some commit.Id
+            Error = None
+      },
+      Cmd.OfAsync.perform
+        Commits.delete
+        (props.Env,
+         {
+           KeyFile = props.Session.KeyFile
+           CommitId = commit.Id
+         })
+        (fun result -> Deleted(commit.Id, result))
+    | Deleted(commitId, result) ->
+      match result with
+      | Ok() ->
+        // The row folds to its marker; the shell answers with the undo
+        // toast and owns the restore.
+        {
+          model with
+              Items =
+                model.Items
+                |> List.map(function
+                  | LiveCommit commit when commit.Id = commitId ->
+                    Tombstone(tombstoneOf commit)
+                  | node -> node)
+              MenuBusy = None
+        },
+        Cmd.batch [
+          Cmd.ofAction(fun () ->
+            (props.Env :> IProvideTimeline).Timeline.AnnounceDeletion commitId)
+
+          Cmd.ofAction(fun () ->
+            log.LogInformation("The commit {Commit} was deleted.", commitId))
+        ]
+      | Error error ->
+        {
+          model with
+              MenuBusy = None
+              Error = Some error
+        },
+        failed "the commit deletion" error
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
@@ -848,7 +1103,11 @@ module State =
     match logRow with
     | LogRow.Day label -> "day:" + label
     | LogRow.Node commit -> commit.Id
-    | LogRow.TombstoneRow tombstone -> tombstone.Id
+
+    // The deletion marker rides its own row identity, so the fold from
+    // a live commit swaps the row instead of keeping the old one under
+    // the shared id.
+    | LogRow.TombstoneRow tombstone -> "deleted:" + tombstone.Id
     | LogRow.LastVisitRow -> "last-visit"
 
 // The page's semantic regions; the view only composes these.
@@ -1098,19 +1357,35 @@ let view
             dispatch(State.TranslateRequested commit)
           | CommitCard.OriginalRequested commit ->
             dispatch(State.OriginalRequested commit)
-          | CommitCard.ShareRequested _ -> ()
-          | CommitCard.ReportRequested _ -> ()
+          | CommitCard.MenuOpened commit -> dispatch(State.MenuOpened commit)
         ViewerId = props.Session.Session.User.Id
         Images = props.Env.ImageCache
         Flyout = Parts.flyoutOf props
         Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
         OnPin = ValueNone
-        OnShare =
-          if props.Session.Session.Remotes.IsSome then
-            ValueSome(State.ShareOpened >> dispatch)
-          else
-            ValueNone
-        OnReport = ValueSome(State.ReportOpened >> dispatch)
+        Menu =
+          ValueSome {
+            Share =
+              if props.Session.Session.Remotes.IsSome then
+                ValueSome(State.ShareOpened >> dispatch)
+              else
+                ValueNone
+            Report = ValueSome(State.ReportOpened >> dispatch)
+            Delete =
+              ValueSome(fun commit -> dispatch(State.DeleteRequested commit))
+            ToggleFollow =
+              fun commit -> dispatch(State.AuthorFollowToggled commit)
+            ToggleMute = fun commit -> dispatch(State.AuthorMuteToggled commit)
+            Block = fun commit -> dispatch(State.AuthorBlockRequested commit)
+            Relations =
+              model
+              |> Observable.map(fun current ->
+                fun commit ->
+                  current.Relations
+                  |> Map.tryFind commit.Author.Handle
+                  |> ValueOption.ofOption)
+            Busy = model |> Observable.map _.MenuBusy
+          }
         Actions = true
         OnStar = fun commit -> dispatch(State.StarToggled commit)
         OnVote = fun commit -> dispatch(State.PollVoteRequested commit)

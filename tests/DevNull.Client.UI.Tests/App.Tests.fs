@@ -178,6 +178,51 @@ let clickWhenShown(window: Window, text: string) : Async<unit> = async {
   do! onUiAsync(fun () -> buttonWithText(window, text) |> Option.iter click)
 }
 
+/// The menu's popup card content, once the menu stood open: the rows
+/// live under the popup's child, which roots under the popup layer
+/// while the menu stands.
+let menuContentOf(root: Control) : Control option =
+  controlByName(root, "CommitMenuFlyout")
+  |> Option.bind(fun control ->
+    match control with
+    | :? Popup as popup -> Option.ofObj popup.Child
+    | _ -> None)
+
+/// One row of the open menu by its words.
+let menuRowOf(window: Window, label: string) : Button option =
+  menuContentOf window
+  |> Option.bind(fun content -> buttonWithText(content, label))
+
+/// The verb button of the one open destructive ask.
+let confirmVerbOf(window: Window, verb: string) : Button option =
+  menuContentOf window
+  |> Option.bind(fun content ->
+    content.GetVisualDescendants()
+    |> Seq.tryPick(fun visual ->
+      match visual with
+      | :? Popup as popup when popup.Name = "ConfirmFlyout" && popup.IsOpen ->
+        Some popup
+      | _ -> None))
+  |> Option.bind(fun popup -> Option.ofObj popup.Child)
+  |> Option.bind(fun card -> buttonWithText(card, verb))
+
+/// Opens the first card's More menu through its trigger.
+let openOwnMenu(window: Window) : Async<unit> = async {
+  let! trigger =
+    waitForAsync(
+      5000,
+      (fun () -> controlByName(window, "CommitMenuButton")),
+      Option.isSome
+    )
+
+  Expect.isTrue trigger "the card offered no menu trigger"
+
+  do!
+    onUiAsync(fun () ->
+      controlByName(window, "CommitMenuButton")
+      |> Option.iter(fun control -> click(control :?> Button)))
+}
+
 let notificationDayTests =
   testList "notification inbox rows" [
     testCaseAsync
@@ -858,11 +903,33 @@ let tests =
 
         Expect.isTrue shown "the log never rendered"
 
+        do! openOwnMenu window
+
+        let! row =
+          waitForAsync(
+            5000,
+            (fun () -> menuRowOf(window, "Delete commit")),
+            Option.isSome
+          )
+
+        Expect.isTrue row "the menu never carried the delete row"
+
         do!
           onUiAsync(fun () ->
-            buttonWithText(window, "My own commit.") |> Option.iter click)
+            menuRowOf(window, "Delete commit") |> Option.iter click)
 
-        do! clickWhenShown(window, "Delete commit")
+        let! ask =
+          waitForAsync(
+            5000,
+            (fun () -> confirmVerbOf(window, "Delete")),
+            Option.isSome
+          )
+
+        Expect.isTrue ask "the delete ask never stood"
+
+        do!
+          onUiAsync(fun () ->
+            confirmVerbOf(window, "Delete") |> Option.iter click)
 
         let! toast = showsText(window, "Commit deleted.")
 
@@ -910,11 +977,33 @@ let tests =
 
         Expect.isTrue shown "the log never rendered"
 
+        do! openOwnMenu window
+
+        let! row =
+          waitForAsync(
+            5000,
+            (fun () -> menuRowOf(window, "Delete commit")),
+            Option.isSome
+          )
+
+        Expect.isTrue row "the menu never carried the delete row"
+
         do!
           onUiAsync(fun () ->
-            buttonWithText(window, "My own commit.") |> Option.iter click)
+            menuRowOf(window, "Delete commit") |> Option.iter click)
 
-        do! clickWhenShown(window, "Delete commit")
+        let! ask =
+          waitForAsync(
+            5000,
+            (fun () -> confirmVerbOf(window, "Delete")),
+            Option.isSome
+          )
+
+        Expect.isTrue ask "the delete ask never stood"
+
+        do!
+          onUiAsync(fun () ->
+            confirmVerbOf(window, "Delete") |> Option.iter click)
 
         let! toast = showsText(window, "Commit deleted.")
 
@@ -4645,23 +4734,20 @@ let tests =
 
         Expect.isTrue shown "the log never rendered"
 
+        do! openOwnMenu window
+
         let! link =
           waitForAsync(
             5000,
-            (fun () -> controlByName(window, "LinkButton")),
-            (fun control ->
-              control
-              |> Option.map(fun c -> c :? Button)
-              |> Option.defaultValue false)
+            (fun () -> menuRowOf(window, "Copy link")),
+            Option.isSome
           )
 
         Expect.isTrue link "the link action never appeared"
 
         do!
           onUiAsync(fun () ->
-            controlByName(window, "LinkButton")
-            |> Option.map(fun control -> control :?> Button)
-            |> Option.iter click)
+            menuRowOf(window, "Copy link") |> Option.iter click)
 
         let! url =
           probeUiAsync(fun () ->

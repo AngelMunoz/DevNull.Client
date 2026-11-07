@@ -10,6 +10,7 @@ open System.Reactive.Subjects
 open System.Threading.Tasks
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.Primitives
 open Avalonia.Headless
 open Avalonia.Input
 open Avalonia.VisualTree
@@ -31,6 +32,7 @@ open DevNull.Client.UI.Tests.Report
 open DevNull.Client.UI.Tests.Share
 
 module CommitCard = DevNull.Client.Components.CommitCard
+module CommitMenu = DevNull.Client.Components.CommitMenu
 
 /// A thread with enough replies to scroll one page, so the capture
 /// shows content under the band after a scroll.
@@ -890,8 +892,14 @@ let captureTests =
       let! shown = showsText(window, "The Octocat")
       Expect.isTrue shown "the log never rendered"
 
+      do! openMenuAsync window
+
       let! offered =
-        waitForAsync(5000, (fun () -> shareButton window), Option.isSome)
+        waitForAsync(
+          5000,
+          (fun () -> menuRow(window, "Send in Remotes")),
+          Option.isSome
+        )
 
       Expect.isTrue offered "the approved card offered no share control"
 
@@ -912,9 +920,13 @@ let captureTests =
       let! window, _ = startShareShell(signedInStore(), api :> IHttp)
       let! shown = showsText(window, "The Octocat")
       Expect.isTrue shown "the log never rendered"
+      do! openMenuAsync window
       do! settleAsync()
 
-      let! absent = probeUiAsync(fun () -> shareButton window |> Option.isNone)
+      let! absent =
+        probeUiAsync(fun () ->
+          menuRow(window, "Send in Remotes") |> Option.isNone)
+
       Expect.isTrue absent "the card offered share with the remotes off"
 
       let! path = captureAsync("F12/f12-card-remotes-off", window)
@@ -939,10 +951,12 @@ let captureTests =
         let! window, _ = startShareShell(remotesStoreOn(), api :> IHttp)
         let! shown = showsText(window, "The Octocat")
         Expect.isTrue shown $"the {status} log never rendered"
+        do! openMenuAsync window
         do! settleAsync()
 
         let! absent =
-          probeUiAsync(fun () -> shareButton window |> Option.isNone)
+          probeUiAsync(fun () ->
+            menuRow(window, "Send in Remotes") |> Option.isNone)
 
         Expect.isTrue absent $"the {status} card offered share"
 
@@ -964,8 +978,14 @@ let captureTests =
       let! shown = showsText(window, "My own commit.")
       Expect.isTrue shown "the own log never rendered"
 
+      do! openMenuAsync window
+
       let! offered =
-        waitForAsync(5000, (fun () -> shareButton window), Option.isSome)
+        waitForAsync(
+          5000,
+          (fun () -> menuRow(window, "Send in Remotes")),
+          Option.isSome
+        )
 
       Expect.isTrue offered "the own commit offered no share control"
 
@@ -990,8 +1010,14 @@ let captureTests =
       do! onUiAsync(fun () -> window.Width <- 380.0)
       do! settleAsync()
 
+      do! openMenuAsync window
+
       let! offered =
-        waitForAsync(5000, (fun () -> shareButton window), Option.isSome)
+        waitForAsync(
+          5000,
+          (fun () -> menuRow(window, "Send in Remotes")),
+          Option.isSome
+        )
 
       Expect.isTrue offered "the narrow card offered no share control"
 
@@ -1021,24 +1047,14 @@ let captureTests =
 
       let! commits = showsText(window, "It was DNS.")
       Expect.isTrue commits "the profile feed never rendered its commit"
+
+      do! openMenuAsync window
       do! settleAsync()
 
-      let! link =
-        waitForAsync(
-          5000,
-          (fun () -> controlByName(window, "LinkButton")),
-          Option.isSome
-        )
+      let! absent =
+        probeUiAsync(fun () ->
+          menuRow(window, "Send in Remotes") |> Option.isNone)
 
-      Expect.isTrue link "the profile card offered no link action"
-
-      do!
-        onUiAsync(fun () ->
-          controlByName(window, "LinkButton") |> Option.iter _.BringIntoView())
-
-      do! settleAsync()
-
-      let! absent = probeUiAsync(fun () -> shareButton window |> Option.isNone)
       Expect.isTrue absent "the unwired card offered share"
 
       let! path = captureAsync("F12/f12-card-unwired", window)
@@ -1058,6 +1074,24 @@ let captureTests =
         new BehaviorSubject<Commit -> CommitCard.TranslationView voption>(fun _ ->
           ValueNone)
 
+      let relations =
+        new BehaviorSubject<Commit -> CommitMenu.AuthorRelation voption>(fun _ ->
+          ValueNone)
+
+      let busy = new BehaviorSubject<string option>(None)
+
+      let menu: CommitMenu.MenuSlot voption =
+        ValueSome {
+          Share = ValueSome ignore
+          Report = ValueNone
+          Delete = ValueNone
+          ToggleFollow = ignore
+          ToggleMute = ignore
+          Block = ignore
+          Relations = relations :> IObservable<_>
+          Busy = busy :> IObservable<_>
+        }
+
       let props: CommitCard.RowProps = {
         OnEvent = ignore
         ViewerId = commit.Author.Id
@@ -1071,8 +1105,7 @@ let captureTests =
         Star = ValueNone
         Vote = ValueNone
         Pastel = ValueNone
-        Share = ValueSome ignore
-        Report = ValueNone
+        Menu = menu
         Translation = translation
         Zone = zoneOf(None: UserSettings option)
       }
@@ -1091,8 +1124,11 @@ let captureTests =
 
       do! settleAsync()
 
-      let! offered = probeUiAsync(fun () -> shareButton window |> Option.isSome)
-      Expect.isTrue offered "the dense card offered no share control"
+      let! trigger =
+        probeUiAsync(fun () ->
+          controlByName(window, "CommitMenuButton") |> Option.isSome)
+
+      Expect.isTrue trigger "the dense card offered no menu trigger"
 
       let! path = captureAsync("F12/f12-card-dense", window)
       let bytes = IO.File.ReadAllBytes(path)
@@ -1667,8 +1703,14 @@ let captureTests =
       let! window =
         startReportShell("The Hubot", api :> IHttp, FakeAttachments())
 
+      do! openMenuAsync window
+
       let! offered =
-        waitForAsync(5000, (fun () -> reportButton window), Option.isSome)
+        waitForAsync(
+          5000,
+          (fun () -> menuRow(window, "Report commit")),
+          Option.isSome
+        )
 
       Expect.isTrue offered "the card offered no report control"
 
@@ -1685,9 +1727,13 @@ let captureTests =
       let! window =
         startReportShell("The Octocat", api :> IHttp, FakeAttachments())
 
+      do! openMenuAsync window
       do! settleAsync()
 
-      let! absent = probeUiAsync(fun () -> reportButton window |> Option.isNone)
+      let! absent =
+        probeUiAsync(fun () ->
+          menuRow(window, "Report commit") |> Option.isNone)
+
       Expect.isTrue absent "the own card offered report"
 
       let! path = captureAsync("F10/f10-card-own", window)
@@ -1710,9 +1756,14 @@ let captureTests =
 
       let! commits = showsText(window, "It was DNS.")
       Expect.isTrue commits "the profile feed never rendered its commit"
+
+      do! openMenuAsync window
       do! settleAsync()
 
-      let! absent = probeUiAsync(fun () -> reportButton window |> Option.isNone)
+      let! absent =
+        probeUiAsync(fun () ->
+          menuRow(window, "Report commit") |> Option.isNone)
+
       Expect.isTrue absent "the unwired profile card offered report"
 
       let! path = captureAsync("F10/f10-card-unwired", window)
@@ -1734,6 +1785,24 @@ let captureTests =
         new BehaviorSubject<Commit -> CommitCard.TranslationView voption>(fun _ ->
           ValueNone)
 
+      let relations =
+        new BehaviorSubject<Commit -> CommitMenu.AuthorRelation voption>(fun _ ->
+          ValueNone)
+
+      let busy = new BehaviorSubject<string option>(None)
+
+      let menu: CommitMenu.MenuSlot voption =
+        ValueSome {
+          Share = ValueNone
+          Report = ValueSome ignore
+          Delete = ValueNone
+          ToggleFollow = ignore
+          ToggleMute = ignore
+          Block = ignore
+          Relations = relations :> IObservable<_>
+          Busy = busy :> IObservable<_>
+        }
+
       let props: CommitCard.RowProps = {
         OnEvent = ignore
         ViewerId = viewerId
@@ -1747,8 +1816,7 @@ let captureTests =
         Star = ValueNone
         Vote = ValueNone
         Pastel = ValueNone
-        Share = ValueSome ignore
-        Report = ValueSome ignore
+        Menu = menu
         Translation = translation
         Zone = zoneOf(None: UserSettings option)
       }
@@ -1767,10 +1835,11 @@ let captureTests =
 
       do! settleAsync()
 
-      let! offered =
-        probeUiAsync(fun () -> reportButton window |> Option.isSome)
+      let! trigger =
+        probeUiAsync(fun () ->
+          controlByName(window, "CommitMenuButton") |> Option.isSome)
 
-      Expect.isTrue offered "the dense card offered no report control"
+      Expect.isTrue trigger "the dense card offered no menu trigger"
 
       let! path = captureAsync("F10/f10-card-dense", window)
       let bytes = IO.File.ReadAllBytes(path)
@@ -2216,6 +2285,262 @@ let captureTests =
       do! scrollReportToEndAsync window
 
       let! path = captureAsync("F10/f10-dialog-short", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Close())
+    }
+
+    // F1 — the commit card's More menu. The popup layer roots its
+    // content under the popup root, which never reaches the window's
+    // captured frame, so the open-menu and ask captures mount the
+    // popup's content control directly in a plain window.
+
+    /// A hand-built slot for the menu captures, with the relation the
+    /// capture wants and nothing in flight.
+    let menuSlot
+      (share: bool, report: bool, delete: bool, relation: bool)
+      : CommitMenu.MenuSlot =
+      let relations =
+        new BehaviorSubject<Commit -> CommitMenu.AuthorRelation voption>(fun _ ->
+          if relation then
+            ValueSome {
+              IsFollowing = false
+              IsMuting = false
+              IsBlocking = false
+            }
+          else
+            ValueNone)
+
+      let busy = new BehaviorSubject<string option>(None)
+
+      {
+        Share = (if share then ValueSome ignore else ValueNone)
+        Report = (if report then ValueSome ignore else ValueNone)
+        Delete = (if delete then ValueSome ignore else ValueNone)
+        ToggleFollow = ignore
+        ToggleMute = ignore
+        Block = ignore
+        Relations = relations :> IObservable<_>
+        Busy = busy :> IObservable<_>
+      }
+
+    /// Builds the menu over the given commit in memory and lifts the
+    /// popup's card out before anything attaches: the popup layer
+    /// never reaches the window's captured frame, so the card mounts
+    /// on its own for the capture.
+    let menuCardOf(slot: CommitMenu.MenuSlot, commit: Commit) : Control =
+      let menu =
+        CommitMenu.view {
+          Commit = commit
+          ViewerId = viewerId
+          Slot = slot
+          OnOpened = ignore
+          CopyLink = ignore
+        }
+
+      let flyout =
+        menu.GetVisualDescendants()
+        |> Seq.tryPick(fun visual ->
+          match visual with
+          | :? Popup as popup when popup.Name = "CommitMenuFlyout" ->
+            Some popup
+          | _ -> None)
+
+      match flyout with
+      | Some popup ->
+        let card = popup.Child
+        popup.Child <- null
+        card
+      | None -> failwith "the menu never carried its flyout"
+
+    /// The canned stranger commit.
+    let strangerCommit() : Commit =
+      match LogPage.decode hubotLog with
+      | Ok page ->
+        match page.Page.Items with
+        | [ LiveCommit commit ] -> commit
+        | _ -> failwith "the hubot log never carried its commit"
+      | Error failure ->
+        failwith $"the hubot log never decoded: {failure.Message}"
+
+    /// The canned viewer's own commit.
+    let ownCommit() : Commit =
+      match LogPage.decode ownLogJson with
+      | Ok page ->
+        page.Page.Items
+        |> List.tryPick(function
+          | LiveCommit commit when commit.Author.Id = viewerId -> Some commit
+          | _ -> None)
+        |> Option.defaultWith(fun () ->
+          failwith "the own log never carried its commit")
+      | Error failure ->
+        failwith $"the own log never decoded: {failure.Message}"
+
+    /// Mounts the menu card in its own window.
+    let mountMenuCard
+      (slot: CommitMenu.MenuSlot, commit: Commit)
+      : Async<Window> = async {
+      let! card = probeUiAsync(fun () -> menuCardOf(slot, commit))
+      return! mountAsync card
+    }
+
+    /// Lifts the one open destructive ask out of the mounted menu card
+    /// and mounts it on its own. The popup closes first, so its child
+    /// lets go of the popup before it re-parents.
+    let mountAskAsync(menuCardWindow: Window) : Async<Window> = async {
+      let! ask =
+        probeUiAsync(fun () ->
+          menuCardWindow.GetVisualDescendants()
+          |> Seq.tryPick(fun visual ->
+            match visual with
+            | :? Popup as popup when
+              popup.Name = "ConfirmFlyout" && popup.IsOpen
+              ->
+              popup.IsOpen <- false
+              let card = popup.Child
+              popup.Child <- null
+              Some card
+            | _ -> None))
+
+      Expect.isSome ask "the open ask never carried its card"
+
+      return! mountAsync ask.Value
+    }
+
+    testAsync "the own card's toolbar carries the More trigger" {
+      let api =
+        shareApi {
+          Log = ownLogJson
+          Candidates = (fun _ -> candidatesAnswer [])
+          Post = (fun _ -> ok "{}")
+          Sent = None
+        }
+
+      let! window, _ = startShareShell(remotesStoreOn(), api :> IHttp)
+      let! shown = showsText(window, "My own commit.")
+      Expect.isTrue shown "the log never rendered"
+      do! settleAsync()
+
+      let! path = captureAsync("F1/f1-card-own-menu-closed", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Close())
+    }
+
+    testAsync "the stranger card's toolbar carries the More trigger" {
+      let api =
+        shareApi {
+          Log = shareLogJson
+          Candidates = (fun _ -> candidatesAnswer [])
+          Post = (fun _ -> ok "{}")
+          Sent = None
+        }
+
+      let! window, _ = startShareShell(remotesStoreOn(), api :> IHttp)
+      let! shown = showsText(window, "It was DNS.")
+      Expect.isTrue shown "the log never rendered"
+      do! settleAsync()
+
+      let! path = captureAsync("F1/f1-card-stranger-menu-closed", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Close())
+    }
+
+    testAsync "the open menu over a stranger card, relation loaded" {
+      let! cardWindow =
+        mountMenuCard(menuSlot(true, true, false, true), strangerCommit())
+
+      do! settleAsync()
+
+      let! path = captureAsync("F1/f1-menu-open-stranger", cardWindow)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> cardWindow.Close())
+    }
+
+    testAsync "the open menu over an own card" {
+      let! cardWindow =
+        mountMenuCard(menuSlot(false, false, true, false), ownCommit())
+
+      do! settleAsync()
+
+      let! path = captureAsync("F1/f1-menu-open-own", cardWindow)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> cardWindow.Close())
+    }
+
+    testAsync "the block ask" {
+      let! cardWindow =
+        mountMenuCard(menuSlot(false, true, false, true), strangerCommit())
+
+      do! settleAsync()
+
+      do!
+        onUiAsync(fun () ->
+          buttonWithText(cardWindow, "Block @hubot") |> Option.iter click)
+
+      let! askWindow = mountAskAsync cardWindow
+      do! settleAsync()
+
+      let! path = captureAsync("F1/f1-menu-block-confirm", askWindow)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do!
+        onUiAsync(fun () ->
+          askWindow.Close()
+          cardWindow.Close())
+    }
+
+    testAsync "the delete ask" {
+      let! cardWindow =
+        mountMenuCard(menuSlot(false, false, true, false), ownCommit())
+
+      do! settleAsync()
+
+      do!
+        onUiAsync(fun () ->
+          buttonWithText(cardWindow, "Delete commit") |> Option.iter click)
+
+      let! askWindow = mountAskAsync cardWindow
+      do! settleAsync()
+
+      let! path = captureAsync("F1/f1-menu-delete-confirm", askWindow)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do!
+        onUiAsync(fun () ->
+          askWindow.Close()
+          cardWindow.Close())
+    }
+
+    testAsync "a pending commit's card" {
+      let api =
+        shareApi {
+          Log =
+            shareLogJson.Replace(
+              "\"status\":\"approved\"",
+              "\"status\":\"pending\""
+            )
+          Candidates = (fun _ -> candidatesAnswer [])
+          Post = (fun _ -> ok "{}")
+          Sent = None
+        }
+
+      let! window, _ = startShareShell(remotesStoreOn(), api :> IHttp)
+      let! shown = showsText(window, "It was DNS.")
+      Expect.isTrue shown "the log never rendered"
+      do! settleAsync()
+
+      let! path = captureAsync("F1/f1-card-pending", window)
       let bytes = IO.File.ReadAllBytes(path)
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
 

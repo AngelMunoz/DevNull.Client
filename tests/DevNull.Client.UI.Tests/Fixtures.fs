@@ -118,17 +118,25 @@ type FakeAttachments() =
     member this.ReadClipboardText() = async { return this.ClipboardText }
 
 /// The fake profile worker: one canned answer, every username
-/// recorded.
+/// recorded. A set gate holds every read until the test releases it,
+/// so a waiting read can be caught mid-flight.
 type FakeProfiles() =
   let asked = ResizeArray<string>()
 
   member val Details: ProfileDetails option = None with get, set
+
+  member val Gate: TaskCompletionSource<unit> option = None with get, set
 
   member _.Asked = asked |> Seq.toList
 
   interface IProfiles with
     member this.Fetch(username: string) = async {
       asked.Add username
+
+      match this.Gate with
+      | Some gate -> do! gate.Task |> Async.AwaitTask
+      | None -> ()
+
       return this.Details
     }
 

@@ -133,6 +133,10 @@
     <Compile Include="Components\ComposerToolbar.fs" />
     <Compile Include="Components\WhoToFollow.fsi" />
     <Compile Include="Components\WhoToFollow.fs" />
+    <Compile Include="Components\MenuPicks.fsi" />
+    <Compile Include="Components\MenuPicks.fs" />
+    <Compile Include="Components\CommitMenu.fsi" />
+    <Compile Include="Components\CommitMenu.fs" />
     <Compile Include="Components\CommitCard.fsi" />
     <Compile Include="Components\CommitCard.fs" />
     <Compile Include="Components\SearchDialog.fsi" />

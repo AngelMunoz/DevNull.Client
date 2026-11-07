@@ -73,6 +73,59 @@ let pastel
 
   Pasteis.give(env, request)
 
+/// One author toggle: the signed-in session, the author the More menu
+/// speaks of, and the relation flag the page holds.
+[<Struct>]
+type ToggleArgs = {
+  Session: SignedInSession
+  Author: User
+  /// The held state the direction follows: held following unfollows,
+  /// held muting unmutes, held blocking unblocks.
+  Flag: bool
+}
+
+// The signed request one author toggle sends.
+let authorRequest(args: ToggleArgs) : Users.Request = {
+  KeyFile = args.Session.KeyFile
+  Username = args.Author.Handle
+}
+
+/// Follows or unfollows one author, the way the card menu's follow
+/// item asks.
+let toggleFollow
+  (
+    env: #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp,
+    args: ToggleArgs
+  ) : Async<Result<unit, AppError>> =
+  if args.Flag then
+    Users.unfollow(env, authorRequest args)
+  else
+    Users.follow(env, authorRequest args)
+
+/// Mutes or unmutes one author, the way the card menu's mute item
+/// asks, and answers with the server's own mute state.
+let toggleMute
+  (
+    env: #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp,
+    args: ToggleArgs
+  ) : Async<Result<MuteResult, AppError>> =
+  if args.Flag then
+    Users.unmute(env, authorRequest args)
+  else
+    Users.mute(env, authorRequest args)
+
+/// Blocks or unblocks one author, the way the card menu's block ask
+/// confirms, and answers with the server's own block state.
+let blockAuthor
+  (
+    env: #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp,
+    args: ToggleArgs
+  ) : Async<Result<BlockResult, AppError>> =
+  if args.Flag then
+    Users.unblock(env, authorRequest args)
+  else
+    Users.block(env, authorRequest args)
+
 /// Logs one card action's failure through the given logger, the
 /// action's name and the bounded server message kept as separate
 /// fields. Curried so a page binds its logger once.

@@ -1161,6 +1161,162 @@ let tests =
       })
 
     testCaseAsync
+      "the back line returns to Following, the log the reader left"
+      (async {
+        let api = threadApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        // The fake's targets name each log, so the boot's latest reads
+        // never count for the walk's own.
+        let readsOf(target: string) =
+          api.Requests
+          |> List.filter(fun request ->
+            request.Method = "GET" && request.Target.StartsWith target)
+          |> List.length
+
+        do! clickWhenShown(window, "Following")
+
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> readsOf "/api/v1/log/following"),
+            (fun count -> count > 0)
+          )
+
+        Expect.isTrue opened "the following log was never requested"
+
+        do! clickWhenShown(window, "It was DNS.")
+
+        let! thread = showsText(window, "Back to the log")
+
+        Expect.isTrue thread "the thread never rendered"
+
+        do! clickWhenShown(window, "Back to the log")
+
+        let! back =
+          waitForAsync(
+            5000,
+            (fun () -> readsOf "/api/v1/log/following"),
+            (fun count -> count > 1)
+          )
+
+        Expect.isTrue back "the back press never returned to Following"
+
+        // The chrome rides the route, so the tab the reader left is
+        // the checked one once the page returns.
+        let! checkedTab =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              let tabState(text: string) =
+                buttonWithText(root, text)
+                |> Option.bind(fun button ->
+                  match button with
+                  | :? ToggleButton as toggle -> Some toggle.IsChecked
+                  | _ -> None)
+
+              match tabState "Following", tabState "Trending" with
+              | Some following, Some trending ->
+                following.GetValueOrDefault false
+                && not(trending.GetValueOrDefault false)
+              | _ -> false)
+          )
+
+        Expect.isTrue checkedTab "the Following tab never checked again"
+      })
+
+    testCaseAsync
+      "the back line returns to Trending, the log the reader left"
+      (async {
+        let api = threadApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        let readsOf(target: string) =
+          api.Requests
+          |> List.filter(fun request ->
+            request.Method = "GET" && request.Target.StartsWith target)
+          |> List.length
+
+        do! clickWhenShown(window, "Trending")
+
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> readsOf "/api/v1/log/trending"),
+            (fun count -> count > 0)
+          )
+
+        Expect.isTrue opened "the trending log was never requested"
+
+        do! clickWhenShown(window, "It was DNS.")
+
+        let! thread = showsText(window, "Back to the log")
+
+        Expect.isTrue thread "the thread never rendered"
+
+        do! clickWhenShown(window, "Back to the log")
+
+        let! back =
+          waitForAsync(
+            5000,
+            (fun () -> readsOf "/api/v1/log/trending"),
+            (fun count -> count > 1)
+          )
+
+        Expect.isTrue back "the back press never returned to Trending"
+
+        let! checkedTab =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root ->
+              let tabState(text: string) =
+                buttonWithText(root, text)
+                |> Option.bind(fun button ->
+                  match button with
+                  | :? ToggleButton as toggle -> Some toggle.IsChecked
+                  | _ -> None)
+
+              match tabState "Following", tabState "Trending" with
+              | Some following, Some trending ->
+                not(following.GetValueOrDefault false)
+                && trending.GetValueOrDefault false
+              | _ -> false)
+          )
+
+        Expect.isTrue checkedTab "the Trending tab never checked again"
+      })
+
+    testCase "the back target falls back to Latest without a record"
+    <| fun () ->
+      let timeline = TimelineService.create()
+
+      Expect.isNone timeline.LastLog "a fresh timeline already knows a log"
+
+      timeline.RememberLog Trending
+
+      Expect.equal timeline.LastLog (Some Trending) "the record never landed"
+
+      Expect.equal
+        (CommitDetailView.Parts.backTarget None)
+        "/log/latest"
+        "the no-record back target left Latest"
+
+      Expect.equal
+        (CommitDetailView.Parts.backTarget(Some Trending))
+        "/log/trending"
+        "the remembered back target left the remembered log"
+
+    testCaseAsync
       "a signed-out visitor is sent to sign-in by the guard"
       (async {
         let store = signedInStore()
@@ -2587,6 +2743,78 @@ let tests =
 
         // The cached log page comes back with its rows; the offset it
         // left is the offset it still holds.
+        let! back =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "Card 6."))
+          )
+
+        Expect.isTrue back "the log never came back"
+
+        let! after = probeUiAsync(fun () -> feedOffset window)
+
+        Expect.isGreaterThan after (before - 0.5) "the log scroll reset"
+      })
+
+    testCaseAsync
+      "a Following thread and back keeps the log's scroll"
+      (async {
+        let api = manyCardsApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "Card 1.")
+
+        Expect.isTrue shown "the first card never rendered"
+
+        let readsOf(target: string) =
+          api.Requests
+          |> List.filter(fun request ->
+            request.Method = "GET" && request.Target.StartsWith target)
+          |> List.length
+
+        do! clickWhenShown(window, "Following")
+
+        // The tab's page is a fresh build: it asks the server for the
+        // following log and renders the same cards.
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> readsOf "/api/v1/log/following"),
+            (fun count -> count > 0)
+          )
+
+        Expect.isTrue opened "the following log was never requested"
+
+        do! scrollFeedToEndAsync window
+
+        // Whatever offset the Following scroll landed on is the offset
+        // the cached page must still hold on return.
+        let! parked =
+          waitForAsync(
+            5000,
+            (fun () -> feedOffset window),
+            (fun offset -> offset > 0.0)
+          )
+
+        Expect.isTrue parked "the Following scroll never left the top"
+
+        let! before = probeUiAsync(fun () -> feedOffset window)
+
+        // Realization follows the scroll a dispatcher turn later, so
+        // the click waits for the card the way a user would.
+        do! clickWhenShown(window, "Card 6.")
+
+        let! thread = showsText(window, "Back to the log")
+
+        Expect.isTrue thread "the thread never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "Back to the log") |> Option.iter click)
+
+        // The cached Following page comes back with its rows; the
+        // offset it left is the offset it still holds.
         let! back =
           waitForAsync(
             5000,

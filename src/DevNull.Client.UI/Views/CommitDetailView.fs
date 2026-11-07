@@ -1136,13 +1136,22 @@ module Parts =
         .Text("deleted")
         .Margin(4.0, 2.0)
 
+  // The wire URL of the log the back line returns to: the log the
+  // reader last had open, or Latest when no log page stands behind
+  // the thread in this session.
+  let backTarget(log: LogKind option) : string =
+    match log with
+    | Some kind -> "/log/" + LogKinds.wire kind
+    | None -> "/log/latest"
+
   // The back affordance above the thread.
   let backLine(props: Props<'env>) : Control =
     Button()
+      .Name("BackToLog")
       .Classes(Theme.name Theme.GhostButton)
       .Content("Back to the log")
       .OnClickHandler(fun _ _ ->
-        Navigation.go(props.Nav, "/log/latest", ignore))
+        Navigation.go(props.Nav, backTarget props.Env.Timeline.LastLog, ignore))
 
   // The transient note line (the pastel cycle count after a give).
   let noteLine(model: IObservable<State.Model>) : Control =

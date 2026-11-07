@@ -34,27 +34,24 @@ own.
    apply to every phase and every issue; the skill gate below is part of every
    deliverable's definition of done.
 
-## State as of 2026-11-01
+## State as of 2026-11-07
 
 - Installation is done on both heads and leaves this roadmap: the Windows app
   installs with scoop straight from the release URL, and the Linux app
   installs as a flatpak from the GitHub Pages channel. Both ship with each
   release; no install work remains.
-- The server repository was pulled to `4cb5538` on 2026-11-01 and audited;
-  the findings are the issue index below. The audit found no break in the
-  client's decoders — new wire shapes decode through their existing fallbacks —
-  and its gaps each carry an issue. The search gap the audit surfaced is
-  [#2](https://github.com/AngelMunoz/DevNull.Client/issues/2).
-- The burst's client work through org message pins and public organizations
-  has landed in main: the terms gate, Linux playback of the web's voice notes,
-  devices with self-revoke, the delete undo, image descriptions, scheduled
-  commits, the profile pin with related commits, search, composer suggestions,
-  who to follow, user settings with timezone and translations, and the org
-  work.
-- The commit-card actions are re-implemented per feed page (the poll vote
-  exists in six views); consolidating them is Phase 1's first refactor,
-  tracked in
-  [#1](https://github.com/AngelMunoz/DevNull.Client/issues/1).
+- Phase 1 is done: the MVUish skills sit in `.agents/skills`, the refreshed
+  audit's refactors landed (P1–P29), and the commit-card actions first
+  consolidated beside `toggleStar`, then gathered into the card's More
+  actions menu with follow, mute, block, report, and delete — plus the
+  click-isolation proof and the accessibility pass
+  ([#1](https://github.com/AngelMunoz/DevNull.Client/issues/1), PR #33).
+- The index's other shipped items — #15, #8, #13, #12, #10 — are merged and
+  closed. Five remain, listed below, least work first.
+- The server repository was pulled to `4cb5538` on 2026-11-01 and re-audited
+  through `33cf978` on 2026-11-07: no decoder break, no Core change due.
+  The sync's findings carry #23–#31, and its one required UI fix — the
+  profile stats row wrap in narrow windows — still wants its issue.
 - Still web-only with no JSON API field: the profile README and the bio's
   mention links wait on a server field; the guest join link and the developer
   count stay out of scope. The organization claim flow gained an API in the
@@ -101,6 +98,9 @@ controls only on the session thread, never dispatching inside a dispatch.
 
 ## Phase 1 — the MVUish skills, the audit, and the efficient refactors
 
+**Landed:** the skills fold (PR #18), the audit's refactors (P1–P29), and
+the card-actions consolidation through the More actions menu (#1, PR #33).
+
 **Goal:** the local MVUish skill set matches the MVUish repository that sits
 beside this client, the codebase passes the refreshed audit, and the efficient
 refactors land — the codebase in better shape before the feature issues
@@ -125,16 +125,11 @@ the consolidated card actions.
 
 ## Issue index
 
-Phase 1 comes first; then the issues, least work to most:
+Phase 1 is done; the rest, least work to most:
 
 | Issue | Notes |
 |---|---|
-| [#15 — the back button under the drag band](https://github.com/AngelMunoz/DevNull.Client/issues/15) | one element role or one margin, plus the sweep of the top strip |
-| [#8 — the app's name and id at device approval](https://github.com/AngelMunoz/DevNull.Client/issues/8) | two query parameters and one decode |
-| [#13 — the emoji picker](https://github.com/AngelMunoz/DevNull.Client/issues/13) | client-side only, no API |
 | [#16 — back to the log the reader left](https://github.com/AngelMunoz/DevNull.Client/issues/16) | remember the log kind; the scroll place already parks |
-| [#12 — share commits into remotes](https://github.com/AngelMunoz/DevNull.Client/issues/12) | one candidates mode and one share flow |
-| [#10 — images on commit reports](https://github.com/AngelMunoz/DevNull.Client/issues/10) | the signed files request already exists |
 | [#9 — reply participants](https://github.com/AngelMunoz/DevNull.Client/issues/9) | one decode, one picker, the combined cap |
 | [#17 — the profile header in short windows](https://github.com/AngelMunoz/DevNull.Client/issues/17) | the header gives way without touching the feed |
 | [#4 — follower and following lists](https://github.com/AngelMunoz/DevNull.Client/issues/4) | Core already carries both calls; the pages and the organizations section are the work |
@@ -146,9 +141,10 @@ claim organizations),
 [#3](https://github.com/AngelMunoz/DevNull.Client/issues/3) (live users and
 the first-commit notification),
 [#7](https://github.com/AngelMunoz/DevNull.Client/issues/7) (organizations
-as commit authors), and
+as commit authors),
 [#6](https://github.com/AngelMunoz/DevNull.Client/issues/6) (calls in
-remotes).
+remotes), and the sync findings #23–#31. The cycle's index done,
+the roadmap is re-fed from whatever is open then.
 [#5](https://github.com/AngelMunoz/DevNull.Client/issues/5) (release
 hardening) runs whenever a phase ships, not in the index order.
 

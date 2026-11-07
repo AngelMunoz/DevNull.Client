@@ -3,6 +3,7 @@ module DevNull.Client.UI.Tests.Program
 open Expecto
 
 open DevNull.Client.UI.Tests
+open DevNull.Client.UI.Tests.CommitMenu
 open DevNull.Client.UI.Tests.Composer
 open DevNull.Client.UI.Tests.FeedTests
 open DevNull.Client.UI.Tests.Natives
@@ -53,6 +54,7 @@ let main argv =
       OrganizationView.tests
       Share.tests
       Report.tests
+      CommitMenu.tests
       Snapshots.captureTests
     ]
 

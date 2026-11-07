@@ -9,11 +9,13 @@ open NXUI.Extensions
 open DevNull.Client
 open DevNull.Client.Core.ApiTypes
 
-/// The key of one feed row: the commit or tombstone id.
+/// The key of one feed row: the commit or tombstone id. The tombstone
+/// carries its own identity, so a fold from a live commit swaps the
+/// row instead of keeping the old one under the shared id.
 let inline nodeKey(node: CommitNode) : string =
   match node with
   | LiveCommit commit -> commit.Id
-  | Tombstone tombstone -> tombstone.Id
+  | Tombstone tombstone -> "deleted:" + tombstone.Id
 
 /// One day separator: the rail runs on in the neutral tone, the label
 /// rides the content column above a hairline.

@@ -1,4 +1,4 @@
-module DevNull.Client.Views.OrganizationView
+﻿module DevNull.Client.Views.OrganizationView
 
 open Avalonia.Controls
 open DevNull.Client.Core.Capabilities
@@ -7,6 +7,7 @@ open DevNull.Client.Env
 open DevNull.Client.ImageCache
 open DevNull.Client.Profiles
 open DevNull.Client.Stores
+open DevNull.Client.Timeline
 open DevNull.Client.TranslationCache
 open DevNull.Client.UiClock
 open DevNull.Client.UserSettingsStore
@@ -23,6 +24,7 @@ type Props<'env
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
+  and 'env :> IProvideTimeline
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
   and 'env :> IProvideLogging> = {
@@ -46,6 +48,7 @@ type Page<'env
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
+  and 'env :> IProvideTimeline
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
   and 'env :> IProvideLogging> =

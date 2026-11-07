@@ -8,6 +8,7 @@ module DevNull.Client.UI.Tests.Report
 open System
 open System.Threading.Tasks
 open Avalonia.Controls
+open Avalonia.Controls.Primitives
 open Avalonia.VisualTree
 open Expecto
 open DevNull.Client.Core.ApiTypes
@@ -60,22 +61,53 @@ let ownCommitLog =
     "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
     ownCommitJson
 
-let reportButton(root: Control) : Control option =
-  controlByName(root, "ReportButton")
-
 let sendButton(root: Control) : Control option =
   controlByName(root, "ReportSend")
 
-let openReportDialogAsync(window: Window) : Async<unit> = async {
-  let! offered =
-    waitForAsync(5000, (fun () -> reportButton window), Option.isSome)
+/// The menu's popup card content, once the menu stood open: the rows
+/// live under the popup's child, which roots under the popup layer
+/// while the menu stands.
+let menuContent(root: Control) : Control option =
+  controlByName(root, "CommitMenuFlyout")
+  |> Option.bind(fun control ->
+    match control with
+    | :? Popup as popup -> Option.ofObj popup.Child
+    | _ -> None)
 
-  Expect.isTrue offered "the card offered no report control"
+/// One row of the open menu by its words.
+let menuRow(root: Control, label: string) : Button option =
+  menuContent root |> Option.bind(fun content -> buttonWithText(content, label))
+
+/// Opens the card's More menu through its trigger.
+let openMenuAsync(window: Window) : Async<unit> = async {
+  let! trigger =
+    waitForAsync(
+      5000,
+      (fun () -> controlByName(window, "CommitMenuButton")),
+      Option.isSome
+    )
+
+  Expect.isTrue trigger "the card offered no menu trigger"
 
   do!
     onUiAsync(fun () ->
-      reportButton window
+      controlByName(window, "CommitMenuButton")
       |> Option.iter(fun control -> click(control :?> Button)))
+}
+
+let openReportDialogAsync(window: Window) : Async<unit> = async {
+  do! openMenuAsync window
+
+  let! offered =
+    waitForAsync(
+      5000,
+      (fun () -> menuRow(window, "Report commit")),
+      Option.isSome
+    )
+
+  Expect.isTrue offered "the card offered no report control"
+
+  do! onUiAsync(fun () -> menuRow(window, "Report commit") |> Option.iter click)
 
   let! opened =
     waitForAsync(
@@ -157,19 +189,6 @@ let tests =
 
         Expect.isTrue shown "the log never rendered"
 
-        let! offered =
-          waitForAsync(5000, (fun () -> reportButton window), Option.isSome)
-
-        Expect.isTrue offered "the approved card offered no report control"
-
-        let! tip =
-          probeUiAsync(fun () ->
-            reportButton window
-            |> Option.bind(fun control ->
-              ToolTip.GetTip control |> Option.ofObj |> Option.map string))
-
-        Expect.equal tip (Some "Report") "the card named the control otherwise"
-
         do! openReportDialogAsync window
 
         let! titled = showsText(window, "Report commit")
@@ -196,10 +215,12 @@ let tests =
         let! shown = showsText(window, "The Octocat")
 
         Expect.isTrue shown "the log never rendered"
+        do! openMenuAsync window
         do! settleAsync()
 
         let! absent =
-          probeUiAsync(fun () -> reportButton window |> Option.isNone)
+          probeUiAsync(fun () ->
+            menuRow(window, "Report commit") |> Option.isNone)
 
         Expect.isTrue absent "the own commit offered report"
 

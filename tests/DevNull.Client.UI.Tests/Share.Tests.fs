@@ -9,6 +9,7 @@ open System
 open System.Text.RegularExpressions
 open System.Threading.Tasks
 open Avalonia.Controls
+open Avalonia.Controls.Primitives
 open Avalonia.VisualTree
 open Expecto
 open DevNull.Client.Core.ApiTypes
@@ -155,20 +156,72 @@ let startShareShell(store: SessionStore, api: IHttp) : Async<Window * TestEnv> =
     return shown, env
   }
 
-let shareButton(root: Control) : Control option =
-  controlByName(root, "ShareButton")
+/// The menu's popup card content, once the menu stood open: the rows
+/// live under the popup's child, which roots under the popup layer
+/// while the menu stands.
+let menuContent(root: Control) : Control option =
+  controlByName(root, "CommitMenuFlyout")
+  |> Option.bind(fun control ->
+    match control with
+    | :? Popup as popup -> Option.ofObj popup.Child
+    | _ -> None)
 
+/// One row of the open menu by its words.
+let menuRow(root: Control, label: string) : Button option =
+  menuContent root |> Option.bind(fun content -> buttonWithText(content, label))
 
-let openSharePickerAsync(window: Window) : Async<unit> = async {
-  let! offered =
-    waitForAsync(5000, (fun () -> shareButton window), Option.isSome)
+/// The confirm card of the one open destructive ask.
+let confirmContent(root: Control) : Control option =
+  menuContent root
+  |> Option.bind(fun content ->
+    content.GetVisualDescendants()
+    |> Seq.tryPick(fun visual ->
+      match visual with
+      | :? Popup as popup when popup.Name = "ConfirmFlyout" && popup.IsOpen ->
+        Some popup
+      | _ -> None))
+  |> Option.bind(fun popup -> Option.ofObj popup.Child)
 
-  Expect.isTrue offered "the card offered no share control"
+/// Opens the card's More menu through its trigger.
+let openMenuAsync(window: Window) : Async<unit> = async {
+  let! trigger =
+    waitForAsync(
+      5000,
+      (fun () -> controlByName(window, "CommitMenuButton")),
+      Option.isSome
+    )
+
+  Expect.isTrue trigger "the card offered no menu trigger"
 
   do!
     onUiAsync(fun () ->
-      shareButton window
+      controlByName(window, "CommitMenuButton")
       |> Option.iter(fun control -> click(control :?> Button)))
+}
+
+/// Clicks one menu row by its words once it shows.
+let clickMenuRowAsync(window: Window, label: string) : Async<unit> = async {
+  let! row =
+    waitForAsync(5000, (fun () -> menuRow(window, label)), Option.isSome)
+
+  Expect.isTrue row $"the menu never carried the {label} row"
+
+  do! onUiAsync(fun () -> menuRow(window, label) |> Option.iter click)
+}
+
+let openSharePickerAsync(window: Window) : Async<unit> = async {
+  do! openMenuAsync window
+
+  let! offered =
+    waitForAsync(
+      5000,
+      (fun () -> menuRow(window, "Send in Remotes")),
+      Option.isSome
+    )
+
+  Expect.isTrue offered "the card offered no share control"
+
+  do! clickMenuRowAsync(window, "Send in Remotes")
 
   let! picker =
     waitForAsync(
@@ -243,30 +296,16 @@ let tests =
         let! shown = showsText(window, "The Octocat")
         Expect.isTrue shown "the log never rendered"
 
+        do! openMenuAsync window
+
         let! share =
-          waitForAsync(5000, (fun () -> shareButton window), Option.isSome)
-
-        Expect.isTrue share "the approved card offered no share control"
-
-        let! tip =
-          probeUiAsync(fun () ->
-            shareButton window
-            |> Option.bind(fun control ->
-              ToolTip.GetTip control |> Option.ofObj |> Option.map string))
-
-        Expect.equal
-          tip
-          (Some "Share")
-          "the card named the share control otherwise"
-
-        let! link =
           waitForAsync(
             5000,
-            (fun () -> controlByName(window, "LinkButton")),
+            (fun () -> menuRow(window, "Send in Remotes")),
             Option.isSome
           )
 
-        Expect.isTrue link "the link control left the action row"
+        Expect.isTrue share "the approved card offered no share control"
 
         do! onUiAsync(fun () -> window.Close())
       })
@@ -286,10 +325,12 @@ let tests =
 
         let! shown = showsText(window, "The Octocat")
         Expect.isTrue shown "the log never rendered"
+        do! openMenuAsync window
         do! settleAsync()
 
         let! absent =
-          probeUiAsync(fun () -> shareButton window |> Option.isNone)
+          probeUiAsync(fun () ->
+            menuRow(window, "Send in Remotes") |> Option.isNone)
 
         Expect.isTrue absent "the card offered share with the remotes off"
 
@@ -312,10 +353,12 @@ let tests =
 
           let! shown = showsText(window, "The Octocat")
           Expect.isTrue shown $"the {status} log never rendered"
+          do! openMenuAsync window
           do! settleAsync()
 
           let! absent =
-            probeUiAsync(fun () -> shareButton window |> Option.isNone)
+            probeUiAsync(fun () ->
+              menuRow(window, "Send in Remotes") |> Option.isNone)
 
           Expect.isTrue absent $"the {status} card offered share"
 
@@ -345,8 +388,12 @@ let tests =
         let! commits = showsText(window, "It was DNS.")
         Expect.isTrue commits "the profile feed never rendered its commit"
 
+        do! openMenuAsync window
+        do! settleAsync()
+
         let! absent =
-          probeUiAsync(fun () -> shareButton window |> Option.isNone)
+          probeUiAsync(fun () ->
+            menuRow(window, "Send in Remotes") |> Option.isNone)
 
         Expect.isTrue absent "the profile card offered share"
 

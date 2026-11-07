@@ -54,6 +54,44 @@ val pastel:
     and 'env :> IProvideSigner
     and 'env :> IProvideHttp
 
+/// One author toggle: the signed-in session, the author the More menu
+/// speaks of, and the relation flag the page holds.
+[<Struct>]
+type ToggleArgs = {
+  Session: SignedInSession
+  Author: User
+  /// The held state the direction follows: held following unfollows,
+  /// held muting unmutes, held blocking unblocks.
+  Flag: bool
+}
+
+/// Follows or unfollows one author, the way the card menu's follow
+/// item asks.
+val toggleFollow:
+  env: 'env * args: ToggleArgs -> Async<Result<unit, AppError>>
+    when 'env :> IProvideClock
+    and 'env :> IProvideNonceSource
+    and 'env :> IProvideSigner
+    and 'env :> IProvideHttp
+
+/// Mutes or unmutes one author, the way the card menu's mute item
+/// asks, and answers with the server's own mute state.
+val toggleMute:
+  env: 'env * args: ToggleArgs -> Async<Result<MuteResult, AppError>>
+    when 'env :> IProvideClock
+    and 'env :> IProvideNonceSource
+    and 'env :> IProvideSigner
+    and 'env :> IProvideHttp
+
+/// Blocks or unblocks one author, the way the card menu's block ask
+/// confirms, and answers with the server's own block state.
+val blockAuthor:
+  env: 'env * args: ToggleArgs -> Async<Result<BlockResult, AppError>>
+    when 'env :> IProvideClock
+    and 'env :> IProvideNonceSource
+    and 'env :> IProvideSigner
+    and 'env :> IProvideHttp
+
 /// Logs one card action's failure through the given logger, the
 /// action's name and the bounded server message kept as separate
 /// fields. Curried so a page binds its logger once.

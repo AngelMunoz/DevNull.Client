@@ -3,6 +3,7 @@ module DevNull.Client.Views.LogView
 open System
 open Avalonia.Controls
 open DevNull.Client.AttachmentSources
+open DevNull.Client.Components.CommitCard
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
@@ -122,6 +123,12 @@ module State =
     ShareOpen: Commit voption
     /// The commit whose report dialog stands open.
     ReportOpen: Commit voption
+    /// The viewer's relation per author handle, as the More menu reads
+    /// it; a handle absent stays unread, and the read carries no block
+    /// flag, so that flag moves only when a block answers.
+    Relations: Map<string, AuthorRelation>
+    /// The commit whose menu action is in flight, so its items disable.
+    MenuBusy: string option
   }
 
   /// The messages of the log page, including the since-poll pair.
@@ -160,6 +167,16 @@ module State =
     | Shared
     | ReportOpened of Commit
     | ReportClosed
+    | MenuOpened of Commit
+    | RelationLoaded of handle: string * AuthorRelation voption
+    | AuthorFollowToggled of Commit
+    | AuthorFollowDone of Commit * Result<unit, AppError>
+    | AuthorMuteToggled of Commit
+    | AuthorMuteDone of Commit * Result<MuteResult, AppError>
+    | AuthorBlockRequested of Commit
+    | AuthorBlockDone of Commit * Result<BlockResult, AppError>
+    | DeleteRequested of Commit
+    | Deleted of commitId: string * Result<unit, AppError>
 
   /// The fresh page state.
   val initial: Model

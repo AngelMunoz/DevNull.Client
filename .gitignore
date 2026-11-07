@@ -507,3 +507,4 @@ docs/notas-*.md
 .alta/derived/
 .alta/tasks/
 !.alta/derived/rejections.md
+audits/

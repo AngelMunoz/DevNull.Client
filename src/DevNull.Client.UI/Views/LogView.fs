@@ -103,6 +103,8 @@ module State =
     // The commit whose share dialog stands open; the page model owns
     // it, and the dialog layer reads it.
     ShareOpen: Commit voption
+    // The commit whose report dialog stands open.
+    ReportOpen: Commit voption
   }
 
   type Msg =
@@ -138,6 +140,8 @@ module State =
     | ShareOpened of Commit
     | ShareClosed
     | Shared
+    | ReportOpened of Commit
+    | ReportClosed
 
   let initial = {
     Loading = true
@@ -160,6 +164,7 @@ module State =
     Translations = TranslationModel.initial
     AutoRan = false
     ShareOpen = ValueNone
+    ReportOpen = ValueNone
   }
 
   // The id of the newest commit in a page: the head the since-poll
@@ -710,6 +715,13 @@ module State =
     | ShareClosed -> { model with ShareOpen = ValueNone }, Cmd.none
     | Shared ->
       model, Cmd.ofEffect(fun _ -> Navigation.go(props.Nav, "/remotes", ignore))
+    | ReportOpened commit ->
+      {
+        model with
+            ReportOpen = ValueSome commit
+      },
+      Cmd.none
+    | ReportClosed -> { model with ReportOpen = ValueNone }, Cmd.none
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
@@ -1087,6 +1099,7 @@ let view
           | CommitCard.OriginalRequested commit ->
             dispatch(State.OriginalRequested commit)
           | CommitCard.ShareRequested _ -> ()
+          | CommitCard.ReportRequested _ -> ()
         ViewerId = props.Session.Session.User.Id
         Images = props.Env.ImageCache
         Flyout = Parts.flyoutOf props
@@ -1097,6 +1110,7 @@ let view
             ValueSome(State.ShareOpened >> dispatch)
           else
             ValueNone
+        OnReport = ValueSome(State.ReportOpened >> dispatch)
         Actions = true
         OnStar = fun commit -> dispatch(State.StarToggled commit)
         OnVote = fun commit -> dispatch(State.PollVoteRequested commit)
@@ -1200,7 +1214,39 @@ let view
       Place = DialogChrome.Center
     }
 
-  Grid().Children(pinnedPage, shareLayer)
+  let reportLayer =
+    DialogChrome.layer {
+      Open =
+        model
+        |> Observable.map(fun state -> state.ReportOpen)
+        |> Observable.map ValueOption.isSome
+      Content =
+        fun () ->
+          let isOpen =
+            model
+            |> Observable.first
+            |> Observable.toEnumerable
+            |> Seq.tryHead
+            |> function
+              | Some state -> state.ReportOpen
+              | None -> ValueNone
+
+          match isOpen with
+          | ValueSome commit ->
+            ReportDialog.Page {
+              Env = props.Env
+              Session = props.Session
+              Commit = commit
+              Sent = fun () -> dispatch State.ReportClosed
+              Close = fun () -> dispatch State.ReportClosed
+            }
+          | ValueNone -> Panel()
+      Scrim = true
+      OnScrimClick = ValueSome(fun () -> dispatch State.ReportClosed)
+      Place = DialogChrome.Center
+    }
+
+  Grid().Children(pinnedPage, shareLayer, reportLayer)
 
 type Page<'env
   when 'env :> IProvideClock

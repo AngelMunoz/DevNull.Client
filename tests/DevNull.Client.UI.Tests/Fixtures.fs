@@ -89,6 +89,18 @@ let stagedImage(name: string) : ImageAttachment = {
   Bytes = imageBytes
 }
 
+/// An opaque 16x16 PNG so a staged report chip carries a visible
+/// thumbnail, without changing the shared 1x1 fixture the composer and
+/// camera tests decode.
+let opaqueImageBytes: byte array =
+  Convert.FromBase64String
+    "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAdSURBVDhPY/CacPM/JZgBXYBUPGrAqAGjBgwWAwCyGLIf9MX24wAAAABJRU5ErkJggg=="
+
+let opaqueStagedImage(name: string) : ImageAttachment = {
+  FileName = name
+  Bytes = opaqueImageBytes
+}
+
 /// The fake attachment sources: every answer is a property the test
 /// sets before the composer asks.
 type FakeAttachments() =

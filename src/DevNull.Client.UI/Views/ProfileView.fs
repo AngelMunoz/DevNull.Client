@@ -1087,6 +1087,7 @@ let view
           | CommitCard.OriginalRequested commit ->
             dispatch(State.OriginalRequested commit)
           | CommitCard.ShareRequested _ -> ()
+          | CommitCard.ReportRequested _ -> ()
         ViewerId = props.Session.Session.User.Id
         Images = props.Env.ImageCache
         Flyout =
@@ -1102,6 +1103,7 @@ let view
         Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
         OnPin = ValueSome(State.PinToggled >> dispatch)
         OnShare = ValueNone
+        OnReport = ValueNone
         Actions = true
         OnStar = fun commit -> dispatch(State.StarToggled commit)
         OnVote = fun commit -> dispatch(State.PollVoteRequested commit)

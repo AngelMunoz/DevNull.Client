@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Reports:** a commit you do not own can be reported with screenshots — pick up to three images, describe each one for people who cannot see them, choose a reason, add optional details, and send; the report and its attachments stay private to you and the moderators.
+
 ## [0.10.0] - 2026-11-06
 
 ### Added

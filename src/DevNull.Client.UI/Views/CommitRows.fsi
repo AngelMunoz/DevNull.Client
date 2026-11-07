@@ -37,6 +37,9 @@ type Host = {
   /// The share action the page offers on an approved commit, when the
   /// account carries the direct messages.
   OnShare: (Commit -> unit) voption
+  /// The report action the page offers on another author's approved
+  /// commit.
+  OnReport: (Commit -> unit) voption
   /// Whether the row offers the page's vote and pastel actions. A
   /// search row keeps its star and hides both.
   Actions: bool

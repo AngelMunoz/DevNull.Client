@@ -1,9 +1,10 @@
-// The DevNull dev loop: derive -> worker -> battery -> architect -> red team
-// -> scope review -> bounded remediation -> (branch|main) landing. Seats are
-// kept for the step's whole life: one deriver session (derivation, then scope
-// rulings), one worker session (implementation, then every remediation), one
-// architect session (full first pass, then delta re-reviews). Red-team passes
-// stay fresh and independent. Review findings reach the worker ONLY through
+// The DevNull dev loop: derive -> worker (its battery is the verification
+// of record) -> collect -> architect -> red team -> scope review -> bounded
+// remediation -> (branch|main) landing. Seats are kept for the step's whole
+// life: one deriver session (derivation, then scope rulings), one worker
+// session (implementation, then every remediation), one architect session
+// (full first pass, then delta re-reviews), one red-team seat per model
+// (full first hunt, then deltas). Review findings reach the worker ONLY through
 // the scope referee: in-scope -> directive; real but beyond the step ->
 // recorded work item; refuted -> dropped with evidence. The budget is
 // multiplicity, never wall clock: maxScopeReviews review cycles per step, and
@@ -13,7 +14,7 @@
 export const meta = {
   name: "devnull-step",
   title: "DevNull dev-loop step",
-  description: "Implements and verifies one P-step of a phase work plan: derivation, one deepseek-first worker on a session kept for the whole step, the mechanical battery, an architect seat that re-reviews deltas, a mixed-model red team, and a scope review in which the deriver itself rules every reviewer finding — in-scope directive, recorded work item, or refuted. Review cycles are capped by count, never time. Stops for the user's review unless autoLand.",
+  description: "Implements and verifies one P-step of a phase work plan: derivation, one deepseek-first worker on a session kept for the whole step (its own battery is the verification of record), a cheap collect of files, gates, and standing greps, an architect seat that re-reviews deltas, a mixed-model red team on kept seats, and a scope review in which the deriver itself rules every reviewer finding — in-scope directive, recorded work item, or refuted. Review cycles are capped by count, never time. Stops for the user's review unless autoLand.",
   whenToUse: "For the DevNull.Client phased refactor loop, on a work branch, with steps as checkboxes in a plan file under audits/.",
   params: {
     step: { type: "string", description: "The step id in the plan, e.g. P20." },
@@ -30,7 +31,7 @@ export const meta = {
     landTarget: { type: "string", description: "main (ff-merge) or branch (commit only).", default: "main" },
     redTeam: { type: "boolean", description: "Adversarial pass over every approval.", default: true },
     redTeamModels: { type: "string", description: "One pass per model, in parallel; findings merge.", default: "deepseek-flash:xhigh,glm-5.3-flash:high" },
-    maxRemediations: { type: "integer", description: "Worker passes after round 0, all causes (battery failures and scope-reviewed directives).", default: 3 },
+    maxRemediations: { type: "integer", description: "Worker passes after round 0 (gate flags and scope-reviewed directives; the worker's own battery is the quality gate).", default: 3 },
     maxReviewRounds: { type: "integer", description: "Hard backstop on total worker passes before stopping for the user; the scope gate usually stops first.", default: 3 },
     maxScopeReviews: { type: "integer", description: "Scope-review cycles allowed per step. The budget is multiplicity, never wall clock: needing one more cycle than this stops the step for the user's judgment.", default: 2 },
     rederive: { type: "boolean", description: "Regenerate the derivation.", default: false },
@@ -39,9 +40,9 @@ export const meta = {
   steps: [
     { id: "prepare", title: "Read the plan and the tree" },
     { id: "implement", title: "One worker seat, deepseek first, kept for the step", after: ["prepare"] },
-    { id: "battery", title: "The obligated rules run", after: ["implement"] },
-    { id: "architect", title: "The architect directs (kept seat)", after: ["battery"] },
-    { id: "redteam", title: "The red team hunts (fresh, independent)", after: ["architect"] },
+    { id: "collect", title: "The changed files, the idiom gates, the standing greps", after: ["implement"] },
+    { id: "architect", title: "The architect directs (kept seat)", after: ["collect"] },
+    { id: "redteam", title: "The red team hunts (full pass, then deltas on kept seats)", after: ["architect"] },
     { id: "scope", title: "The deriver rules every finding's scope", after: ["redteam"] },
     { id: "remediate", title: "The same worker seat applies the in-scope directives", after: ["scope"] },
     { id: "land", title: "Ledger tick and commit", after: ["architect"] },
@@ -140,9 +141,9 @@ No git commits, no pushes, no gh. Edit files with the right tool for the shape o
 
 ## Done when
 
-dotnet fantomas . leaves no diff (run last); dotnet build DevNull.Client.slnx has 0 errors and no new warnings (a leftover DevNull.Client.exe from the repo bin locks the DLL — MSB3021; the battery stops it); Core (dotnet run --project tests/DevNull.Client.Core.Tests -c Debug --no-build -- --summary) and UI (dotnet run --project tests/DevNull.Client.UI.Tests -c Debug --no-build -- --sequenced --summary) green — composer keys-walk is a known flake, rerun once; pwsh audits/gates.ps1 <changed .fs/.fsi> zero unexplained hits. Report: what changed and why, each fix's shape in one line, fail-before/pass-after evidence per regression test, verification tails with pass counts, deviations.`;
+dotnet fantomas . leaves no diff (run last); dotnet build DevNull.Client.slnx has 0 errors and no new warnings (a leftover DevNull.Client.exe from the repo bin locks the DLL — MSB3021; stop repo-owned DevNull processes first); Core (dotnet run --project tests/DevNull.Client.Core.Tests -c Debug --no-build -- --summary) and UI (dotnet run --project tests/DevNull.Client.UI.Tests -c Debug --no-build -- --sequenced --summary) green — composer keys-walk is a known flake, rerun once; pwsh audits/gates.ps1 <changed .fs/.fsi> zero unexplained hits. The loop does not re-run this battery: your tails are the record of green. Report: what changed and why, each fix's shape in one line, fail-before/pass-after evidence per regression test, verification tails with pass counts, deviations.`;
 
-const ARCHITECT_BRIEF = (id, st, derivation, workerReport, battery, changed, prior) => `You are the ARCHITECT-EVALUATOR for step ${id} of the DevNull.Client refactor (repo root ${ROOT}, branch ${branch}). Your role is to DIRECT THE APP'S STRUCTURE, not to line-review: does this step move the codebase toward coherent Shell -> Pages -> Controls -> UI, composition over god objects, content projection over deep threading, the env pattern intact, no C#-dressed-as-F#? A clean diff that cements a wrong boundary is a REJECT; a rough diff that opens the right seam is an APPROVE with notes. Your approval does NOT land the step: the user reviews after you.
+const ARCHITECT_BRIEF = (id, st, derivation, workerReport, facts, changed, prior) => `You are the ARCHITECT-EVALUATOR for step ${id} of the DevNull.Client refactor (repo root ${ROOT}, branch ${branch}). Your role is to DIRECT THE APP'S STRUCTURE, not to line-review: does this step move the codebase toward coherent Shell -> Pages -> Controls -> UI, composition over god objects, content projection over deep threading, the env pattern intact, no C#-dressed-as-F#? A clean diff that cements a wrong boundary is a REJECT; a rough diff that opens the right seam is an APPROVE with notes. Your approval does NOT land the step: the user reviews after you.
 
 Read first: AGENTS.md, ${plan} (step ${id}), .alta/derived/rejections.md (the casebook — every entry is a class; find its next instance), audits/gates.ps1 (what the battery checked; do not re-run it).
 
@@ -151,12 +152,9 @@ ${derivation ? `\n## Step-specific review parameters (verify each)\n\n${derivati
 ## The worker's report (verify load-bearing claims against the code — the worker is fast but tunnel-visioned)
 ${String(workerReport).slice(0, 8000)}
 
-## The battery's result (${battery.hard ? (battery.hitsOnAdded.length ? "GREEN with flags to classify" : "ALL GREEN") : "FAILED"}) — DO NOT RE-RUN THE SUITES: the counts below are parsed from the runs' own output tails, verbatim; exit codes back them.
-- fantomas: ${battery.fantomas}; build errors: ${battery.buildErrors === 0 ? 0 : JSON.stringify(battery.buildErrors)}
-- Core: ${Number.isNaN(battery.core.passed) ? "(unparsed)" : `${battery.core.passed} passed / ${battery.core.failed} failed`} [exit ${battery.core.exit}] tail: ${battery.core.tail}
-- UI sequenced${battery.uiRetry ? " (retried once)" : ""}: ${Number.isNaN(battery.ui.passed) ? "(unparsed)" : `${battery.ui.passed} passed / ${battery.ui.failed} failed / ${battery.ui.errored} errored`} [exit ${battery.ui.exit}] tail: ${battery.ui.tail}
-- gates: ${battery.gateHits} pre-existing hits; on ADDED lines: ${battery.hitsOnAdded.length ? battery.hitsOnAdded.join(", ") : "none"} — classify each (real / justified / false positive); a real one is a directive.
-- standing greps: Components-to-Views ${battery.greps.componentsToViews}; BehaviorSubject<Sub> ${battery.greps.behaviorSubjectSub}; private-in-paired: ${battery.greps.privateInPaired || "none"}
+## The verification record — the worker's own battery tails in its report above are the record of green; the loop does not re-run the suites. Treat the tails as load-bearing claims and spot-check one against the code or the diff stat.
+- gates on ADDED lines: ${facts.hitsOnAdded.length ? facts.hitsOnAdded.join(", ") : "none"} — classify each (real / justified / false positive); a real one is a directive.
+- standing greps: Components-to-Views ${facts.greps.componentsToViews}; BehaviorSubject<Sub> ${facts.greps.behaviorSubjectSub}; private-in-paired: ${facts.greps.privateInPaired || "none"}
 
 ## Your obligated work — judgment first, the checklist is the floor
 1. Spend most of your budget on what no rule names: read every new and heavily changed file as its harshest maintainer, ASSUMING the diff games checklists. Every construct must mean what it says. If you catch yourself verifying a rule's letter, ask whether its spirit survived.
@@ -259,12 +257,12 @@ const REMEDIATE_BRIEF = (id, directives, round) => `Round ${round} on step ${id}
 
 ${directives.map((d, i) => `${i + 1}. ${d}`).join("\n")}
 
-Same bars as round 0: no commits, no pushes; a fix that restores observable behavior gets its fail-before/pass-after regression test; if a directive fights the seam, stop that item and report why — do not improvise scope. Finish with dotnet fantomas . (last), build 0 errors, both suites green, gates clean on what changed. Report only: what changed per directive, new test evidence, verification tails.`;
+Same bars as round 0: no commits, no pushes; a fix that restores observable behavior gets its fail-before/pass-after regression test; if a directive fights the seam, stop that item and report why — do not improvise scope. Finish with dotnet fantomas . (last), build 0 errors, both suites green, gates clean on what changed. The loop does not re-run the battery: your tails are the record. Report only: what changed per directive, new test evidence, verification tails.`;
 
 // A re-review on the kept architect seat: it holds the step's context, so it
 // verifies what moved since its last pass instead of re-establishing the
 // world. The fallback path (fresh agent) gets the FULL brief instead.
-const ARCHITECT_DELTA = (id, round, note, workerReport, battery) => `Follow-up pass (round ${round}) on step ${id} — this session is the architect and already holds the step's context. Do NOT re-read the plan, the casebook, or unchanged files; verify what moved since your last pass.
+const ARCHITECT_DELTA = (id, round, note, workerReport, facts) => `Follow-up pass (round ${round}) on step ${id} — this session is the architect and already holds the step's context. Do NOT re-read the plan, the casebook, or unchanged files; verify what moved since your last pass.
 
 ## This pass
 
@@ -273,14 +271,11 @@ ${note}
 ## The worker's report
 ${String(workerReport).slice(0, 4000)}
 
-## Fresh battery (${battery.hard ? "GREEN" : "FAILED"})
-- fantomas: ${battery.fantomas}; build errors: ${battery.buildErrors === 0 ? 0 : JSON.stringify(battery.buildErrors)}
-- Core: ${Number.isNaN(battery.core.passed) ? "(unparsed)" : `${battery.core.passed} passed / ${battery.core.failed} failed`} tail: ${battery.core.tail}
-- UI sequenced: ${Number.isNaN(battery.ui.passed) ? "(unparsed)" : `${battery.ui.passed} passed / ${battery.ui.failed} failed / ${battery.ui.errored} errored`} tail: ${battery.ui.tail}
-- gates on added lines: ${battery.hitsOnAdded.length ? battery.hitsOnAdded.join(", ") : "none"}
+## The verification record — the worker's fresh tails in its report above are the record of green; the loop does not re-run the suites.
+- gates on added lines: ${facts.hitsOnAdded.length ? facts.hitsOnAdded.join(", ") : "none"}
 
-Changed files now (${battery.changed.length}):
-${battery.changed.map((f) => `- ${f}`).join("\n")}
+Changed files now (${facts.changed.length}):
+${facts.changed.map((f) => `- ${f}`).join("\n")}
 
 Read the diff over what this pass touched (git diff carries the delta) plus anything you need for the ruling, re-verify that each prior finding of yours actually died, and answer with your verdict — same contract as your first pass: verdict, directives (concrete, file-anchored, one worker pass), ledgerNote, unverified. A verdict issued without reading code in THIS pass is void.`;
 
@@ -292,15 +287,55 @@ const redTeamOpts = (ref) => {
   if (glm) return { model: `zai:glm-5.3-flash@${glm[1] ?? "high"}`, subSessions: false };
   return { model: ref, subSessions: false };
 };
+// Kept red-team seats: round 0 is the full hunt; every later pass on the
+// same seat hunts the delta since its last look. A seat that dies rebuilds
+// with the full brief again: it holds no context.
+const redTeamSeats = {};
+let redTeamPrints = null;
+const normPath = (p) => p.replace(/\\/g, "/").toLowerCase();
+const fingerprintAll = async (files) => {
+  const map = {};
+  if (!files.length) return map;
+  const out = await sh(`Get-FileHash ${files.map((f) => `"${f}"`).join(", ")} -Algorithm SHA256 -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Path.ToLower())|$($_.Hash)" }`);
+  for (const line of out.text.split(/\r?\n/)) {
+    const bar = line.indexOf("|");
+    if (bar > 0) map[normPath(line.slice(0, bar))] = line.slice(bar + 1);
+  }
+  return map;
+};
+const REDTEAM_DELTA = (ref, id, round, architect, files) => `You are the RED TEAM seat [${ref}] for step ${id}, pass ${round}. You hunted this diff earlier in this same session; the casebook, the diff, and the architect's first verdict you read then are still yours — do not re-read them.
+
+The architect's fresh verdict: ${JSON.stringify(architect)}
+
+Files changed since your last pass:
+${files.length ? files.map((f) => `- ${f}`).join("\n") : "- (none — judge the architect's verdict and the worker's answer)"}
+
+Hunt where the delta opened: what the fix broke, what the directives papered over, claims in the fresh verdict the code does not support. Do NOT re-run the battery and do not restate findings the referee refuted or ruled out of scope. Same bar as your first pass: only what would embarrass us in a human review.`;
+
 const runRedTeam = async (id, architect, derivation, changed, label) => {
   const refs = (args.redTeamModels ?? meta.params.redTeamModels.default).split(",").map((r) => r.trim()).filter(Boolean);
   for (const ref of refs) {
     if (/glm-5\.3(?!-flash)/i.test(ref) && /xhigh/i.test(ref)) throw new Error(`Red-team model '${ref}' refused: full glm-5.3@xhigh is the architect's, single-flight.`);
   }
+  const freshPrints = await fingerprintAll(changed);
+  const known = redTeamPrints ?? {};
+  const deltaFiles = redTeamPrints === null ? null : changed.filter((f) => !(normPath(f) in known) || known[normPath(f)] !== freshPrints[normPath(f)]);
+  const seatFor = async (ref) => {
+    if (!redTeamSeats[ref]) redTeamSeats[ref] = await session({ ...redTeamOpts(ref), title: `${id} red team [${ref}]` });
+    return redTeamSeats[ref];
+  };
   const passes = await parallel(refs.map((ref) => () =>
-    withMetrics(`${id} red team [${ref}] ${label ?? ""}`.trim(), { step: id, round: label, role: "redteam", ref }, () =>
-      agent(REDTEAM_BRIEF(id, architect, derivation, changed), { ...redTeamOpts(ref), title: `${id} red team [${ref}] ${label ?? ""}`.trim(), schema: REDTEAM_SCHEMA }))
-      .then((r) => ({ ref, ...r }))));
+    (async () => {
+      const seat = await seatFor(ref);
+      const brief = deltaFiles ? REDTEAM_DELTA(ref, id, label ?? "next", architect, deltaFiles) : REDTEAM_BRIEF(id, architect, derivation, changed);
+      try {
+        return await seat.run(brief, { schema: REDTEAM_SCHEMA });
+      } catch {
+        redTeamSeats[ref] = await session({ ...redTeamOpts(ref), title: `${id} red team [${ref}] (rebuilt)` });
+        return await redTeamSeats[ref].run(REDTEAM_BRIEF(id, architect, derivation, changed), { schema: REDTEAM_SCHEMA });
+      }
+    })().then((r) => ({ ref, ...r }))));
+  redTeamPrints = { ...known, ...freshPrints };
   const live = passes.filter(Boolean);
   // An all-dead red team must never read as "clean": that is an infrastructure
   // failure, and approving on it would fake the plurality the user asked for.
@@ -361,6 +396,38 @@ const battery = async () => {
   };
   const hard = /files unchanged|No files were changed|0 files needed formatting/i.test(fantomas.text) && !buildErrors && suiteOk(coreRun, core) && suiteOk(uiRun, ui);
   return { pass: hard && hitsOnAdded.length === 0, hard, fantomas: fantomas.text.trim().split("\n").pop(), buildErrors: buildErrors ? build.text.trim().split("\n").filter((l) => /error/i.test(l)).slice(0, 5) : 0, core, ui, uiRetry, changed, fsFiles, gateHits: (gateOut.match(/FINDINGS/g) ?? []).length, hitsOnAdded, greps };
+};
+
+// The worker's battery is the verification of record; the loop never
+// re-runs it. What the loop still collects each round is what the
+// architect consumes: the changed files, the fast idiom gates over
+// added lines, and the standing structural greps.
+const collect = async () => {
+  const status = (await sh("git status --porcelain=v1")).text;
+  const changed = status.split(/\r?\n/).filter((l) => l.length > 3).map((l) => l.substring(3).trim().replace(/^\"|\"$/g, ""));
+  const fsFiles = changed.filter((f) => /\.fsi?$/i.test(f));
+  const gateOut = fsFiles.length ? (await sh(`pwsh -NoProfile audits/gates.ps1 ${fsFiles.map((f) => `"${f}"`).join(" ")}`)).text : "";
+  const hitsOnAdded = [];
+  for (const f of fsFiles) {
+    const hunkText = (await sh(`git diff -U0 -- "${f}"`)).text;
+    const added = [];
+    for (const line of hunkText.split("\n")) {
+      const m = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
+      if (m) { const s = Number(m[1]); const c = m[2] === undefined ? 1 : Number(m[2]); if (c > 0) for (let i = 0; i < c; i++) added.push(s + i); }
+    }
+    if (!added.length) continue;
+    for (const ln of gateOut.split("\n").filter((l) => l.startsWith(f + ":")).map((l) => Number(/:(\d+):/.exec(l)?.[1] ?? 0))) {
+      if (added.includes(ln)) hitsOnAdded.push(`${f}:${ln}`);
+    }
+  }
+  const grepCount = async (pattern, paths) =>
+    Number((await sh(`(Get-ChildItem ${paths} -Recurse -Include *.fs,*.fsi | Select-String -Pattern '${pattern}' | Measure-Object).Count`)).text.match(/\d+/)?.[0] ?? 0);
+  const greps = {
+    componentsToViews: await grepCount("DevNull\\.Client\\.Views|\\bViews\\.", "src/DevNull.Client.UI/Components"),
+    behaviorSubjectSub: await grepCount("BehaviorSubject<Sub", "src"),
+    privateInPaired: (await sh("Get-ChildItem src -Recurse -Include *.fs | Where-Object { Test-Path ($_.FullName -replace '\\.fs$','.fsi') } | Select-String -Pattern '\\blet private\\b|\\bmember private\\b|\\btype private\\b' -CaseSensitive | ForEach-Object { \"{0}:{1}\" -f (Split-Path $_.Path -Leaf), $_.LineNumber }")).text.trim(),
+  };
+  return { changed, fsFiles, gateHits: (gateOut.match(/FINDINGS/g) ?? []).length, hitsOnAdded, greps };
 };
 
 const deriveOpts = () => (args.deriveModel ?? "")
@@ -520,7 +587,6 @@ const wanted = args.count ?? meta.params.count.default;
 const maxRemediations = args.maxRemediations ?? meta.params.maxRemediations.default;
 const budget = Math.min(maxRemediations, args.maxReviewRounds ?? meta.params.maxReviewRounds.default);
 const maxScopeReviews = args.maxScopeReviews ?? meta.params.maxScopeReviews.default;
-const isTrivial = (ds) => ds.length > 0 && ds.length <= 3 && ds.every((d) => d.length < 220) && ds.every((d) => /\.(fs|fsi|md)/.test(d));
 
 let current = id;
 const landed = [];
@@ -536,7 +602,7 @@ for (let n = 0; n < wanted && current; n++) {
   const seats = { deriver: null, worker: null, architect: null };
   try {
     const derivation = await deriveFor(current, st2, args.rederive ?? false, seats);
-    present(`## ${current} — ${st2.title}\n\nDerivation done. One kept worker seat (${workerName}), then the battery, then the kept architect seat, then the red team. Every review finding passes the deriver's scope review before any worker pass; ${maxScopeReviews} scope cycle(s) allowed — needing one more stops the step. autoLand ${autoLand ? "ON" : "OFF"}; land target ${args.landTarget ?? meta.params.landTarget.default}.`);
+    present(`## ${current} — ${st2.title}\n\nDerivation done. One kept worker seat (${workerName}, its battery the record), one cheap collect, then the kept architect seat, then the kept red team (deltas). Every review finding passes the deriver's scope review before any worker pass; ${maxScopeReviews} scope cycle(s) allowed — needing one more stops the step. autoLand ${autoLand ? "ON" : "OFF"}; land target ${args.landTarget ?? meta.params.landTarget.default}.`);
 
     seats.worker = await session({ ...workerOpts, title: `${current} worker` });
     const sendWorker = async (round, directives) => {
@@ -564,19 +630,19 @@ for (let n = 0; n < wanted && current; n++) {
       architect = await step("architect", () => withMetrics(`${current} architect r${round}`, (r) => ({ step: current, round, role: "architect", verdict: r?.verdict, findings: r?.directives?.length ?? 0 }), () => sendArchitect(round, { seat: () => ARCHITECT_DELTA(current, round, note, report, results), fresh: fullBrief }), () => seats.architect.id));
       await tools.write_file({ path: verdictPath(current), content: JSON.stringify(architect, null, 2) });
       redTeam = null;
-      if ((args.redTeam ?? meta.params.redTeam.default) && results.hard && architect.verdict === "approve") {
+      if ((args.redTeam ?? meta.params.redTeam.default) && architect.verdict === "approve") {
         redTeam = await step("redteam", () => runRedTeam(current, architect, derivation, results.changed, `r${round}`));
       }
     };
 
     let workerReport = await step("implement", () => withMetrics(`${current} worker`, (r) => ({ step: current, round: 0, role: "worker", reportChars: String(r).length }), () => sendWorker(0, null), () => seats.worker.id));
-    let results = await step("battery", battery);
+    let results = await step("collect", () => collect());
     let prior = await priorRounds(current);
     const firstBrief = () => ARCHITECT_BRIEF(current, st2, derivation, workerReport, results, results.changed, prior);
     let architect = await step("architect", () => withMetrics(`${current} architect`, (r) => ({ step: current, round: 0, role: "architect", verdict: r?.verdict, findings: r?.directives?.length ?? 0 }), () => sendArchitect(0, { seat: firstBrief, fresh: firstBrief }), () => seats.architect.id));
     await tools.write_file({ path: verdictPath(current), content: JSON.stringify(architect, null, 2) });
     let redTeam = null;
-    if ((args.redTeam ?? meta.params.redTeam.default) && results.hard && architect.verdict === "approve") {
+    if ((args.redTeam ?? meta.params.redTeam.default) && architect.verdict === "approve") {
       redTeam = await step("redteam", () => runRedTeam(current, architect, derivation, results.changed));
     }
     let rounds = 0;
@@ -584,7 +650,7 @@ for (let n = 0; n < wanted && current; n++) {
     let previousFindings = "";
     let halted = null;
 
-    while ((!results.hard || architect.verdict !== "approve" || redTeam?.verdict === "findings") && rounds < budget && !halted) {
+    while ((results.hitsOnAdded.length > 0 || architect.verdict !== "approve" || redTeam?.verdict === "findings") && rounds < budget && !halted) {
       const findings = [...architect.directives, ...(redTeam?.findings ?? [])];
       const findingsKey = findings.join("||");
       if (findingsKey && findingsKey === previousFindings) {
@@ -592,14 +658,15 @@ for (let n = 0; n < wanted && current; n++) {
         break;
       }
 
-      if (!results.hard) {
-        // A battery failure is mechanical — the step's own bar, no referee.
+      if (results.hitsOnAdded.length) {
+        // A gate flag is mechanical — the step's own bar, no referee.
         rounds++;
         previousFindings = findingsKey;
-        present(`### ${current} round ${rounds}: the battery failed — same worker seat, mechanical fix`);
-        workerReport = await step("remediate", () => withMetrics(`${current} worker r${rounds}`, (r) => ({ step: current, round: rounds, role: "worker", reportChars: String(r).length }), () => sendWorker(rounds, [`The battery failed: ${JSON.stringify({ build: results.buildErrors, core: results.core, ui: results.ui, hitsOnAdded: results.hitsOnAdded })}. Fix what fails.`]), () => seats.worker.id));
-        results = await step("battery", battery);
-        await reReview(rounds, "The battery failed; the worker answered. Re-verify against the fresh battery and the diff since your last pass.", workerReport);
+        const gateNote = `The idiom gates flagged added lines: ${results.hitsOnAdded.join(", ")}. Fix what they name.`;
+        present(`### ${current} round ${rounds}: the idiom gates flagged added lines — same worker seat, mechanical fix`);
+        workerReport = await step("remediate", () => sendWorker(rounds, [gateNote]));
+        results = await step("collect", () => collect());
+        await reReview(rounds, "The gates flagged added lines; the worker answered. Re-verify against the fresh gates and the diff since your last pass.", workerReport);
         continue;
       }
 
@@ -634,18 +701,9 @@ for (let n = 0; n < wanted && current; n++) {
       }
 
       rounds++;
-      if (isTrivial(directives)) {
-        present(`### ${current} round ${rounds}: ${directives.length} trivial directive(s) — fast path, same seat`);
-        await step("remediate", () => withMetrics(`${current} worker r${rounds} (fast)`, (r) => ({ step: current, round: rounds, role: "worker", fastPath: true, reportChars: String(r).length }), () => sendWorker(rounds, directives), () => seats.worker.id));
-        results = await step("battery", battery);
-        if (!results.hard) { halted = { why: "battery failed after the trivial fast path" }; break; }
-        present(`### ${current} ready for review (fast path) — battery green`);
-        break;
-      }
-
-      present(`### ${current} round ${rounds}: ${directives.length} scope-reviewed directive(s) to the worker seat`);
-      workerReport = await step("remediate", () => withMetrics(`${current} worker r${rounds}`, (r) => ({ step: current, round: rounds, role: "worker", reportChars: String(r).length }), () => sendWorker(rounds, directives), () => seats.worker.id));
-      results = await step("battery", battery);
+      present(`### ${current} round ${rounds}: ${directives.length} scope-reviewed directive(s) to the worker seat — delta re-review after`);
+      workerReport = await step("remediate", () => sendWorker(rounds, directives));
+      results = await step("collect", () => collect());
       await reReview(rounds, `The worker answered the scope-reviewed directives:\n${directives.map((d, i) => `${i + 1}. ${d}`).join("\n")}`, workerReport);
     }
 
@@ -654,7 +712,7 @@ for (let n = 0; n < wanted && current; n++) {
       present(`### ${current} STOPPED\n\n${halted.why}. Nothing landed.`);
       break;
     }
-    if (results.hard && architect.verdict === "approve" && redTeam?.verdict !== "findings") {
+    if (architect.verdict === "approve" && redTeam?.verdict !== "findings") {
       present(`### ${current} APPROVED — architect${redTeam ? " + red team (clean)" : ""}\n\nLedger note: ${architect.ledgerNote}\n\n${autoLand ? "Landing…" : "**Stopped for your review.**"}${architect.unverified.length ? "\n\nUnverified: " + architect.unverified.join("; ") : ""}${redTeam?.notes ? "\n\nRed team notes: " + redTeam.notes : ""}`);
       if (autoLand) {
         const landing = await step("land", () => landStep(current, `refactor: ${cleanNote(architect.ledgerNote)}`));
@@ -664,14 +722,15 @@ for (let n = 0; n < wanted && current; n++) {
         break; // the user reviews every step
       }
     } else if (!stopped.some((s) => s.step === current)) {
-      stopped.push({ step: current, why: !results.hard ? "battery failed after remediation" : architect.verdict !== "approve" ? "architect rejected after remediation" : `pass budget (${budget} worker passes) spent — your judgment is next`, directives: [...architect.directives, ...(redTeam?.findings ?? [])], unverified: architect.unverified });
-      present(`### ${current} STOPPED\n${!results.hard ? "The battery still fails." : architect.verdict !== "approve" ? "The architect rejected it." : "The pass budget is spent."} Nothing landed.`);
+      stopped.push({ step: current, why: architect.verdict !== "approve" ? "architect rejected after remediation" : `pass budget (${budget} worker passes) spent — your judgment is next`, directives: [...architect.directives, ...(redTeam?.findings ?? [])], unverified: architect.unverified });
+      present(`### ${current} STOPPED\n${architect.verdict !== "approve" ? "The architect rejected it." : "The pass budget is spent."} Nothing landed.`);
       break;
     } else {
       break;
     }
   } finally {
     await closeSeats(seats);
+    await closeSeats(redTeamSeats);
   }
 }
 

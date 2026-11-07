@@ -7,8 +7,11 @@ issue, a pull request when it passes:
 
 scout (parity census, the server repo) -> derive (the sanitized contract,
 behavior spec, visual spec) -> worker (code, tests, snapshot captures,
-changelog) -> battery (fantomas, build, both suites, gates, captures) ->
-review pair (the diff and the renders, both models, vision) -> the
+changelog; its battery — fantomas, build, both suites — is the
+verification of record, run by the worker itself, never re-run by the
+loop) -> collect (changed files, idiom gates on added lines, captures)
+-> review pair (the diff and the renders, both models, vision; round 0
+is the full pass, later rounds review the delta on kept seats) -> the
 deriver's scope ruling on every finding. Two scope cycles per issue; the
 need for a third stops for the user. From the second scope cycle the
 derivation is frozen: an in-scope ruling cites a spec line, and a real
@@ -26,7 +29,7 @@ and the readiness checks.
 | F13 | pr 2026-11-05 | feat: the emoji picker (#13) |
 | F16 | pending | #16 back to the log the reader left |
 | F12 | pr 2026-11-05 | feat: share commits into remotes (#12) |
-| F10 | pending | #10 images on commit reports |
+| F10 | pr 2026-11-07 | feat: images on commit reports (#10) |
 | F9 | pending | #9 reply participants |
 | F17 | pending | #17 the profile header in short windows |
 | F4 | pending | #4 follower and following lists |
@@ -52,7 +55,7 @@ and the readiness checks.
 
   One candidates mode and one share flow.
 
-- [ ] **F10 — images on commit reports** (#10)
+- [x] **F10 — images on commit reports** (#10)
 
   The signed files request already exists.
 

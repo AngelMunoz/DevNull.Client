@@ -147,6 +147,8 @@
     <Compile Include="Components\TermsDialog.fs" />
     <Compile Include="Components\ShareDialog.fsi" />
     <Compile Include="Components\ShareDialog.fs" />
+    <Compile Include="Components\ReportDialog.fsi" />
+    <Compile Include="Components\ReportDialog.fs" />
     <Compile Include="Components\ThreadVoice.fsi" />
     <Compile Include="Components\ThreadVoice.fs" />
     <Compile Include="Views\CommitActions.fsi" />

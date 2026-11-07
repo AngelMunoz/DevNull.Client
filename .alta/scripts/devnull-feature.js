@@ -1,7 +1,9 @@
 // The DevNull feature loop: ONE issue per run — scout -> derive -> worker
-// -> battery -> review pair (the diff AND the rendered captures, vision,
-// both models) -> the deriver's scope ruling -> remediation on the same
-// worker seat -> a pull request when it passes. No architect: that seat
+// (its battery is the verification of record) -> collect -> review pair
+// (the diff AND the rendered captures, vision, both models; round 0 is
+// the full pass, later rounds review the delta on kept seats) -> the
+// deriver's scope ruling -> remediation on the same worker seat -> a
+// pull request when it passes. No architect: that seat
 // belongs to the refactor loop (.alta/scripts/devnull-step.js). The run
 // refuses the peak windows for both providers (weekdays 01:00-04:00 and
 // 06:00-10:00 UTC) unless forced; action "window" reports status and
@@ -10,7 +12,7 @@
 export const meta = {
   name: "devnull-feature",
   title: "DevNull feature loop (one issue, one PR)",
-  description: "Works exactly one issue from the feature workplan: a parity census against the server repository, a derivation that sanitizes the contract and writes the behavior and visual specs, one kept worker seat, the battery with snapshot captures, a mixed-model review pair reading the diff and the renders, and the deriver ruling every finding's scope. Lands as a pull request, never a merge.",
+  description: "Works exactly one issue from the feature workplan: a parity census against the server repository, a derivation that sanitizes the contract and writes the behavior and visual specs, one kept worker seat whose own battery is the verification of record, a cheap collect of files, gates, and captures, a mixed-model review pair on kept seats (full diff and renders once, deltas after), and the deriver ruling every finding's scope. Lands as a pull request, never a merge.",
   whenToUse: "For the ROADMAP issue cycle on DevNull.Client, with steps as checkboxes in audits/features-workplan.md.",
   params: {
     step: { type: "string", description: "The step id in the plan, e.g. F15." },
@@ -25,11 +27,11 @@ export const meta = {
     deriveModel: { type: "string", description: "Explicit model ref for the derive pass (overrides deriveTier); empty = tier.", default: "" },
     reviewModels: { type: "string", description: "The review pair, one pass per model in parallel; BOTH must run (all-dead is an infrastructure failure, never 'clean'). Non-flash glm refs are refused: no vision.", default: "deepseek-flash:xhigh,glm-5.3-flash:high" },
     autoLand: { type: "boolean", description: "Open the pull request on approval without waiting for the user. Keep off.", default: false },
-    maxRemediations: { type: "integer", description: "Worker passes after round 0, all causes (battery failures and scope-reviewed directives).", default: 3 },
+    maxRemediations: { type: "integer", description: "Worker passes after round 0 (gate flags and scope-reviewed directives; the worker's own battery is the quality gate).", default: 3 },
     maxReviewRounds: { type: "integer", description: "Hard backstop on total worker passes before stopping for the user; the scope gate usually stops first.", default: 3 },
     maxScopeReviews: { type: "integer", description: "Scope-review cycles allowed per issue. The budget is multiplicity, never wall clock: needing one more cycle than this stops for the user's judgment.", default: 2 },
     rederive: { type: "boolean", description: "Regenerate the derivation.", default: false },
-    resume: { type: "boolean", description: "The tree already carries the implementation of an interrupted run: skip the worker first pass and start at the battery.", default: false },
+    resume: { type: "boolean", description: "The tree already carries the implementation of an interrupted run: skip the worker first pass and start at the collect step (the review is a full pass again; the seats are new).", default: false },
     force: { type: "boolean", description: "Run inside a peak window anyway.", default: false },
     snapshotsDir: { type: "string", description: "Where capture PNGs land (gitignored evidence).", default: "artifacts/snapshots" },
     message: { type: "string", description: "land: the commit/PR title.", default: "" },
@@ -38,8 +40,8 @@ export const meta = {
     { id: "scout", title: "The parity census against the server" },
     { id: "derive", title: "The sanitized contract and the specs", after: ["scout"] },
     { id: "implement", title: "One kept worker seat", after: ["derive"] },
-    { id: "battery", title: "The obligated rules run, captures included", after: ["implement"] },
-    { id: "review", title: "The pair reads the diff and the renders (fresh, both models)", after: ["battery"] },
+    { id: "collect", title: "The changed files, the idiom gates, the captures", after: ["implement"] },
+    { id: "review", title: "The pair reads the diff and the renders (full pass, then deltas on kept seats)", after: ["collect"] },
     { id: "scope", title: "The deriver rules every finding's scope", after: ["review"] },
     { id: "remediate", title: "The same worker seat applies the in-scope directives", after: ["scope"] },
     { id: "land", title: "Commit and the pull request", after: ["review"] },
@@ -233,7 +235,7 @@ Code; the behavior spec's tests (each user-visible behavior proven through the p
 
 ## Done when
 
-dotnet fantomas . leaves no diff (run last); dotnet build DevNull.Client.slnx has 0 errors and no new warnings (a leftover DevNull.Client.exe from the repo bin locks the DLL — MSB3021; the battery stops it); Core (dotnet run --project tests/DevNull.Client.Core.Tests -c Debug --no-build -- --summary) and UI (dotnet run --project tests/DevNull.Client.UI.Tests -c Debug --no-build -- --sequenced --summary) green; every visual state in the spec has a capture PNG on disk. Report: what changed and why, each behavior's shape in one line, the capture list, verification tails with pass counts, deviations.`;
+dotnet fantomas . leaves no diff (run last); dotnet build DevNull.Client.slnx has 0 errors and no new warnings (a leftover DevNull.Client.exe from the repo bin locks the DLL — MSB3021; stop repo-owned DevNull processes first); Core (dotnet run --project tests/DevNull.Client.Core.Tests -c Debug --no-build -- --summary) and UI (dotnet run --project tests/DevNull.Client.UI.Tests -c Debug --no-build -- --sequenced --summary) green; every visual state in the spec has a capture PNG on disk. The loop does not re-run this battery: your tails are the record of green. Report: what changed and why, each behavior's shape in one line, the capture list, verification tails with pass counts, deviations.`;
 
 const REMEDIATE_BRIEF = (id, directives, round) => `Round ${round} on feature step ${id}. You implemented this step in this session — apply the directives below to the code you already know. Do not re-read the plan, AGENTS.md, or the skills; everything you already hold still binds.
 
@@ -241,7 +243,7 @@ const REMEDIATE_BRIEF = (id, directives, round) => `Round ${round} on feature st
 
 ${directives.map((d, i) => `${i + 1}. ${d}`).join("\n")}
 
-Same bars as round 0: no commits, no pushes; a fix that restores observable behavior gets its failing-first evidence; a visual directive re-captures the state it touches. If a directive fights the seam, stop that item and report why — do not improvise scope. Finish with dotnet fantomas . (last), build 0 errors, both suites green, fresh captures for what moved. Report only: what changed per directive, new test evidence, verification tails.`;
+Same bars as round 0: no commits, no pushes; a fix that restores observable behavior gets its failing-first evidence; a visual directive re-captures the state it touches. If a directive fights the seam, stop that item and report why — do not improvise scope. Finish with dotnet fantomas . (last), build 0 errors, both suites green, fresh captures for what moved. The loop does not re-run the battery: your tails are the record. Report only: what changed per directive, new test evidence, verification tails.`;
 
 const REVIEW_SCHEMA = {
   type: "object", required: ["verdict", "findings", "notes"],
@@ -319,15 +321,67 @@ const reviewOpts = (ref) => {
   if (glm) return { model: `zai:glm-5.3-flash@${glm[1] ?? "high"}`, subSessions: false };
   return { model: ref, subSessions: false };
 };
-const runReview = async (id, derivation, changed, captures, label) => {
+// Kept review seats: round 0 is the full pass (the whole diff, every
+// capture); every later pass on the same seat reviews the delta since
+// its last look — the files and renders whose content hash changed —
+// plus the directives the worker applied in between. A seat that dies
+// rebuilds and takes the full brief again: it holds no context.
+const reviewSeats = {};
+let reviewFingerprints = null;
+const normPath = (p) => p.replace(/\\/g, "/").toLowerCase();
+const fingerprintAll = async (files) => {
+  const map = {};
+  if (!files.length) return map;
+  const out = await sh(`Get-FileHash ${files.map((f) => `"${f}"`).join(", ")} -Algorithm SHA256 -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Path.ToLower())|$($_.Hash)" }`);
+  for (const line of out.text.split(/\r?\n/)) {
+    const bar = line.indexOf("|");
+    if (bar > 0) map[normPath(line.slice(0, bar))] = line.slice(bar + 1);
+  }
+  return map;
+};
+const REVIEW_DELTA_BRIEF = (ref, id, round, directives, files, captures) => `You are the REVIEW PAIR seat [${ref}] for feature step ${id}, pass ${round}. You reviewed this step's diff earlier in this same session: the derivation, the casebook, and every file you read then are still yours — do not re-read them.
+
+The worker then applied these directives:
+${directives.map((d, i) => `${i + 1}. ${d}`).join("\n")}
+
+Files changed since your last pass:
+${files.length ? files.map((f) => `- ${f}`).join("\n") : "- (none)"}
+
+Renders added or changed since your last pass (view EACH):
+${captures.length ? captures.map((c) => `- ${c}`).join("\n") : "- (none)"}
+
+Judge: (1) each directive landed — the code now does what the directive says; (2) the delta broke nothing you already accepted; (3) the delta introduces nothing new. Do NOT re-run the battery and do not restate findings the referee refuted or ruled out of scope. Same bar as your first pass: only what would embarrass us in a human review.`;
+
+const runReview = async (id, derivation, changed, captures, label, appliedDirectives) => {
   const refs = (args.reviewModels ?? meta.params.reviewModels.default).split(",").map((r) => r.trim()).filter(Boolean);
   for (const ref of refs) {
     if (/glm-5\.3(?!-flash)/i.test(ref)) throw new Error(`Review ref '${ref}' refused: glm-5.3 has no vision and is not a review seat; the pair is deepseek + glm-5.3-flash.`);
   }
+  const freshPrints = await fingerprintAll([...changed, ...captures]);
+  const known = reviewFingerprints ?? {};
+  const delta = {
+    files: changed.filter((f) => !(normPath(f) in known) || known[normPath(f)] !== freshPrints[normPath(f)]),
+    captures: captures.filter((c) => !(normPath(c) in known) || known[normPath(c)] !== freshPrints[normPath(c)]),
+  };
+  const isDeltaPass = reviewFingerprints !== null;
+  const seatFor = async (ref) => {
+    if (!reviewSeats[ref]) reviewSeats[ref] = await session({ ...reviewOpts(ref), title: `${id} review [${ref}]` });
+    return reviewSeats[ref];
+  };
   const passes = await parallel(refs.map((ref) => () =>
-    withMetrics(`${id} review [${ref}] ${label ?? ""}`.trim(), { step: id, round: label, role: "review", ref }, () =>
-      agent(REVIEW_BRIEF(ref, id, derivation, changed, captures), { ...reviewOpts(ref), title: `${id} review [${ref}] ${label ?? ""}`.trim(), schema: REVIEW_SCHEMA }))
-      .then((r) => ({ ref, ...r }))));
+    (async () => {
+      const seat = await seatFor(ref);
+      const brief = isDeltaPass
+        ? REVIEW_DELTA_BRIEF(ref, id, label ?? "next", appliedDirectives ?? [], delta.files, delta.captures)
+        : REVIEW_BRIEF(ref, id, derivation, changed, captures);
+      try {
+        return await seat.run(brief, { schema: REVIEW_SCHEMA });
+      } catch {
+        reviewSeats[ref] = await session({ ...reviewOpts(ref), title: `${id} review [${ref}] (rebuilt)` });
+        return await reviewSeats[ref].run(REVIEW_BRIEF(ref, id, derivation, changed, captures), { schema: REVIEW_SCHEMA });
+      }
+    })().then((r) => ({ ref, ...r }))));
+  reviewFingerprints = { ...known, ...freshPrints };
   const live = passes.filter(Boolean);
   // Both seats must run: an all-dead pair is an infrastructure failure and
   // must never read as clean.
@@ -382,6 +436,32 @@ const battery = async (stepId) => {
   const captures = (stepId ? (await sh(`Get-ChildItem "${snapshotsDir}/${stepId}" -Filter *.png -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName`, 120000)) : { text: "" }).text.split(/\r?\n/).filter(Boolean);
   const hard = /files unchanged|No files were changed|0 files needed formatting/i.test(fantomas.text) && !buildErrors && suiteOk(coreRun, core) && suiteOk(uiRun, ui);
   return { pass: hard && hitsOnAdded.length === 0, hard, fantomas: fantomas.text.trim().split("\n").pop(), buildErrors: buildErrors ? build.text.trim().split("\n").filter((l) => /error/i.test(l)).slice(0, 5) : 0, core, ui, uiRetry, changed, fsFiles, gateHits: (gateOut.match(/FINDINGS/g) ?? []).length, hitsOnAdded, captures };
+};
+
+// The worker's battery is the verification of record; the loop never
+// re-runs it. What the loop still collects each round is what the review
+// consumes: the changed files, the fast idiom gates over added lines,
+// and the capture list.
+const collect = async (stepId) => {
+  const status = (await sh("git status --porcelain=v1")).text;
+  const changed = status.split(/\r?\n/).filter((l) => l.length > 3).map((l) => l.substring(3).trim().replace(/^"|"$/g, ""));
+  const fsFiles = changed.filter((f) => /\.fsi?$/i.test(f));
+  const gateOut = fsFiles.length ? (await sh(`pwsh -NoProfile audits/gates.ps1 ${fsFiles.map((f) => `"${f}"`).join(" ")}`)).text : "";
+  const hitsOnAdded = [];
+  for (const f of fsFiles) {
+    const hunkText = (await sh(`git diff -U0 -- "${f}"`)).text;
+    const added = [];
+    for (const line of hunkText.split("\n")) {
+      const m = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
+      if (m) { const s = Number(m[1]); const c = m[2] === undefined ? 1 : Number(m[2]); if (c > 0) for (let i = 0; i < c; i++) added.push(s + i); }
+    }
+    if (!added.length) continue;
+    for (const ln of gateOut.split("\n").filter((l) => l.startsWith(f + ":")).map((l) => Number(/:(\d+):/.exec(l)?.[1] ?? 0))) {
+      if (added.includes(ln)) hitsOnAdded.push(`${f}:${ln}`);
+    }
+  }
+  const captures = (stepId ? (await sh(`Get-ChildItem "${snapshotsDir}/${stepId}" -Filter *.png -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName`, 120000)) : { text: "" }).text.split(/\r?\n/).filter(Boolean);
+  return { changed, gateHits: (gateOut.match(/FINDINGS/g) ?? []).length, hitsOnAdded, captures };
 };
 
 const closeSeats = async (seats) => {
@@ -511,7 +591,6 @@ const w = guardWindow();
 const maxRemediations = args.maxRemediations ?? meta.params.maxRemediations.default;
 const budget = Math.min(maxRemediations, args.maxReviewRounds ?? meta.params.maxReviewRounds.default);
 const maxScopeReviews = args.maxScopeReviews ?? meta.params.maxScopeReviews.default;
-const isTrivial = (ds) => ds.length > 0 && ds.length <= 3 && ds.every((d) => d.length < 220) && ds.every((d) => /\.(fs|fsi|md)/.test(d));
 const issueNumber = (args.issue ?? "").trim();
 const branch = (args.branch ?? "").trim() || `feature/${issueNumber || id.toLowerCase()}`;
 const branchExists = (await sh(`git rev-parse --verify ${branch}`)).code === 0;
@@ -537,7 +616,7 @@ try {
   }
 
   const derivation = await deriveFor(id, stRun, args.rederive ?? false, seats, issueText, censusText);
-  present(`## ${id} — ${stRun.title}\n\nBranch ${branch}. Census done, derivation done. One kept worker seat, then the battery, then the review pair (diff + renders), then the deriver rules scope; ${maxScopeReviews} scope cycle(s) allowed — needing one more stops. autoLand ${autoLand ? "ON" : "OFF"}; the landing is a pull request.`);
+  present(`## ${id} — ${stRun.title}\n\nBranch ${branch}. Census done, derivation done. One kept worker seat (its battery is the record), one cheap collect, then the kept review pair (full pass, deltas after), then the deriver rules scope; ${maxScopeReviews} scope cycle(s) allowed — needing one more stops. autoLand ${autoLand ? "ON" : "OFF"}; the landing is a pull request.`);
 
   seats.worker = await session({ ...workerOpts, title: `${id} worker` });
   const sendWorker = async (round, directives) => {
@@ -552,7 +631,7 @@ try {
   let workerReport = args.resume ?? false
     ? "(resumed: the diff on the branch is the interrupted run's worker report; verify against the tree, not this text)"
     : await step("implement", () => withMetrics(`${id} worker`, (r) => ({ step: id, round: 0, role: "worker", reportChars: String(r).length }), () => sendWorker(0, null), () => seats.worker.id));
-  let results = await step("battery", () => battery(id));
+  let results = await step("collect", () => collect(id));
   let review = await step("review", () => runReview(id, derivation, results.changed, results.captures));
   await tools.write_file({ path: verdictPath(id), content: JSON.stringify({ verdict: review.verdict, directives: review.findings, ledgerNote: `${stRun.title} (${issueNumber ? "#" + issueNumber : id})` }, null, 2) });
 
@@ -562,20 +641,21 @@ try {
   let halted = null;
   let prResult = null;
 
-  while ((!results.hard || review?.verdict === "findings") && rounds < budget && !halted) {
+  while ((results.hitsOnAdded.length > 0 || review?.verdict === "findings") && rounds < budget && !halted) {
     const findings = review?.findings ?? [];
     const findingsKey = findings.join("||");
     if (findingsKey && findingsKey === previousFindings) {
       halted = { why: "no progress: the same findings returned after a scope-reviewed pass", findings };
       break;
     }
-    if (!results.hard) {
+    if (results.hitsOnAdded.length) {
       rounds++;
       previousFindings = findingsKey;
-      present(`### ${id} round ${rounds}: the battery failed — same worker seat, mechanical fix`);
-      workerReport = await step("remediate", () => withMetrics(`${id} worker r${rounds}`, (r) => ({ step: id, round: rounds, role: "worker", reportChars: String(r).length }), () => sendWorker(rounds, [`The battery failed: ${JSON.stringify({ build: results.buildErrors, core: results.core, ui: results.ui, hitsOnAdded: results.hitsOnAdded })}. Fix what fails.`]), () => seats.worker.id));
-      results = await step("battery", () => battery(id));
-      review = await step("review", () => runReview(id, derivation, results.changed, results.captures, `r${rounds}`));
+      const gateNote = `The idiom gates flagged added lines: ${results.hitsOnAdded.join(", ")}. Fix what they name.`;
+      present(`### ${id} round ${rounds}: the idiom gates flagged added lines — same worker seat, mechanical fix`);
+      workerReport = await step("remediate", () => sendWorker(rounds, [gateNote]));
+      results = await step("collect", () => collect(id));
+      review = await step("review", () => runReview(id, derivation, results.changed, results.captures, `r${rounds}`, [gateNote]));
       continue;
     }
     if (!findings.length) break;
@@ -600,34 +680,27 @@ try {
       break;
     }
     rounds++;
-    if (isTrivial(directives)) {
-      present(`### ${id} round ${rounds}: ${directives.length} trivial directive(s) — fast path, same seat`);
-      await step("remediate", () => withMetrics(`${id} worker r${rounds} (fast)`, (r) => ({ step: id, round: rounds, role: "worker", fastPath: true, reportChars: String(r).length }), () => sendWorker(rounds, directives), () => seats.worker.id));
-      results = await step("battery", () => battery(id));
-      if (!results.hard) { halted = { why: "battery failed after the trivial fast path" }; break; }
-      present(`### ${id} ready for review (fast path) — battery green`);
-      break;
-    }
-    present(`### ${id} round ${rounds}: ${directives.length} scope-reviewed directive(s) to the worker seat`);
-    workerReport = await step("remediate", () => withMetrics(`${id} worker r${rounds}`, (r) => ({ step: id, round: rounds, role: "worker", reportChars: String(r).length }), () => sendWorker(rounds, directives), () => seats.worker.id));
-    results = await step("battery", () => battery(id));
-    review = await step("review", () => runReview(id, derivation, results.changed, results.captures, `r${rounds}`));
+    present(`### ${id} round ${rounds}: ${directives.length} scope-reviewed directive(s) to the worker seat — delta review after`);
+    workerReport = await step("remediate", () => sendWorker(rounds, directives));
+    results = await step("collect", () => collect(id));
+    review = await step("review", () => runReview(id, derivation, results.changed, results.captures, `r${rounds}`, directives));
   }
 
   if (halted) {
     stopped.push({ step: id, ...halted });
     present(`### ${id} STOPPED\n\n${halted.why}. Nothing landed; the branch keeps the work.`);
-  } else if (results.hard && review?.verdict === "clean") {
-    present(`### ${id} PASSED — battery green, review pair clean\n\nCaptures: ${results.captures.length ? results.captures.map((c) => c.split(/[\\/]/).pop()).join(", ") : "none"}\n\n${autoLand ? "Opening the pull request…" : "**Stopped for your review; run action 'land' to open the pull request.**"}${review.notes ? `\n\nReview notes: ${review.notes}` : ""}`);
+  } else if (review?.verdict === "clean") {
+    present(`### ${id} PASSED — worker battery on record, review pair clean\n\nCaptures: ${results.captures.length ? results.captures.map((c) => c.split(/[\\/]/).pop()).join(", ") : "none"}\n\n${autoLand ? "Opening the pull request…" : "**Stopped for your review; run action 'land' to open the pull request.**"}${review.notes ? `\n\nReview notes: ${review.notes}` : ""}`);
     if (autoLand) {
       prResult = await step("land", () => landStep(id, `feat: ${cleanNote(stRun.title)}${issueNumber ? ` (#${issueNumber})` : ""}`, String(workerReport).slice(0, 1500)));
       present(`### ${id} pull request opened\n\n${String(prResult.pr).split("\n")[0]}`);
     }
   } else if (!stopped.length) {
-    stopped.push({ step: id, why: !results.hard ? "battery failed after remediation" : `pass budget (${budget} worker passes) spent — your judgment is next`, findings: review?.findings ?? [] });
+    stopped.push({ step: id, why: `pass budget (${budget} worker passes) spent — your judgment is next`, findings: review?.findings ?? [] });
     present(`### ${id} STOPPED\n\nNothing landed; the branch keeps the work.`);
   }
   return { pr: prResult, stopped, branch, plan, window: w, note: "Nothing was merged; the pull request (if any) waits for review." };
 } finally {
   await closeSeats(seats);
+  await closeSeats(reviewSeats);
 }

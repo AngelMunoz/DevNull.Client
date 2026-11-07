@@ -1024,6 +1024,8 @@ module Commits =
     CommitId: string
     Reason: ReportReason
     Details: string option
+    Images: ImageAttachment list
+    ImageDescriptions: string option list
   }
 
   type PreviewRequest = { KeyFile: string; Body: string }
@@ -1296,26 +1298,50 @@ module Commits =
     let! path = Internal.commitPath("/reports", request.CommitId)
     let! details = validateDetails request.Details
 
+    let! images = DevNull.Client.Core.Commit.CommitImages.parse request.Images
+
+    let! descriptions =
+      checkDescriptions(request.ImageDescriptions, request.Images)
+
     let body =
-      Json.object [
-        "reason", Encode.string(ReportReasons.wire request.Reason)
-        match details with
-        | Some details -> "details", Encode.string details
-        | None -> ()
-      ]
+      Json.object(
+        List.concat [
+          List.singleton(
+            "reason",
+            Encode.string(ReportReasons.wire request.Reason)
+          )
+          match details with
+          | Some details -> List.singleton("details", Encode.string details)
+          | None -> ()
+          descriptionsField(descriptions, images)
+        ]
+      )
       |> _.ToJsonString()
 
+    let baseCall: Internal.SignedCall<unit> = {
+      KeyFile = request.KeyFile
+      Method = "POST"
+      Target = path
+      Body = body
+      Decode = Internal.decodeUnit
+    }
+
     return!
-      Internal.sendSigned(
-        env,
-        {
-          KeyFile = request.KeyFile
-          Method = "POST"
-          Target = path
-          Body = body
-          Decode = Internal.decodeUnit
-        }
-      )
+      match images with
+      | [] -> Internal.sendSigned(env, baseCall)
+      | images ->
+        Internal.sendSignedFiles(
+          env,
+          {
+            KeyFile = baseCall.KeyFile
+            Method = baseCall.Method
+            Target = baseCall.Target
+            Body = baseCall.Body
+            PayloadName = "report.json"
+            Files = images |> List.map(fun image -> "images[]", image)
+            Decode = baseCall.Decode
+          }
+        )
   }
 
   let preview(env, request: PreviewRequest) = asyncResult {

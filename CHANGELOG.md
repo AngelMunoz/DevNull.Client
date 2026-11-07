@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **UI:** the commit card's secondary actions gather into one More menu — copy link, send in Remotes, follow, mute, block, report, and delete for your own commits — with the site's confirm asks for block and delete and the undo toast after a delete.
 - **Reports:** a commit you do not own can be reported with screenshots — pick up to three images, describe each one for people who cannot see them, choose a reason, add optional details, and send; the report and its attachments stay private to you and the moderators.
 
+### Fixed
+
+- **Log:** "Back to the log" on a thread now returns to the log tab the reader left, at the parked place, instead of always Latest; a thread opened with no log behind it still lands on Latest.
+
 ## [0.10.0] - 2026-11-06
 
 ### Added

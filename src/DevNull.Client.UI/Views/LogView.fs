@@ -1544,6 +1544,8 @@ type Page<'env
   inherit UserControl()
 
   do
+    props.Env.Timeline.RememberLog props.Log
+
     let program =
       Program.mkProgram (State.init props) (State.update props) (view props)
       |> Program.withSubscription(State.subscribe props)

@@ -19,6 +19,8 @@ type TimelineService =
   abstract Deletions: IObservable<string>
   abstract Remember: log: LogKind * offset: float -> unit
   abstract OffsetOf: log: LogKind -> float
+  abstract RememberLog: log: LogKind -> unit
+  abstract LastLog: LogKind option
   abstract RememberDraft: commitId: string * text: string -> unit
   abstract ForgetDraft: commitId: string -> unit
   abstract DraftOf: commitId: string -> string
@@ -34,6 +36,7 @@ module TimelineService =
     Requests: Subject<Request>
     Deletions: Subject<string>
     LastAccepted: BehaviorSubject<DateTimeOffset>
+    LastLog: BehaviorSubject<LogKind option>
     Scrolls: Dictionary<LogKind, float>
     Drafts: Dictionary<string, string>
   }
@@ -67,6 +70,10 @@ module TimelineService =
     | true, offset -> offset
     | false, _ -> 0.0
 
+  let rememberLog(state: State, log: LogKind) = state.LastLog.OnNext(Some log)
+
+  let lastLog(state: State) : LogKind option = state.LastLog.Value
+
   let rememberDraft(state: State, commitId: string, text: string) =
     if text = "" then
       state.Drafts.Remove commitId |> ignore
@@ -87,6 +94,7 @@ module TimelineService =
       Deletions = new Subject<string>()
       LastAccepted =
         new BehaviorSubject<DateTimeOffset>(DateTimeOffset.MinValue)
+      LastLog = new BehaviorSubject<LogKind option>(None)
       Scrolls = Dictionary<LogKind, float>()
       Drafts = Dictionary<string, string>()
     }
@@ -101,6 +109,9 @@ module TimelineService =
         member _.Deletions = deletions state
         member _.Remember(log, offset) = remember(state, log, offset)
         member _.OffsetOf(log) = offsetOf(state, log)
+
+        member _.RememberLog(log) = rememberLog(state, log)
+        member _.LastLog = lastLog state
 
         member _.RememberDraft(commitId, text) =
           rememberDraft(state, commitId, text)

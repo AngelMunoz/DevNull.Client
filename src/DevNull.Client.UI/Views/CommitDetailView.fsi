@@ -2,6 +2,7 @@ module DevNull.Client.Views.CommitDetailView
 
 open Avalonia.Controls
 open DevNull.Client.AttachmentSources
+open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Env
@@ -66,3 +67,10 @@ type Page<'env
   and 'env :> IProvideLogging> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl
+
+/// The part of the page's chrome the tests read directly.
+module Parts =
+
+  /// The wire URL of the log the back line returns to: the remembered
+  /// log's, or Latest when no log page has been built in this session.
+  val backTarget: log: LogKind option -> string

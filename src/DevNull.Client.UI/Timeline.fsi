@@ -47,6 +47,13 @@ type TimelineService =
   /// The scroll place a log left, or its top.
   abstract OffsetOf: log: LogKind -> float
 
+  /// Parks the log page the reader last had open, so a thread's back
+  /// line returns to it. The log page calls this when it builds.
+  abstract RememberLog: log: LogKind -> unit
+
+  /// The last log page built in this session, or none until one was.
+  abstract LastLog: LogKind option
+
   /// Parks one reply draft. An emptied text leaves no entry behind.
   abstract RememberDraft: commitId: string * text: string -> unit
 

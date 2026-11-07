@@ -162,13 +162,16 @@ let captureAsync(name: string, window: Window) : Async<string> = async {
       match window.CaptureRenderedFrame() with
       | null -> failwith $"no rendered frame to capture for {name}"
       | bitmap ->
+        // Every capture hands back its own bitmap: it disposes here, or
+        // it parks on the finalizer queue for the whole run.
+        use frame = bitmap
         let file = IO.Path.Combine("artifacts", "snapshots", name + ".png")
 
         try
           IO.Directory.CreateDirectory(IO.Path.GetDirectoryName file) |> ignore
 
           use stream = IO.File.Create(file)
-          bitmap.Save(stream)
+          frame.Save(stream)
           file
         with ex ->
           failwith $"the capture {name} failed: {ex.Message}")

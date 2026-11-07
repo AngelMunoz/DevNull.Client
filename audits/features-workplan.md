@@ -29,7 +29,7 @@ and the readiness checks.
 | F13 | pr 2026-11-05 | feat: the emoji picker (#13) |
 | F16 | pending | #16 back to the log the reader left |
 | F12 | pr 2026-11-05 | feat: share commits into remotes (#12) |
-| F10 | pending | #10 images on commit reports |
+| F10 | pr 2026-11-07 | feat: images on commit reports (#10) |
 | F9 | pending | #9 reply participants |
 | F17 | pending | #17 the profile header in short windows |
 | F4 | pending | #4 follower and following lists |
@@ -55,7 +55,7 @@ and the readiness checks.
 
   One candidates mode and one share flow.
 
-- [ ] **F10 — images on commit reports** (#10)
+- [x] **F10 — images on commit reports** (#10)
 
   The signed files request already exists.
 

@@ -1407,6 +1407,8 @@ let actionApiTests =
         CommitId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
         Reason = Spam
         Details = Some "repeat"
+        Images = []
+        ImageDescriptions = []
       }
 
       let! (result: Result<unit, TestError>) =
@@ -1439,6 +1441,8 @@ let actionApiTests =
         CommitId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
         Reason = Spam
         Details = Some(String.replicate 501 "x")
+        Images = []
+        ImageDescriptions = []
       }
 
       let! (result: Result<unit, TestError>) =
@@ -2301,6 +2305,245 @@ let imageCommitTests =
 
       let! (result: Result<Commit, TestError>) =
         Commits.create(envFor http, request)
+
+      match result with
+      | Error(TooManyDescriptions 2) ->
+        Expect.isEmpty http.Requests "no request left"
+      | other -> failtestf "expected the description count, got %A" other
+    }
+
+    testAsync "a report with one described image posts multipart" {
+      let http = CapturingHttp(ok "")
+
+      let signer =
+        signerWith(fun signed ->
+          Expect.equal "devnull-api-images" signed.Namespace "namespace"
+
+          Expect.equal
+            ("1760000000\n00112233445566778899aabbccddeeff\nPOST\n"
+             + "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d/reports\n"
+             + pngHash
+             + "\n{\"reason\":\"spam\",\"details\":\"repeat\",\"image_descriptions\":[\"the screenshot\"]}")
+            signed.Payload
+            "signed message"
+
+          Ok "signature")
+
+      let request: Commits.ReportRequest = {
+        KeyFile = "key-file"
+        CommitId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+        Reason = Spam
+        Details = Some "repeat"
+        Images = [ stagedImage "shot.png" ]
+        ImageDescriptions = [ Some "the screenshot" ]
+      }
+
+      let! (result: Result<unit, TestError>) =
+        Commits.report(redeemEnv http signer, request)
+
+      match result with
+      | Ok() ->
+        let sent = http.Requests |> List.exactlyOne
+
+        Expect.equal
+          "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d/reports"
+          sent.Target
+          "target"
+
+        let form = multipartForm sent
+
+        Expect.equal
+          [ "payload"; "images[]" ]
+          (form.Files |> List.map _.Name)
+          "parts"
+
+        Expect.isEmpty form.Fields "the multipart carries no fields"
+
+        let payload = form.Files |> List.find(fun file -> file.Name = "payload")
+        Expect.equal "report.json" payload.FileName "payload name"
+        Expect.equal "application/json" payload.ContentType "payload type"
+
+        Expect.equal
+          "{\"reason\":\"spam\",\"details\":\"repeat\",\"image_descriptions\":[\"the screenshot\"]}"
+          (System.Text.Encoding.UTF8.GetString payload.Content)
+          "payload json"
+
+        let image = form.Files |> List.find(fun file -> file.Name = "images[]")
+        Expect.equal "shot.png" image.FileName "image name"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "a report's undescribed image rides a null slot" {
+      let http = CapturingHttp(ok "")
+
+      let request: Commits.ReportRequest = {
+        KeyFile = "key-file"
+        CommitId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+        Reason = Harassment
+        Details = None
+        Images = [ stagedImage "shot.png"; stagedImage "after.png" ]
+        ImageDescriptions = [ Some "the error page" ]
+      }
+
+      let! (result: Result<unit, TestError>) =
+        Commits.report(envFor http, request)
+
+      match result with
+      | Ok() ->
+        let form = http.Requests |> List.exactlyOne |> multipartForm
+
+        let payload = form.Files |> List.find(fun file -> file.Name = "payload")
+
+        Expect.equal
+          "{\"reason\":\"harassment\",\"image_descriptions\":[\"the error page\",null]}"
+          (System.Text.Encoding.UTF8.GetString payload.Content)
+          "payload json"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "a report that describes nothing omits the descriptions field" {
+      let http = CapturingHttp(ok "")
+
+      let request: Commits.ReportRequest = {
+        KeyFile = "key-file"
+        CommitId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+        Reason = Unsafe
+        Details = None
+        Images = [ stagedImage "shot.png" ]
+        ImageDescriptions = []
+      }
+
+      let! (result: Result<unit, TestError>) =
+        Commits.report(envFor http, request)
+
+      match result with
+      | Ok() ->
+        let form = http.Requests |> List.exactlyOne |> multipartForm
+
+        let payload = form.Files |> List.find(fun file -> file.Name = "payload")
+
+        Expect.equal
+          "{\"reason\":\"unsafe\"}"
+          (System.Text.Encoding.UTF8.GetString payload.Content)
+          "payload json"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "a report with a fourth image fails before the request" {
+      let http = CapturingHttp(ok "")
+
+      let request: Commits.ReportRequest = {
+        KeyFile = "key-file"
+        CommitId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+        Reason = Spam
+        Details = None
+        Images = [
+          stagedImage "a.png"
+          stagedImage "b.png"
+          stagedImage "c.png"
+          stagedImage "d.png"
+        ]
+        ImageDescriptions = []
+      }
+
+      let! (result: Result<unit, TestError>) =
+        Commits.report(envFor http, request)
+
+      match result with
+      | Error(TooManyImages 4) -> Expect.isEmpty http.Requests "no request left"
+      | other -> failtestf "expected the image count, got %A" other
+    }
+
+    testAsync "a report with a non-image fails before the request" {
+      let http = CapturingHttp(ok "")
+
+      let request: Commits.ReportRequest = {
+        KeyFile = "key-file"
+        CommitId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+        Reason = Spam
+        Details = None
+        Images = [
+          {
+            FileName = "notes.txt"
+            Bytes = [| 1uy; 2uy; 3uy |]
+          }
+        ]
+        ImageDescriptions = []
+      }
+
+      let! (result: Result<unit, TestError>) =
+        Commits.report(envFor http, request)
+
+      match result with
+      | Error(UnsupportedImage "notes.txt") ->
+        Expect.isEmpty http.Requests "no request left"
+      | other -> failtestf "expected the format refusal, got %A" other
+    }
+
+    testAsync "a report with an oversized image fails before the request" {
+      let http = CapturingHttp(ok "")
+
+      let oversized = Array.zeroCreate 10240001
+
+      let request: Commits.ReportRequest = {
+        KeyFile = "key-file"
+        CommitId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+        Reason = Spam
+        Details = None
+        Images = [
+          {
+            FileName = "huge.png"
+            Bytes = oversized
+          }
+        ]
+        ImageDescriptions = []
+      }
+
+      let! (result: Result<unit, TestError>) =
+        Commits.report(envFor http, request)
+
+      match result with
+      | Error(ImageTooLarge("huge.png", 10240001)) ->
+        Expect.isEmpty http.Requests "no request left"
+      | other -> failtestf "expected the size refusal, got %A" other
+    }
+
+    testAsync "a report with an over-long description fails before the request" {
+      let http = CapturingHttp(ok "")
+
+      let request: Commits.ReportRequest = {
+        KeyFile = "key-file"
+        CommitId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+        Reason = Spam
+        Details = None
+        Images = [ stagedImage "shot.png" ]
+        ImageDescriptions = [ Some(String.replicate 1001 "x") ]
+      }
+
+      let! (result: Result<unit, TestError>) =
+        Commits.report(envFor http, request)
+
+      match result with
+      | Error(DescriptionTooLong(0, 1001)) ->
+        Expect.isEmpty http.Requests "no request left"
+      | other -> failtestf "expected the description bound, got %A" other
+    }
+
+    testAsync
+      "a report with more descriptions than images fails before the request" {
+      let http = CapturingHttp(ok "")
+
+      let request: Commits.ReportRequest = {
+        KeyFile = "key-file"
+        CommitId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+        Reason = Spam
+        Details = None
+        Images = [ stagedImage "shot.png" ]
+        ImageDescriptions = [ Some "one"; Some "two" ]
+      }
+
+      let! (result: Result<unit, TestError>) =
+        Commits.report(envFor http, request)
 
       match result with
       | Error(TooManyDescriptions 2) ->

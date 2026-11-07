@@ -461,6 +461,7 @@ let view
         Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
         OnPin = ValueNone
         OnShare = ValueNone
+        OnReport = ValueNone
         Actions = false
         OnStar = fun commit -> dispatch(State.StarToggled commit)
         OnVote = ignore

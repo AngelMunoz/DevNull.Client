@@ -7,6 +7,7 @@ open DevNull.Client.UI.Tests.Composer
 open DevNull.Client.UI.Tests.FeedTests
 open DevNull.Client.UI.Tests.Natives
 open DevNull.Client.UI.Tests.OrganizationView
+open DevNull.Client.UI.Tests.Report
 open DevNull.Client.UI.Tests.Remotes
 open DevNull.Client.UI.Tests.RemotesView
 open DevNull.Client.UI.Tests.Scheduled
@@ -51,6 +52,7 @@ let main argv =
       RemotesView.pinTests
       OrganizationView.tests
       Share.tests
+      Report.tests
       Snapshots.captureTests
     ]
 

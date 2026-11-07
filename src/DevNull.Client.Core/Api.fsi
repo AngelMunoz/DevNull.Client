@@ -647,6 +647,8 @@ module Commits =
     CommitId: string
     Reason: ReportReason
     Details: string option
+    Images: ImageAttachment list
+    ImageDescriptions: string option list
   }
 
   /// One draft to see as the commit it would become. Nothing is kept.
@@ -779,6 +781,7 @@ module Commits =
       and 'env :> IProvideHttp
       and CommitIdError<'e>
       and ReportDetailsError<'e>
+      and ImageError<'e>
       and NonceError<'e>
       and SigningError<'e>
       and TransportError<'e>

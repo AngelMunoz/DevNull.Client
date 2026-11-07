@@ -110,6 +110,8 @@ module State =
     // The commit whose share dialog stands open; the page model owns
     // it, and the dialog layer reads it.
     ShareOpen: Commit voption
+    // The commit whose report dialog stands open.
+    ReportOpen: Commit voption
   }
 
   type Msg =
@@ -139,6 +141,8 @@ module State =
     | ShareOpened of Commit
     | ShareClosed
     | Shared
+    | ReportOpened of Commit
+    | ReportClosed
 
   let initial = {
     Loading = true
@@ -159,6 +163,7 @@ module State =
     Automatic = false
     Translations = TranslationModel.initial
     ShareOpen = ValueNone
+    ReportOpen = ValueNone
   }
 
   let thread(env, session: SignedInSession, commitId: string) =
@@ -467,6 +472,7 @@ module State =
       },
       Cmd.none
     | CardEvent(CommitCard.ShareRequested _) -> model, Cmd.none
+    | CardEvent(CommitCard.ReportRequested _) -> model, Cmd.none
     | PinToggled commit ->
       // The card's own gate already says this is the author's
       // top-level commit; the flag on it says which way the toggle
@@ -725,6 +731,13 @@ module State =
     | ShareClosed -> { model with ShareOpen = ValueNone }, Cmd.none
     | Shared ->
       model, Cmd.ofEffect(fun _ -> Navigation.go(props.Nav, "/remotes", ignore))
+    | ReportOpened commit ->
+      {
+        model with
+            ReportOpen = ValueSome commit
+      },
+      Cmd.none
+    | ReportClosed -> { model with ReportOpen = ValueNone }, Cmd.none
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
@@ -1140,6 +1153,7 @@ let view
             ValueSome(State.ShareOpened >> dispatch)
           else
             ValueNone
+        OnReport = ValueSome(State.ReportOpened >> dispatch)
         Actions = true
         OnStar = fun commit -> dispatch(State.StarToggled commit)
         OnVote = fun commit -> dispatch(State.PollVoteRequested commit)
@@ -1231,6 +1245,40 @@ let view
       Place = DialogChrome.Center
     }
 
+  let reportLayer
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : Control =
+    DialogChrome.layer {
+      Open =
+        model
+        |> Observable.map(fun state -> state.ReportOpen)
+        |> Observable.map ValueOption.isSome
+      Content =
+        fun () ->
+          let isOpen =
+            model
+            |> Observable.first
+            |> Observable.toEnumerable
+            |> Seq.tryHead
+            |> function
+              | Some state -> state.ReportOpen
+              | None -> ValueNone
+
+          match isOpen with
+          | ValueSome commit ->
+            ReportDialog.Page {
+              Env = props.Env
+              Session = props.Session
+              Commit = commit
+              Sent = fun () -> dispatch State.ReportClosed
+              Close = fun () -> dispatch State.ReportClosed
+            }
+          | ValueNone -> Panel()
+      Scrim = true
+      OnScrimClick = ValueSome(fun () -> dispatch State.ReportClosed)
+      Place = DialogChrome.Center
+    }
+
   // The page scrolls one axis: a wrapped body and composer measure
   // against the column, never an unbounded extent. The rows run edge
   // to edge of the reading column, the width the feed hands its own
@@ -1242,7 +1290,8 @@ let view
       .Content(content)
 
 
-  Grid().Children(page, shareLayer(model, dispatch))
+  Grid()
+    .Children(page, shareLayer(model, dispatch), reportLayer(model, dispatch))
 
 type Page<'env
   when 'env :> IProvideClock

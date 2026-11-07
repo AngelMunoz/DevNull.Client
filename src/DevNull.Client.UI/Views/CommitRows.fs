@@ -25,6 +25,7 @@ type Host = {
   Zone: Zone
   OnPin: (Commit -> unit) voption
   OnShare: (Commit -> unit) voption
+  OnReport: (Commit -> unit) voption
   Actions: bool
   OnStar: Commit -> unit
   OnVote: Commit -> unit
@@ -68,6 +69,7 @@ let row
     Vote = offered host.OnVote
     Pastel = offered host.OnPastel
     Share = host.OnShare
+    Report = host.OnReport
     Translation = host.Translation
     Zone = host.Zone
   }

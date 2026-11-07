@@ -21,11 +21,13 @@ open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.Remotes
 open DevNull.Client.RemotesState
+open DevNull.Client.Shell
 open DevNull.Client.UI.Tests.App
 open DevNull.Client.UI.Tests.Composer
 open DevNull.Client.UI.Tests.Fixtures
 open DevNull.Client.UI.Tests.Harness
 open DevNull.Client.UI.Tests.Remotes
+open DevNull.Client.UI.Tests.Report
 open DevNull.Client.UI.Tests.Share
 
 module CommitCard = DevNull.Client.Components.CommitCard
@@ -1070,6 +1072,7 @@ let captureTests =
         Vote = ValueNone
         Pastel = ValueNone
         Share = ValueSome ignore
+        Report = ValueNone
         Translation = translation
         Zone = zoneOf(None: UserSettings option)
       }
@@ -1633,5 +1636,589 @@ let captureTests =
       let! path = captureAsync("F13/f13-panel-bottom-anchored", window)
       let bytes = IO.File.ReadAllBytes(path)
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    let startReportShell
+      (anchor: string, api: IHttp, attachments: FakeAttachments)
+      : Async<Window> = async {
+      let env = TestEnv(signedInStore(), api, attachments = attachments)
+      let! window = probeUiAsync(fun () -> Shell(env, None) :> Window)
+      let! shown = showAsync window
+      do! onUiAsync(fun () -> shown.Height <- 900.0)
+      do! settleAsync()
+      let! _ = showsText(window, anchor)
+      return shown
+    }
+
+    let scrollReportToEndAsync(window: Window) : Async<unit> = async {
+      do!
+        onUiAsync(fun () ->
+          controlByName(window, "ReportScroller")
+          |> Option.iter(function
+            | :? ScrollViewer as scroller -> scroller.ScrollToEnd()
+            | _ -> ()))
+
+      do! settleAsync()
+    }
+
+    testAsync "the report control rides another author's approved card" {
+      let api = reportApi(fun _ -> noContent)
+
+      let! window =
+        startReportShell("The Hubot", api :> IHttp, FakeAttachments())
+
+      let! offered =
+        waitForAsync(5000, (fun () -> reportButton window), Option.isSome)
+
+      Expect.isTrue offered "the card offered no report control"
+
+      let! path = captureAsync("F10/f10-card-report", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Close())
+    }
+
+    testAsync "the own card carries no report control" {
+      let api = reportApiWith(ownCommitLog, fun _ -> noContent)
+
+      let! window =
+        startReportShell("The Octocat", api :> IHttp, FakeAttachments())
+
+      do! settleAsync()
+
+      let! absent = probeUiAsync(fun () -> reportButton window |> Option.isNone)
+      Expect.isTrue absent "the own card offered report"
+
+      let! path = captureAsync("F10/f10-card-own", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Close())
+    }
+
+    testAsync "a host without the slot draws no report control" {
+      let api = reportApi(fun _ -> noContent)
+
+      let! window =
+        startReportShell("The Hubot", api :> IHttp, FakeAttachments())
+
+      do! clickWhenShown(window, "Profile")
+
+      let! profile = showsText(window, "Builds things.")
+      Expect.isTrue profile "the profile page never rendered"
+
+      let! commits = showsText(window, "It was DNS.")
+      Expect.isTrue commits "the profile feed never rendered its commit"
+      do! settleAsync()
+
+      let! absent = probeUiAsync(fun () -> reportButton window |> Option.isNone)
+      Expect.isTrue absent "the unwired profile card offered report"
+
+      let! path = captureAsync("F10/f10-card-unwired", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Close())
+    }
+
+    testAsync "the dense card carries the report control" {
+      let env = TestEnv(signedInStore(), logApi() :> IHttp)
+      let commit = shareCommit()
+
+      let now = new BehaviorSubject<DateTimeOffset>(DateTimeOffset.UtcNow)
+      let pastels = new BehaviorSubject<bool>(true)
+      let choices = new BehaviorSubject<Map<string, string>>(Map.empty)
+
+      let translation =
+        new BehaviorSubject<Commit -> CommitCard.TranslationView voption>(fun _ ->
+          ValueNone)
+
+      let props: CommitCard.RowProps = {
+        OnEvent = ignore
+        ViewerId = viewerId
+        Pasteis = pastels
+        Now = now
+        PollChoices = choices
+        Dense = true
+        Images = (env :> IProvideImageCache).ImageCache
+        Flyout = ValueNone
+        Pin = ValueNone
+        Star = ValueNone
+        Vote = ValueNone
+        Pastel = ValueNone
+        Share = ValueSome ignore
+        Report = ValueSome ignore
+        Translation = translation
+        Zone = zoneOf(None: UserSettings option)
+      }
+
+      let! window =
+        probeUiAsync(fun () ->
+          let window =
+            Window(
+              Content = CommitCard.feedRow props (LiveCommit commit),
+              Width = 720.0,
+              Height = 480.0
+            )
+
+          window.Show()
+          window)
+
+      do! settleAsync()
+
+      let! offered =
+        probeUiAsync(fun () -> reportButton window |> Option.isSome)
+
+      Expect.isTrue offered "the dense card offered no report control"
+
+      let! path = captureAsync("F10/f10-card-dense", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the report dialog opens with no reason chosen" {
+      let api = reportApi(fun _ -> noContent)
+
+      let! window =
+        startReportShell("The Hubot", api :> IHttp, FakeAttachments())
+
+      do! openReportDialogAsync window
+
+      let! titled = showsText(window, "Report commit")
+      Expect.isTrue titled "the dialog never titled itself"
+
+      let! disabled =
+        probeUiAsync(fun () ->
+          sendButton window
+          |> Option.exists(fun control -> not control.IsEnabled))
+
+      Expect.isTrue disabled "Send report offered itself before a reason"
+
+      let! path = captureAsync("F10/f10-dialog-open", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Close())
+    }
+
+    testAsync "a chosen reason highlights its row and arms the send" {
+      let api = reportApi(fun _ -> noContent)
+
+      let! window =
+        startReportShell("The Hubot", api :> IHttp, FakeAttachments())
+
+      do! openReportDialogAsync window
+      do! chooseReasonAsync(window, "ReportReasonHarassment")
+
+      let! armed =
+        waitForAsync(
+          5000,
+          (fun () -> sendButton window),
+          fun control -> control |> Option.exists _.IsEnabled
+        )
+
+      Expect.isTrue armed "the send stayed off after a reason"
+
+      let! path = captureAsync("F10/f10-dialog-reason", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Close())
+    }
+
+    testAsync "the details box caps at five hundred characters" {
+      let api = reportApi(fun _ -> noContent)
+
+      let! window =
+        startReportShell("The Hubot", api :> IHttp, FakeAttachments())
+
+      do! openReportDialogAsync window
+      do! typeDetailsAsync(window, String.replicate 500 "x")
+
+      let! cap =
+        probeUiAsync(fun () ->
+          controlByName(window, "ReportDetails")
+          |> Option.map(fun control ->
+            let box = control :?> TextBox
+
+            box.MaxLength, (box.Text |> Option.ofObj |> Option.map _.Length)))
+
+      Expect.equal
+        cap
+        (Some(500, Some 500))
+        "the details box did not cap at five hundred"
+
+      let! path = captureAsync("F10/f10-dialog-details-cap", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Close())
+    }
+
+    testAsync "one picked image shows its chip" {
+      let api = reportApi(fun _ -> noContent)
+      let attachments = FakeAttachments()
+
+      attachments.PickResponse <- [ opaqueStagedImage "one.png" ]
+
+      let! window = startReportShell("The Hubot", api :> IHttp, attachments)
+
+      do! openReportDialogAsync window
+      do! attachAsync window
+
+      let! staged =
+        waitForAsync(
+          5000,
+          (fun () -> window),
+          (fun root -> hasText(root, "one.png"))
+        )
+
+      Expect.isTrue staged "the picked image never staged"
+
+      do! scrollReportToEndAsync window
+
+      let! path = captureAsync("F10/f10-dialog-images-1", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Close())
+    }
+
+    testAsync "three picked images fill the strip and disable attach" {
+      let api = reportApi(fun _ -> noContent)
+      let attachments = FakeAttachments()
+
+      attachments.PickResponse <- [
+        opaqueStagedImage "one.png"
+        opaqueStagedImage "two.png"
+        opaqueStagedImage "three.png"
+      ]
+
+      let! window = startReportShell("The Hubot", api :> IHttp, attachments)
+
+      do! openReportDialogAsync window
+      do! attachAsync window
+
+      let! staged =
+        waitForAsync(
+          5000,
+          (fun () -> controlByName(window, "ImageDescription2")),
+          Option.isSome
+        )
+
+      Expect.isTrue staged "the third image never staged"
+
+      let! disabled =
+        probeUiAsync(fun () ->
+          controlByName(window, "ReportAttachButton")
+          |> Option.exists(fun control -> not control.IsEnabled))
+
+      Expect.isTrue disabled "attach stayed on with three images"
+
+      do! scrollReportToEndAsync window
+
+      let! path = captureAsync("F10/f10-dialog-images-3", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Close())
+    }
+
+    testAsync "a described chip counts its characters" {
+      let api = reportApi(fun _ -> noContent)
+      let attachments = FakeAttachments()
+
+      attachments.PickResponse <- [ opaqueStagedImage "one.png" ]
+
+      let! window = startReportShell("The Hubot", api :> IHttp, attachments)
+
+      do! openReportDialogAsync window
+      do! attachAsync window
+
+      let! staged =
+        waitForAsync(
+          5000,
+          (fun () -> window),
+          (fun root -> hasText(root, "one.png"))
+        )
+
+      Expect.isTrue staged "the picked image never staged"
+
+      do!
+        onUiAsync(fun () ->
+          controlByName(window, "ImageDescription0")
+          |> Option.iter(fun control ->
+            (control :?> TextBox).Text <- "The error page"))
+
+      let! counted =
+        waitForAsync(
+          5000,
+          (fun () -> window),
+          (fun root -> hasText(root, "14/1000"))
+        )
+
+      Expect.isTrue counted "the description counter never counted"
+
+      do! scrollReportToEndAsync window
+
+      let! path = captureAsync("F10/f10-dialog-described", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Close())
+    }
+
+    testAsync "a refused pick shows its line over an empty stage" {
+      let api = reportApi(fun _ -> noContent)
+      let attachments = FakeAttachments()
+
+      attachments.PickResponse <- [
+        {
+          FileName = "notes.txt"
+          Bytes = [| 1uy; 2uy; 3uy |]
+        }
+      ]
+
+      let! window = startReportShell("The Hubot", api :> IHttp, attachments)
+
+      do! openReportDialogAsync window
+      do! attachAsync window
+
+      let! refused =
+        showsText(window, "notes.txt is not a JPEG, PNG, or WebP image.")
+
+      Expect.isTrue refused "the bad pick said nothing"
+
+      let! path = captureAsync("F10/f10-dialog-refused", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Close())
+    }
+
+    testAsync "sending says so and disables the form" {
+      let gate = TaskCompletionSource<unit>()
+      let inner = reportApi(fun _ -> noContent)
+      let held = HeldReportApi(inner :> IHttp, gate)
+
+      let! window =
+        startReportShell("The Hubot", held :> IHttp, FakeAttachments())
+
+      do! openReportDialogAsync window
+      do! chooseReasonAsync(window, "ReportReasonSpam")
+      do! clickSendAsync window
+
+      let! sending =
+        waitForAsync(
+          5000,
+          (fun () -> buttonWithText(window, "Sending…")),
+          Option.isSome
+        )
+
+      Expect.isTrue sending "the send never said it was sending"
+
+      let! disabled =
+        probeUiAsync(fun () ->
+          controlByName(window, "ReportCancel")
+          |> Option.exists(fun control -> not control.IsEnabled))
+
+      Expect.isTrue disabled "Cancel stayed on while the report sent"
+
+      let! path = captureAsync("F10/f10-dialog-sending", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      gate.SetResult(())
+      do! settleAsync()
+      do! onUiAsync(fun () -> window.Close())
+    }
+
+    testAsync "a rate-limited report asks for a minute" {
+      let api = reportApi(fun _ -> refused(429, "Too Many Attempts."))
+
+      let! window =
+        startReportShell("The Hubot", api :> IHttp, FakeAttachments())
+
+      do! openReportDialogAsync window
+      do! chooseReasonAsync(window, "ReportReasonSpam")
+      do! clickSendAsync window
+
+      let! limited =
+        showsText(
+          window,
+          "Too many reports. Please wait a minute and try again."
+        )
+
+      Expect.isTrue limited "the rate limit said nothing"
+
+      let! path = captureAsync("F10/f10-dialog-rate-limited", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Close())
+    }
+
+    testAsync "a plain refusal says the commit is no longer available" {
+      let api = reportApi(fun _ -> refused(500, "the server said no"))
+
+      let! window =
+        startReportShell("The Hubot", api :> IHttp, FakeAttachments())
+
+      do! openReportDialogAsync window
+      do! chooseReasonAsync(window, "ReportReasonUnsafe")
+      do! clickSendAsync window
+
+      let! refusedLine =
+        showsText(window, "This commit is no longer available to report.")
+
+      Expect.isTrue refusedLine "the refusal said nothing"
+
+      let! path = captureAsync("F10/f10-dialog-unavailable", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Close())
+    }
+
+    testAsync "a lost connection shows the offline line" {
+      let api = reportApi(fun _ -> noContent)
+      let offline = OfflineReportApi(api :> IHttp)
+
+      let! window =
+        startReportShell("The Hubot", offline :> IHttp, FakeAttachments())
+
+      do! openReportDialogAsync window
+      do! chooseReasonAsync(window, "ReportReasonSpam")
+      do! clickSendAsync window
+
+      let! line =
+        showsText(
+          window,
+          "Could not send your report. Check your connection and try again."
+        )
+
+      Expect.isTrue line "the lost connection said nothing"
+
+      let! path = captureAsync("F10/f10-dialog-offline", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Close())
+    }
+
+    testAsync "a vanished commit closes the dialog silently" {
+      let api = reportApi(fun _ -> refused(404, "This commit isn't available."))
+
+      let! window =
+        startReportShell("The Hubot", api :> IHttp, FakeAttachments())
+
+      do! openReportDialogAsync window
+      do! chooseReasonAsync(window, "ReportReasonSpam")
+      do! clickSendAsync window
+
+      let! closed =
+        waitForAsync(
+          8000,
+          (fun () -> controlByName(window, "ReportDialog")),
+          Option.isNone
+        )
+
+      Expect.isTrue closed "the vanished commit left the dialog open"
+
+      let! path = captureAsync("F10/f10-dialog-404-closed", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Close())
+    }
+
+    testAsync "a sent report closes the dialog silently" {
+      let api = reportApi(fun _ -> noContent)
+
+      let! window =
+        startReportShell("The Hubot", api :> IHttp, FakeAttachments())
+
+      do! openReportDialogAsync window
+      do! chooseReasonAsync(window, "ReportReasonSpam")
+      do! clickSendAsync window
+
+      let! closed =
+        waitForAsync(
+          8000,
+          (fun () -> controlByName(window, "ReportDialog")),
+          Option.isNone
+        )
+
+      Expect.isTrue closed "the sent report left the dialog open"
+
+      let! path = captureAsync("F10/f10-dialog-sent", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Close())
+    }
+
+    testAsync "a short narrow window scrolls the report body" {
+      let api = reportApi(fun _ -> noContent)
+      let attachments = FakeAttachments()
+
+      attachments.PickResponse <- [
+        opaqueStagedImage "one.png"
+        opaqueStagedImage "two.png"
+        opaqueStagedImage "three.png"
+      ]
+
+      let! window = startReportShell("The Hubot", api :> IHttp, attachments)
+
+      do! openReportDialogAsync window
+      do! attachAsync window
+
+      let! staged =
+        waitForAsync(
+          5000,
+          (fun () -> controlByName(window, "ImageDescription2")),
+          Option.isSome
+        )
+
+      Expect.isTrue staged "the third image never staged"
+
+      for index in 0..2 do
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, $"ImageDescription{index}")
+            |> Option.iter(fun control ->
+              (control :?> TextBox).Text <-
+                String.replicate 30 "A long description "))
+
+      do!
+        onUiAsync(fun () ->
+          window.MinHeight <- 0.0
+          window.Width <- 380.0
+          window.Height <- 640.0)
+
+      do! settleAsync()
+
+      let! scrolls =
+        probeUiAsync(fun () ->
+          controlByName(window, "ReportScroller")
+          |> Option.bind(fun control ->
+            match control with
+            | :? ScrollViewer as scroller ->
+              Some(scroller.Extent.Height > scroller.Viewport.Height)
+            | _ -> None))
+
+      Expect.equal
+        scrolls
+        (Some true)
+        "the short window did not scroll the body"
+
+      do! scrollReportToEndAsync window
+
+      let! path = captureAsync("F10/f10-dialog-short", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Close())
     }
   ]

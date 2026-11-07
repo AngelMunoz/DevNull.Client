@@ -120,6 +120,8 @@ module State =
     AutoRan: bool
     /// The commit whose share dialog stands open.
     ShareOpen: Commit voption
+    /// The commit whose report dialog stands open.
+    ReportOpen: Commit voption
   }
 
   /// The messages of the log page, including the since-poll pair.
@@ -156,6 +158,8 @@ module State =
     | ShareOpened of Commit
     | ShareClosed
     | Shared
+    | ReportOpened of Commit
+    | ReportClosed
 
   /// The fresh page state.
   val initial: Model

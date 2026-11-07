@@ -7,8 +7,11 @@ issue, a pull request when it passes:
 
 scout (parity census, the server repo) -> derive (the sanitized contract,
 behavior spec, visual spec) -> worker (code, tests, snapshot captures,
-changelog) -> battery (fantomas, build, both suites, gates, captures) ->
-review pair (the diff and the renders, both models, vision) -> the
+changelog; its battery — fantomas, build, both suites — is the
+verification of record, run by the worker itself, never re-run by the
+loop) -> collect (changed files, idiom gates on added lines, captures)
+-> review pair (the diff and the renders, both models, vision; round 0
+is the full pass, later rounds review the delta on kept seats) -> the
 deriver's scope ruling on every finding. Two scope cycles per issue; the
 need for a third stops for the user. From the second scope cycle the
 derivation is frozen: an in-scope ruling cites a spec line, and a real

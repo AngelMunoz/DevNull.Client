@@ -10,7 +10,7 @@
 export const meta = {
   name: "devnull-overnight",
   title: "DevNull overnight loop (off-peak, branch-only, PR at the end)",
-  description: "Runs the dev-loop over every unchecked step while both providers are off-peak: derive, worker, battery, architect, red team, bounded remediation, land to the branch, changelog pass, and a PR when steps run out or the window closes.",
+  description: "Runs the dev-loop over every unchecked step while both providers are off-peak: derive, worker (its battery is the record), collect, architect, red team, bounded remediation, land to the branch, changelog pass, and a PR when steps run out or the window closes.",
   whenToUse: "When the user has authorized an unattended run ending in a PR for their review. Never for merging.",
   params: {
     plan: { type: "string", description: "The plan file, repo-relative.", default: "audits/phase1b-workplan.md" },
@@ -151,7 +151,7 @@ const pr = await step("pr", async () => {
     ``,
     `## Diff size`, ``, "```", changes, "```",
     ``,
-    `Every step passed the mechanical battery (fantomas, build, both suites, gates) and the architect + red-team review before landing. Review per commit or per area — the ledger in \`${plan}\` carries one line per step.`,
+    `Every step passed its worker battery (fantomas, build, both suites — tails on record), the idiom gates, and the architect + red-team review before landing. Review per commit or per area — the ledger in \`${plan}\` carries one line per step.`,
     ``,
     `_This pull request was written by [CodeAlta](https://codealta.github.io), an AI coding agent._`,
   ].filter((s) => s !== "").join("\n");

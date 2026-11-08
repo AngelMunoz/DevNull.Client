@@ -2,6 +2,7 @@
 
 open System
 open System.Collections.Generic
+open System.Reactive.Disposables
 open System.Reactive.Subjects
 open Avalonia
 open Avalonia.Controls
@@ -1248,35 +1249,89 @@ module Parts =
       .IsVisible(model |> Observable.map _.RepliesCursor.IsSome)
       .OnClickHandler(fun _ _ -> dispatch State.MoreReplies)
 
+  // The audience rows of one thread read: the parent's author first,
+  // then the read's other participants, every row render-ready.
+  let participantsOf
+    (page: CommitPage option)
+    : ReplyPicker.ParticipantRow list voption =
+    page
+    |> Option.map(fun read ->
+      let author = read.Commit.Author
+
+      let authorRow: ReplyPicker.ParticipantRow = {
+        Id = author.Id
+        Handle = author.Handle
+        IsAuthor = true
+      }
+
+      let others =
+        read.ReplyParticipants
+        |> List.map(fun participant ->
+          {
+            Id = participant.Id
+            Handle = participant.Handle
+            IsAuthor = false
+          }
+          : ReplyPicker.ParticipantRow)
+
+      authorRow :: others)
+    |> ValueOption.ofOption
+
   // The answer composers under the thread. The reply composer hides
-  // until the card's reply button reveals it; a landed reply reloads
-  // the page. The quote composer arms from the route or the focused
-  // card's quote action; a landed quote opens the new commit's
-  // thread. Both mount once: a rebuild on every model change would
-  // wipe the typed text.
+  // until the card's reply button reveals it; it mounts at that first
+  // reveal, when the thread's read has landed and its page carries the
+  // participants the picker reads — no fetch of its own. A later
+  // toggle only hides the mounted composer. The quote composer arms
+  // from the route or the focused card's quote action; a landed quote
+  // opens the new commit's thread. Both mount once: a rebuild on every
+  // model change would wipe the typed text.
   let answerComposer
     (
       props: Props<'env>,
       dispatch: Dispatch<State.Msg>,
       model: IObservable<State.Model>
     ) : Control =
-    let reply =
-      Composer.Page {
-        Env = props.Env
-        Session = props.Session
-        Target = Composer.ReplyTo props.CommitId
-        OnCommitted = fun _ -> dispatch State.ReloadRequested
-        OnScheduled = ValueNone
-        OnOpenQueue = ValueNone
-        Draft = ValueNone
-        OnBodyReady = ValueNone
-      }
+    let replyHost = ContentControl()
+
+    let mounted = new SerialDisposable()
+
+    replyHost.AttachedToVisualTree.Add(fun _ ->
+      mounted.Disposable <-
+        model
+        |> Observable.map(fun current -> current.Replying)
+        |> Observable.filter(fun replying -> replying)
+        |> Observable.take 1
+        |> Observable.subscribe(fun _ ->
+          let page =
+            model
+            |> Observable.first
+            |> Observable.toEnumerable
+            |> Seq.tryHead
+            |> Option.bind _.Page
+
+          replyHost.Content <-
+            Composer.Page {
+              Env = props.Env
+              Session = props.Session
+              Target = Composer.ReplyTo props.CommitId
+              Participants = participantsOf page
+              OnCommitted = fun _ -> dispatch State.ReloadRequested
+              OnScheduled = ValueNone
+              OnOpenQueue = ValueNone
+              Draft = ValueNone
+              OnBodyReady = ValueNone
+            }
+            :> Control))
+
+    replyHost.DetachedFromVisualTree.Add(fun _ ->
+      mounted.Disposable <- Disposable.Empty)
 
     let quote =
       Composer.Page {
         Env = props.Env
         Session = props.Session
         Target = Composer.Quoting props.CommitId
+        Participants = ValueNone
         OnCommitted =
           fun commit -> Navigation.go(props.Nav, "/commit/" + commit.Id, ignore)
         OnScheduled = ValueNone
@@ -1287,7 +1342,7 @@ module Parts =
 
     StackPanel()
       .Children(
-        reply.IsVisible(
+        replyHost.IsVisible(
           model |> Observable.map(fun current -> current.Replying)
         ),
         quote.IsVisible(model |> Observable.map(fun current -> current.Quoting))

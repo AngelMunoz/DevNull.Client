@@ -7,6 +7,7 @@ open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Env
 open DevNull.Client.ImageCache
+open DevNull.Client.Components.ReplyPicker
 open DevNull.Client.Stores
 
 /// What the composer answers to: a fresh commit, a reply, or a quote.
@@ -40,6 +41,10 @@ type Props<'env
   Env: 'env
   Session: SignedInSession
   Target: Target
+  /// Who a reply may go to, when the host knows them: the parent's
+  /// author first, then the thread read's other participants. An
+  /// absent value leaves the picker out and the field off the request.
+  Participants: ParticipantRow list voption
   /// Runs with the created commit, on the UI thread.
   OnCommitted: Commit -> unit
   /// Runs with the queued commit when one was scheduled, on the UI

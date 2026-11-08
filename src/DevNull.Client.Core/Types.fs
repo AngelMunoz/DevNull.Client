@@ -70,6 +70,26 @@ module CommitBodies =
       else
         Ok(UMX.tag<CommitBody> normalized)
 
+/// A reply may not reach past the participants its picks and its
+/// mentions carry together, as the server refuses it.
+type ReplyParticipantsError<'e> =
+  static abstract TooManyReplyParticipants: count: int -> 'e
+
+module CommitMentions =
+
+  // The "@handle" a settled body carries, the token shape the
+  // completion trigger parses: an `@` that starts the text or follows
+  // anything but a letter, digit, underscore, dot, slash, at, or dash,
+  // with up to the thirty-nine characters a handle holds.
+  let mention = Regex(@"(?<![\p{L}\p{N}_./@-])@([A-Za-z0-9][A-Za-z0-9-]{0,38})")
+
+  /// The distinct handles the body mentions, in the order they appear.
+  let handles(body: string<CommitBody>) : string list =
+    mention.Matches(CommitBodies.value body)
+    |> Seq.map(fun matched -> matched.Groups[1].Value)
+    |> Seq.distinct
+    |> Seq.toList
+
 type ShortHashError<'e> =
   static abstract InvalidShortHash: raw: string -> 'e
 

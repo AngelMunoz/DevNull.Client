@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Replies:** a reply chooses who it goes to. Everyone the parent addressed is in by default, the picker above the body box excludes people, the commit author always stays, and a reply carries at most 100 participants across its picks and its mentions.
+
 ## [0.11.0] - 2026-11-07
 
 ### Added

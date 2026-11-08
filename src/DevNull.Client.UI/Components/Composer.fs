@@ -37,6 +37,8 @@ type DraftSource = {
   Changed: string -> unit
 }
 
+type ParticipantRow = ReplyPicker.ParticipantRow
+
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
@@ -49,6 +51,7 @@ type Props<'env
   Env: 'env
   Session: SignedInSession
   Target: Target
+  Participants: ParticipantRow list voption
   OnCommitted: Commit -> unit
   OnScheduled: (ScheduledCommit -> unit) voption
   OnOpenQueue: (unit -> unit) voption
@@ -177,6 +180,9 @@ module State =
     Completion: CompletionState
     // The emoji picker over the body.
     Emoji: EmojiState
+    // The reply's participants the send leaves out, by handle; the
+    // author never rides the list.
+    Excluded: string list
   }
 
   type Msg =
@@ -209,6 +215,7 @@ module State =
     | EmojiActiveChanged of active: int
     | EmojiClosed
     | EmojiPicked of emoji: string
+    | ParticipantToggled of handle: string
 
   let initial = {
     Busy = false
@@ -222,6 +229,7 @@ module State =
     Picked = ValueNone
     Completion = closedCompletion
     Emoji = closedEmoji
+    Excluded = []
   }
 
   // The staging path allocates large-object arrays an idle composer
@@ -443,6 +451,16 @@ module State =
       { model with Emoji = closedEmoji },
       Cmd.ofAction(fun () ->
         log.LogDebug("The emoji {Emoji} was picked.", emoji))
+    | ParticipantToggled handle ->
+      // The picker flips one row in or out; the author's handle never
+      // reaches this message, its row stays disabled.
+      let excluded =
+        if List.contains handle model.Excluded then
+          model.Excluded |> List.filter(fun held -> held <> handle)
+        else
+          model.Excluded @ [ handle ]
+
+      { model with Excluded = excluded }, Cmd.none
     | AttachRequested ->
       // The picker is modal; the answer arrives as one message.
       model, Cmd.OfAsync.perform props.Env.Attachments.PickFiles () ImagesAdded
@@ -633,6 +651,18 @@ module State =
           model.Descriptions
           |> List.map(fun text -> if text = "" then None else Some text)
 
+        // The reply's audience: everyone the picker leaves in, minus
+        // the author whose row never leaves. An unknown audience
+        // leaves the list empty and the field carries no ids.
+        let replyRecipients =
+          match props.Participants with
+          | ValueSome rows ->
+            rows
+            |> List.filter(fun row ->
+              not row.IsAuthor && not(List.contains row.Handle model.Excluded))
+            |> List.map _.Id
+          | ValueNone -> []
+
         if model.Scheduling then
           // The window speaks before the request: the same bounds the
           // server runs, against the clock the env carries.
@@ -681,6 +711,7 @@ module State =
                Images = model.Attachments
                ImageDescriptions = descriptions
                Poll = spec
+               ReplyRecipients = replyRecipients
              })
             Committed
     | Committed result ->
@@ -1030,12 +1061,51 @@ let view
           | EmojiPicker.Picked emoji -> dispatch(State.EmojiPicked emoji)
     }
 
+  // The reply's audience: the trigger line above the body box and its
+  // dialog, over the same model the send reads. An unknown audience
+  // builds no rows and the trigger stays out.
+  let picker =
+    ReplyPicker.view {
+      Rows =
+        match props.Participants with
+        | ValueSome rows -> rows
+        | ValueNone -> []
+      Excluded = model |> Observable.map _.Excluded
+      OnToggle = fun handle -> dispatch(State.ParticipantToggled handle)
+    }
+
   // No box: the composer rides the rail plain, the way the site's does
-  // on the log and the thread; a host that wants a card wraps it.
-  StackPanel()
-    .Margin(0.0, 0.0, 0.0, 12.0)
-    .Spacing(8.0)
-    .Children(body, completion, emoji, strip, poll, schedule, toolbar.Row)
+  // on the log and the thread; a host that wants a card wraps it. The
+  // audience dialog rides the same frame, above the composer's rail.
+  Grid()
+    .Children(
+      StackPanel()
+        .Margin(0.0, 0.0, 0.0, 12.0)
+        .Spacing(8.0)
+        .Children(
+          match picker.Trigger with
+          | ValueSome trigger -> [|
+              trigger
+              body
+              completion
+              emoji
+              strip
+              poll
+              schedule
+              toolbar.Row
+            |]
+          | ValueNone -> [|
+              body
+              completion
+              emoji
+              strip
+              poll
+              schedule
+              toolbar.Row
+            |]
+        ),
+      picker.Layer
+    )
 
 type Page<'env
   when 'env :> IProvideClock

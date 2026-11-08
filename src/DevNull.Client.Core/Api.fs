@@ -1000,6 +1000,7 @@ module Commits =
     Images: ImageAttachment list
     ImageDescriptions: string option list
     Poll: PollSpec option
+    ReplyRecipients: string list
   }
 
   type VoteRequest = {
@@ -1055,6 +1056,27 @@ module Commits =
     | Some _, ReplyTo _, _ -> Error('e.PollProhibited PollOnReply)
     | Some _, Quote _, _ -> Error('e.PollProhibited PollOnQuote)
     | Some _, New, _ -> Error('e.PollProhibited PollWithImages)
+
+  /// How many participants a reply may reach, as the server bounds it.
+  let maxReplyRecipients = 100
+
+  /// The reply's participant bound, stated at the boundary before the
+  /// post: the selected recipients joined with the handles the body
+  /// mentions stay within the server's count, each person counted
+  /// once. Only a reply carries the field, so only a reply is checked.
+  let checkRecipients<'e when ReplyParticipantsError<'e>>
+    (target: Target, recipients: string list, handles: string list)
+    : Result<string list, 'e> =
+    match target with
+    | New
+    | Quote _ -> Ok recipients
+    | ReplyTo _ ->
+      let combined = List.distinct(recipients @ handles)
+
+      if combined.Length > maxReplyRecipients then
+        Error('e.TooManyReplyParticipants combined.Length)
+      else
+        Ok recipients
 
   /// The description bound each image carries, as the server counts it.
   let descriptionMaxLength = 1000
@@ -1124,6 +1146,19 @@ module Commits =
       List.singleton("poll", pollJson :> System.Text.Json.Nodes.JsonNode))
     |> Option.defaultValue []
 
+  /// The reply's recipients field: on a reply it always rides, an empty
+  /// list included, the way the web sends it; a fresh commit and a
+  /// quote never carry it.
+  let recipientsField(target: Target, recipients: string list) =
+    match target with
+    | ReplyTo _ ->
+      List.singleton(
+        "reply_recipients",
+        Json.sequence(recipients, Encode.string)
+      )
+    | New
+    | Quote _ -> []
+
   let create(env, request: CreateRequest) = asyncResult {
     let! body = CommitBodies.parse request.Body
 
@@ -1146,6 +1181,13 @@ module Commits =
     let! descriptions =
       checkDescriptions(request.ImageDescriptions, request.Images)
 
+    let! recipients =
+      checkRecipients(
+        request.Target,
+        request.ReplyRecipients,
+        CommitMentions.handles body
+      )
+
     let json =
       Json.object(
         List.concat [
@@ -1155,6 +1197,7 @@ module Commits =
           | None -> ()
           descriptionsField(descriptions, images)
           pollField poll
+          recipientsField(request.Target, recipients)
         ]
       )
       |> _.ToJsonString()

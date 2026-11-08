@@ -244,10 +244,17 @@ and ReplyPreview = {
   NextCursor: string option
 }
 
+/// One person a reply may reach, as the thread read's
+/// reply_participants carry them.
+and ReplyParticipant = { Id: string; Handle: string }
+
 /// The commit and its ancestors, as GET /api/v1/commits/{commit} returns them.
 type CommitPage = {
   Commit: Commit
   Ancestors: CommitNode list
+  /// The parent's mentioned users minus the viewer and its author; an
+  /// older answer without the field answers none.
+  ReplyParticipants: ReplyParticipant list
 }
 
 /// The links of one page.
@@ -915,6 +922,10 @@ module CommitTranslation =
 module CommitPage =
   /// Reads the `{data: commit, ancestors: [...]}` envelope of GET /api/v1/commits/{commit}.
   val decode: body: string -> Result<CommitPage, DecodeFailure>
+
+module ReplyParticipant =
+  /// Reads the `{id, handle}` row of the thread read's reply_participants.
+  val decode: body: string -> Result<ReplyParticipant, DecodeFailure>
 
 module CommitNode =
   /// Reads a cursor page of commits and tombstones.

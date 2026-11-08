@@ -94,6 +94,10 @@ module State =
     Now: DateTimeOffset
     Pasteis: bool
     ReplyingTo: string option
+    // The thread read of each parent a reply opened on, keyed by its
+    // id: the answer the reply's participant rows build from. A failed
+    // read never lands here, and the reply posts without the field.
+    ReplyPages: Map<string, CommitPage>
     Voting: string option
     PollChoices: Map<string, string>
     Marker: DateTimeOffset option
@@ -132,6 +136,7 @@ module State =
     | SessionChanged of state: SessionState
     | ReplyToggled of Commit
     | ReplyPosted of commitId: string
+    | ReplyPageFetched of commitId: string * Result<CommitPage, AppError>
     | PollChoiceChanged of Commit * PollOption * chosen: bool
     | PollVoteRequested of Commit
     | PollVotedDone of Result<Commit, AppError>
@@ -172,6 +177,7 @@ module State =
     Now = DateTimeOffset.UtcNow
     Pasteis = false
     ReplyingTo = None
+    ReplyPages = Map.empty
     Voting = None
     PollChoices = Map.empty
     Marker = None
@@ -212,6 +218,18 @@ module State =
         Log = props.Log
         Since = Some head
         Cursor = None
+      }
+    )
+
+  // The parent's thread read, for the audience a reply's picker
+  // offers: feed commits carry mentions as handle positions without
+  // ids, so the answer is the only source of the participants' ids.
+  let thread(props: Props<'env>, commitId: string) =
+    Commits.show(
+      props.Env,
+      {
+        KeyFile = props.Session.KeyFile
+        CommitId = commitId
       }
     )
 
@@ -470,7 +488,34 @@ module State =
         else
           Some commit.Id
 
-      { model with ReplyingTo = replyingTo }, Cmd.none
+      // The reply-open performs the parent's thread read: one read per
+      // reply-open, the answer the picker's rows build from.
+      let ask =
+        match replyingTo with
+        | Some parentId ->
+          Cmd.OfAsync.perform thread (props, parentId) (fun answer ->
+            ReplyPageFetched(parentId, answer))
+        | None -> Cmd.none
+
+      { model with ReplyingTo = replyingTo }, ask
+    | ReplyPageFetched(commitId, answer) ->
+      match answer with
+      | Ok page ->
+        {
+          model with
+              ReplyPages = Map.add commitId page model.ReplyPages
+        },
+        Cmd.none
+      | Error error ->
+        // The picker stays out and the reply posts without the
+        // participants, the way it does without the audience at all.
+        model,
+        Cmd.ofAction(fun () ->
+          log.LogWarning(
+            "The reply's thread read for {Id} failed: {Error}",
+            commitId,
+            bounded 300 (describe error)
+          ))
     | ReplyPosted commitId ->
       // A landed reply closes its composer and refreshes the feed, so
       // the new reply arrives through the same read as everything
@@ -1167,20 +1212,48 @@ module Parts =
       // program alive for every row in the band, when at most one is
       // ever open. It seeds from the timeline service's parked draft,
       // so a recycled row rebuilds with the typed text, and the draft
-      // outlives the page the same way.
+      // outlives the page the same way. The rebuild also carries the
+      // thread read's participants when its answer lands, so the
+      // audience picker rides the same construction.
       let reply =
         ContentControl()
           .Content(
             model
             |> Observable.map(fun current ->
-              Option.contains commit.Id current.ReplyingTo)
+              Option.contains commit.Id current.ReplyingTo,
+              current.ReplyPages |> Map.tryFind commit.Id)
             |> Observable.distinctUntilChanged
-            |> Observable.map(fun answering ->
+            |> Observable.map(fun (answering, page) ->
               if answering then
+                let participants =
+                  page
+                  |> Option.map(fun read ->
+                    let author = commit.Author
+
+                    let authorRow: ReplyPicker.ParticipantRow = {
+                      Id = author.Id
+                      Handle = author.Handle
+                      IsAuthor = true
+                    }
+
+                    let others =
+                      read.ReplyParticipants
+                      |> List.map(fun participant ->
+                        {
+                          Id = participant.Id
+                          Handle = participant.Handle
+                          IsAuthor = false
+                        }
+                        : ReplyPicker.ParticipantRow)
+
+                    authorRow :: others)
+                  |> ValueOption.ofOption
+
                 Composer.Page {
                   Env = props.Env
                   Session = props.Session
                   Target = Composer.ReplyTo commit.Id
+                  Participants = participants
                   OnCommitted =
                     fun _ ->
                       props.Env.Timeline.ForgetDraft commit.Id

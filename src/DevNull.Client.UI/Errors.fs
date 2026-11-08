@@ -48,6 +48,7 @@ type AppError =
   | CaptureFailed of failure: AudioFailure
   | ScheduledInPast of moment: DateTimeOffset
   | ScheduledTooFar of moment: DateTimeOffset
+  | TooManyReplyParticipants of count: int
 
   interface CommitBodyError<AppError> with
     static member BodyTooShort(raw, length) = BodyTooShort(raw, length)
@@ -133,6 +134,10 @@ type AppError =
     static member ScheduledInPast moment = ScheduledInPast moment
     static member ScheduledTooFar moment = ScheduledTooFar moment
 
+  interface ReplyParticipantsError<AppError> with
+    static member TooManyReplyParticipants count =
+      TooManyReplyParticipants count
+
 /// Caps server-provided text for the log: a refusal carries the
 /// server's body, and the log needs the reason, not the whole payload.
 let bounded (limit: int) (text: string) : string =
@@ -214,6 +219,8 @@ let describe error =
   | SignInFailed message -> message
   | ScheduledInPast _ -> "The scheduled moment must be later than now."
   | ScheduledTooFar _ -> "The scheduled moment allows at most 30 days ahead."
+  | TooManyReplyParticipants _ ->
+    "A reply may include at most 100 participants across selected recipients and explicit mentions."
   | CaptureFailed NoDevice -> "No microphone was found."
   | CaptureFailed Denied -> "The microphone is not allowed to this app."
   | CaptureFailed Busy -> "The microphone is busy with another app."

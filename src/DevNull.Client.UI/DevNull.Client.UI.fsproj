@@ -141,6 +141,8 @@
     <Compile Include="Components\CommitCard.fs" />
     <Compile Include="Components\SearchDialog.fsi" />
     <Compile Include="Components\SearchDialog.fs" />
+    <Compile Include="Components\ReplyPicker.fsi" />
+    <Compile Include="Components\ReplyPicker.fs" />
     <Compile Include="Components\Composer.fsi" />
     <Compile Include="Components\Composer.fs" />
     <Compile Include="Components\ProfileShell.fsi" />

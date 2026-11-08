@@ -424,6 +424,7 @@ let composeDialog
               Env = env
               Session = session
               Target = Composer.Fresh
+              Participants = ValueNone
               OnCommitted = fun _ -> close()
               OnScheduled = ValueSome(fun _ -> close())
               OnOpenQueue = ValueNone
@@ -747,6 +748,7 @@ let chromeFeed(props: ChromeProps<'env>) : Control =
               Env = props.Env
               Session = entry
               Target = Composer.Fresh
+              Participants = ValueNone
               OnCommitted = fun _ -> props.Env.Timeline.CommitLanded()
               OnScheduled = ValueNone
               OnOpenQueue =

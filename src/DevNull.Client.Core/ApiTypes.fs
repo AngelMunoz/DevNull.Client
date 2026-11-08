@@ -227,9 +227,16 @@ and ReplyPreview = {
   NextCursor: string option
 }
 
+/// One person a reply may reach, as the thread read's
+/// reply_participants carry them.
+type ReplyParticipant = { Id: string; Handle: string }
+
 type CommitPage = {
   Commit: Commit
   Ancestors: CommitNode list
+  /// The parent's mentioned users minus the viewer and its author; an
+  /// older answer without the field answers none.
+  ReplyParticipants: ReplyParticipant list
 }
 
 type PageLinks = {
@@ -1725,6 +1732,13 @@ let pageDecoder (itemDecoder: Decoder<'value>) (element: JsonElement) = decode {
   }
 }
 
+let replyParticipantDecoder(element: JsonElement) = decode {
+  let! id = Required.Property.get ("id", Required.string) element
+  let! handle = Required.Property.get ("handle", Required.string) element
+
+  return { Id = id; Handle = handle }
+}
+
 let commitPageDecoder(element: JsonElement) = decode {
   let! commit = Required.Property.get ("data", commitDecoder) element
 
@@ -1734,9 +1748,16 @@ let commitPageDecoder(element: JsonElement) = decode {
       element
     |> Result.map Option.flatten
 
+  let! replyParticipants =
+    Optional.Property.get
+      ("reply_participants", optionalListDecoder replyParticipantDecoder)
+      element
+    |> Result.map Option.flatten
+
   return {
     Commit = commit
     Ancestors = Option.defaultValue [] ancestors
+    ReplyParticipants = Option.defaultValue [] replyParticipants
   }
 }
 
@@ -2850,6 +2871,9 @@ module Commit =
 
 module CommitPage =
   let decode(body: string) = decodeCommitPage body
+
+module ReplyParticipant =
+  let decode(body: string) = parseBody body replyParticipantDecoder
 
 module CommitNode =
   let decodePage(body: string) = decodeCommitList body

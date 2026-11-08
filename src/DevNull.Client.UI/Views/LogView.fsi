@@ -103,6 +103,10 @@ module State =
     Pasteis: bool
     /// The commit whose inline reply composer is open, by id.
     ReplyingTo: string option
+    /// The thread read of each parent a reply opened on, keyed by its
+    /// id: the answer the reply's participant rows build from. A
+    /// failed read never lands here, and the reply posts without ids.
+    ReplyPages: Map<string, CommitPage>
     /// The commit whose poll vote is in flight, so its buttons disable.
     Voting: string option
     /// The option a viewer picked in each open poll, by commit id.
@@ -151,6 +155,7 @@ module State =
     | SessionChanged of state: SessionState
     | ReplyToggled of Commit
     | ReplyPosted of commitId: string
+    | ReplyPageFetched of commitId: string * Result<CommitPage, AppError>
     | PollChoiceChanged of Commit * PollOption * chosen: bool
     | PollVoteRequested of Commit
     | PollVotedDone of Result<Commit, AppError>

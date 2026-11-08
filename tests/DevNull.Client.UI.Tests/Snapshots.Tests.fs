@@ -175,6 +175,11 @@ let imagelessLogApi() =
   FakeApi(fun request ->
     if request.Target.StartsWith "/api/v1/log/" then
       ok page
+    elif
+      request.Target.StartsWith
+        "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+    then
+      ok threadPageJson
     else
       (match accountAnswer request with
        | ValueSome answer -> answer
@@ -327,6 +332,74 @@ let captureTests =
       let bytes = IO.File.ReadAllBytes(path)
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }
+
+    /// Reveals the thread's answer composer and scrolls it into view.
+    let openAnswerComposerAsync(window: Window) : Async<unit> = async {
+      do!
+        onUiAsync(fun () ->
+          controlByName(window, "ReplyButton")
+          |> Option.iter(fun control ->
+            match control with
+            | :? Button as button -> click button
+            | _ -> ()))
+
+      let! reply =
+        waitForAsync(
+          5000,
+          (fun () -> visibleBoxWithWatermark(window, "Write your reply…")),
+          Option.isSome
+        )
+
+      Expect.isTrue reply "the reply composer never opened"
+
+      do!
+        onUiAsync(fun () ->
+          visibleBoxWithWatermark(window, "Write your reply…")
+          |> Option.bind(fun box ->
+            box.GetVisualAncestors()
+            |> Seq.tryPick(function
+              | :? ScrollViewer as scroller -> Some scroller
+              | _ -> None))
+          |> Option.iter _.ScrollToEnd())
+
+      do! settleAsync()
+    }
+
+    testAsync "the answer composer carries the audience line" {
+      let! window = openThreadAsync()
+
+      do! openAnswerComposerAsync window
+
+      let! line = seesVisible(window, "@mona")
+      Expect.isTrue line "the audience line never showed"
+
+      let! path = captureAsync("F9/f9-reply-audience-line", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testSequenced(
+      testAsync "the audience picker opens over the answer composer" {
+        let! window = openThreadAsync()
+
+        do! openAnswerComposerAsync window
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "ReplyingToLine")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! dialog = seesVisible(window, "Commit author")
+        Expect.isTrue dialog "the picker dialog never opened"
+
+        let! path = captureAsync("F9/f9-reply-picker-open", window)
+        let bytes = IO.File.ReadAllBytes(path)
+        Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+      }
+    )
 
     testAsync "the search page clears the band" {
       let! window = openSearchPageAsync()

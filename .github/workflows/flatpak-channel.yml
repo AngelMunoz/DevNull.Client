@@ -1,20 +1,17 @@
 name: Flatpak Channel
 
 # Rebuilds the flatpak channel for one released version and pushes it
-# to the `flatpak` branch, which GitHub Pages serves. The release flow
-# calls it after the release exists; a manual dispatch recovers the
-# channel for a release whose own run failed, without a full re-run.
+# to the `flatpak` branch, which GitHub Pages serves. It runs on its
+# own when a release publishes — the release workflow never waits on
+# it, so a channel problem never marks a release red — and a manual
+# dispatch rebuilds any released version by name.
 on:
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       version:
         description: "Released version, without the v (example: 0.10.0)"
-        required: true
-        type: string
-  workflow_call:
-    inputs:
-      version:
-        description: "Released version, without the v"
         required: true
         type: string
 
@@ -25,10 +22,18 @@ jobs:
   channel:
     runs-on: ubuntu-latest
     env:
-      VERSION: ${{ inputs.version }}
       FLATPAK_REPO: ${{ github.workspace }}/channel/repo
     steps:
       - uses: actions/checkout@v6
+
+      - name: Resolve the version
+        run: |
+          v="${{ inputs.version || github.event.release.tag_name }}"
+          if [ -z "$v" ]; then
+            echo "No version: dispatch with the version input." >&2
+            exit 1
+          fi
+          echo "VERSION=${v#v}" >> "$GITHUB_ENV"
 
       - name: Install flatpak-builder and the freedesktop runtime
         run: |
@@ -101,22 +106,22 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Stage the new channel outside the tree first: the publish
-          # checkout must not collide with the untracked build outputs,
-          # and the rebuilt tip carries only docs/ — run outputs never
-          # belong on the branch (the first channel commit swept the
-          # whole main checkout plus channel/ into it by mistake).
-          mkdir -p /tmp/channel-docs
-          cp -a channel/repo /tmp/channel-docs/repo
-          rm -rf channel artifacts DevNull.Client-*.flatpak
+          # Publish from a scratch worktree, never from the build
+          # workspace: a fresh worktree holds no build outputs, so no
+          # untracked file can ever collide with the checkout, and the
+          # tip is rebuilt as docs/ only every time.
           if git fetch origin flatpak; then
-            git checkout -B flatpak FETCH_HEAD
+            git worktree add --detach "$RUNNER_TEMP/publish" origin/flatpak
+            cd "$RUNNER_TEMP/publish"
+            git checkout -B flatpak
           else
+            git worktree add --detach "$RUNNER_TEMP/publish"
+            cd "$RUNNER_TEMP/publish"
             git checkout --orphan flatpak
           fi
           git rm -rf -q .
           mkdir -p docs
-          cp -a /tmp/channel-docs/repo docs/repo
+          cp -a "$GITHUB_WORKSPACE/channel/repo" docs/repo
           # The channel pages come from the release ref: the cleared
           # tree carries no .github of its own.
           git show origin/main:.github/flatpak/me.tunaxor.devnull.unoffclient.flatpakref \

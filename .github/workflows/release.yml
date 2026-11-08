@@ -212,16 +212,8 @@ jobs:
             artifacts/DevNull.Client-*
             artifacts/devnull-client.json
 
-  # The flatpak builds from the release tarball, so the release must
-  # exist first: the manifest carries the release URL and its hash, the
-  # way flatpak-builder verifies every source. The channel lives in its
-  # own workflow, also dispatchable by hand, so a failed channel push
-  # can be retried by version without a release re-run.
-  flatpak:
-    needs: [prepare, release]
-    if: needs.prepare.outputs.exists == 'false'
-    permissions:
-      contents: write
-    uses: ./.github/workflows/flatpak-channel.yml
-    with:
-      version: ${{ needs.prepare.outputs.version }}
+  # The flatpak channel is not a release job: it builds from the
+  # released tarball and runs on its own when the release publishes
+  # (on: release in flatpak-channel.yml). A channel failure retries by
+  # version through that workflow's manual dispatch, without ever
+  # marking the release red or re-running the release.

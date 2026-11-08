@@ -1,6 +1,7 @@
 module DevNull.Client.Components.ReplyPicker
 
 open System
+open System.Reactive.Disposables
 open System.Reactive.Subjects
 open Avalonia
 open Avalonia.Automation
@@ -190,8 +191,10 @@ let view(props: Props) : View =
   // audience-less reply mounts no named control at all, so a page
   // never mixes two pickers' names.
   if props.Rows |> List.exists(fun row -> not row.IsAuthor) then
-    // The dialog stands while the trigger's subject holds true; the
-    // subject outlives the controls the layer builds on each open edge.
+    // The dialog stands while the trigger's subject holds true. The
+    // popup rides the trigger, so the card stays in view over a
+    // composer that a scroller parks at the window's edge; a click
+    // outside the card dismisses it, the way a scrim click would.
     let openLine = new BehaviorSubject<bool>(false)
 
     let trigger =
@@ -215,18 +218,28 @@ let view(props: Props) : View =
 
     AutomationProperties.SetName(trigger, "Choose reply participants")
 
-    let layer =
-      DialogChrome.layer {
-        Open = openLine :> IObservable<bool>
-        Content = fun () -> Parts.dialog(props, fun () -> openLine.OnNext false)
-        Scrim = true
-        OnScrimClick = ValueSome(fun () -> openLine.OnNext false)
-        Place = DialogChrome.Center
-      }
+    let dialog =
+      Popup()
+        .Name("ReplyPickerDialog")
+        .PlacementTarget(trigger)
+        .Placement(PlacementMode.Top)
+        .Child(Parts.dialog(props, fun () -> openLine.OnNext false))
+
+    // The open signal rides a subscription the dialog's detach ends,
+    // the way the emoji picker's feeds end with its own teardown.
+    let feeds = new CompositeDisposable()
+
+    feeds.Add(
+      openLine
+      |> Observable.distinctUntilChanged
+      |> Observable.subscribe(fun isOpen -> dialog.IsOpen <- isOpen)
+    )
+
+    dialog.DetachedFromVisualTree.Add(fun _ -> feeds.Dispose())
 
     {
       Trigger = ValueSome(trigger :> Control)
-      Layer = layer
+      Layer = dialog :> Control
     }
   else
     {

@@ -27,7 +27,7 @@ type Props = {
 
 /// The trigger line above the body box (`ValueNone` when no row
 /// besides the author exists, so the stack keeps its spacing), and
-/// the dialog's overlay layer that opens from it.
+/// the dialog that opens from it.
 [<Struct>]
 type View = {
   Trigger: Control voption

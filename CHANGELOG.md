@@ -7,14 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- **Replies:** a reply chooses who it goes to. Everyone the parent addressed is in by default, the picker above the body box excludes people, the commit author always stays, and a reply carries at most 100 participants across its picks and its mentions.
-
 ## [0.11.0] - 2026-11-07
 
 ### Added
 
+- **Replies:** a reply chooses who it goes to. Everyone the parent addressed is in by default, the picker above the body box excludes people, the commit author always stays, and a reply carries at most 100 participants across its picks and its mentions.
 - **UI:** the commit card's secondary actions gather into one More menu — copy link, send in Remotes, follow, mute, block, report, and delete for your own commits — with the site's confirm asks for block and delete and the undo toast after a delete.
 - **Reports:** a commit you do not own can be reported with screenshots — pick up to three images, describe each one for people who cannot see them, choose a reason, add optional details, and send; the report and its attachments stay private to you and the moderators.
 

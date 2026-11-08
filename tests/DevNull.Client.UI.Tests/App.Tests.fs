@@ -178,6 +178,106 @@ let clickWhenShown(window: Window, text: string) : Async<unit> = async {
   do! onUiAsync(fun () -> buttonWithText(window, text) |> Option.iter click)
 }
 
+/// Clicks one named button once it shows up.
+let clickNamed(window: Window, name: string) : Async<unit> =
+  onUiAsync(fun () ->
+    controlByName(window, name)
+    |> Option.iter(fun control ->
+      match control with
+      | :? Button as button -> click button
+      | _ -> ()))
+
+/// Reveals the card's reply composer through its named trigger.
+let revealReply(window: Window) : Async<unit> = async {
+  let! revealed =
+    waitForAsync(
+      5000,
+      (fun () -> controlByName(window, "ReplyButton")),
+      (fun control ->
+        control
+        |> Option.map(fun found -> found :? Button)
+        |> Option.defaultValue false)
+    )
+
+  Expect.isTrue revealed "the reply button never appeared"
+
+  do! clickNamed(window, "ReplyButton")
+}
+
+/// The text the audience trigger line composes, read in inline order:
+/// the plain runs and the handle blocks the line carries.
+let replyingLineText(window: Window) : string option =
+  controlByName(window, "ReplyingToLine")
+  |> Option.bind(fun control ->
+    match control with
+    | :? Button as button ->
+      button.GetVisualDescendants()
+      |> Seq.tryFind(fun visual ->
+        match visual with
+        | :? TextBlock as block ->
+          (block.Text |> Option.ofObj |> Option.defaultValue "") <> ""
+          || block.Inlines <> null
+        | _ -> false)
+      |> Option.map(fun visual ->
+        let block = visual :?> TextBlock
+
+        match block.Text |> Option.ofObj with
+        | Some text -> text
+        | None ->
+          let ofInline(piece: Inline) : string =
+            match piece with
+            | :? Run as run -> run.Text
+            | :? InlineUIContainer as holder ->
+              match holder.Child with
+              | :? TextBlock as inner ->
+                inner.Text |> Option.ofObj |> Option.defaultValue ""
+              | _ -> ""
+            | _ -> ""
+
+          block.Inlines |> Seq.map ofInline |> String.concat "")
+    | _ -> None)
+
+/// A thread whose parent reached one hundred and one people: the
+/// audience rides in by default and the post crosses the bound.
+let overflowThreadApi() =
+  let rows =
+    [
+      for index in 1..101 ->
+        sprintf
+          "{\"id\":\"01a15638-%04d-733c-89b3-373a1a0c538a\",\"handle\":\"person%d\"}"
+          index
+          index
+    ]
+    |> String.concat ","
+
+  let page =
+    sprintf
+      "{\"data\":%s,\"ancestors\":[],\"reply_participants\":[%s]}"
+      commitJson
+      rows
+
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    elif
+      request.Method = "GET"
+      && request.Target.StartsWith
+        "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d/replies"
+    then
+      ok
+        "{\"data\":[],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+    elif
+      request.Target.StartsWith
+        "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+    then
+      ok page
+    elif request.Method = "POST" && request.Target = "/api/v1/commits" then
+      ok(sprintf "{\"data\":%s}" replyJson)
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
 /// The menu's popup card content, once the menu stood open: the rows
 /// live under the popup's child, which roots under the popup layer
 /// while the menu stands.
@@ -3121,6 +3221,402 @@ let tests =
           )
 
         Expect.isTrue posted "the reply was never posted"
+
+        // Everyone the parent addressed rides the reply by default.
+        let replyBody =
+          api.Requests
+          |> List.choose(fun request ->
+            match request.Method, request.Target, request.Body with
+            | "POST", "/api/v1/commits", HttpBody.Text text -> Some text
+            | _ -> None)
+          |> List.exactlyOne
+
+        Expect.stringContains
+          replyBody
+          "\"reply_recipients\":[\"01a15638-1111-733c-89b3-373a1a0c538a\",\"01a15638-2222-733c-89b3-373a1a0c538a\"]"
+          "the default audience rides the reply"
+      })
+
+    testCaseAsync
+      "the picker leaves one participant out of the reply"
+      (async {
+        let api = threadApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "It was DNS.") |> Option.iter click)
+
+        let! thread = showsText(window, "Back to the log")
+        Expect.isTrue thread "the thread never rendered"
+
+        do! revealReply window
+
+        let! typed =
+          waitForAsync(
+            5000,
+            (fun () -> visibleBoxWithWatermark(window, "Write your reply…")),
+            Option.isSome
+          )
+
+        Expect.isTrue typed "the reply composer never appeared"
+
+        // The exclusion outlives the dialog: the picker closes, the
+        // reply posts, and the body carries the survivor alone.
+        do! clickNamed(window, "ReplyingToLine")
+
+        let! dialog =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "ReplyParticipant1")),
+            Option.isSome
+          )
+
+        Expect.isTrue dialog "the dialog never opened"
+
+        do! clickNamed(window, "ReplyParticipant1")
+        do! clickNamed(window, "ReplyPickerDone")
+
+        do!
+          onUiAsync(fun () ->
+            visibleBoxWithWatermark(window, "Write your reply…")
+            |> Option.iter(fun box ->
+              box.Text <- "A reply from the test"
+
+              buttonNear(box, "Commit") |> Option.iter click))
+
+        let! posted =
+          waitForAsync(
+            8000,
+            (fun () -> api.Requests),
+            (fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Method = "POST"
+                && request.Target = "/api/v1/commits"
+                && (match request.Body with
+                    | HttpBody.Text text -> text.Contains("parent_id")
+                    | _ -> false)))
+          )
+
+        Expect.isTrue posted "the reply was never posted"
+
+        let replyBody =
+          api.Requests
+          |> List.choose(fun request ->
+            match request.Method, request.Target, request.Body with
+            | "POST", "/api/v1/commits", HttpBody.Text text -> Some text
+            | _ -> None)
+          |> List.exactlyOne
+
+        Expect.stringContains
+          replyBody
+          "\"reply_recipients\":[\"01a15638-2222-733c-89b3-373a1a0c538a\"]"
+          "the survivor rode the reply"
+
+        Expect.isFalse
+          (replyBody.Contains "01a15638-1111-733c-89b3-373a1a0c538a")
+          "the excluded participant stayed out"
+      })
+
+    testCaseAsync
+      "the author row stays selected and the line reads the site's words"
+      (async {
+        let api = threadApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "It was DNS.") |> Option.iter click)
+
+        let! thread = showsText(window, "Back to the log")
+        Expect.isTrue thread "the thread never rendered"
+
+        do! revealReply window
+
+        let! typed =
+          waitForAsync(
+            5000,
+            (fun () -> visibleBoxWithWatermark(window, "Write your reply…")),
+            Option.isSome
+          )
+
+        Expect.isTrue typed "the reply composer never appeared"
+
+        // The trigger names the audience and carries its aria name.
+        let! line =
+          waitForAsync(5000, (fun () -> replyingLineText window), Option.isSome)
+
+        Expect.isTrue line "the trigger line never read the audience"
+
+        let! lineText = probeUiAsync(fun () -> replyingLineText window)
+
+        Expect.equal
+          (Some "Replying to @mona and @hubot")
+          lineText
+          "the trigger line never read the audience"
+
+        do! clickNamed(window, "ReplyingToLine")
+
+        let! dialog =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "ReplyParticipant0")),
+            Option.isSome
+          )
+
+        Expect.isTrue dialog "the dialog never opened"
+
+        let! author =
+          probeUiAsync(fun () ->
+            controlByName(window, "ReplyParticipant0")
+            |> Option.bind(fun control ->
+              match control with
+              | :? Button as row ->
+                let check =
+                  row.GetVisualDescendants()
+                  |> Seq.tryFind(fun visual -> visual :? PathIcon)
+
+                let visible =
+                  check
+                  |> Option.map(fun mark ->
+                    match mark with
+                    | :? Control as mark -> effectiveVisible mark
+                    | _ -> false)
+
+                Some(row.IsEnabled, visible)
+              | _ -> None))
+
+        Expect.equal (Some(false, Some true)) author "the author row left"
+
+        let! caption = showsText(window, "Commit author")
+        Expect.isTrue caption "the author row never carried its caption"
+      })
+
+    testCaseAsync
+      "a thread with only the author never offers the trigger"
+      (async {
+        let api = undoApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "My own commit.")
+        Expect.isTrue shown "the own log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "My own commit.") |> Option.iter click)
+
+        let! thread = showsText(window, "Back to the log")
+        Expect.isTrue thread "the thread never rendered"
+
+        do! revealReply window
+
+        let! typed =
+          waitForAsync(
+            5000,
+            (fun () -> visibleBoxWithWatermark(window, "Write your reply…")),
+            Option.isSome
+          )
+
+        Expect.isTrue typed "the reply composer never appeared"
+
+        do! settleAsync()
+
+        let! absent =
+          probeUiAsync(fun () ->
+            controlByName(window, "ReplyingToLine")
+            |> Option.map effectiveVisible)
+
+        Expect.isFalse (absent = Some true) "the trigger stood with no audience"
+      })
+
+    testCaseAsync
+      "the inline log reply offers the audience its thread read landed"
+      (async {
+        let api = threadApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+        Expect.isTrue shown "the log never rendered"
+
+        // The inline composer opens straight on the log row.
+        do! revealReply window
+
+        let! typed =
+          waitForAsync(
+            5000,
+            (fun () -> visibleBoxWithWatermark(window, "Write your reply…")),
+            Option.isSome
+          )
+
+        Expect.isTrue typed "the inline reply never opened"
+
+        // The parent's thread read lands and the picker rides in.
+        let! offered =
+          waitForAsync(5000, (fun () -> replyingLineText window), Option.isSome)
+
+        Expect.isTrue offered "the audience never reached the inline composer"
+
+        let! lineText = probeUiAsync(fun () -> replyingLineText window)
+
+        Expect.equal
+          (Some "Replying to @mona and @hubot")
+          lineText
+          "the audience never reached the inline composer"
+
+        do!
+          onUiAsync(fun () ->
+            visibleBoxWithWatermark(window, "Write your reply…")
+            |> Option.iter(fun box ->
+              box.Text <- "A reply from the test"
+
+              buttonNear(box, "Commit") |> Option.iter click))
+
+        let! posted =
+          waitForAsync(
+            8000,
+            (fun () -> api.Requests),
+            (fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Method = "POST"
+                && request.Target = "/api/v1/commits"
+                && (match request.Body with
+                    | HttpBody.Text text ->
+                      text.Contains "01a15638-1111-733c-89b3-373a1a0c538a"
+                    | _ -> false)))
+          )
+
+        Expect.isTrue posted "the audience never rode the inline reply"
+      })
+
+    testCaseAsync
+      "a failed thread read posts the reply without participant ids"
+      (async {
+        let api = logApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+        Expect.isTrue shown "the log never rendered"
+
+        do! revealReply window
+
+        let! typed =
+          waitForAsync(
+            5000,
+            (fun () -> visibleBoxWithWatermark(window, "Write your reply…")),
+            Option.isSome
+          )
+
+        Expect.isTrue typed "the inline reply never opened"
+
+        // The read fails against this api; the picker never shows and
+        // the reply still posts, carrying no ids.
+        do! settleAsync()
+
+        let! absent =
+          probeUiAsync(fun () ->
+            controlByName(window, "ReplyingToLine")
+            |> Option.map effectiveVisible)
+
+        Expect.isFalse
+          (absent = Some true)
+          "the trigger stood over a failed read"
+
+        do!
+          onUiAsync(fun () ->
+            visibleBoxWithWatermark(window, "Write your reply…")
+            |> Option.iter(fun box ->
+              box.Text <- "A reply from the test"
+
+              buttonNear(box, "Commit") |> Option.iter click))
+
+        let! posted =
+          waitForAsync(
+            8000,
+            (fun () -> api.Requests),
+            (fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Method = "POST"
+                && request.Target = "/api/v1/commits"
+                && (match request.Body with
+                    | HttpBody.Text text -> text.Contains("parent_id")
+                    | _ -> false)))
+          )
+
+        Expect.isTrue posted "the reply was never posted"
+
+        let replyBody =
+          api.Requests
+          |> List.choose(fun request ->
+            match request.Method, request.Target, request.Body with
+            | "POST", "/api/v1/commits", HttpBody.Text text -> Some text
+            | _ -> None)
+          |> List.exactlyOne
+
+        Expect.stringContains replyBody "\"reply_recipients\":[]" "no ids rode"
+      })
+
+    testCaseAsync
+      "the participant bound speaks before any request"
+      (async {
+        let api = overflowThreadApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "It was DNS.") |> Option.iter click)
+
+        let! thread = showsText(window, "Back to the log")
+        Expect.isTrue thread "the thread never rendered"
+
+        do! revealReply window
+
+        let! typed =
+          waitForAsync(
+            5000,
+            (fun () -> visibleBoxWithWatermark(window, "Write your reply…")),
+            Option.isSome
+          )
+
+        Expect.isTrue typed "the reply composer never appeared"
+
+        do!
+          onUiAsync(fun () ->
+            visibleBoxWithWatermark(window, "Write your reply…")
+            |> Option.iter(fun box ->
+              box.Text <- "A reply from the test"
+
+              buttonNear(box, "Commit") |> Option.iter click))
+
+        let! refused =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root ->
+              hasText(
+                root,
+                "A reply may include at most 100 participants across selected recipients and explicit mentions."
+              )
+          )
+
+        Expect.isTrue refused "the bound never spoke"
+
+        Expect.isFalse
+          (api.Requests
+           |> List.exists(fun request ->
+             request.Method = "POST" && request.Target = "/api/v1/commits"))
+          "the bound held the reply back"
       })
 
     testCaseAsync

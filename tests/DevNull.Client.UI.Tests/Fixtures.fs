@@ -882,8 +882,12 @@ let ownLogApi() =
     (fun _ -> Ok imageBytes)
   )
 
-/// The thread of the viewer's own commit, as its page shows it.
-let ownThreadPageJson = sprintf "{\"data\":%s,\"ancestors\":[]}" ownCommitJson
+/// The thread of the viewer's own commit, as its page shows it: the
+/// audience carries no one besides the author.
+let ownThreadPageJson =
+  sprintf
+    "{\"data\":%s,\"ancestors\":[],\"reply_participants\":[]}"
+    ownCommitJson
 
 /// The api of the undo tests: the log carries the viewer's own commit,
 /// its thread answers, the delete answers with nothing, and the
@@ -916,8 +920,17 @@ let undoApi() =
 let replyJson =
   """{"id":"018f4c1e-7777-7c3a-9b2d-5e6f7a8b9c0d","short_hash":"d1e2f3a","body":"A reply.","body_segments":[],"preview_segments":null,"mentions":[],"parent_id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","quoted_commit_id":null,"html_url":"https://dev-null.sh/@octocat/018f4c1e-7777-7c3a-9b2d-5e6f7a8b9c0d","created_at":"2026-10-20T04:19:19Z","stars_count":0,"replies_count":0,"status":"approved","is_pinned":false,"pasteis_count":0,"starred":false,"author":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"images":[]}"""
 
+/// The people the parent's mentions reached, minus the viewer and its
+/// author: the audience a reply may choose from.
+let participantRowsJson =
+  """{"id":"01a15638-1111-733c-89b3-373a1a0c538a","handle":"mona"},{"id":"01a15638-2222-733c-89b3-373a1a0c538a","handle":"hubot"}"""
+
 /// The thread envelope of GET /api/v1/commits/{commit}.
-let threadPageJson = sprintf "{\"data\":%s,\"ancestors\":[]}" commitJson
+let threadPageJson =
+  sprintf
+    "{\"data\":%s,\"ancestors\":[],\"reply_participants\":[%s]}"
+    commitJson
+    participantRowsJson
 
 /// The replies page of the thread.
 let repliesPageJson =

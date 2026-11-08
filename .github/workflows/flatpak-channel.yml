@@ -101,18 +101,24 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Stage the new channel outside the tree first: the publish
+          # checkout must not collide with the untracked build outputs,
+          # and the rebuilt tip carries only docs/ — run outputs never
+          # belong on the branch (the first channel commit swept the
+          # whole main checkout plus channel/ into it by mistake).
+          mkdir -p /tmp/channel-docs
+          cp -a channel/repo /tmp/channel-docs/repo
+          rm -rf channel artifacts DevNull.Client-*.flatpak
           if git fetch origin flatpak; then
             git checkout -B flatpak FETCH_HEAD
           else
             git checkout --orphan flatpak
-            git rm -rf .
           fi
-          rm -rf docs
+          git rm -rf -q .
           mkdir -p docs
-          cp -a channel/repo docs/repo
-          # The flatpak branch forked from a main before the channel
-          # pages landed, so the checked-out tree carries no .github:
-          # the pages come from the release ref instead.
+          cp -a /tmp/channel-docs/repo docs/repo
+          # The channel pages come from the release ref: the cleared
+          # tree carries no .github of its own.
           git show origin/main:.github/flatpak/me.tunaxor.devnull.unoffclient.flatpakref \
             > docs/me.tunaxor.devnull.unoffclient.flatpakref
           git show origin/main:.github/flatpak/index.html > docs/index.html

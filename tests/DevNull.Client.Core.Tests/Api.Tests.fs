@@ -429,6 +429,13 @@ let createdResponse = sprintf "{\"data\":%s}" commitJson
 let pageResponse =
   sprintf "{\"data\":%s,\"ancestors\":[%s]}" commitJson commitJson
 
+/// The thread read of the page fixture, carrying two participants the
+/// parent's mentions reached: the rows ride the envelope in order.
+let participantsResponse =
+  sprintf
+    "{\"data\":%s,\"ancestors\":[],\"reply_participants\":[{\"id\":\"01a15638-1111-733c-89b3-373a1a0c538a\",\"handle\":\"mona\"},{\"id\":\"01a15638-2222-733c-89b3-373a1a0c538a\",\"handle\":\"hubot\"}]}"
+    commitJson
+
 let commitRequest: Commits.CreateRequest = {
   KeyFile = "key-file"
   Body = "It was DNS."
@@ -436,6 +443,7 @@ let commitRequest: Commits.CreateRequest = {
   Images = []
   ImageDescriptions = []
   Poll = None
+  ReplyRecipients = []
 }
 
 let commitApiTests =
@@ -488,7 +496,7 @@ let commitApiTests =
       let signer =
         signerWith(fun signed ->
           Expect.equal
-            "1760000000\n00112233445566778899aabbccddeeff\nPOST\n/api/v1/commits\n{\"body\":\"It was DNS.\",\"parent_id\":\"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d\"}"
+            "1760000000\n00112233445566778899aabbccddeeff\nPOST\n/api/v1/commits\n{\"body\":\"It was DNS.\",\"parent_id\":\"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d\",\"reply_recipients\":[]}"
             signed.Payload
             "signed message"
 
@@ -508,10 +516,105 @@ let commitApiTests =
         let sent = http.Requests |> List.exactlyOne
 
         Expect.equal
-          "{\"body\":\"It was DNS.\",\"parent_id\":\"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d\"}"
+          "{\"body\":\"It was DNS.\",\"parent_id\":\"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d\",\"reply_recipients\":[]}"
           (bodyText sent)
           "body"
       | Error error -> failtestf "%A" error
+    }
+
+    testAsync "a reply posts its recipients with the parent id" {
+      let http = CapturingHttp(ok createdResponse)
+
+      let request = {
+        commitRequest with
+            Target = Commits.ReplyTo "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+            ReplyRecipients = [ "01a15638-1111-733c-89b3-373a1a0c538a" ]
+      }
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(envFor http, request)
+
+      match result with
+      | Ok _ ->
+        let sent = http.Requests |> List.exactlyOne
+
+        Expect.equal
+          "{\"body\":\"It was DNS.\",\"parent_id\":\"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d\",\"reply_recipients\":[\"01a15638-1111-733c-89b3-373a1a0c538a\"]}"
+          (bodyText sent)
+          "body"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "a reply past the participants bound fails before the request" {
+      let http = CapturingHttp(ok createdResponse)
+
+      let recipients = [ for index in 1..101 -> $"person-{index}" ]
+
+      let request = {
+        commitRequest with
+            Target = Commits.ReplyTo "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+            ReplyRecipients = recipients
+      }
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(envFor http, request)
+
+      match result with
+      | Error(TooManyReplyParticipants 101) ->
+        Expect.isEmpty http.Requests "no request left"
+      | other -> failtestf "expected the participant bound, got %A" other
+    }
+
+    testAsync "a reply at the participant bound posts" {
+      let http = CapturingHttp(ok createdResponse)
+
+      let recipients = [ for index in 1..100 -> $"person-{index}" ]
+
+      let request = {
+        commitRequest with
+            Target = Commits.ReplyTo "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+            ReplyRecipients = recipients
+      }
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(envFor http, request)
+
+      match result with
+      | Ok _ -> Expect.hasLength http.Requests 1 "the reply went out"
+      | other -> failtestf "expected the bound to pass, got %A" other
+    }
+
+    testAsync "a recipient the body also mentions counts once" {
+      let http = CapturingHttp(ok createdResponse)
+
+      // One hundred selections, one of them the handle the body also
+      // mentions: the union counts the person once and the reply goes
+      // out. One more distinct mention pushes it past the bound.
+      let recipients = "alice" :: [ for index in 1..99 -> $"person-{index}" ]
+
+      let mentioned = {
+        commitRequest with
+            Target = Commits.ReplyTo "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+            Body = "hey @alice"
+            ReplyRecipients = recipients
+      }
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(envFor http, mentioned)
+
+      match result with
+      | Ok _ -> Expect.hasLength http.Requests 1 "the union counted once"
+      | other -> failtestf "expected the overlap to pass, got %A" other
+
+      let distinct = { mentioned with Body = "hey @bob" }
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(envFor http, distinct)
+
+      match result with
+      | Error(TooManyReplyParticipants 101) ->
+        Expect.hasLength http.Requests 1 "no second request left"
+      | other -> failtestf "expected the bound, got %A" other
     }
 
     testAsync "creates a quoted commit" {
@@ -630,6 +733,45 @@ let commitApiTests =
 
         Expect.equal "" (bodyText sent) "body"
       | Error error -> failtestf "%A" error
+    }
+
+    test "the thread read decodes its reply participants in order" {
+      match CommitPage.decode participantsResponse with
+      | Ok page ->
+        Expect.equal
+          [
+            {
+              Id = "01a15638-1111-733c-89b3-373a1a0c538a"
+              Handle = "mona"
+            }
+            {
+              Id = "01a15638-2222-733c-89b3-373a1a0c538a"
+              Handle = "hubot"
+            }
+          ]
+          page.ReplyParticipants
+          "participants"
+      | Error failure -> failtestf "%A" failure
+    }
+
+    test "a thread read without reply participants answers none" {
+      match CommitPage.decode pageResponse with
+      | Ok page -> Expect.equal [] page.ReplyParticipants "no participants"
+      | Error failure -> failtestf "%A" failure
+    }
+
+    test "a body's mentions read once each, in order" {
+      Expect.equal
+        [ "alice"; "bob" ]
+        (CommitMentions.handles(Values.body "hey @alice, meet @bob and @alice"))
+        "distinct handles"
+    }
+
+    test "a body without mention triggers carries no handles" {
+      Expect.equal
+        []
+        (CommitMentions.handles(Values.body "see #12 or write foo@bar"))
+        "no handles"
     }
 
     testAsync "a missing commit surfaces the server code" {
@@ -2170,7 +2312,7 @@ let imageCommitTests =
           Expect.equal "devnull-api-images" signed.Namespace "namespace"
 
           Expect.equal
-            $"1760000000\n00112233445566778899aabbccddeeff\nPOST\n/api/v1/commits\n%s{pngHash}\n{{\"body\":\"It was DNS.\",\"parent_id\":\"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d\"}}"
+            $"1760000000\n00112233445566778899aabbccddeeff\nPOST\n/api/v1/commits\n%s{pngHash}\n{{\"body\":\"It was DNS.\",\"parent_id\":\"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d\",\"reply_recipients\":[]}}"
             signed.Payload
             "signed message"
 
@@ -2196,7 +2338,7 @@ let imageCommitTests =
         Expect.equal "payload" payload.Name "payload part"
 
         Expect.equal
-          "{\"body\":\"It was DNS.\",\"parent_id\":\"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d\"}"
+          "{\"body\":\"It was DNS.\",\"parent_id\":\"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d\",\"reply_recipients\":[]}"
           (System.Text.Encoding.UTF8.GetString payload.Content)
           "payload json"
 

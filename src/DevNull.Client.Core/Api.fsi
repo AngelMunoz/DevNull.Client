@@ -617,7 +617,8 @@ module Commits =
   /// One commit to create through the signed API. A poll rides a fresh
   /// commit with no images only, as the server takes it; images travel
   /// as a multipart post whose payload part carries the JSON body,
-  /// with one optional description per image.
+  /// with one optional description per image. The reply's recipient
+  /// ids ride a reply only, within the participants the server bounds.
   type CreateRequest = {
     KeyFile: string
     Body: string
@@ -625,6 +626,7 @@ module Commits =
     Images: ImageAttachment list
     ImageDescriptions: string option list
     Poll: PollSpec option
+    ReplyRecipients: string list
   }
 
   /// One commit to read through the signed API.
@@ -679,6 +681,7 @@ module Commits =
       and CommitIdError<'e>
       and ImageError<'e>
       and PollError<'e>
+      and ReplyParticipantsError<'e>
       and NonceError<'e>
       and SigningError<'e>
       and TransportError<'e>

@@ -49,6 +49,7 @@ type TestError =
   | VoiceProhibited of conflict: VoiceConflict
   | ScheduledInPast of moment: DateTimeOffset
   | ScheduledTooFar of moment: DateTimeOffset
+  | TooManyReplyParticipants of count: int
 
   interface CommitBodyError<TestError> with
     static member BodyTooShort(raw, length) = BodyTooShort(raw, length)
@@ -133,6 +134,10 @@ type TestError =
   interface ScheduledError<TestError> with
     static member ScheduledInPast moment = ScheduledInPast moment
     static member ScheduledTooFar moment = ScheduledTooFar moment
+
+  interface ReplyParticipantsError<TestError> with
+    static member TooManyReplyParticipants count =
+      TooManyReplyParticipants count
 
 type FixedClock(timestamp: int64) =
 

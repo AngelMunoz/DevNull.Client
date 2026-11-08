@@ -18,6 +18,7 @@ type FeedProps<'row when 'row: equality> = {
   Row: 'row -> Control
   HasMore: IObservable<bool>
   OnMore: unit -> unit
+  OnRide: (Feed.Ride -> unit) voption
   End: IObservable<string option>
 }
 
@@ -91,8 +92,8 @@ let noteLine
     .IsVisible(note |> Observable.map Option.isSome)
 
 /// The profile pages' feed column. These feeds are always-top: they
-/// hand the feed no scroll slots, so a profile page never restores a
-/// place; the slots wait for a consumer.
+/// never restore a place and never stick to the bottom edge; the
+/// report slot hands each settled read place to the host.
 let feedColumn(feed: FeedProps<'row>) : Control =
   let end' = feed.End |> Slices.gate id |> Slices.share
 
@@ -124,7 +125,7 @@ let feedColumn(feed: FeedProps<'row>) : Control =
     Ride = false
     Restore = ValueNone
     OnScroll = ValueNone
-    OnRide = ValueNone
+    OnRide = feed.OnRide
     OnNeedMore = ValueNone
   }
 

@@ -8,6 +8,7 @@ open System
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Documents
+open Avalonia.Controls.Presenters
 open Avalonia.Controls.Primitives
 open Avalonia.Controls.Shapes
 open Avalonia.Headless
@@ -101,6 +102,74 @@ let feedOffset(window: Window) : float =
   |> Seq.tryHead
   |> Option.map(fun scroller -> scroller.Offset.Y)
   |> Option.defaultValue 0.0
+
+/// The first TextBlock under the root that carries the text.
+let blockWithText(root: Control, text: string) : TextBlock option =
+  root.GetVisualDescendants()
+  |> Seq.tryPick(fun visual ->
+    match visual with
+    | :? TextBlock as block when textBlockShows(block, text) -> Some block
+    | _ -> None)
+
+/// The feed's own scroller, the first one above the commit text: the
+/// pinned header sits in no scroller.
+let scrollerAbove(root: Control, text: string) : ScrollViewer option =
+  blockWithText(root, text)
+  |> Option.bind(fun block ->
+    block.GetVisualAncestors()
+    |> Seq.tryPick(function
+      | :? ScrollViewer as scroller -> Some scroller
+      | _ -> None))
+
+/// A profile feed of several commits, so the places the header tests
+/// scroll to stay real: the canned commit returns with its own id per
+/// row, and the profile carries the stats fixture.
+let longProfileApi() : FakeApi =
+  let rows =
+    [
+      for index in 1..6 ->
+        commitJson.Replace(
+          "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d",
+          $"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b{index:D4}"
+        )
+    ]
+    |> String.concat ","
+
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    elif request.Target = "/api/v1/users/octocat" then
+      ok profileWithStatsJson
+    elif request.Target.StartsWith "/api/v1/users/octocat/commits" then
+      ok(
+        sprintf
+          "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+          rows
+      )
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+/// Clicks the visible header chevron: both forms carry one under the
+/// same name, and the hidden form's copy must not take the click.
+let clickVisibleHeaderToggle(window: Window) : Async<unit> = async {
+  let named(window: Window) =
+    window.GetVisualDescendants()
+    |> Seq.choose(fun visual ->
+      match visual with
+      | :? Button as button when button.Name = "ProfileHeaderToggle" ->
+        Some button
+      | _ -> None)
+    |> Seq.filter effectiveVisible
+    |> Seq.tryHead
+
+  let! shown = waitForAsync(5000, (fun () -> named window), Option.isSome)
+
+  Expect.isTrue shown "the header chevron never showed"
+
+  do! onUiAsync(fun () -> named window |> Option.iter click)
+}
 
 /// Builds and shows the shell over one test env. The window is born on
 /// the UI thread: the headless platform only exists there.
@@ -4474,6 +4543,308 @@ let tests =
         let! badges = showsText(window, "1/1 badges")
 
         Expect.isTrue badges "the badge count never rendered"
+      })
+
+    testCaseAsync
+      "a short window starts the profile compact"
+      (async {
+        let api = statsProfileApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            window.MinHeight <- 0.0
+            window.Height <- 480.0)
+
+        do! settleAsync()
+
+        do! clickWhenShown(window, "Profile")
+
+        let! feed = showsText(window, "It was DNS.")
+
+        Expect.isTrue feed "the feed never rendered"
+
+        let! folded =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> not(visibleText(root, "activity · week")))
+          )
+
+        Expect.isTrue folded "the header never folded in the short window"
+
+        let! room =
+          probeUiAsync(fun () ->
+            scrollerAbove(window, "It was DNS.")
+            |> Option.map(fun scroller ->
+              scroller.Viewport.Height, (window :> TopLevel).ClientSize.Height))
+
+        match room with
+        | Some(viewport, clientHeight) ->
+          Expect.isGreaterThanOrEqual
+            viewport
+            (clientHeight * 0.55)
+            "the feed never kept most of the window"
+        | None -> failtest "the feed scroller never showed"
+      })
+
+    testCaseAsync
+      "reducing the header never rebuilds the feed"
+      (async {
+        let! window = startShell(signedInStore(), longProfileApi() :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            window.MinHeight <- 0.0
+            window.Height <- 900.0)
+
+        do! settleAsync()
+
+        do! clickWhenShown(window, "Profile")
+
+        let! feed = showsText(window, "It was DNS.")
+
+        Expect.isTrue feed "the feed never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            scrollerAbove(window, "It was DNS.")
+            |> Option.iter(fun scroller ->
+              scroller.Offset <- Vector(0.0, 240.0)))
+
+        do! settleAsync()
+
+        // The mid offset already asked the header to give way, so the
+        // two chevron clicks unfold and fold again; either way the
+        // feed's pieces must stand recorded and unmoved.
+        let! recorded =
+          probeUiAsync(fun () ->
+            scrollerAbove(window, "It was DNS.")
+            |> Option.bind(fun scroller ->
+              let items =
+                scroller.GetVisualDescendants()
+                |> Seq.tryFind(fun visual -> visual :? ItemsControl)
+                |> Option.map(fun visual -> visual :?> Control)
+
+              let presenter =
+                blockWithText(window, "It was DNS.")
+                |> Option.bind(fun block ->
+                  block.GetVisualAncestors()
+                  |> Seq.tryPick(function
+                    | :? ContentPresenter as inner -> Some(inner :> Control)
+                    | _ -> None))
+
+              match items, presenter with
+              | Some items, Some presenter ->
+                Some(scroller, items, presenter, scroller.Offset.Y)
+              | _ -> None))
+
+        match recorded with
+        | None -> failtest "the feed never stood up"
+        | Some(scroller, items, presenter, offset) ->
+          Expect.isTrue
+            (abs(offset - 240.0) <= 0.5)
+            $"the feed never took the mid place: {offset}"
+
+          do! clickVisibleHeaderToggle(window)
+
+          do! settleAsync()
+
+          do! clickVisibleHeaderToggle(window)
+
+          do! settleAsync()
+
+          let! stood =
+            probeUiAsync(fun () ->
+              scrollerAbove(window, "It was DNS.")
+              |> Option.map(fun current ->
+                obj.ReferenceEquals(current, scroller)
+                && (current.GetVisualDescendants()
+                    |> Seq.exists(fun visual ->
+                      obj.ReferenceEquals(visual, items)))
+                && (blockWithText(window, "It was DNS.")
+                    |> Option.map(fun block ->
+                      block.GetVisualAncestors()
+                      |> Seq.exists(fun ancestor ->
+                        obj.ReferenceEquals(ancestor, presenter)))
+                    |> Option.defaultValue false)
+                && abs(current.Offset.Y - 240.0) <= 0.5))
+
+          Expect.equal stood (Some true) "the feed never stood still"
+      })
+
+    testCaseAsync
+      "scrolling into the feed gives way, top restores"
+      (async {
+        let! window = startShell(signedInStore(), longProfileApi() :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            window.MinHeight <- 0.0
+            window.Height <- 900.0)
+
+        do! settleAsync()
+
+        do! clickWhenShown(window, "Profile")
+
+        let! feed = showsText(window, "It was DNS.")
+
+        Expect.isTrue feed "the feed never rendered"
+
+        do! scrollFeedToEndAsync window
+
+        let! folded =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> not(visibleText(root, "activity · week")))
+          )
+
+        Expect.isTrue folded "the scroll into the feed never gave way"
+
+        do! scrollFeedToTopAsync window
+
+        let! restored = seesVisible(window, "activity · week")
+
+        Expect.isTrue restored "the top never restored the full header"
+      })
+
+    testCaseAsync
+      "the reader's choice sticks"
+      (async {
+        let! window = startShell(signedInStore(), longProfileApi() :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            window.MinHeight <- 0.0
+            window.Height <- 900.0)
+
+        do! settleAsync()
+
+        do! clickWhenShown(window, "Profile")
+
+        let! feed = showsText(window, "It was DNS.")
+
+        Expect.isTrue feed "the feed never rendered"
+
+        do! clickVisibleHeaderToggle(window)
+
+        let! folded =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> not(visibleText(root, "activity · week")))
+          )
+
+        Expect.isTrue folded "the reduce never folded the header"
+
+        do! scrollFeedToEndAsync window
+        do! scrollFeedToTopAsync window
+        do! settleAsync()
+
+        let! stuck =
+          probeUiAsync(fun () -> not(visibleText(window, "activity · week")))
+
+        Expect.isTrue stuck "the reader's fold never stuck"
+      })
+
+    testCaseAsync
+      "a pinned full header keeps the feed reachable"
+      (async {
+        let! window = startShell(signedInStore(), statsProfileApi() :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            window.MinHeight <- 0.0
+            window.Height <- 480.0)
+
+        do! settleAsync()
+
+        do! clickWhenShown(window, "Profile")
+
+        let! feed = showsText(window, "It was DNS.")
+
+        Expect.isTrue feed "the feed never rendered"
+
+        let! folded =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> not(visibleText(root, "activity · week")))
+          )
+
+        Expect.isTrue folded "the header never folded in the short window"
+
+        do! clickVisibleHeaderToggle(window)
+
+        let! pinned = seesVisible(window, "activity · week")
+
+        Expect.isTrue pinned "the header never unfolded"
+
+        do! settleAsync()
+
+        let! reachable =
+          probeUiAsync(fun () ->
+            let clientHeight = (window :> TopLevel).ClientSize.Height
+
+            // On screen means inside the client area: the broken
+            // header laid the tabs below the window edge with every
+            // IsVisible flag still true.
+            let onScreen(control: Control) =
+              control.TranslatePoint(Point(0.0, 0.0), window)
+              |> Option.ofNullable
+              |> Option.map(fun corner ->
+                corner.Y >= 0.0 && corner.Y < clientHeight)
+              |> Option.defaultValue false
+
+            let tabShown =
+              buttonWithText(window, "Commits") |> Option.map onScreen
+
+            scrollerAbove(window, "It was DNS.")
+            |> Option.map(fun scroller ->
+              tabShown,
+              scroller.Viewport.Height,
+              scrollerAbove(window, "activity · week")
+              |> Option.map(fun header ->
+                header.Extent.Height > header.Viewport.Height)))
+
+        match reachable with
+        | Some(tabShown, viewport, headerScrolls) ->
+          Expect.equal
+            tabShown
+            (Some true)
+            "the Commits tab never came back in view"
+
+          Expect.isGreaterThanOrEqual
+            viewport
+            100.0
+            "the feed band never kept 100 DIP"
+
+          Expect.equal
+            headerScrolls
+            (Some true)
+            "the capped header never scrolls"
+        | None -> failtest "the feed scroller never showed"
       })
 
     testCaseAsync

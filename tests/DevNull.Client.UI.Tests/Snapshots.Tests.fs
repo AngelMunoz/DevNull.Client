@@ -2619,4 +2619,129 @@ let captureTests =
 
       do! onUiAsync(fun () -> window.Close())
     }
+
+    testAsync "the profile header stands full in a tall window" {
+      let! window = startShell(signedInStore(), statsProfileApi() :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do! onUiAsync(fun () -> window.Height <- 900.0)
+      do! settleAsync()
+
+      do! clickWhenShown(window, "Profile")
+
+      let! caption = seesVisible(window, "activity · week")
+      Expect.isTrue caption "the full header never rendered"
+
+      let! feed = showsText(window, "It was DNS.")
+      Expect.isTrue feed "the feed never rendered"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F17/f17-profile-tall-full", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the profile keeps most of a short window" {
+      let! window = startShell(signedInStore(), statsProfileApi() :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do!
+        onUiAsync(fun () ->
+          window.MinHeight <- 0.0
+          window.Height <- 480.0)
+
+      do! settleAsync()
+
+      do! clickWhenShown(window, "Profile")
+
+      let! feed = showsText(window, "It was DNS.")
+      Expect.isTrue feed "the feed never rendered"
+
+      let! folded =
+        waitForAsync(
+          5000,
+          (fun () -> window),
+          (fun root -> not(visibleText(root, "activity · week")))
+        )
+
+      Expect.isTrue folded "the header never folded in the short window"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F17/f17-short-compact", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the reader pins the full header in a short window" {
+      let! window = startShell(signedInStore(), statsProfileApi() :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do!
+        onUiAsync(fun () ->
+          window.MinHeight <- 0.0
+          window.Height <- 480.0)
+
+      do! settleAsync()
+
+      do! clickWhenShown(window, "Profile")
+
+      let! feed = showsText(window, "It was DNS.")
+      Expect.isTrue feed "the feed never rendered"
+
+      let! folded =
+        waitForAsync(
+          5000,
+          (fun () -> window),
+          (fun root -> not(visibleText(root, "activity · week")))
+        )
+
+      Expect.isTrue folded "the header never folded in the short window"
+
+      do! clickVisibleHeaderToggle(window)
+
+      let! pinned = seesVisible(window, "activity · week")
+      Expect.isTrue pinned "the header never unfolded"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F17/f17-short-pinned-full", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "a scrolled profile rides under the compact bar" {
+      let! window = startShell(signedInStore(), longProfileApi() :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do! onUiAsync(fun () -> window.Height <- 900.0)
+      do! settleAsync()
+
+      do! clickWhenShown(window, "Profile")
+
+      let! feed = showsText(window, "It was DNS.")
+      Expect.isTrue feed "the feed never rendered"
+
+      do! scrollFeedToEndAsync window
+
+      let! folded =
+        waitForAsync(
+          5000,
+          (fun () -> window),
+          (fun root -> not(visibleText(root, "activity · week")))
+        )
+
+      Expect.isTrue folded "the scroll never folded the header"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F17/f17-scrolled-compact", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
   ]

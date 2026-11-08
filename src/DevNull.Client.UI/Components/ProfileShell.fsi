@@ -14,6 +14,9 @@ type FeedProps<'row when 'row: equality> = {
   Row: 'row -> Control
   HasMore: IObservable<bool>
   OnMore: unit -> unit
+  /// Reports the feed's reading place, so the host can drive its own
+  /// pinned areas.
+  OnRide: (Feed.Ride -> unit) voption
   /// The sentence the feed shows once its last page has no cursor.
   End: IObservable<string option>
 }

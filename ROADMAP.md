@@ -34,7 +34,7 @@ own.
    apply to every phase and every issue; the skill gate below is part of every
    deliverable's definition of done.
 
-## State as of 2026-11-07
+## State as of 2026-11-08
 
 - Installation is done on both heads and leaves this roadmap: the Windows app
   installs with scoop straight from the release URL, and the Linux app
@@ -47,7 +47,8 @@ own.
   click-isolation proof and the accessibility pass
   ([#1](https://github.com/AngelMunoz/DevNull.Client/issues/1), PR #33).
 - The index's other shipped items — #15, #8, #13, #12, #10 — are merged and
-  closed. Five remain, listed below, least work first.
+  closed, and #16 and #9 closed after them (PRs #34 and #35). Three remain,
+  listed below, least work first.
 - The server repository was pulled to `4cb5538` on 2026-11-01 and re-audited
   through `33cf978` on 2026-11-07: no decoder break, no Core change due.
   The sync's findings carry #23–#31, and its one required UI fix — the
@@ -129,8 +130,6 @@ Phase 1 is done; the rest, least work to most:
 
 | Issue | Notes |
 |---|---|
-| [#16 — back to the log the reader left](https://github.com/AngelMunoz/DevNull.Client/issues/16) | remember the log kind; the scroll place already parks |
-| [#9 — reply participants](https://github.com/AngelMunoz/DevNull.Client/issues/9) | one decode, one picker, the combined cap |
 | [#17 — the profile header in short windows](https://github.com/AngelMunoz/DevNull.Client/issues/17) | the header gives way without touching the feed |
 | [#4 — follower and following lists](https://github.com/AngelMunoz/DevNull.Client/issues/4) | Core already carries both calls; the pages and the organizations section are the work |
 | [#2 — search: organizations and the deprecated people search](https://github.com/AngelMunoz/DevNull.Client/issues/2) | a new Core decode and rows in two surfaces |

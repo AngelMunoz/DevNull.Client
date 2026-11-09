@@ -261,6 +261,33 @@ let profilePage
       }
   )
 
+// The follower and following lists: one page, the kind each route
+// names.
+let connectionsPage
+  (
+    env:
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideDispatcher & #IProvideSession & #IProvideImageCache & #IProvideProfiles & #IProvideLogging,
+    nav: INavigable,
+    context: RouteContext,
+    kind: ConnectionsView.Kind
+  ) : Control =
+  signedIn(
+    env,
+    "Sign in to read the list.",
+    fun session ->
+      match context.GetParam<string> "username" with
+      | ValueSome username ->
+        ConnectionsView.Page {
+          Env = env
+          Username = username
+          Kind = kind
+          Session = session
+          Nav = nav
+          Context = context
+        }
+      | ValueNone -> Status.soon "The list page needs a username."
+  )
+
 let organizationPage
   (
     env:
@@ -449,6 +476,22 @@ let build
       "user-profile",
       "/profile/:username",
       fun context nav -> profilePage(env, nav, context)
+    )
+    |> gated
+
+    Route.define<Control>(
+      "user-followers",
+      "/profile/:username/followers",
+      fun context nav ->
+        connectionsPage(env, nav, context, ConnectionsView.Kind.Followers)
+    )
+    |> gated
+
+    Route.define<Control>(
+      "user-following",
+      "/profile/:username/following",
+      fun context nav ->
+        connectionsPage(env, nav, context, ConnectionsView.Kind.Following)
     )
     |> gated
 

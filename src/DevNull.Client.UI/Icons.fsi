@@ -30,6 +30,7 @@ type Glyph =
   | At
   | UserPlus
   | ChevronsUp
+  | ChevronsDown
   | ChevronLeft
   | ChevronRight
   | PanelLeftClose

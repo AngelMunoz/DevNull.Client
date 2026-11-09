@@ -435,6 +435,23 @@ module Users =
       and Rejected<'e>
       and DecodeError<'e>
 
+  /// Reads the organizations one user follows, newest follow first,
+  /// thirty a cursor page. Every row carries the viewer's follow
+  /// state; the counts and the admins the server loads elsewhere stay
+  /// unread.
+  val followedOrganizations:
+    env: 'env * request: ListRequest ->
+      Async<Result<Page<FollowedOrganization>, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
   /// Follows one user.
   val follow:
     env: 'env * request: Request -> Async<Result<unit, 'e>>

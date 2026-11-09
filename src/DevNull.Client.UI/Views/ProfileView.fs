@@ -6,6 +6,7 @@ open System.Globalization
 open System.Runtime.CompilerServices
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.Primitives
 open Avalonia.Media
 open Avalonia.Layout
 open NXUI.Extensions
@@ -71,6 +72,13 @@ module State =
     | PinnedNode of node: CommitNode
     | FeedNode of node: CommitNode
 
+  // The header's shape: the automatic fold, or the form the reader
+  // pinned with the chevron.
+  type HeaderForm =
+    | Auto
+    | Full
+    | Compact
+
   type Model = {
     Loading: bool
     Error: AppError option
@@ -84,6 +92,15 @@ module State =
     PollChoices: Map<string, string>
     Pinning: string option
     Note: string option
+    // The form the reader pinned, or Auto.
+    HeaderForm: HeaderForm
+    // The fold the last read place asked for, while the form is Auto.
+    AutoCompact: bool
+    // Whether the window is short for the full header, decided once
+    // from the full header's first layout.
+    ShortWindow: bool
+    // Whether the first read place already landed.
+    PlaceReported: bool
     // Whether translations show by themselves.
     Automatic: bool
     // Every commit's translation on this page.
@@ -101,6 +118,8 @@ module State =
     | CommitsRefreshed of Result<Page<CommitNode>, AppError>
     | MoreCommits
     | TabChosen of Tab
+    | HeaderChosen of HeaderForm
+    | FeedRead of Components.Feed.Ride
     | StarToggled of Commit
     | StarDone of Result<Commit, AppError>
     | PollChoiceChanged of Commit * PollOption * chosen: bool
@@ -192,11 +211,26 @@ module State =
     PollChoices = Map.empty
     Pinning = None
     Note = None
+    HeaderForm = Auto
+    AutoCompact = false
+    ShortWindow = false
+    PlaceReported = false
     Automatic = false
     Translations = TranslationModel.initial
     Relations = Map.empty
     MenuBusy = None
   }
+
+  // The feed viewport under which the full header gives way at once:
+  // about three feed rows.
+  let HeaderFloor = 300.0
+
+  // The form the header takes: the reader's pin wins, Auto follows
+  // the last automatic fold.
+  let inline effectiveForm(model: Model) : HeaderForm =
+    match model.HeaderForm with
+    | Auto -> if model.AutoCompact then Compact else Full
+    | chosen -> chosen
 
   // One feed read: whose commits, which tab, and the pager cursor.
   [<Struct>]
@@ -955,6 +989,30 @@ module State =
               Error = Some error
         },
         failed "the commit deletion" error
+    | HeaderChosen Full -> { model with HeaderForm = Full }, Cmd.none
+    | HeaderChosen Compact -> { model with HeaderForm = Compact }, Cmd.none
+    | HeaderChosen Auto -> model, Cmd.none
+    | FeedRead place when model.Details.IsSome ->
+      if model.PlaceReported then
+        // The window's shortness decided once at the first layout;
+        // the reading place keeps following the scroll.
+        let compact = model.ShortWindow || place.Offset > 0.5
+
+        if compact = model.AutoCompact then
+          model, Cmd.none
+        else
+          { model with AutoCompact = compact }, Cmd.none
+      else
+        let shortWindow = place.Viewport < HeaderFloor
+
+        {
+          model with
+              PlaceReported = true
+              ShortWindow = shortWindow
+              AutoCompact = shortWindow || place.Offset > 0.5
+        },
+        Cmd.none
+    | FeedRead _ -> model, Cmd.none
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
@@ -1036,6 +1094,7 @@ module Parts =
         .CornerRadius(999.0)
         .Padding(8.0, 2.0, 8.0, 2.0)
         .VerticalAlignment(VerticalAlignment.Center)
+        .HorizontalAlignment(HorizontalAlignment.Left)
         .Child(label)
 
     Theme.laneBorder(chip, lane)
@@ -1201,14 +1260,70 @@ module Parts =
     |]
 
   // What the identity header reads: the profile, the viewer's
-  // relation to it, the dispatch, and the image cache.
+  // relation to it, the dispatch, the image cache, and the nav the
+  // count buttons follow.
   [<Struct>]
   type IdentityCtx = {
     Images: ImageCacheService
     Details: ProfileDetails
     IsSelf: bool
     Dispatch: Dispatch<State.Msg>
+    Nav: INavigable
   }
+
+  // One count-and-label pair, the stats row's piece.
+  let inline statPair(count: int, label: string) : Control =
+    StackPanel()
+      .Orientation(Orientation.Horizontal)
+      .Spacing(4.0)
+      .VerticalAlignment(VerticalAlignment.Center)
+      .Children(
+        TextBlock().Classes(Theme.name Theme.StatNum).Text(string count),
+        TextBlock().Classes(Theme.name Theme.Muted).Text(label)
+      )
+
+  // The stats row whose following and followers counts are quiet
+  // buttons over their numbers: each opens its list for the profile's
+  // own handle. The flyout's card keeps the plain counts row.
+  let counts(profile: Profile, nav: INavigable) : Control =
+    let statButton(name: string, pair: Control, url: string) =
+      Button()
+        .Name(name + ":" + profile.User.Handle)
+        .Classes(Theme.name Theme.GhostButton)
+        .Padding(0.0)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Content(pair)
+        .OnClickHandler(fun _ _ -> Navigation.go(nav, url, ignore))
+
+    StackPanel()
+      .Orientation(Orientation.Horizontal)
+      .Spacing(16.0)
+      .Children(
+        statPair(profile.CommitsCount |> Option.defaultValue 0, "commits"),
+        statButton(
+          "ProfileFollowingCount",
+          statPair(profile.FollowingCount |> Option.defaultValue 0, "following"),
+          "/profile/" + profile.User.Handle + "/following"
+        ),
+        statButton(
+          "ProfileFollowersCount",
+          statPair(profile.FollowersCount |> Option.defaultValue 0, "followers"),
+          "/profile/" + profile.User.Handle + "/followers"
+        )
+      )
+
+  // The chevron at the header row's right edge: the glyph points
+  // where the header goes next, and the click pins the form it names.
+  // The full form shows ChevronsUp and names Compact; the compact bar
+  // shows ChevronsDown and names Full.
+  let headerToggle
+    (dispatch: Dispatch<State.Msg>, glyph: Icons.Glyph, choose: State.HeaderForm) : Control =
+    Button()
+      .Classes(Theme.name Theme.GhostButton)
+      .Name("ProfileHeaderToggle")
+      .Content(Icons.icon glyph)
+      .VerticalAlignment(VerticalAlignment.Center)
+      .OnClickHandler(fun _ _ -> dispatch(State.HeaderChosen choose))
 
   // The identity header: the avatar in its lane ring, the actions, the
   // name, the handle row, the bio, the meta line, and the stats.
@@ -1241,6 +1356,8 @@ module Parts =
       DockPanel()
         .LastChildFill(false)
         .Children(
+          headerToggle(ctx.Dispatch, Icons.ChevronsUp, State.HeaderForm.Compact)
+            .DockRight(),
           StackPanel()
             .Orientation(Orientation.Horizontal)
             .Spacing(8.0)
@@ -1264,20 +1381,71 @@ module Parts =
         .IsVisible(profile.Bio.IsSome)
         .Text(profile.Bio |> Option.defaultValue "")
       metaLine profile
-      ProfileCard.stats profile
+      counts(profile, ctx.Nav)
     |]
 
     StackPanel().Spacing(8.0).Children(headerChildren)
 
+  // The compact header: the small avatar, the name, the handle, and
+  // the counts on one row, with the unfold chevron at its right edge.
+  let compactHeader(ctx: IdentityCtx) : Control =
+    let profile = ctx.Details.Profile
+    let user = profile.User
+
+    let row =
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Spacing(10.0)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Children(
+          Avatar.view {
+            Name = user.Name
+            Url = user.AvatarUrl
+            Lane = profile.Lane
+            Size = 32.0
+            Cache = ctx.Images
+          },
+          TextBlock()
+            .Classes(Theme.name Theme.Subtitle)
+            .VerticalAlignment(VerticalAlignment.Center)
+            .Text(user.Name),
+          ProfileCard.laneHandle(profile.Lane, user.Handle),
+          counts(profile, ctx.Nav)
+        )
+
+    DockPanel()
+      .LastChildFill(false)
+      .MinHeight(44.0)
+      .Children(
+        headerToggle(ctx.Dispatch, Icons.ChevronsDown, State.HeaderForm.Full)
+          .DockRight(),
+        row
+      )
+
+  // The space the full header never takes: the page's 88 DIP of fixed
+  // chrome (the 40 DIP band padding, the 48 DIP tab strip) plus a
+  // 120 DIP feed band.
+  let HeaderCapRoom = 208.0
+
   // The header host, rebuilt when the profile changes: the follow,
   // mute, and block states come back from the server after every
-  // action.
+  // action. Both forms build with it and only their visibility flips,
+  // so a fold never rebuilds the feed below.
   let headerHost
     (
       props: Props<'env>,
       dispatch: Dispatch<State.Msg>,
       model: IObservable<State.Model>
     ) : Control =
+    let form =
+      model
+      |> Observable.map State.effectiveForm
+      |> Slices.gate id
+      |> Slices.share
+
+    let formIs(wanted: State.HeaderForm) =
+      form |> Observable.map(fun current -> current = wanted)
+
     let content =
       PageChrome.rebuildOn(
         model,
@@ -1285,23 +1453,45 @@ module Parts =
         (fun current ->
           match current.Details with
           | Some details ->
-            let isSelf =
-              details.Profile.User.Id = props.Session.Session.User.Id
+            let ctx = {
+              Images = props.Env.ImageCache
+              Details = details
+              IsSelf = details.Profile.User.Id = props.Session.Session.User.Id
+              Dispatch = dispatch
+              Nav = props.Nav
+            }
 
-            StackPanel()
-              .Spacing(16.0)
-              .Children(
-                Array.append
-                  [|
-                    identity {
-                      Images = props.Env.ImageCache
-                      Details = details
-                      IsSelf = isSelf
-                      Dispatch = dispatch
-                    }
-                  |]
-                  (profileSections details)
-              )
+            // The full form is the identity and the sections together,
+            // capped at the space above a minimum feed band: a pinned
+            // header scrolls inside the cap instead of starving the
+            // feed. The cap follows the window on the scroller's own
+            // layout passes, so the subscription dies with the control.
+            let fullStack =
+              StackPanel()
+                .Spacing(16.0)
+                .Children(
+                  Array.append [| identity ctx |] (profileSections details)
+                )
+
+            let fullForm =
+              ScrollViewer()
+                .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
+                .Content(fullStack)
+                .IsVisible(formIs State.HeaderForm.Full)
+
+            fullForm.LayoutUpdated.Add(fun _ ->
+              match TopLevel.GetTopLevel fullForm |> Option.ofObj with
+              | Some top ->
+                let cap = top.ClientSize.Height - HeaderCapRoom
+
+                if cap > 0.0 && fullForm.MaxHeight <> cap then
+                  fullForm.MaxHeight <- cap
+              | None -> ())
+
+            let compactForm =
+              (compactHeader ctx).IsVisible(formIs State.HeaderForm.Compact)
+
+            StackPanel().Spacing(16.0).Children(fullForm, compactForm)
           | None -> Status.empty "")
       )
 
@@ -1483,6 +1673,7 @@ let view
         | State.FeedNode node -> ProfileShell.commitRow(ctx, node)
       HasMore = model |> Observable.map _.NextCursor.IsSome
       OnMore = fun () -> dispatch State.MoreCommits
+      OnRide = ValueSome(State.FeedRead >> dispatch)
       End = System.Reactive.Linq.Observable.Return(None: string option)
     }
   }

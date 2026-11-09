@@ -41,6 +41,19 @@ type Organization = {
   AvatarUrl: string option
 }
 
+/// One organization a followed-organizations page lists: the row the
+/// site's connections page carries, with the viewer's follow state on
+/// every row. The counts and the admins the server loads elsewhere
+/// stay unread here.
+type FollowedOrganization = {
+  Handle: string
+  Name: string
+  AvatarUrl: string option
+  Bio: string option
+  Lane: Lane option
+  IsFollowed: bool
+}
+
 /// One public organization profile, as the organization read answers
 /// it: its identity lines and its page address.
 type OrganizationProfile = {
@@ -980,6 +993,11 @@ module SearchTerms =
 module User =
   /// Reads a cursor page of users.
   val decodePage: body: string -> Result<Page<User>, DecodeFailure>
+
+module FollowedOrganization =
+  /// Reads a cursor page of followed organizations.
+  val decodePage:
+    body: string -> Result<Page<FollowedOrganization>, DecodeFailure>
 
 module ProfileDetails =
   /// Reads one profile and the signed viewer's relation to it.

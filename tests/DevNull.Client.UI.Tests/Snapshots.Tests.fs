@@ -162,6 +162,19 @@ let private openDevicesAsync(api: IHttp) : Async<Window> = async {
   return window
 }
 
+/// Opens the signed-in profile over the given api, so a capture of a
+/// list page starts from where the reader opens its counts.
+let private openProfileAsync(api: IHttp) : Async<Window> = async {
+  let! window = startShell(signedInStore(), api)
+  let! shown = showsText(window, "The Octocat")
+  Expect.isTrue shown "the log never rendered"
+  do! clickWhenShown(window, "Profile")
+  let! bio = showsText(window, "Builds things.")
+  Expect.isTrue bio "the profile never rendered"
+  do! settleAsync()
+  return window
+}
+
 /// One api whose log row carries no image, so the reply composer and
 /// its toolbar fit the frame.
 let imagelessLogApi() =
@@ -2618,5 +2631,213 @@ let captureTests =
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
 
       do! onUiAsync(fun () -> window.Close())
+    }
+
+    testAsync "the profile header stands full in a tall window" {
+      let! window = startShell(signedInStore(), statsProfileApi() :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do! onUiAsync(fun () -> window.Height <- 900.0)
+      do! settleAsync()
+
+      do! clickWhenShown(window, "Profile")
+
+      let! caption = seesVisible(window, "activity · week")
+      Expect.isTrue caption "the full header never rendered"
+
+      let! feed = showsText(window, "It was DNS.")
+      Expect.isTrue feed "the feed never rendered"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F17/f17-profile-tall-full", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the profile keeps most of a short window" {
+      let! window = startShell(signedInStore(), statsProfileApi() :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do!
+        onUiAsync(fun () ->
+          window.MinHeight <- 0.0
+          window.Height <- 480.0)
+
+      do! settleAsync()
+
+      do! clickWhenShown(window, "Profile")
+
+      let! feed = showsText(window, "It was DNS.")
+      Expect.isTrue feed "the feed never rendered"
+
+      let! folded =
+        waitForAsync(
+          5000,
+          (fun () -> window),
+          (fun root -> not(visibleText(root, "activity · week")))
+        )
+
+      Expect.isTrue folded "the header never folded in the short window"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F17/f17-short-compact", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the reader pins the full header in a short window" {
+      let! window = startShell(signedInStore(), statsProfileApi() :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do!
+        onUiAsync(fun () ->
+          window.MinHeight <- 0.0
+          window.Height <- 480.0)
+
+      do! settleAsync()
+
+      do! clickWhenShown(window, "Profile")
+
+      let! feed = showsText(window, "It was DNS.")
+      Expect.isTrue feed "the feed never rendered"
+
+      let! folded =
+        waitForAsync(
+          5000,
+          (fun () -> window),
+          (fun root -> not(visibleText(root, "activity · week")))
+        )
+
+      Expect.isTrue folded "the header never folded in the short window"
+
+      do! clickVisibleHeaderToggle(window)
+
+      let! pinned = seesVisible(window, "activity · week")
+      Expect.isTrue pinned "the header never unfolded"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F17/f17-short-pinned-full", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "a scrolled profile rides under the compact bar" {
+      let! window = startShell(signedInStore(), longProfileApi() :> IHttp)
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do! onUiAsync(fun () -> window.Height <- 900.0)
+      do! settleAsync()
+
+      do! clickWhenShown(window, "Profile")
+
+      let! feed = showsText(window, "It was DNS.")
+      Expect.isTrue feed "the feed never rendered"
+
+      do! scrollFeedToEndAsync window
+
+      let! folded =
+        waitForAsync(
+          5000,
+          (fun () -> window),
+          (fun root -> not(visibleText(root, "activity · week")))
+        )
+
+      Expect.isTrue folded "the scroll never folded the header"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F17/f17-scrolled-compact", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the following list stands with its organizations" {
+      let! window = openProfileAsync(connectionsApi() :> IHttp)
+
+      do! clickVisibleNamed(window, "ProfileFollowingCount:octocat")
+
+      let! back = showsText(window, "Follow back")
+      Expect.isTrue back "the following list never rendered"
+
+      let! orgs = showsText(window, "DevNull")
+      Expect.isTrue orgs "the organizations never rendered"
+
+      let! people = seesVisible(window, "People")
+      Expect.isTrue people "the people heading never rendered"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F4/f4-following", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "Show more organizations lands the second page" {
+      let! window = openProfileAsync(connectionsApi() :> IHttp)
+
+      do! clickVisibleNamed(window, "ProfileFollowingCount:octocat")
+
+      let! shown = showsText(window, "DevNull")
+      Expect.isTrue shown "the organizations never rendered"
+
+      do! clickWhenShown(window, "Show more organizations")
+
+      let! second = showsText(window, "The Octopus")
+      Expect.isTrue second "the second page never landed"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F4/f4-following-more-orgs", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "another user's followers carry the chip" {
+      let! window = openProfileAsync(connectionsApi() :> IHttp)
+
+      // dora's follower list: a row that follows the viewer shows the
+      // chip there, where the viewer's own list would hide it.
+      do! clickVisibleNamed(window, "ProfileFollowingCount:octocat")
+
+      let! rows = showsText(window, "Dora Default")
+      Expect.isTrue rows "the following rows never rendered"
+
+      do! clickVisibleNamed(window, "OpenConnection:dora")
+
+      let! dora = showsText(window, "@dora")
+      Expect.isTrue dora "dora's profile never opened"
+
+      do! clickVisibleNamed(window, "ProfileFollowersCount:dora")
+
+      let! chip = seesVisible(window, "Follows you")
+      Expect.isTrue chip "the chip never showed"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F4/f4-followers", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "an empty follower list says its words" {
+      let! window = openProfileAsync(emptyFollowersApi() :> IHttp)
+
+      do! clickVisibleNamed(window, "ProfileFollowersCount:octocat")
+
+      let! words = seesVisible(window, "Nobody is following @octocat yet.")
+      Expect.isTrue words "the empty words never rendered"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F4/f4-empty-followers", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }
   ]

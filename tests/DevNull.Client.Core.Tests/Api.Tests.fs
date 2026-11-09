@@ -1522,6 +1522,87 @@ let listApiTests =
       | Error(DecodeFailed _) -> ()
       | _ -> failtest "expected DecodeFailed"
     }
+
+    testAsync "decodes a followed-organizations page and its cursor" {
+      // The server loads the followers count and the admins only on
+      // some reads, so a row with both and a row with neither decode
+      // the same way.
+      let row =
+        """{"handle":"devnull","name":"DevNull","avatar_url":null,"bio":"A quiet place for loud commits.","lane":2,"is_followed":true,"followers_count":11,"admins":["octocat"]}"""
+
+      let plainRow =
+        """{"handle":"octopus","name":"The Octopus","avatar_url":"https://avatars.example/octopus.png","bio":null,"lane":null,"is_followed":false}"""
+
+      let response =
+        sprintf
+          "{\"data\":[%s,%s],\"links\":{},\"meta\":{\"per_page\":30,\"next_cursor\":\"next\",\"prev_cursor\":null}}"
+          row
+          plainRow
+
+      match FollowedOrganization.decodePage response with
+      | Ok page ->
+        Expect.equal 2 page.Items.Length "items"
+        Expect.equal (Some "next") page.NextCursor "next"
+        Expect.equal 30 page.PerPage "per page"
+
+        let (first, second) =
+          match page.Items with
+          | [ first; second ] -> (first, second)
+          | _ -> failtest "expected two organizations"
+
+        Expect.equal "devnull" first.Handle "first handle"
+        Expect.equal "DevNull" first.Name "first name"
+        Expect.equal None first.AvatarUrl "first avatar"
+        Expect.isSome first.Bio "first bio"
+        Expect.equal (Some(LaneIndex 2)) first.Lane "first lane"
+        Expect.equal true first.IsFollowed "first follow"
+
+        Expect.equal "octopus" second.Handle "second handle"
+        Expect.equal "The Octopus" second.Name "second name"
+
+        Expect.equal
+          (Some "https://avatars.example/octopus.png")
+          second.AvatarUrl
+          "second avatar"
+
+        Expect.equal None second.Bio "second bio"
+        Expect.equal None second.Lane "second lane"
+        Expect.equal false second.IsFollowed "second follow"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "reads a followed-organizations page" {
+      let http =
+        CapturingHttp(
+          ok(
+            pageOf
+              """{"handle":"devnull","name":"DevNull","avatar_url":null,"bio":null,"lane":null,"is_followed":true}"""
+          )
+        )
+
+      let request: Users.ListRequest = {
+        KeyFile = "key-file"
+        Username = "octocat"
+        Cursor = Some "abc"
+      }
+
+      let! (result: Result<Page<FollowedOrganization>, TestError>) =
+        Users.followedOrganizations(envFor http, request)
+
+      match result with
+      | Ok page ->
+        Expect.equal 1 page.Items.Length "items"
+        Expect.equal (Some "next") page.NextCursor "next"
+        Expect.equal 20 page.PerPage "per page"
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+
+      Expect.equal
+        "/api/v1/users/octocat/following/organizations?cursor=abc"
+        sent.Target
+        "target"
+    }
   ]
 
 let actionApiTests =

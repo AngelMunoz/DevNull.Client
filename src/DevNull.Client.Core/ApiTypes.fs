@@ -41,6 +41,19 @@ type Organization = {
   AvatarUrl: string option
 }
 
+/// One organization a followed-organizations page lists: the row the
+/// site's connections page carries, with the viewer's follow state on
+/// every row. The counts and the admins the server loads elsewhere
+/// stay unread here.
+type FollowedOrganization = {
+  Handle: string
+  Name: string
+  AvatarUrl: string option
+  Bio: string option
+  Lane: Lane option
+  IsFollowed: bool
+}
+
 /// One issue or pull request a `#number` reference can name: the card
 /// the site's own suggestion carries.
 type Issue = {
@@ -1029,6 +1042,35 @@ let userDecoder(element: JsonElement) = decode {
     FollowedByFollowingCount = followedByFollowingCount
     IsFollowed = isFollowed
     FollowsYou = followsYou
+  }
+}
+
+let followedOrganizationDecoder(element: JsonElement) = decode {
+  let! handle = Required.Property.get ("handle", Required.string) element
+  let! name = Required.Property.get ("name", Required.string) element
+
+  let! avatarUrl =
+    Optional.Property.get ("avatar_url", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! bio =
+    Optional.Property.get ("bio", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! lane =
+    Optional.Property.get ("lane", optionalDecoder laneDecoder) element
+    |> Result.map Option.flatten
+
+  let! isFollowed =
+    Required.Property.get ("is_followed", Required.boolean) element
+
+  return {
+    Handle = handle
+    Name = name
+    AvatarUrl = avatarUrl
+    Bio = bio
+    Lane = lane
+    IsFollowed = isFollowed
   }
 }
 
@@ -2713,6 +2755,11 @@ let inline decodeFoundUsers(body: string) : Result<User list, DecodeFailure> =
 let inline decodeUserList(body: string) : Result<Page<User>, DecodeFailure> =
   parseBody body (pageDecoder userDecoder)
 
+let inline decodeFollowedOrganizationList
+  (body: string)
+  : Result<Page<FollowedOrganization>, DecodeFailure> =
+  parseBody body (pageDecoder followedOrganizationDecoder)
+
 let inline decodeNotificationList
   (body: string)
   : Result<Page<Notification>, DecodeFailure> =
@@ -3024,6 +3071,9 @@ module SearchTerms =
 
 module User =
   let decodePage(body: string) = decodeUserList body
+
+module FollowedOrganization =
+  let decodePage(body: string) = decodeFollowedOrganizationList body
 
 module ProfileDetails =
   let decode(body: string) = decodeProfileDetails body

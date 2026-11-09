@@ -948,6 +948,7 @@ let view
       Row = fun node -> ProfileShell.commitRow(ctx, node)
       HasMore = model |> Observable.map _.NextCursor.IsSome
       OnMore = fun () -> dispatch State.MoreRequested
+      OnRide = ValueNone
       End = endSentence
     }
   }

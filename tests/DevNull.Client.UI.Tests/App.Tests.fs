@@ -8,6 +8,7 @@ open System
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Documents
+open Avalonia.Controls.Presenters
 open Avalonia.Controls.Primitives
 open Avalonia.Controls.Shapes
 open Avalonia.Headless
@@ -101,6 +102,104 @@ let feedOffset(window: Window) : float =
   |> Seq.tryHead
   |> Option.map(fun scroller -> scroller.Offset.Y)
   |> Option.defaultValue 0.0
+
+/// The first TextBlock under the root that carries the text.
+let blockWithText(root: Control, text: string) : TextBlock option =
+  root.GetVisualDescendants()
+  |> Seq.tryPick(fun visual ->
+    match visual with
+    | :? TextBlock as block when textBlockShows(block, text) -> Some block
+    | _ -> None)
+
+/// The feed's own scroller, the first one above the commit text: the
+/// pinned header sits in no scroller.
+let scrollerAbove(root: Control, text: string) : ScrollViewer option =
+  blockWithText(root, text)
+  |> Option.bind(fun block ->
+    block.GetVisualAncestors()
+    |> Seq.tryPick(function
+      | :? ScrollViewer as scroller -> Some scroller
+      | _ -> None))
+
+/// A profile feed of several commits, so the places the header tests
+/// scroll to stay real: the canned commit returns with its own id per
+/// row, and the profile carries the stats fixture.
+let longProfileApi() : FakeApi =
+  let rows =
+    [
+      for index in 1..6 ->
+        commitJson.Replace(
+          "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d",
+          $"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b{index:D4}"
+        )
+    ]
+    |> String.concat ","
+
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    elif request.Target = "/api/v1/users/octocat" then
+      ok profileWithStatsJson
+    elif request.Target.StartsWith "/api/v1/users/octocat/commits" then
+      ok(
+        sprintf
+          "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+          rows
+      )
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+/// Clicks the visible header chevron: both forms carry one under the
+/// same name, and the hidden form's copy must not take the click.
+let clickVisibleHeaderToggle(window: Window) : Async<unit> = async {
+  let named(window: Window) =
+    window.GetVisualDescendants()
+    |> Seq.choose(fun visual ->
+      match visual with
+      | :? Button as button when button.Name = "ProfileHeaderToggle" ->
+        Some button
+      | _ -> None)
+    |> Seq.filter effectiveVisible
+    |> Seq.tryHead
+
+  let! shown = waitForAsync(5000, (fun () -> named window), Option.isSome)
+
+  Expect.isTrue shown "the header chevron never showed"
+
+  do! onUiAsync(fun () -> named window |> Option.iter click)
+}
+
+/// Clicks the first visible button under the given automation name.
+let clickVisibleNamed(window: Window, name: string) : Async<unit> = async {
+  let named() =
+    window.GetVisualDescendants()
+    |> Seq.choose(fun visual ->
+      match visual with
+      | :? Button as button when button.Name = name -> Some button
+      | _ -> None)
+    |> Seq.filter effectiveVisible
+    |> Seq.tryHead
+
+  let! shown = waitForAsync(5000, named, Option.isSome)
+
+  Expect.isTrue shown $"the {name} button never appeared"
+
+  do! onUiAsync(fun () -> named() |> Option.iter click)
+}
+
+/// The word a named button carries, read on the UI thread: a flipping
+/// word asserts on the row that owns it, never on a page-wide text.
+let namedButtonWord(window: Window, name: string) : string option =
+  controlByName(window, name)
+  |> Option.bind(fun control ->
+    match control with
+    | :? Button as button ->
+      match button.Content with
+      | :? string as text -> Some text
+      | _ -> None
+    | _ -> None)
 
 /// Builds and shows the shell over one test env. The window is born on
 /// the UI thread: the headless platform only exists there.
@@ -4477,6 +4576,308 @@ let tests =
       })
 
     testCaseAsync
+      "a short window starts the profile compact"
+      (async {
+        let api = statsProfileApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            window.MinHeight <- 0.0
+            window.Height <- 480.0)
+
+        do! settleAsync()
+
+        do! clickWhenShown(window, "Profile")
+
+        let! feed = showsText(window, "It was DNS.")
+
+        Expect.isTrue feed "the feed never rendered"
+
+        let! folded =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> not(visibleText(root, "activity · week")))
+          )
+
+        Expect.isTrue folded "the header never folded in the short window"
+
+        let! room =
+          probeUiAsync(fun () ->
+            scrollerAbove(window, "It was DNS.")
+            |> Option.map(fun scroller ->
+              scroller.Viewport.Height, (window :> TopLevel).ClientSize.Height))
+
+        match room with
+        | Some(viewport, clientHeight) ->
+          Expect.isGreaterThanOrEqual
+            viewport
+            (clientHeight * 0.55)
+            "the feed never kept most of the window"
+        | None -> failtest "the feed scroller never showed"
+      })
+
+    testCaseAsync
+      "reducing the header never rebuilds the feed"
+      (async {
+        let! window = startShell(signedInStore(), longProfileApi() :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            window.MinHeight <- 0.0
+            window.Height <- 900.0)
+
+        do! settleAsync()
+
+        do! clickWhenShown(window, "Profile")
+
+        let! feed = showsText(window, "It was DNS.")
+
+        Expect.isTrue feed "the feed never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            scrollerAbove(window, "It was DNS.")
+            |> Option.iter(fun scroller ->
+              scroller.Offset <- Vector(0.0, 240.0)))
+
+        do! settleAsync()
+
+        // The mid offset already asked the header to give way, so the
+        // two chevron clicks unfold and fold again; either way the
+        // feed's pieces must stand recorded and unmoved.
+        let! recorded =
+          probeUiAsync(fun () ->
+            scrollerAbove(window, "It was DNS.")
+            |> Option.bind(fun scroller ->
+              let items =
+                scroller.GetVisualDescendants()
+                |> Seq.tryFind(fun visual -> visual :? ItemsControl)
+                |> Option.map(fun visual -> visual :?> Control)
+
+              let presenter =
+                blockWithText(window, "It was DNS.")
+                |> Option.bind(fun block ->
+                  block.GetVisualAncestors()
+                  |> Seq.tryPick(function
+                    | :? ContentPresenter as inner -> Some(inner :> Control)
+                    | _ -> None))
+
+              match items, presenter with
+              | Some items, Some presenter ->
+                Some(scroller, items, presenter, scroller.Offset.Y)
+              | _ -> None))
+
+        match recorded with
+        | None -> failtest "the feed never stood up"
+        | Some(scroller, items, presenter, offset) ->
+          Expect.isTrue
+            (abs(offset - 240.0) <= 0.5)
+            $"the feed never took the mid place: {offset}"
+
+          do! clickVisibleHeaderToggle(window)
+
+          do! settleAsync()
+
+          do! clickVisibleHeaderToggle(window)
+
+          do! settleAsync()
+
+          let! stood =
+            probeUiAsync(fun () ->
+              scrollerAbove(window, "It was DNS.")
+              |> Option.map(fun current ->
+                obj.ReferenceEquals(current, scroller)
+                && (current.GetVisualDescendants()
+                    |> Seq.exists(fun visual ->
+                      obj.ReferenceEquals(visual, items)))
+                && (blockWithText(window, "It was DNS.")
+                    |> Option.map(fun block ->
+                      block.GetVisualAncestors()
+                      |> Seq.exists(fun ancestor ->
+                        obj.ReferenceEquals(ancestor, presenter)))
+                    |> Option.defaultValue false)
+                && abs(current.Offset.Y - 240.0) <= 0.5))
+
+          Expect.equal stood (Some true) "the feed never stood still"
+      })
+
+    testCaseAsync
+      "scrolling into the feed gives way, top restores"
+      (async {
+        let! window = startShell(signedInStore(), longProfileApi() :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            window.MinHeight <- 0.0
+            window.Height <- 900.0)
+
+        do! settleAsync()
+
+        do! clickWhenShown(window, "Profile")
+
+        let! feed = showsText(window, "It was DNS.")
+
+        Expect.isTrue feed "the feed never rendered"
+
+        do! scrollFeedToEndAsync window
+
+        let! folded =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> not(visibleText(root, "activity · week")))
+          )
+
+        Expect.isTrue folded "the scroll into the feed never gave way"
+
+        do! scrollFeedToTopAsync window
+
+        let! restored = seesVisible(window, "activity · week")
+
+        Expect.isTrue restored "the top never restored the full header"
+      })
+
+    testCaseAsync
+      "the reader's choice sticks"
+      (async {
+        let! window = startShell(signedInStore(), longProfileApi() :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            window.MinHeight <- 0.0
+            window.Height <- 900.0)
+
+        do! settleAsync()
+
+        do! clickWhenShown(window, "Profile")
+
+        let! feed = showsText(window, "It was DNS.")
+
+        Expect.isTrue feed "the feed never rendered"
+
+        do! clickVisibleHeaderToggle(window)
+
+        let! folded =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> not(visibleText(root, "activity · week")))
+          )
+
+        Expect.isTrue folded "the reduce never folded the header"
+
+        do! scrollFeedToEndAsync window
+        do! scrollFeedToTopAsync window
+        do! settleAsync()
+
+        let! stuck =
+          probeUiAsync(fun () -> not(visibleText(window, "activity · week")))
+
+        Expect.isTrue stuck "the reader's fold never stuck"
+      })
+
+    testCaseAsync
+      "a pinned full header keeps the feed reachable"
+      (async {
+        let! window = startShell(signedInStore(), statsProfileApi() :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            window.MinHeight <- 0.0
+            window.Height <- 480.0)
+
+        do! settleAsync()
+
+        do! clickWhenShown(window, "Profile")
+
+        let! feed = showsText(window, "It was DNS.")
+
+        Expect.isTrue feed "the feed never rendered"
+
+        let! folded =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> not(visibleText(root, "activity · week")))
+          )
+
+        Expect.isTrue folded "the header never folded in the short window"
+
+        do! clickVisibleHeaderToggle(window)
+
+        let! pinned = seesVisible(window, "activity · week")
+
+        Expect.isTrue pinned "the header never unfolded"
+
+        do! settleAsync()
+
+        let! reachable =
+          probeUiAsync(fun () ->
+            let clientHeight = (window :> TopLevel).ClientSize.Height
+
+            // On screen means inside the client area: the broken
+            // header laid the tabs below the window edge with every
+            // IsVisible flag still true.
+            let onScreen(control: Control) =
+              control.TranslatePoint(Point(0.0, 0.0), window)
+              |> Option.ofNullable
+              |> Option.map(fun corner ->
+                corner.Y >= 0.0 && corner.Y < clientHeight)
+              |> Option.defaultValue false
+
+            let tabShown =
+              buttonWithText(window, "Commits") |> Option.map onScreen
+
+            scrollerAbove(window, "It was DNS.")
+            |> Option.map(fun scroller ->
+              tabShown,
+              scroller.Viewport.Height,
+              scrollerAbove(window, "activity · week")
+              |> Option.map(fun header ->
+                header.Extent.Height > header.Viewport.Height)))
+
+        match reachable with
+        | Some(tabShown, viewport, headerScrolls) ->
+          Expect.equal
+            tabShown
+            (Some true)
+            "the Commits tab never came back in view"
+
+          Expect.isGreaterThanOrEqual
+            viewport
+            100.0
+            "the feed band never kept 100 DIP"
+
+          Expect.equal
+            headerScrolls
+            (Some true)
+            "the capped header never scrolls"
+        | None -> failtest "the feed scroller never showed"
+      })
+
+    testCaseAsync
       "the profile shows the pinned commit above an empty feed"
       (async {
         let! window = startShell(signedInStore(), pinApi true :> IHttp)
@@ -6325,6 +6726,317 @@ let tests =
             )
 
           Expect.isTrue within "the identity line overflowed its row"
+        })
+    ]
+
+    testList "connections pages" [
+      testCaseAsync
+        "the profile's following count opens the following list"
+        (async {
+          let api = connectionsApi()
+          let! window = startShell(signedInStore(), api :> IHttp)
+
+          let! shown = showsText(window, "The Octocat")
+
+          Expect.isTrue shown "the log never rendered"
+
+          do! clickWhenShown(window, "Profile")
+
+          let! bio = showsText(window, "Builds things.")
+
+          Expect.isTrue bio "the profile never rendered"
+
+          do! clickVisibleNamed(window, "ProfileFollowingCount:octocat")
+
+          let! back = showsText(window, "Follow back")
+
+          Expect.isTrue back "the following list never rendered its rows"
+
+          let! orgs = showsText(window, "DevNull")
+
+          Expect.isTrue orgs "the organizations section never rendered"
+
+          let! people = showsText(window, "People")
+
+          Expect.isTrue people "the people heading never rendered"
+
+          Expect.exists
+            api.Requests
+            (fun request -> request.Target = "/api/v1/users/octocat/following")
+            "the following read"
+
+          Expect.exists
+            api.Requests
+            (fun request ->
+              request.Target = "/api/v1/users/octocat/following/organizations")
+            "the followed organizations read"
+        })
+
+      testCaseAsync
+        "a Follow back row flips through the follow control"
+        (async {
+          let api = connectionsApi()
+          let! window = startShell(signedInStore(), api :> IHttp)
+
+          let! shown = showsText(window, "The Octocat")
+
+          Expect.isTrue shown "the log never rendered"
+
+          do! clickWhenShown(window, "Profile")
+          do! clickVisibleNamed(window, "ProfileFollowingCount:octocat")
+
+          let! word =
+            waitForAsync(
+              5000,
+              (fun () -> namedButtonWord(window, "FollowConnection:dora")),
+              (fun current -> current = Some "Follow back")
+            )
+
+          Expect.isTrue word "the Follow back word never rendered"
+
+          do! clickVisibleNamed(window, "FollowConnection:dora")
+
+          let! posted =
+            waitForAsync(
+              5000,
+              (fun () -> api.Requests),
+              (fun requests ->
+                requests
+                |> List.exists(fun request ->
+                  request.Method = "POST"
+                  && request.Target = "/api/v1/users/dora/follow"))
+            )
+
+          Expect.isTrue posted "the follow never went out"
+
+          let! flipped =
+            waitForAsync(
+              5000,
+              (fun () -> namedButtonWord(window, "FollowConnection:dora")),
+              (fun current -> current = Some "Unfollow")
+            )
+
+          Expect.isTrue flipped "the word never flipped to Unfollow"
+
+          do! clickVisibleNamed(window, "FollowConnection:dora")
+
+          let! takenBack =
+            waitForAsync(
+              5000,
+              (fun () -> api.Requests),
+              (fun requests ->
+                requests
+                |> List.exists(fun request ->
+                  request.Method = "DELETE"
+                  && request.Target = "/api/v1/users/dora/follow"))
+            )
+
+          Expect.isTrue takenBack "the unfollow never went out"
+
+          let! again =
+            waitForAsync(
+              5000,
+              (fun () -> namedButtonWord(window, "FollowConnection:dora")),
+              (fun current -> current = Some "Follow back")
+            )
+
+          Expect.isTrue again "the word never came back to Follow back"
+        })
+
+      testCaseAsync
+        "the viewer's own row carries no follow control"
+        (async {
+          let! window = startShell(signedInStore(), connectionsApi() :> IHttp)
+
+          let! shown = showsText(window, "The Octocat")
+
+          Expect.isTrue shown "the log never rendered"
+
+          do! clickWhenShown(window, "Profile")
+          do! clickVisibleNamed(window, "ProfileFollowingCount:octocat")
+
+          let! row =
+            waitForAsync(
+              5000,
+              (fun () -> controlByName(window, "ConnectionRow:octocat")),
+              Option.isSome
+            )
+
+          Expect.isTrue row "the viewer's own row never rendered"
+
+          let! control =
+            probeUiAsync(fun () ->
+              controlByName(window, "FollowConnection:octocat"))
+
+          Expect.isNone control "the viewer's own row grew a follow control"
+        })
+
+      testCaseAsync
+        "the Follows-you chip follows the list's owner"
+        (async {
+          let api = connectionsApi()
+          let! window = startShell(signedInStore(), api :> IHttp)
+
+          let! shown = showsText(window, "The Octocat")
+
+          Expect.isTrue shown "the log never rendered"
+
+          do! clickWhenShown(window, "Profile")
+
+          // The viewer's own follower list hides the chip: everyone on
+          // it follows the viewer already.
+          do! clickVisibleNamed(window, "ProfileFollowersCount:octocat")
+
+          let! rows = showsText(window, "Dora Default")
+
+          Expect.isTrue rows "the follower rows never rendered"
+
+          do! settleAsync()
+
+          let! hidden =
+            probeUiAsync(fun () -> visibleText(window, "Follows you"))
+
+          Expect.isFalse hidden "the chip leaked on the viewer's own list"
+
+          // Another user's list carries it.
+          do! clickVisibleNamed(window, "OpenConnection:dora")
+
+          let! dora = showsText(window, "@dora")
+
+          Expect.isTrue dora "dora's profile never opened"
+
+          do! clickVisibleNamed(window, "ProfileFollowersCount:dora")
+
+          let! again = showsText(window, "Dora Default")
+
+          Expect.isTrue again "the other user's list never rendered"
+
+          let! chip = seesVisible(window, "Follows you")
+
+          Expect.isTrue chip "the chip never showed on another user's list"
+        })
+
+      testCaseAsync
+        "Show more organizations pulls the next page in place"
+        (async {
+          let api = connectionsApi()
+          let! window = startShell(signedInStore(), api :> IHttp)
+
+          let! shown = showsText(window, "The Octocat")
+
+          Expect.isTrue shown "the log never rendered"
+
+          do! clickWhenShown(window, "Profile")
+          do! clickVisibleNamed(window, "ProfileFollowingCount:octocat")
+
+          let! section = showsText(window, "Organizations")
+
+          Expect.isTrue section "the organizations section never rendered"
+
+          let! first = showsText(window, "DevNull")
+
+          Expect.isTrue first "the first organization never rendered"
+
+          do! clickWhenShown(window, "Show more organizations")
+
+          let! second = showsText(window, "The Octopus")
+
+          Expect.isTrue second "the second organizations page never landed"
+
+          do! settleAsync()
+
+          let! people = seesVisible(window, "People")
+
+          Expect.isTrue people "the people heading never rendered"
+
+          let expectedNext =
+            "/api/v1/users/octocat/following/organizations?cursor=next"
+
+          let nextRead =
+            api.Requests
+            |> List.exists(fun request -> request.Target = expectedNext)
+
+          Expect.isTrue nextRead "the next organizations read"
+        })
+
+      testCaseAsync
+        "the followers list renders its rows and its empty words"
+        (async {
+          let api = connectionsApi()
+          let! window = startShell(signedInStore(), api :> IHttp)
+
+          let! shown = showsText(window, "The Octocat")
+
+          Expect.isTrue shown "the log never rendered"
+
+          do! clickWhenShown(window, "Profile")
+          do! clickVisibleNamed(window, "ProfileFollowersCount:octocat")
+
+          let! rows = showsText(window, "Kai Kou")
+
+          Expect.isTrue rows "the follower rows never rendered"
+
+          do! onUiAsync(fun () -> window.Close())
+
+          let! second =
+            startShell(signedInStore(), emptyFollowersApi() :> IHttp)
+
+          let! booted = showsText(second, "The Octocat")
+
+          Expect.isTrue booted "the log never rendered"
+
+          do! clickWhenShown(second, "Profile")
+          do! clickVisibleNamed(second, "ProfileFollowersCount:octocat")
+
+          let! words = seesVisible(second, "Nobody is following @octocat yet.")
+
+          Expect.isTrue words "the empty words never rendered"
+        })
+
+      testCaseAsync
+        "a signed-out visitor cannot open the list routes"
+        (async {
+          let store = signedInStore()
+          let! window = startShell(store, connectionsApi() :> IHttp)
+
+          let! shown = showsText(window, "The Octocat")
+
+          Expect.isTrue shown "the log never rendered"
+
+          do! clickWhenShown(window, "Profile")
+
+          do! onUiAsync(fun () -> store.Leave())
+
+          do! clickVisibleNamed(window, "ProfileFollowingCount:octocat")
+
+          let! signIn = showsText(window, "Sign in to /dev/null")
+
+          Expect.isTrue signIn "the following route never asked to sign in"
+
+          do! onUiAsync(fun () -> window.Close())
+
+          // The followers route answers the same way: the tab that
+          // names it navigates through the same guard.
+          let other = signedInStore()
+          let! second = startShell(other, connectionsApi() :> IHttp)
+
+          let! booted = showsText(second, "The Octocat")
+
+          Expect.isTrue booted "the log never rendered"
+
+          do! clickWhenShown(second, "Profile")
+          do! clickVisibleNamed(second, "ProfileFollowingCount:octocat")
+
+          let! list = showsText(second, "Follow back")
+
+          Expect.isTrue list "the list never opened"
+
+          do! onUiAsync(fun () -> other.Leave())
+          do! clickWhenShown(second, "Followers")
+
+          let! gate = showsText(second, "Sign in to /dev/null")
+
+          Expect.isTrue gate "the followers route never asked to sign in"
         })
     ]
   ]

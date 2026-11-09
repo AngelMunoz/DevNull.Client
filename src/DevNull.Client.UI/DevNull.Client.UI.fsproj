@@ -199,6 +199,8 @@
     <Compile Include="Views\ScheduledView.fs" />
     <Compile Include="Views\ProfileView.fsi" />
     <Compile Include="Views\ProfileView.fs" />
+    <Compile Include="Views\ConnectionsView.fsi" />
+    <Compile Include="Views\ConnectionsView.fs" />
     <Compile Include="Views\OrganizationView.fsi" />
     <Compile Include="Views\OrganizationView.fs" />
     <Compile Include="Views\SettingsView.fsi" />

@@ -799,6 +799,24 @@ module Users =
       }
     )
 
+  let followedOrganizations(env, request: ListRequest) =
+    let target =
+      Internal.withQuery(
+        Internal.userPath(request.Username, "/following/organizations"),
+        Internal.optionalParameter("cursor", request.Cursor)
+      )
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target = target
+        Body = ""
+        Decode = FollowedOrganization.decodePage
+      }
+    )
+
   let follow(env, request: Request) =
     Internal.sendSigned(
       env,

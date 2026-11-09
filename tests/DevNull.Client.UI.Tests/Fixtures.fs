@@ -2117,3 +2117,142 @@ let orgThreadAnswerJson
 /// latest first, with the version the thread polls against.
 let pinAnswerJson(pins: string list, version: int) : string =
   $"""{{"pinned":[{String.concat "," pins}],"reactions_version":{version}}}"""
+
+///── The connections lists ──
+/// One person row of a connections list, with the viewer's relation
+/// on it: `isFollowed` says whether the viewer follows the person,
+/// `followsYou` whether the person follows the viewer.
+let connectionRowJson
+  (
+    id: string,
+    handle: string,
+    name: string,
+    bio: string,
+    isFollowed: bool,
+    followsYou: bool
+  ) : string =
+  sprintf
+    """{"id":"%s","handle":"%s","name":"%s","avatar_url":null,"bio":"%s","lane":3,"is_followed":%b,"follows_you":%b}"""
+    id
+    handle
+    name
+    bio
+    isFollowed
+    followsYou
+
+let doraId = "018f4c1e-d001-7c3a-9b2d-5e6f7a8b9c0d"
+
+let kaiId = "018f4c1e-k001-7c3a-9b2d-5e6f7a8b9c0d"
+
+/// The viewer's own id, the one the session store carries.
+let viewerId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+
+/// The short bio most rows carry.
+let shortBio = "Ships small things."
+
+/// dora's bio, long enough to fill the row's two-line cap.
+let doraBio =
+  "Defaults a lot of things, mostly on purpose, and sometimes before the coffee has had the time to land."
+
+/// One followed organization row of the following list.
+let followedOrganizationRowJson
+  (handle: string, name: string, bio: string)
+  : string =
+  sprintf
+    """{"handle":"%s","name":"%s","avatar_url":null,"bio":"%s","lane":2,"is_followed":true}"""
+    handle
+    name
+    bio
+
+/// The follower list: dora follows the viewer, kai-kou does not.
+let followersPageJson =
+  sprintf
+    "{\"data\":[%s,%s],\"links\":{},\"meta\":{\"per_page\":30,\"next_cursor\":null,\"prev_cursor\":null}}"
+    (connectionRowJson(doraId, "dora", "Dora Default", doraBio, false, true))
+    (connectionRowJson(kaiId, "kai-kou", "Kai Kou", shortBio, true, false))
+
+/// The following list: the viewer's own row rides first so the
+/// virtualized list realizes it, dora follows the viewer and is not
+/// followed back, and kai-kou is followed and does not follow the
+/// viewer.
+let followingPageJson =
+  sprintf
+    "{\"data\":[%s,%s,%s],\"links\":{},\"meta\":{\"per_page\":30,\"next_cursor\":null,\"prev_cursor\":null}}"
+    (connectionRowJson(
+      viewerId,
+      "octocat",
+      "The Octocat",
+      shortBio,
+      true,
+      false
+    ))
+    (connectionRowJson(doraId, "dora", "Dora Default", doraBio, false, true))
+    (connectionRowJson(kaiId, "kai-kou", "Kai Kou", shortBio, true, false))
+
+/// A follower list with nobody on it.
+let emptyFollowersPageJson =
+  "{\"data\":[],\"links\":{},\"meta\":{\"per_page\":30,\"next_cursor\":null,\"prev_cursor\":null}}"
+
+/// The followed organizations, page one: one org and a cursor to the
+/// next page. The org bio fills the row's two-line cap.
+let followedOrganizationsPageJson =
+  sprintf
+    "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":30,\"next_cursor\":\"next\",\"prev_cursor\":null}}"
+    (followedOrganizationRowJson(
+      "devnull",
+      "DevNull",
+      "A quiet place for loud commits. Everyone commits here, and nobody stands above the build."
+    ))
+
+/// The second organizations page the cursor asks for.
+let followedOrganizationsNextPageJson =
+  sprintf
+    "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":30,\"next_cursor\":null,\"prev_cursor\":null}}"
+    (followedOrganizationRowJson(
+      "octopus",
+      "The Octopus",
+      "Eight arms, one keyboard."
+    ))
+
+/// dora's own profile, so a following row can open her page and her
+/// follower list reads as another user's.
+let doraProfileJson =
+  profileJson.Replace("octocat", "dora").Replace("The Octocat", "Dora Default")
+
+/// The api of the connections tests: the two lists and the followed
+/// organizations answer from cans — the organizations page holds a
+/// cursor for its show-more — every follow toggle answers settled,
+/// and the boot log and the profiles answer as the account api serves
+/// them. The list targets sit ahead of accountAnswer's broad users
+/// arm, the way its own /commits arm does.
+let connectionsApiWith(followers: string) =
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    elif request.Target.Contains "/following/organizations" then
+      if request.Target.Contains "cursor=next" then
+        ok followedOrganizationsNextPageJson
+      else
+        ok followedOrganizationsPageJson
+    elif request.Target.Contains "/followers" then
+      ok followers
+    elif request.Target.Contains "/following" then
+      ok followingPageJson
+    elif request.Target = "/api/v1/users/dora" then
+      ok doraProfileJson
+    elif
+      (request.Method = "POST" || request.Method = "DELETE")
+      && request.Target.EndsWith "/follow"
+    then
+      ok "{}"
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+/// The connections api over the populated follower list.
+let connectionsApi() = connectionsApiWith(followersPageJson)
+
+/// The connections api whose follower list is empty.
+let emptyFollowersApi() =
+  connectionsApiWith(emptyFollowersPageJson)

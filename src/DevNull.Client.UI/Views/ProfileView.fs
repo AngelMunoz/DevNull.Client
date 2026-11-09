@@ -1260,14 +1260,57 @@ module Parts =
     |]
 
   // What the identity header reads: the profile, the viewer's
-  // relation to it, the dispatch, and the image cache.
+  // relation to it, the dispatch, the image cache, and the nav the
+  // count buttons follow.
   [<Struct>]
   type IdentityCtx = {
     Images: ImageCacheService
     Details: ProfileDetails
     IsSelf: bool
     Dispatch: Dispatch<State.Msg>
+    Nav: INavigable
   }
+
+  // One count-and-label pair, the stats row's piece.
+  let inline statPair(count: int, label: string) : Control =
+    StackPanel()
+      .Orientation(Orientation.Horizontal)
+      .Spacing(4.0)
+      .VerticalAlignment(VerticalAlignment.Center)
+      .Children(
+        TextBlock().Classes(Theme.name Theme.StatNum).Text(string count),
+        TextBlock().Classes(Theme.name Theme.Muted).Text(label)
+      )
+
+  // The stats row whose following and followers counts are quiet
+  // buttons over their numbers: each opens its list for the profile's
+  // own handle. The flyout's card keeps the plain counts row.
+  let counts(profile: Profile, nav: INavigable) : Control =
+    let statButton(name: string, pair: Control, url: string) =
+      Button()
+        .Name(name + ":" + profile.User.Handle)
+        .Classes(Theme.name Theme.GhostButton)
+        .Padding(0.0)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Content(pair)
+        .OnClickHandler(fun _ _ -> Navigation.go(nav, url, ignore))
+
+    StackPanel()
+      .Orientation(Orientation.Horizontal)
+      .Spacing(16.0)
+      .Children(
+        statPair(profile.CommitsCount |> Option.defaultValue 0, "commits"),
+        statButton(
+          "ProfileFollowingCount",
+          statPair(profile.FollowingCount |> Option.defaultValue 0, "following"),
+          "/profile/" + profile.User.Handle + "/following"
+        ),
+        statButton(
+          "ProfileFollowersCount",
+          statPair(profile.FollowersCount |> Option.defaultValue 0, "followers"),
+          "/profile/" + profile.User.Handle + "/followers"
+        )
+      )
 
   // The chevron at the header row's right edge: the glyph points
   // where the header goes next, and the click pins the form it names.
@@ -1338,7 +1381,7 @@ module Parts =
         .IsVisible(profile.Bio.IsSome)
         .Text(profile.Bio |> Option.defaultValue "")
       metaLine profile
-      ProfileCard.stats profile
+      counts(profile, ctx.Nav)
     |]
 
     StackPanel().Spacing(8.0).Children(headerChildren)
@@ -1367,7 +1410,7 @@ module Parts =
             .VerticalAlignment(VerticalAlignment.Center)
             .Text(user.Name),
           ProfileCard.laneHandle(profile.Lane, user.Handle),
-          ProfileCard.stats profile
+          counts(profile, ctx.Nav)
         )
 
     DockPanel()
@@ -1415,6 +1458,7 @@ module Parts =
               Details = details
               IsSelf = details.Profile.User.Id = props.Session.Session.User.Id
               Dispatch = dispatch
+              Nav = props.Nav
             }
 
             // The full form is the identity and the sections together,

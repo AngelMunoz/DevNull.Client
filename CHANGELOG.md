@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Profile:** the follower and following counts open their lists — each row carries the follow control with "Follow back" for people who follow you, and the Following list gains an Organizations section above the people with its own show-more.
+
 ### Fixed
 
 - **Profile:** the profile header now folds to a compact row — avatar, name, handle, and counts — when the window is short or the reader scrolls into the feed, so the feed keeps most of the window; a chevron beside the header pins it open or folded.

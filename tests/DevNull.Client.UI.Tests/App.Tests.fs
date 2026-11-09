@@ -171,6 +171,36 @@ let clickVisibleHeaderToggle(window: Window) : Async<unit> = async {
   do! onUiAsync(fun () -> named window |> Option.iter click)
 }
 
+/// Clicks the first visible button under the given automation name.
+let clickVisibleNamed(window: Window, name: string) : Async<unit> = async {
+  let named() =
+    window.GetVisualDescendants()
+    |> Seq.choose(fun visual ->
+      match visual with
+      | :? Button as button when button.Name = name -> Some button
+      | _ -> None)
+    |> Seq.filter effectiveVisible
+    |> Seq.tryHead
+
+  let! shown = waitForAsync(5000, named, Option.isSome)
+
+  Expect.isTrue shown $"the {name} button never appeared"
+
+  do! onUiAsync(fun () -> named() |> Option.iter click)
+}
+
+/// The word a named button carries, read on the UI thread: a flipping
+/// word asserts on the row that owns it, never on a page-wide text.
+let namedButtonWord(window: Window, name: string) : string option =
+  controlByName(window, name)
+  |> Option.bind(fun control ->
+    match control with
+    | :? Button as button ->
+      match button.Content with
+      | :? string as text -> Some text
+      | _ -> None
+    | _ -> None)
+
 /// Builds and shows the shell over one test env. The window is born on
 /// the UI thread: the headless platform only exists there.
 let startShell(store: SessionStore, http: IHttp) : Async<Window> =
@@ -6696,6 +6726,317 @@ let tests =
             )
 
           Expect.isTrue within "the identity line overflowed its row"
+        })
+    ]
+
+    testList "connections pages" [
+      testCaseAsync
+        "the profile's following count opens the following list"
+        (async {
+          let api = connectionsApi()
+          let! window = startShell(signedInStore(), api :> IHttp)
+
+          let! shown = showsText(window, "The Octocat")
+
+          Expect.isTrue shown "the log never rendered"
+
+          do! clickWhenShown(window, "Profile")
+
+          let! bio = showsText(window, "Builds things.")
+
+          Expect.isTrue bio "the profile never rendered"
+
+          do! clickVisibleNamed(window, "ProfileFollowingCount:octocat")
+
+          let! back = showsText(window, "Follow back")
+
+          Expect.isTrue back "the following list never rendered its rows"
+
+          let! orgs = showsText(window, "DevNull")
+
+          Expect.isTrue orgs "the organizations section never rendered"
+
+          let! people = showsText(window, "People")
+
+          Expect.isTrue people "the people heading never rendered"
+
+          Expect.exists
+            api.Requests
+            (fun request -> request.Target = "/api/v1/users/octocat/following")
+            "the following read"
+
+          Expect.exists
+            api.Requests
+            (fun request ->
+              request.Target = "/api/v1/users/octocat/following/organizations")
+            "the followed organizations read"
+        })
+
+      testCaseAsync
+        "a Follow back row flips through the follow control"
+        (async {
+          let api = connectionsApi()
+          let! window = startShell(signedInStore(), api :> IHttp)
+
+          let! shown = showsText(window, "The Octocat")
+
+          Expect.isTrue shown "the log never rendered"
+
+          do! clickWhenShown(window, "Profile")
+          do! clickVisibleNamed(window, "ProfileFollowingCount:octocat")
+
+          let! word =
+            waitForAsync(
+              5000,
+              (fun () -> namedButtonWord(window, "FollowConnection:dora")),
+              (fun current -> current = Some "Follow back")
+            )
+
+          Expect.isTrue word "the Follow back word never rendered"
+
+          do! clickVisibleNamed(window, "FollowConnection:dora")
+
+          let! posted =
+            waitForAsync(
+              5000,
+              (fun () -> api.Requests),
+              (fun requests ->
+                requests
+                |> List.exists(fun request ->
+                  request.Method = "POST"
+                  && request.Target = "/api/v1/users/dora/follow"))
+            )
+
+          Expect.isTrue posted "the follow never went out"
+
+          let! flipped =
+            waitForAsync(
+              5000,
+              (fun () -> namedButtonWord(window, "FollowConnection:dora")),
+              (fun current -> current = Some "Unfollow")
+            )
+
+          Expect.isTrue flipped "the word never flipped to Unfollow"
+
+          do! clickVisibleNamed(window, "FollowConnection:dora")
+
+          let! takenBack =
+            waitForAsync(
+              5000,
+              (fun () -> api.Requests),
+              (fun requests ->
+                requests
+                |> List.exists(fun request ->
+                  request.Method = "DELETE"
+                  && request.Target = "/api/v1/users/dora/follow"))
+            )
+
+          Expect.isTrue takenBack "the unfollow never went out"
+
+          let! again =
+            waitForAsync(
+              5000,
+              (fun () -> namedButtonWord(window, "FollowConnection:dora")),
+              (fun current -> current = Some "Follow back")
+            )
+
+          Expect.isTrue again "the word never came back to Follow back"
+        })
+
+      testCaseAsync
+        "the viewer's own row carries no follow control"
+        (async {
+          let! window = startShell(signedInStore(), connectionsApi() :> IHttp)
+
+          let! shown = showsText(window, "The Octocat")
+
+          Expect.isTrue shown "the log never rendered"
+
+          do! clickWhenShown(window, "Profile")
+          do! clickVisibleNamed(window, "ProfileFollowingCount:octocat")
+
+          let! row =
+            waitForAsync(
+              5000,
+              (fun () -> controlByName(window, "ConnectionRow:octocat")),
+              Option.isSome
+            )
+
+          Expect.isTrue row "the viewer's own row never rendered"
+
+          let! control =
+            probeUiAsync(fun () ->
+              controlByName(window, "FollowConnection:octocat"))
+
+          Expect.isNone control "the viewer's own row grew a follow control"
+        })
+
+      testCaseAsync
+        "the Follows-you chip follows the list's owner"
+        (async {
+          let api = connectionsApi()
+          let! window = startShell(signedInStore(), api :> IHttp)
+
+          let! shown = showsText(window, "The Octocat")
+
+          Expect.isTrue shown "the log never rendered"
+
+          do! clickWhenShown(window, "Profile")
+
+          // The viewer's own follower list hides the chip: everyone on
+          // it follows the viewer already.
+          do! clickVisibleNamed(window, "ProfileFollowersCount:octocat")
+
+          let! rows = showsText(window, "Dora Default")
+
+          Expect.isTrue rows "the follower rows never rendered"
+
+          do! settleAsync()
+
+          let! hidden =
+            probeUiAsync(fun () -> visibleText(window, "Follows you"))
+
+          Expect.isFalse hidden "the chip leaked on the viewer's own list"
+
+          // Another user's list carries it.
+          do! clickVisibleNamed(window, "OpenConnection:dora")
+
+          let! dora = showsText(window, "@dora")
+
+          Expect.isTrue dora "dora's profile never opened"
+
+          do! clickVisibleNamed(window, "ProfileFollowersCount:dora")
+
+          let! again = showsText(window, "Dora Default")
+
+          Expect.isTrue again "the other user's list never rendered"
+
+          let! chip = seesVisible(window, "Follows you")
+
+          Expect.isTrue chip "the chip never showed on another user's list"
+        })
+
+      testCaseAsync
+        "Show more organizations pulls the next page in place"
+        (async {
+          let api = connectionsApi()
+          let! window = startShell(signedInStore(), api :> IHttp)
+
+          let! shown = showsText(window, "The Octocat")
+
+          Expect.isTrue shown "the log never rendered"
+
+          do! clickWhenShown(window, "Profile")
+          do! clickVisibleNamed(window, "ProfileFollowingCount:octocat")
+
+          let! section = showsText(window, "Organizations")
+
+          Expect.isTrue section "the organizations section never rendered"
+
+          let! first = showsText(window, "DevNull")
+
+          Expect.isTrue first "the first organization never rendered"
+
+          do! clickWhenShown(window, "Show more organizations")
+
+          let! second = showsText(window, "The Octopus")
+
+          Expect.isTrue second "the second organizations page never landed"
+
+          do! settleAsync()
+
+          let! people = seesVisible(window, "People")
+
+          Expect.isTrue people "the people heading never rendered"
+
+          let expectedNext =
+            "/api/v1/users/octocat/following/organizations?cursor=next"
+
+          let nextRead =
+            api.Requests
+            |> List.exists(fun request -> request.Target = expectedNext)
+
+          Expect.isTrue nextRead "the next organizations read"
+        })
+
+      testCaseAsync
+        "the followers list renders its rows and its empty words"
+        (async {
+          let api = connectionsApi()
+          let! window = startShell(signedInStore(), api :> IHttp)
+
+          let! shown = showsText(window, "The Octocat")
+
+          Expect.isTrue shown "the log never rendered"
+
+          do! clickWhenShown(window, "Profile")
+          do! clickVisibleNamed(window, "ProfileFollowersCount:octocat")
+
+          let! rows = showsText(window, "Kai Kou")
+
+          Expect.isTrue rows "the follower rows never rendered"
+
+          do! onUiAsync(fun () -> window.Close())
+
+          let! second =
+            startShell(signedInStore(), emptyFollowersApi() :> IHttp)
+
+          let! booted = showsText(second, "The Octocat")
+
+          Expect.isTrue booted "the log never rendered"
+
+          do! clickWhenShown(second, "Profile")
+          do! clickVisibleNamed(second, "ProfileFollowersCount:octocat")
+
+          let! words = seesVisible(second, "Nobody is following @octocat yet.")
+
+          Expect.isTrue words "the empty words never rendered"
+        })
+
+      testCaseAsync
+        "a signed-out visitor cannot open the list routes"
+        (async {
+          let store = signedInStore()
+          let! window = startShell(store, connectionsApi() :> IHttp)
+
+          let! shown = showsText(window, "The Octocat")
+
+          Expect.isTrue shown "the log never rendered"
+
+          do! clickWhenShown(window, "Profile")
+
+          do! onUiAsync(fun () -> store.Leave())
+
+          do! clickVisibleNamed(window, "ProfileFollowingCount:octocat")
+
+          let! signIn = showsText(window, "Sign in to /dev/null")
+
+          Expect.isTrue signIn "the following route never asked to sign in"
+
+          do! onUiAsync(fun () -> window.Close())
+
+          // The followers route answers the same way: the tab that
+          // names it navigates through the same guard.
+          let other = signedInStore()
+          let! second = startShell(other, connectionsApi() :> IHttp)
+
+          let! booted = showsText(second, "The Octocat")
+
+          Expect.isTrue booted "the log never rendered"
+
+          do! clickWhenShown(second, "Profile")
+          do! clickVisibleNamed(second, "ProfileFollowingCount:octocat")
+
+          let! list = showsText(second, "Follow back")
+
+          Expect.isTrue list "the list never opened"
+
+          do! onUiAsync(fun () -> other.Leave())
+          do! clickWhenShown(second, "Followers")
+
+          let! gate = showsText(second, "Sign in to /dev/null")
+
+          Expect.isTrue gate "the followers route never asked to sign in"
         })
     ]
   ]

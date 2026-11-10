@@ -167,8 +167,63 @@ jobs:
           name: bundle-${{ matrix.rid }}
           path: DevNull.Client-*
 
-  release:
+  # The direct-install bundle rides the release creation: releases
+  # are immutable, so no asset can be attached after publish. It is
+  # built here, from the linux tarball and the channel state, and the
+  # release job below uploads it with the rest.
+  bundle:
     needs: [prepare, build]
+    if: needs.prepare.outputs.exists == 'false'
+    runs-on: ubuntu-latest
+    env:
+      FLATPAK_REPO: ${{ github.workspace }}/channel/repo
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install flatpak-builder and the freedesktop runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak --user install -y --noninteractive flathub \
+            org.freedesktop.Sdk//26.08 org.freedesktop.Platform//26.08
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: bundle-linux-x64
+          path: artifacts
+
+      - name: Fetch the channel repository
+        run: |
+          mkdir -p channel
+          if git fetch origin flatpak; then
+            git archive origin/flatpak docs/repo | tar -x -C channel
+            mv channel/docs/repo channel/repo
+            mkdir -p channel/repo/refs/remotes channel/repo/refs/mirrors channel/repo/tmp
+          else
+            echo "No channel branch yet; this release starts it."
+          fi
+
+      - name: Build the flatpak bundle
+        run: |
+          hash="$(sha256sum "artifacts/DevNull.Client-${VERSION}-linux-x64.tar.gz" | cut -d' ' -f1)"
+          .github/flatpak/build.sh "$VERSION" \
+            "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/DevNull.Client-${VERSION}-linux-x64.tar.gz" \
+            "$hash"
+          flatpak build-bundle \
+            --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+            "$FLATPAK_REPO" \
+            "DevNull.Client-${VERSION}-linux-x64.flatpak" \
+            me.tunaxor.devnull.unoffclient stable
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-bundle
+          path: DevNull.Client-${{ env.VERSION }}-linux-x64.flatpak
+
+  release:
+    needs: [prepare, build, bundle]
     if: needs.prepare.outputs.exists == 'false'
     runs-on: ubuntu-latest
     permissions:
@@ -212,8 +267,19 @@ jobs:
             artifacts/DevNull.Client-*
             artifacts/devnull-client.json
 
-  # The flatpak channel is not a release job: it builds from the
-  # released tarball and runs on its own when the release publishes
-  # (on: release in flatpak-channel.yml). A channel failure retries by
-  # version through that workflow's manual dispatch, without ever
-  # marking the release red or re-running the release.
+  # The channel follows the release inside this same run: a release
+  # published by this workflow's token starts no other workflow, so
+  # waiting for a release event would wait forever. The call cannot
+  # mark the release red; a channel failure retries by version
+  # through the channel workflow's manual dispatch. When the tag
+  # already exists the release job is skipped and the call still
+  # runs, so a missing channel heals itself.
+  flatpak:
+    needs: [prepare, release]
+    if: ${{ !cancelled() && needs.release.result != 'failure' }}
+    uses: ./.github/workflows/flatpak-channel.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}
+    permissions:
+      contents: write
+    continue-on-error: true

@@ -1,19 +1,30 @@
 name: Flatpak Channel
 
 # Rebuilds the flatpak channel for one released version and pushes it
-# to the `flatpak` branch, which GitHub Pages serves. It runs on its
-# own when a release publishes — the release workflow never waits on
-# it, so a channel problem never marks a release red — and a manual
-# dispatch rebuilds any released version by name.
+# to the `flatpak` branch, which GitHub Pages serves. The release
+# workflow calls it after the release exists; a manual dispatch
+# rebuilds any released version by name. It never attaches assets to
+# the release: releases are immutable, so the direct-install bundle
+# is built by the release workflow and rides the release creation.
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       version:
         description: "Released version, without the v (example: 0.10.0)"
         required: true
         type: string
+  workflow_call:
+    inputs:
+      version:
+        description: "Released version, without the v"
+        required: true
+        type: string
+
+# The flatpak branch is state: two channel runs must never push
+# against each other.
+concurrency:
+  group: flatpak-channel
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -76,22 +87,6 @@ jobs:
           .github/flatpak/build.sh "$VERSION" \
             "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/DevNull.Client-${VERSION}-linux-x64.tar.gz" \
             "$hash"
-
-      - name: Bundle for direct install
-        run: |
-          flatpak build-bundle \
-            --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
-            "$FLATPAK_REPO" \
-            "DevNull.Client-${VERSION}-linux-x64.flatpak" \
-            me.tunaxor.devnull.unoffclient stable
-
-      - name: Attach the bundle to the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release upload "v${VERSION}" \
-            "DevNull.Client-${VERSION}-linux-x64.flatpak" \
-            --repo "${{ github.repository }}" --clobber
 
       # Static deltas are not optional on a plain-HTTPS host: without
       # them every update walks the object list one file at a time.

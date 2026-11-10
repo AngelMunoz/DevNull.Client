@@ -353,6 +353,24 @@ let captureTests =
       let! badge = showsText(window, "LIVE")
       Expect.isTrue badge "the live badge never rendered"
 
+      // The window folds the profile header on its own layouts, and
+      // the folded bar hides the badge; pin the full header so the
+      // capture frames it beside the name.
+      let! folded =
+        waitForAsync(
+          5000,
+          (fun () -> window),
+          (fun root -> not(visibleText(root, "LIVE")))
+        )
+
+      Expect.isTrue folded "the header never folded before the capture"
+
+      do! clickVisibleHeaderToggle(window)
+
+      let! live = seesVisible(window, "LIVE")
+
+      Expect.isTrue live "the live badge never rendered in the full header"
+
       do! settleAsync()
 
       let! path = captureAsync("F3/f3-live-profile", window)

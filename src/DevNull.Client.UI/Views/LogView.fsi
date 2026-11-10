@@ -41,6 +41,7 @@ type Props<'env
   and 'env :> IProvideRemotes
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> = {
   Env: 'env
   Log: LogKind
@@ -239,6 +240,7 @@ type Page<'env
   and 'env :> IProvideRemotes
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

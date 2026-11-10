@@ -1376,6 +1376,7 @@ let captureTests =
 
       let props: CommitCard.RowProps = {
         OnEvent = ignore
+        OnOpenExternal = ignore
         ViewerId = (Author.id commit.Author)
         Pasteis = pastels
         Now = now
@@ -2088,6 +2089,7 @@ let captureTests =
 
       let props: CommitCard.RowProps = {
         OnEvent = ignore
+        OnOpenExternal = ignore
         ViewerId = viewerId
         Pasteis = pastels
         Now = now

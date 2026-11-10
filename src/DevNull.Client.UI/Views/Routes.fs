@@ -66,7 +66,7 @@ let signedIn
 let logPage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideTimeline & #IProvideUserSettings & #IProvideTranslations & #IProvideRemotes & #IProvideLogging,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideTimeline & #IProvideUserSettings & #IProvideTranslations & #IProvideRemotes & #IProvideBrowser & #IProvideLogging,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -91,7 +91,7 @@ let logPage
 let commitPage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideUserSettings & #IProvideTranslations & #IProvideRemotes & #IProvideLogging,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideUserSettings & #IProvideTranslations & #IProvideRemotes & #IProvideBrowser & #IProvideLogging,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -118,7 +118,7 @@ let commitPage
 let quotePage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideUserSettings & #IProvideTranslations & #IProvideRemotes & #IProvideLogging,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideUserSettings & #IProvideTranslations & #IProvideRemotes & #IProvideBrowser & #IProvideLogging,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -142,7 +142,7 @@ let quotePage
 let signInPage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideLogging,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideBrowser & #IProvideLogging,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -197,7 +197,7 @@ let remotesPage
 let savedPage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideUserSettings & #IProvideTranslations & #IProvideLogging,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideUserSettings & #IProvideTranslations & #IProvideBrowser & #IProvideLogging,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -237,7 +237,7 @@ let scheduledPage
 let profilePage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideUserSettings & #IProvideTranslations & #IProvideLogging,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideUserSettings & #IProvideTranslations & #IProvideBrowser & #IProvideLogging,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -291,7 +291,7 @@ let connectionsPage
 let organizationPage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideImageCache & #IProvideProfiles & #IProvideUserSettings & #IProvideTranslations & #IProvideLogging,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideImageCache & #IProvideProfiles & #IProvideUserSettings & #IProvideTranslations & #IProvideBrowser & #IProvideLogging,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -343,7 +343,7 @@ let termOf(context: RouteContext) : string =
 let searchPage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideImageCache & #IProvideProfiles & #IProvideTimeline & #IProvideLogging & #IProvideRecentSearches & #IProvideUserSettings & #IProvideTranslations,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideImageCache & #IProvideProfiles & #IProvideTimeline & #IProvideLogging & #IProvideRecentSearches & #IProvideUserSettings & #IProvideTranslations & #IProvideBrowser,
     nav: INavigable,
     context: RouteContext
   ) : Control =
@@ -392,7 +392,7 @@ let searchPage
 
 let build
   (env:
-    #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideMachineName & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideImageCache & #IProvideProfiles & #IProvideTimeline & #IProvideSettings & #IProvideLogging & #IProvideRemotes & #IProvideRecentSearches & #IProvideUserSettings & #IProvideTranslations)
+    #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideMachineName & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideImageCache & #IProvideProfiles & #IProvideTimeline & #IProvideSettings & #IProvideLogging & #IProvideRemotes & #IProvideRecentSearches & #IProvideUserSettings & #IProvideTranslations & #IProvideBrowser)
   : RouterShell =
   let bootUrl =
     match env.Session.SignedIn with
@@ -533,6 +533,7 @@ let build
       "/about",
       fun context _ ->
         AboutView.view(
+          env.Browser,
           env.LoggerFactory.CreateLogger "DevNull.Client.Views.About"
         )
     )

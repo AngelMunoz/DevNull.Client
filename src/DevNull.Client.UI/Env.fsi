@@ -32,6 +32,16 @@ type IProvideLogging =
 type IProvideDispatcher =
   abstract Dispatcher: IDispatcher
 
+/// The browser opener: one external URL opened in the system browser.
+/// Production opens through DeviceAuth; tests record and open nothing.
+type IBrowser =
+  abstract Open: url: string -> Result<unit, string>
+
+/// The browser capability accessor: the one opener every external
+/// link rides, so no view or component reaches the process directly.
+type IProvideBrowser =
+  abstract Browser: IBrowser
+
 /// The head-provided inputs of the production environment.
 [<Struct>]
 type AppEnvInputs = {
@@ -73,3 +83,4 @@ type AppEnv =
   interface IProvideRecentSearches
   interface IProvideProfiles
   interface IProvideSshKeys
+  interface IProvideBrowser

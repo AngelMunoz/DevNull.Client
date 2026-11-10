@@ -806,6 +806,7 @@ type Shell<'env
   and 'env :> IProvideRoutes
   and 'env :> IProvideSshKeys
   and 'env :> IProvideRemotes
+  and 'env :> IProvideBrowser
   and 'env :> IProvideNatives>
   (env: 'env, callback: string option, ?undoWindow: TimeSpan) as this =
   inherit Window()

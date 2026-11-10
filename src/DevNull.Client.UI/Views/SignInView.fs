@@ -31,6 +31,7 @@ type Props<'env
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
   and 'env :> IProvideSession
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> = {
   Env: 'env
   Nav: INavigable
@@ -58,8 +59,12 @@ module State =
 
   // One sign-in start: the app key generation, the pending file, and
   // the browser launch.
-  let prepare
-    (log: ILogger, env, key: DeviceKey)
+  let prepare<'env
+    when 'env :> IProvidePkceSource
+    and 'env :> IProvideNonceSource
+    and 'env :> IProvideMachineName
+    and 'env :> IProvideBrowser>
+    (log: ILogger, env: 'env, key: DeviceKey)
     : Async<Result<SignInStart, string>> = asyncResult {
     let started = startAuthorization(env, key)
 
@@ -67,7 +72,7 @@ module State =
 
     do! savePending(log, started.Pending)
 
-    match startBrowser started.Url with
+    match env.Browser.Open started.Url with
     | Ok() -> return started
     | Error message ->
       log.LogWarning("The browser did not open: {Error}", message)
@@ -193,7 +198,7 @@ module State =
     | ReopenBrowser ->
       match model.Status with
       | AwaitingApproval url ->
-        match startBrowser url with
+        match props.Env.Browser.Open url with
         | Ok() -> model, Cmd.none
         | Error message ->
           { model with Status = Failed message },
@@ -328,6 +333,7 @@ type Page<'env
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
   and 'env :> IProvideSession
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 

@@ -394,6 +394,21 @@ type FakeAudio() =
         return Ok playback
     }
 
+/// The headless browser: every opened URL is recorded and nothing
+/// opens, so a click test asserts the URL instead of launching the
+/// system browser on the developer's machine.
+type FakeBrowser() =
+  let opened = ResizeArray<string>()
+  let gate = obj()
+
+  /// Every URL asked of the opener, in order.
+  member _.Opened: string list = lock gate (fun () -> opened |> Seq.toList)
+
+  interface IBrowser with
+    member _.Open(url: string) =
+      lock gate (fun () -> opened.Add url)
+      Ok()
+
 /// The app environment over fakes: fixed workers and the given store.
 type TestEnv
   (
@@ -407,7 +422,8 @@ type TestEnv
     ?translations: TranslationCache,
     ?sshKeys: FakeSshKeys,
     ?audio: FakeAudio,
-    ?sounds: FakeSounds
+    ?sounds: FakeSounds,
+    ?browser: FakeBrowser
   ) as this =
 
   let settingsStore =
@@ -432,6 +448,8 @@ type TestEnv
   let profileWorker = profiles |> Option.defaultWith(fun () -> FakeProfiles())
 
   let keySource = sshKeys |> Option.defaultWith(fun () -> FakeSshKeys())
+
+  let browserWorker = browser |> Option.defaultWith(fun () -> FakeBrowser())
 
   // The signature answers are fixed; every signed input is recorded,
   // so a test can assert which key file a post signed with.
@@ -606,6 +624,12 @@ type TestEnv
 
   interface IProvideNatives with
     member _.Natives = natives
+
+  /// Every URL the headless browser was asked to open, in order.
+  member _.OpenedUrls: string list = browserWorker.Opened
+
+  interface IProvideBrowser with
+    member _.Browser = browserWorker :> IBrowser
 
 /// The fingerprint of the canned session's own device key, so the
 /// devices list can name its own row.
@@ -1940,7 +1964,7 @@ let bioMentionsProfileJson =
   profileJson
     .Replace(
       "\"bio\":\"Builds things.\"",
-      "\"bio\":\"Builds with @DevNull and @ACME, plus @ghost.\""
+      "\"bio\":\"Builds with @DevNull and @ACME, plus @stranger-dev.\""
     )
     .Replace(
       "\"lane\":3}",

@@ -80,12 +80,12 @@
     <Compile Include="RemotesWatcher.fs" />
     <Compile Include="Remotes.fsi" />
     <Compile Include="Remotes.fs" />
+    <Compile Include="DeviceAuth.fsi" />
+    <Compile Include="DeviceAuth.fs" />
     <Compile Include="Env.fsi" />
     <Compile Include="Env.fs" />
     <Compile Include="Programs.fsi" />
     <Compile Include="Programs.fs" />
-    <Compile Include="DeviceAuth.fsi" />
-    <Compile Include="DeviceAuth.fs" />
     <Compile Include="Navigation.fsi" />
     <Compile Include="Navigation.fs" />
     <Compile Include="Shortcuts.fsi" />

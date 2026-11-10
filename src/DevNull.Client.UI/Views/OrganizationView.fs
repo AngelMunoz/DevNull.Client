@@ -17,7 +17,6 @@ open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
-open DevNull.Client.DeviceAuth
 open DevNull.Client.Errors
 open DevNull.Client.Env
 open Microsoft.Extensions.Logging
@@ -43,6 +42,7 @@ type Props<'env
   and 'env :> IProvideTimeline
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> = {
   Env: 'env
   Handle: string
@@ -938,7 +938,9 @@ module Parts =
           )
       )
 
-  let linkButton(log: ILogger, label: string, url: string) : Control =
+  let linkButton
+    (browser: IBrowser, log: ILogger, label: string, url: string)
+    : Control =
     Button()
       .Classes(Theme.name Theme.GhostButton)
       .Padding(8.0, 4.0, 8.0, 4.0)
@@ -946,7 +948,7 @@ module Parts =
       .OnClickHandler(fun _ args ->
         args.Handled <- true
 
-        match startBrowser url with
+        match browser.Open url with
         | Ok() -> ()
         | Error message ->
           log.LogWarning("The page did not open: {Error}", message))
@@ -966,27 +968,34 @@ module Parts =
       .IsVisible(profile.Bio.IsSome)
       .Text(profile.Bio |> Option.defaultValue "")
 
-  let metaLine(log: ILogger, profile: OrganizationProfile) : Control =
+  let metaLine
+    (browser: IBrowser, log: ILogger, profile: OrganizationProfile)
+    : Control =
     let pieces: Control array = [|
       yield! profile.Location |> Option.map locationLine |> Option.toArray
 
       yield!
         profile.Website
-        |> Option.map(fun url -> linkButton(log, withoutScheme url, url))
+        |> Option.map(fun url ->
+          linkButton(browser, log, withoutScheme url, url))
         |> Option.toArray
 
       yield!
         profile.GithubUrl
-        |> Option.map(fun url -> linkButton(log, "GitHub", url))
+        |> Option.map(fun url -> linkButton(browser, log, "GitHub", url))
         |> Option.toArray
 
-      linkButton(log, withoutScheme profile.HtmlUrl, profile.HtmlUrl)
+      linkButton(browser, log, withoutScheme profile.HtmlUrl, profile.HtmlUrl)
     |]
 
     WrapPanel().ItemSpacing(8.0).Children(pieces)
 
-  let meta(log: ILogger, profile: OrganizationProfile) : Control =
-    StackPanel().Spacing(8.0).Children(bioLine profile, metaLine(log, profile))
+  let meta
+    (browser: IBrowser, log: ILogger, profile: OrganizationProfile)
+    : Control =
+    StackPanel()
+      .Spacing(8.0)
+      .Children(bioLine profile, metaLine(browser, log, profile))
 
   let headerHost
     (images: ImageCacheService, model: IObservable<State.Model>)
@@ -1002,7 +1011,9 @@ module Parts =
         |> _.ToBinding()
       )
 
-  let metaHost(log: ILogger, model: IObservable<State.Model>) : Control =
+  let metaHost
+    (browser: IBrowser, log: ILogger, model: IObservable<State.Model>)
+    : Control =
     ContentControl()
       .Margin(0.0, 12.0, 0.0, 0.0)
       .Content(
@@ -1010,7 +1021,7 @@ module Parts =
         |> Observable.map _.Details
         |> Observable.distinctUntilChanged
         |> Observable.map(function
-          | Some profile -> meta(log, profile)
+          | Some profile -> meta(browser, log, profile)
           | None -> Panel(): Control)
         |> _.ToBinding()
       )
@@ -1119,6 +1130,7 @@ let view
           | CommitCard.OriginalRequested commit ->
             dispatch(State.OriginalRequested commit)
           | CommitCard.MenuOpened commit -> dispatch(State.MenuOpened commit)
+        OnOpenExternal = fun url -> props.Env.Browser.Open(url) |> ignore
         ViewerId = props.Session.Session.User.Id
         Images = props.Env.ImageCache
         Flyout =
@@ -1256,7 +1268,7 @@ let view
             Parts.actionsHost(model, dispatch).DockRight(),
             Parts.headerHost(props.Env.ImageCache, model)
           )
-    Meta = ValueSome(fun () -> Parts.metaHost(log, model))
+    Meta = ValueSome(fun () -> Parts.metaHost(props.Env.Browser, log, model))
     FeedLabel = Some "Organization feed"
     Tabs = [
       {
@@ -1303,6 +1315,7 @@ type Page<'env
   and 'env :> IProvideTimeline
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 

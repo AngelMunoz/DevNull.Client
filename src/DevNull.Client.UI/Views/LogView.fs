@@ -53,6 +53,7 @@ type Props<'env
   and 'env :> IProvideRemotes
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> = {
   Env: 'env
   Log: LogKind
@@ -1288,6 +1289,7 @@ module Parts =
     and 'env :> IProvideRemotes
     and 'env :> IProvideUserSettings
     and 'env :> IProvideTranslations
+    and 'env :> IProvideBrowser
     and 'env :> IProvideLogging> = {
     Props: Props<'env>
     Dispatch: Dispatch<State.Msg>
@@ -1531,6 +1533,7 @@ let view
           | CommitCard.OriginalRequested commit ->
             dispatch(State.OriginalRequested commit)
           | CommitCard.MenuOpened commit -> dispatch(State.MenuOpened commit)
+        OnOpenExternal = fun url -> props.Env.Browser.Open(url) |> ignore
         ViewerId = props.Session.Session.User.Id
         Images = props.Env.ImageCache
         Flyout = Parts.flyoutOf props
@@ -1714,6 +1717,7 @@ type Page<'env
   and 'env :> IProvideRemotes
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 

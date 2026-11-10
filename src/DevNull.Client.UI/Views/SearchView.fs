@@ -47,6 +47,7 @@ type Props<'env
   and 'env :> IProvideTimeline
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> = {
   Env: 'env
   SignedIn: SignedInSession
@@ -800,6 +801,7 @@ let view
     CommitRows.row(
       {
         OnEvent = State.CardEvent >> dispatch
+        OnOpenExternal = fun url -> props.Env.Browser.Open(url) |> ignore
         ViewerId = props.SignedIn.Session.User.Id
         Images = props.Env.ImageCache
         Flyout =
@@ -1028,6 +1030,7 @@ type Page<'env
   and 'env :> IProvideTimeline
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 

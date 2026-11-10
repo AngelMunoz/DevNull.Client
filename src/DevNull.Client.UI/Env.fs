@@ -41,6 +41,12 @@ type IProvideLogging =
 type IProvideDispatcher =
   abstract Dispatcher: IDispatcher
 
+type IBrowser =
+  abstract Open: url: string -> Result<unit, string>
+
+type IProvideBrowser =
+  abstract Browser: IBrowser
+
 [<Struct>]
 type AppEnvInputs = {
   BaseAddress: string
@@ -462,6 +468,11 @@ type AppEnv(inputs: AppEnvInputs) as this =
 
   let sshKeys = SshKeys.create()
 
+  let browser = {
+    new IBrowser with
+      member _.Open(url: string) = DeviceAuth.startBrowser url
+  }
+
   interface IProvideClock with
     member _.Clock = clock
 
@@ -537,3 +548,6 @@ type AppEnv(inputs: AppEnvInputs) as this =
 
   interface IProvideSshKeys with
     member _.SshKeys = sshKeys
+
+  interface IProvideBrowser with
+    member _.Browser = browser

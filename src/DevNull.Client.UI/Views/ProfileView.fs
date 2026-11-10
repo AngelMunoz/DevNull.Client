@@ -49,6 +49,7 @@ type Props<'env
   and 'env :> IProvideTimeline
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> = {
   Env: 'env
   Username: string
@@ -1153,6 +1154,7 @@ module Parts =
   // its page here, an unmapped one opens its GitHub page outside.
   let bioChip
     (
+      browser: IBrowser,
       openMention: string -> Async<unit>,
       handle: string,
       canonical: string option
@@ -1161,8 +1163,7 @@ module Parts =
       match canonical with
       | Some target ->
         asyncEx { do! openMention target } |> Async.StartImmediate
-      | None ->
-        DeviceAuth.startBrowser($"https://github.com/{handle}") |> ignore
+      | None -> browser.Open($"https://github.com/{handle}") |> ignore
 
     let chip =
       Border()
@@ -1190,6 +1191,7 @@ module Parts =
   // chip per handle, in order.
   let mentionInlines
     (
+      browser: IBrowser,
       openMention: string -> Async<unit>,
       profiles: Map<string, string>,
       text: string
@@ -1198,12 +1200,14 @@ module Parts =
     |> List.map(fun piece ->
       match piece with
       | BioPlain plain -> Run plain
-      | BioHandle(handle, canonical) -> bioChip(openMention, handle, canonical))
+      | BioHandle(handle, canonical) ->
+        bioChip(browser, openMention, handle, canonical))
 
   // One bio as prose with its mention chips, flowing inside a
   // wrapping text block.
   let bioBlock
     (
+      browser: IBrowser,
       openMention: string -> Async<unit>,
       profiles: Map<string, string>,
       text: string
@@ -1212,7 +1216,7 @@ module Parts =
     let inlines = InlineCollection()
     block.Inlines <- inlines
 
-    mentionInlines(openMention, profiles, text)
+    mentionInlines(browser, openMention, profiles, text)
     |> List.iter(fun part -> inlines.Add(part) |> ignore)
 
     block
@@ -1220,7 +1224,9 @@ module Parts =
   // The joined-and-links line under the bio: company, location, the
   // website host, and the join month. The company's mentions ride
   // the same map as the bio's.
-  let metaLine(profile: Profile, openMention: string -> Async<unit>) : Control =
+  let metaLine
+    (browser: IBrowser, profile: Profile, openMention: string -> Async<unit>)
+    : Control =
     let stripScheme(url: string) =
       url.Replace("https://", "").Replace("http://", "")
 
@@ -1256,7 +1262,7 @@ module Parts =
       let inlines = InlineCollection()
       block.Inlines <- inlines
 
-      mentionInlines(openMention, profile.BioProfiles, company)
+      mentionInlines(browser, openMention, profile.BioProfiles, company)
       |> List.iter(fun part -> inlines.Add(part) |> ignore)
 
       inlines.Add(Run(" · " + tail)) |> ignore
@@ -1402,6 +1408,7 @@ module Parts =
     Dispatch: Dispatch<State.Msg>
     Nav: INavigable
     OpenMention: string -> Async<unit>
+    Browser: IBrowser
   }
 
   // One count-and-label pair, the stats row's piece.
@@ -1512,12 +1519,13 @@ module Parts =
           achievementsChip(details.Achievements, profile.Lane)
         )
       (bioBlock(
+        ctx.Browser,
         ctx.OpenMention,
         profile.BioProfiles,
         profile.Bio |> Option.defaultValue ""
       ))
         .IsVisible(profile.Bio.IsSome)
-      metaLine(profile, ctx.OpenMention)
+      metaLine(ctx.Browser, profile, ctx.OpenMention)
       counts(profile, ctx.Nav)
     |]
 
@@ -1622,6 +1630,7 @@ module Parts =
               Dispatch = dispatch
               Nav = props.Nav
               OpenMention = openMention
+              Browser = props.Env.Browser
             }
 
             // The full form is the identity and the sections together,
@@ -1707,6 +1716,7 @@ let view
           | CommitCard.OriginalRequested commit ->
             dispatch(State.OriginalRequested commit)
           | CommitCard.MenuOpened commit -> dispatch(State.MenuOpened commit)
+        OnOpenExternal = fun url -> props.Env.Browser.Open(url) |> ignore
         ViewerId = props.Session.Session.User.Id
         Images = props.Env.ImageCache
         Flyout =
@@ -1862,6 +1872,7 @@ type Page<'env
   and 'env :> IProvideTimeline
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 

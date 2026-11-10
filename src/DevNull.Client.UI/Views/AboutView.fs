@@ -9,7 +9,7 @@ open NXUI.Extensions
 open Microsoft.Extensions.Logging
 open DevNull.Client
 open DevNull.Client.Components
-open DevNull.Client.DeviceAuth
+open DevNull.Client.Env
 open FSharp.Control.Reactive
 
 // One line of the stack list: the name and what it does here.
@@ -23,7 +23,9 @@ let stackLine(name: string, what: string) : Control =
     )
 
 // One outbound link button; the browser owns the page.
-let linkButton(log: ILogger, label: string, url: string) : Control =
+let linkButton
+  (browser: IBrowser, log: ILogger, label: string, url: string)
+  : Control =
   Button()
     .Classes(Theme.name Theme.GhostButton)
     .Padding(8.0, 4.0, 8.0, 4.0)
@@ -31,7 +33,7 @@ let linkButton(log: ILogger, label: string, url: string) : Control =
     .OnClickHandler(fun _ args ->
       args.Handled <- true
 
-      match startBrowser url with
+      match browser.Open url with
       | Ok() -> ()
       | Error message ->
         log.LogWarning("The page did not open: {Error}", message))
@@ -75,17 +77,17 @@ module Parts =
     StackPanel().Spacing(4.0).Children(lines)
 
   // The outbound links: the service, its brand rules, its terms.
-  let links(log: ILogger) : Control =
+  let links(browser: IBrowser, log: ILogger) : Control =
     StackPanel()
       .Orientation(Orientation.Horizontal)
       .Spacing(4.0)
       .Children(
-        linkButton(log, "dev-null.sh", "https://dev-null.sh"),
-        linkButton(log, "brand", "https://dev-null.sh/brand"),
-        linkButton(log, "terms", "https://dev-null.sh/terms")
+        linkButton(browser, log, "dev-null.sh", "https://dev-null.sh"),
+        linkButton(browser, log, "brand", "https://dev-null.sh/brand"),
+        linkButton(browser, log, "terms", "https://dev-null.sh/terms")
       )
 
-let view(log: ILogger) : Control =
+let view(browser: IBrowser, log: ILogger) : Control =
   let content =
     StackPanel()
       .Spacing(12.0)
@@ -102,7 +104,7 @@ let view(log: ILogger) : Control =
         TextBlock().Classes(Theme.name Theme.Subtitle).Text("Built with"),
         Parts.stack(),
         TextBlock().Classes(Theme.name Theme.Subtitle).Text("Links"),
-        Parts.links log
+        Parts.links(browser, log)
       )
 
   // The page scrolls one axis: the column measures against the window,

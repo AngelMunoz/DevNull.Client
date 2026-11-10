@@ -19,6 +19,7 @@ type Props<'env
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
   and 'env :> IProvideSession
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> = {
   Env: 'env
   Nav: INavigable
@@ -37,6 +38,7 @@ type Page<'env
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
   and 'env :> IProvideSession
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

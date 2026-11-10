@@ -29,6 +29,9 @@ type RowSlices = {
 /// own book.
 type Host = {
   OnEvent: Event -> unit
+  /// The page's opener for one external URL, threaded to the card's
+  /// link preview; the page wires it to the env's browser.
+  OnOpenExternal: string -> unit
   ViewerId: string
   Images: ImageCacheService
   Flyout: Source voption

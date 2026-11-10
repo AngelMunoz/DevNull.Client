@@ -58,4 +58,5 @@ val build:
     and 'env :> IProvideTranslations
     and 'env :> IProvideLogging
     and 'env :> IProvideRemotes
+    and 'env :> IProvideBrowser
     and 'env :> IProvideNatives

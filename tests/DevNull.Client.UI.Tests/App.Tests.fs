@@ -266,6 +266,21 @@ let startShellWithRecents
     return! showAsync window
   }
 
+/// Builds and shows the shell over one test env, handing the env
+/// back so the test asserts on the headless browser's recorder.
+let startShellWithBrowser
+  (store: SessionStore, http: IHttp)
+  : Async<Window * TestEnv> =
+  let env = TestEnv(store, http)
+
+  async {
+    let! window = probeUiAsync(fun () -> Shell(env, None) :> Window)
+
+    let! shown = showAsync window
+
+    return shown, env
+  }
+
 /// Waits until a TextBlock under the window carries the text.
 let showsText(window: Window, text: string) : Async<bool> =
   waitForAsync(5000, (fun () -> window), (fun root -> hasText(root, text)))
@@ -4419,11 +4434,12 @@ let tests =
     testCaseAsync
       "a link preview is its own surface, not the card's click"
       (async {
-        let! window = startShell(signedInStore(), mentionLogApi() :> IHttp)
+        let! window, env =
+          startShellWithBrowser(signedInStore(), mentionLogApi() :> IHttp)
 
-        // The handled click never runs here: it would launch a real
-        // browser. The card being its own button, with the site's own
-        // line on it, is the contract.
+        // The card being its own button, with the site's own line on
+        // it, is the contract. The click opens through the headless
+        // browser's recorder, never a real browser.
         let! preview =
           waitForAsync(
             5000,
@@ -4443,6 +4459,23 @@ let tests =
         let! sited = showsText(window, "example.test")
 
         Expect.isTrue sited "the preview site line never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "LinkPreviewCard")
+            |> Option.bind(function
+              | :? Button as button -> Some button
+              | _ -> None)
+            |> Option.iter click)
+
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> env.OpenedUrls),
+            (fun urls -> urls = [ "https://example.test/postmortem" ])
+          )
+
+        Expect.isTrue opened "the link preview never opened externally"
       })
 
     testCaseAsync
@@ -4789,7 +4822,8 @@ let tests =
       "an unmapped bio mention stays on the profile"
       (async {
         let api = bioMentionsApi()
-        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! window, env = startShellWithBrowser(signedInStore(), api :> IHttp)
 
         let! shown = showsText(window, "The Octocat")
 
@@ -4797,13 +4831,22 @@ let tests =
 
         do! clickWhenShown(window, "Profile")
 
-        let! mention = showsText(window, "@ghost")
+        let! mention = showsText(window, "@stranger-dev")
 
         Expect.isTrue mention "the unmapped chip never rendered"
 
         do!
           onUiAsync(fun () ->
-            buttonWithText(window, "@ghost") |> Option.iter click)
+            buttonWithText(window, "@stranger-dev") |> Option.iter click)
+
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> env.OpenedUrls),
+            (fun urls -> urls = [ "https://github.com/stranger-dev" ])
+          )
+
+        Expect.isTrue opened "the unmapped chip never opened externally"
 
         let! still = showsText(window, "The Octocat")
 

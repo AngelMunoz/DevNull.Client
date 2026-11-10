@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-10
+
 ### Added
 
 - **Commits:** a code block now shows a title over the code — the file name the author gave the block, or its language when there is no file name.

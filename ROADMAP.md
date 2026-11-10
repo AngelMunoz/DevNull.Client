@@ -136,9 +136,9 @@ that just landed. Each issue keeps its own detail in the tracker.
 [#24](https://github.com/AngelMunoz/DevNull.Client/issues/24) are merged.
 [#30](https://github.com/AngelMunoz/DevNull.Client/issues/30),
 [#28](https://github.com/AngelMunoz/DevNull.Client/issues/28), and
-[#26](https://github.com/AngelMunoz/DevNull.Client/issues/26) are
-implemented and ride their stacked open pull requests; the pool below is
-re-fed from them.
+[#26](https://github.com/AngelMunoz/DevNull.Client/issues/26) are merged
+(PRs #45, #46, #47) and ship in 0.13.0; the pool below is re-fed from
+them.
 
 1. [#25 — stargazers on own commits](https://github.com/AngelMunoz/DevNull.Client/issues/25).
    One Core page read and one entry point on the author's own commits.

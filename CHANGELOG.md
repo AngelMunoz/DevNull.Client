@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Notifications:** a notification about your organization's commit now says so — "replied to @acme's commit", "mentioned @acme" — and an organization that acts shows with its square avatar.
 - **Commits:** your own commit's star count opens the list of who starred it, newest first, with more on demand. Another user's commit keeps its count read-only.
 - **Profile:** a profile picture opens in the image viewer at full size — from the profile header, the profile card, and the hover card.
 - **Search:** the results gain a Latest tab beside Most relevant — matches from the past seven days, newest first — read from the same results, so switching costs no new search.

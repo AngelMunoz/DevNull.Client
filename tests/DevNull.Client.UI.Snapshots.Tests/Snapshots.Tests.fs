@@ -378,6 +378,126 @@ let captureTests =
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }
 
+    testAsync "the own profile go-live dialog stands open" {
+      let! window = startShell(signedInStore(), goLiveApi() :> IHttp)
+
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the shell never rendered its content"
+
+      do! clickWhenShown(window, "Profile")
+
+      let! feed = showsText(window, "It was DNS.")
+      Expect.isTrue feed "the profile feed never rendered"
+
+      do! ensureFullHeader(window)
+
+      do! clickWhenShown(window, "Go live")
+
+      let! input =
+        waitForAsync(
+          5000,
+          (fun () -> controlByName(window, "LiveUrl")),
+          Option.isSome
+        )
+
+      Expect.isTrue input "the go-live dialog never opened"
+
+      let! slider =
+        waitForAsync(
+          5000,
+          (fun () -> controlByName(window, "LiveHours")),
+          Option.isSome
+        )
+
+      Expect.isTrue slider "the hours slider never rendered"
+
+      let! link = seesVisible(window, "Stream link")
+      Expect.isTrue link "the stream link label never rendered"
+
+      let! hours = seesVisible(window, "For")
+      Expect.isTrue hours "the hours label never rendered"
+
+      let! go = seesVisible(window, "Go live")
+      Expect.isTrue go "the go-live button never rendered"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F3/f3-go-live-dialog", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the shell aside stands a live-now section" {
+      let! window = startShell(signedInStore(), liveBadgeApi() :> IHttp)
+
+      do!
+        onUiAsync(fun () ->
+          window.Width <- 1400.0
+          window.Height <- 900.0)
+
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the shell never rendered its content"
+
+      let! title = seesVisible(window, "Live now")
+      Expect.isTrue title "the live-now title never rendered"
+
+      let! row =
+        waitForAsync(
+          5000,
+          (fun () -> controlByName(window, "OpenLiveNow:octocat")),
+          Option.isSome
+        )
+
+      Expect.isTrue row "the live-now row never rendered"
+
+      let! badge = seesVisible(window, "LIVE")
+      Expect.isTrue badge "the live badge never rendered"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F3/f3-live-now-aside", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the first commit notification row renders" {
+      let firstCommitJson =
+        notificationJson.Replace(
+          "\"type\":\"replied\"",
+          "\"type\":\"first_commit\""
+        )
+
+      let inbox =
+        sprintf
+          "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"filters\":{\"type\":\"all\"},\"read_at\":\"2026-10-20T04:20:00Z\"}"
+          firstCommitJson
+
+      let api =
+        FakeApi(fun request ->
+          if request.Target.StartsWith "/api/v1/notifications" then
+            ok inbox
+          elif request.Target.StartsWith "/api/v1/log/" then
+            ok logPageJson
+          else
+            ok "{}")
+
+      let! window = startShell(signedInStore(), api :> IHttp)
+
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the shell never rendered its content"
+
+      do! clickWhenShown(window, "Notifications")
+
+      let! words = seesVisible(window, "made their first commit")
+      Expect.isTrue words "the first commit words never rendered"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F3/f3-first-commit-row", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
     testAsync "the profile bio with its mention chips renders" {
       let! window = startShell(signedInStore(), bioMentionsApi() :> IHttp)
 

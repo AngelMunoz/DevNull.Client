@@ -243,6 +243,7 @@ let footer(context: FooterContext) : Control =
             Lane = None
             Size = 36.0
             Cache = context.Images
+            Square = false
           },
           StackPanel()
             .VerticalAlignment(VerticalAlignment.Center)
@@ -468,6 +469,7 @@ let logRailNode(session: SignedInSession, cache: ImageCacheService) : Control =
           Lane = None
           Size = 40.0
           Cache = cache
+          Square = false
         }
       )
 

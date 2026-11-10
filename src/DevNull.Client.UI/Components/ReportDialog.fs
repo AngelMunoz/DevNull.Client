@@ -277,7 +277,7 @@ module Parts =
           .Children(
             TextBlock()
               .Classes(Theme.name Theme.Mono)
-              .Text("@" + commit.Author.Handle),
+              .Text("@" + (Author.handle commit.Author)),
             TextBlock()
               .Text(commit.Body)
               .TextWrapping(TextWrapping.Wrap)

@@ -37,6 +37,7 @@ module Parts =
       Lane = partner.Lane
       Size = 40.0
       Cache = images
+      Square = false
     }
 
   // An org's avatar: two of its other members, overlapping, in the
@@ -65,6 +66,7 @@ module Parts =
             Lane = member'.User.Lane
             Size = 26.0
             Cache = images
+            Square = false
           }
 
         let horizontal, vertical =
@@ -308,6 +310,7 @@ module Parts =
         Lane = person.User.Lane
         Size = 40.0
         Cache = ctx.Images
+        Square = false
       }
 
     let columns = Grid()

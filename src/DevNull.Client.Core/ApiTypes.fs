@@ -218,6 +218,80 @@ type Tombstone = {
   RepliesCount: int option
 }
 
+type OrganizationProfile = {
+  Handle: string
+  Name: string
+  AvatarUrl: string option
+  Bio: string option
+  Location: string option
+  Website: string option
+  GithubUrl: string option
+  HtmlUrl: string
+  IsFollowing: bool
+  CanClaim: bool
+  SettingsUrl: string option
+  Lane: Lane option
+  FollowersCount: int option
+  Admins: User list
+}
+
+/// One commit's author: a person, or an organization the wire types.
+/// The organization branch carries the profile the organization read
+/// decodes, whose admins are the members who may delete its commits.
+type Author =
+  | Person of User
+  | Organization of OrganizationProfile
+
+module Author =
+
+  let id(author: Author) =
+    match author with
+    | Person user -> user.Id
+    | Organization org -> org.Handle
+
+  let handle(author: Author) =
+    match author with
+    | Person user -> user.Handle
+    | Organization org -> org.Handle
+
+  let name(author: Author) =
+    match author with
+    | Person user -> user.Name
+    | Organization org -> org.Name
+
+  let avatarUrl(author: Author) =
+    match author with
+    | Person user -> user.AvatarUrl
+    | Organization org -> org.AvatarUrl
+
+  let lane(author: Author) =
+    match author with
+    | Person user -> user.Lane
+    | Organization org -> org.Lane
+
+  let isOrganization(author: Author) =
+    match author with
+    | Person _ -> false
+    | Organization _ -> true
+
+  let user(author: Author) =
+    match author with
+    | Person user -> Some user
+    | Organization _ -> None
+
+  let organization(author: Author) =
+    match author with
+    | Person _ -> None
+    | Organization org -> Some org
+
+  /// Whether the viewer is a member of the organization author: the
+  /// viewer id appears in the profile's admins.
+  let isAdmin(author: Author, viewerId: string) =
+    match author with
+    | Person _ -> false
+    | Organization org ->
+      org.Admins |> List.exists(fun admin -> admin.Id = viewerId)
+
 type Commit = {
   Id: string
   ShortHash: string
@@ -232,7 +306,7 @@ type Commit = {
   StarsCount: int option
   RepliesCount: int option
   Status: CommitStatus
-  Author: User
+  Author: Author
   Images: Image list
   Starred: bool option
   IsPinned: bool
@@ -1576,6 +1650,89 @@ let tombstoneDecoder(element: JsonElement) = decode {
   }
 }
 
+let organizationProfileDecoder(element: JsonElement) = decode {
+  let! handle = Required.Property.get ("handle", Required.string) element
+  let! name = Required.Property.get ("name", Required.string) element
+
+  let! avatarUrl =
+    Optional.Property.get ("avatar_url", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! bio =
+    Optional.Property.get ("bio", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! location =
+    Optional.Property.get ("location", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! website =
+    Optional.Property.get ("website", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! githubUrl =
+    Optional.Property.get ("github_url", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! htmlUrl = Required.Property.get ("html_url", Required.string) element
+
+  let! isFollowing =
+    Optional.Property.get ("is_following", Optional.boolean) element
+    |> Result.map Option.flatten
+
+  let! canClaim =
+    Optional.Property.get ("can_claim", Optional.boolean) element
+    |> Result.map Option.flatten
+
+  let! settingsUrl =
+    Optional.Property.get ("settings_url", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! lane =
+    Optional.Property.get ("lane", optionalDecoder laneDecoder) element
+    |> Result.map Option.flatten
+
+  let! followersCount =
+    Optional.Property.get ("followers_count", Optional.int) element
+    |> Result.map Option.flatten
+
+  let! admins =
+    Optional.Property.get ("admins", optionalListDecoder userDecoder) element
+    |> Result.map Option.flatten
+
+  return {
+    Handle = handle
+    Name = name
+    AvatarUrl = avatarUrl
+    Bio = bio
+    Location = location
+    Website = website
+    GithubUrl = githubUrl
+    HtmlUrl = htmlUrl
+    IsFollowing = Option.defaultValue false isFollowing
+    CanClaim = Option.defaultValue false canClaim
+    SettingsUrl = settingsUrl
+    Lane = lane
+    FollowersCount = followersCount
+    Admins = Option.defaultValue [] admins
+  }
+}
+
+
+let authorDecoder(element: JsonElement) = decode {
+  let! kind =
+    Optional.Property.get ("type", Optional.string) element
+    |> Result.map Option.flatten
+
+  let author =
+    match kind with
+    | Some "organization" ->
+      organizationProfileDecoder element |> Result.map Organization
+    | _ -> userDecoder element |> Result.map Person
+
+  return! author
+}
+
 let rec commitDecoder
   (element: JsonElement)
   : Result<Commit, JDeck.DecodeError> = decode {
@@ -1614,7 +1771,7 @@ let rec commitDecoder
     |> Result.map Option.flatten
 
   let! status = Required.Property.get ("status", statusDecoder) element
-  let! author = Required.Property.get ("author", userDecoder) element
+  let! author = Required.Property.get ("author", authorDecoder) element
 
   let! images =
     Optional.Property.get ("images", optionalListDecoder imageDecoder) element
@@ -2992,93 +3149,6 @@ let organizationDecoder(element: JsonElement) = decode {
     Lane = lane
     FollowersCount = followersCount
     IsFollowed = isFollowed
-  }
-}
-
-/// One public organization profile, as the organization read answers
-/// it: its identity lines and its page address.
-type OrganizationProfile = {
-  Handle: string
-  Name: string
-  AvatarUrl: string option
-  Bio: string option
-  Location: string option
-  Website: string option
-  GithubUrl: string option
-  HtmlUrl: string
-  IsFollowing: bool
-  CanClaim: bool
-  SettingsUrl: string option
-  Lane: Lane option
-  FollowersCount: int option
-  Admins: User list
-}
-
-let organizationProfileDecoder(element: JsonElement) = decode {
-  let! handle = Required.Property.get ("handle", Required.string) element
-  let! name = Required.Property.get ("name", Required.string) element
-
-  let! avatarUrl =
-    Optional.Property.get ("avatar_url", Optional.string) element
-    |> Result.map Option.flatten
-
-  let! bio =
-    Optional.Property.get ("bio", Optional.string) element
-    |> Result.map Option.flatten
-
-  let! location =
-    Optional.Property.get ("location", Optional.string) element
-    |> Result.map Option.flatten
-
-  let! website =
-    Optional.Property.get ("website", Optional.string) element
-    |> Result.map Option.flatten
-
-  let! githubUrl =
-    Optional.Property.get ("github_url", Optional.string) element
-    |> Result.map Option.flatten
-
-  let! htmlUrl = Required.Property.get ("html_url", Required.string) element
-
-  let! isFollowing =
-    Optional.Property.get ("is_following", Optional.boolean) element
-    |> Result.map Option.flatten
-
-  let! canClaim =
-    Optional.Property.get ("can_claim", Optional.boolean) element
-    |> Result.map Option.flatten
-
-  let! settingsUrl =
-    Optional.Property.get ("settings_url", Optional.string) element
-    |> Result.map Option.flatten
-
-  let! lane =
-    Optional.Property.get ("lane", optionalDecoder laneDecoder) element
-    |> Result.map Option.flatten
-
-  let! followersCount =
-    Optional.Property.get ("followers_count", Optional.int) element
-    |> Result.map Option.flatten
-
-  let! admins =
-    Optional.Property.get ("admins", optionalListDecoder userDecoder) element
-    |> Result.map Option.flatten
-
-  return {
-    Handle = handle
-    Name = name
-    AvatarUrl = avatarUrl
-    Bio = bio
-    Location = location
-    Website = website
-    GithubUrl = githubUrl
-    HtmlUrl = htmlUrl
-    IsFollowing = Option.defaultValue false isFollowing
-    CanClaim = Option.defaultValue false canClaim
-    SettingsUrl = settingsUrl
-    Lane = lane
-    FollowersCount = followersCount
-    Admins = Option.defaultValue [] admins
   }
 }
 

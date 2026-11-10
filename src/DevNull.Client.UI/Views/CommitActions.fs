@@ -78,7 +78,7 @@ let pastel
 [<Struct>]
 type ToggleArgs = {
   Session: SignedInSession
-  Author: User
+  Author: Author
   /// The held state the direction follows: held following unfollows,
   /// held muting unmutes, held blocking unblocks.
   Flag: bool
@@ -87,7 +87,7 @@ type ToggleArgs = {
 // The signed request one author toggle sends.
 let authorRequest(args: ToggleArgs) : Users.Request = {
   KeyFile = args.Session.KeyFile
-  Username = args.Author.Handle
+  Username = (Author.handle args.Author)
 }
 
 /// Follows or unfollows one author, the way the card menu's follow

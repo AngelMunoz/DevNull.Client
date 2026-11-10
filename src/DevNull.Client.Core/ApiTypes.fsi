@@ -240,6 +240,42 @@ type Tombstone = {
   RepliesCount: int option
 }
 
+/// One commit's author: a person, or an organization the wire types.
+/// The organization branch carries the profile the organization read
+/// decodes, whose admins are the members who may delete its commits.
+type Author =
+  | Person of User
+  | Organization of OrganizationProfile
+
+module Author =
+  /// The id the own-commit checks compare against the viewer; for an
+  /// organization it is the organization handle, which never equals a
+  /// user id.
+  val id: author: Author -> string
+
+  /// The handle readers see: the person's handle or the organization
+  /// handle.
+  val handle: author: Author -> string
+
+  val name: author: Author -> string
+
+  val avatarUrl: author: Author -> string option
+
+  val lane: author: Author -> Lane option
+
+  val isOrganization: author: Author -> bool
+
+  /// The person branch, when the commit is a person's. Organization
+  /// commits carry no person relation rows.
+  val user: author: Author -> User option
+
+  /// The organization branch, when the commit is an organization's.
+  val organization: author: Author -> OrganizationProfile option
+
+  /// Whether the viewer is a member of the organization author: the
+  /// viewer id appears in the profile's admins.
+  val isAdmin: author: Author * viewerId: string -> bool
+
 /// One commit as the signed API returns it.
 type Commit = {
   Id: string
@@ -255,7 +291,7 @@ type Commit = {
   StarsCount: int option
   RepliesCount: int option
   Status: CommitStatus
-  Author: User
+  Author: Author
   Images: Image list
   Starred: bool option
   IsPinned: bool

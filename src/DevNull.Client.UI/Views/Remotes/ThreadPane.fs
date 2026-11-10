@@ -476,6 +476,7 @@ module ThreadPane =
                 Lane = partner.Lane
                 Size = 36.0
                 Cache = media.Cache
+                Square = false
               },
               StackPanel()
                 .VerticalAlignment(VerticalAlignment.Center)

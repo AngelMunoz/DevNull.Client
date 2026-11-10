@@ -513,6 +513,7 @@ module Parts =
         Lane = user.Lane
         Size = 40.0
         Cache = ctx.Images
+        Square = false
       }
 
     match ctx.Flyout with
@@ -558,6 +559,7 @@ module Parts =
         Lane = org.Lane
         Size = 40.0
         Cache = env.Ctx.Images
+        Square = false
       },
       content,
       ValueNone

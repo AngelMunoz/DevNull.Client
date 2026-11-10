@@ -342,6 +342,26 @@ let captureTests =
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }
 
+    testAsync "an organization authored commit card renders" {
+      let api =
+        FakeApi(fun request ->
+          if request.Target.StartsWith "/api/v1/log/" then
+            ok orgAuthorLogPageJson
+          else
+            (match accountAnswer request with
+             | ValueSome answer -> answer
+             | ValueNone -> ok "{}"))
+
+      let! window = startShell(signedInStore(), api :> IHttp)
+      let! shown = showsText(window, "It was DNS.")
+      Expect.isTrue shown "the organization commit never rendered"
+      do! settleAsync()
+
+      let! path = captureAsync("F7/f7-org-author-card", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
     testAsync "the thread clears the band at the wide width" {
       let! window = openThreadAsync()
 
@@ -1209,7 +1229,7 @@ let captureTests =
 
       let props: CommitCard.RowProps = {
         OnEvent = ignore
-        ViewerId = commit.Author.Id
+        ViewerId = (Author.id commit.Author)
         Pasteis = pastels
         Now = now
         PollChoices = choices
@@ -2485,7 +2505,8 @@ let captureTests =
       | Ok page ->
         page.Page.Items
         |> List.tryPick(function
-          | LiveCommit commit when commit.Author.Id = viewerId -> Some commit
+          | LiveCommit commit when (Author.id commit.Author) = viewerId ->
+            Some commit
           | _ -> None)
         |> Option.defaultWith(fun () ->
           failwith "the own log never carried its commit")

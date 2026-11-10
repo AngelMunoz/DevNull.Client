@@ -839,4 +839,130 @@ let tests =
 
         do! onUiAsync(fun () -> window.Close())
       })
+
+    testCaseAsync
+      "an organization commit carries no star report or pastel"
+      (async {
+        let api =
+          FakeApi(fun request ->
+            if request.Target.StartsWith "/api/v1/log/" then
+              ok orgAuthorLogPageJson
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let! window = startShell(remotesStoreOn(), api :> IHttp)
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the organization commit never rendered"
+
+        let! absent =
+          probeUiAsync(fun () ->
+            controlByName(window, "StarButton") |> Option.isNone
+            && controlByName(window, "StarCount") |> Option.isNone
+            && controlByName(window, "PastelButton") |> Option.isNone)
+
+        Expect.isTrue absent "the organization commit drew a star or pastel"
+
+        do! openMenuAsync window
+        do! settleAsync()
+
+        let! rows =
+          probeUiAsync(fun () ->
+            menuContent window
+            |> Option.map(fun content ->
+              content.GetVisualDescendants()
+              |> Seq.choose(fun visual ->
+                match visual with
+                | :? Button as button -> Some(string button.Content)
+                | _ -> None)
+              |> List.ofSeq))
+
+        Expect.isSome rows "the menu never opened"
+
+        Expect.equal
+          rows
+          (Some [ "Copy link"; "Send in Remotes"; "Delete commit" ])
+          "the organization commit's menu carried the wrong rows"
+
+        do! onUiAsync(fun () -> window.Close())
+      })
+
+    testCaseAsync
+      "an organization commit hides delete from a non-member"
+      (async {
+        let api =
+          FakeApi(fun request ->
+            if request.Target.StartsWith "/api/v1/log/" then
+              ok orgAuthorLogPageJsonNoMember
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let! window = startShell(remotesStoreOn(), api :> IHttp)
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the organization commit never rendered"
+
+        do! openMenuAsync window
+        do! settleAsync()
+
+        let! noDelete =
+          probeUiAsync(fun () ->
+            menuRow(window, "Delete commit") |> Option.isNone)
+
+        Expect.isTrue noDelete "delete showed for a non-member"
+
+        do! onUiAsync(fun () -> window.Close())
+      })
+
+    testCaseAsync
+      "the organization avatar opens the organization page"
+      (async {
+        let api =
+          FakeApi(fun request ->
+            match
+              organizationAnswer(organizationMentionsEndPageJson, request)
+            with
+            | ValueSome answer -> answer
+            | ValueNone when request.Target.StartsWith "/api/v1/log/" ->
+              ok orgAuthorLogPageJson
+            | ValueNone ->
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let! window = startShell(signedInStore(), api :> IHttp)
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the organization commit never rendered"
+
+        let! avatar =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "AuthorAvatar")),
+            (fun control ->
+              control
+              |> Option.map(fun found -> found :? Button)
+              |> Option.defaultValue false)
+          )
+
+        Expect.isTrue avatar "the avatar trigger never appeared"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "AuthorAvatar")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! opened = showsText(window, "Organization feed")
+
+        Expect.isTrue opened "the organization page never opened"
+
+        do! onUiAsync(fun () -> window.Close())
+      })
   ]

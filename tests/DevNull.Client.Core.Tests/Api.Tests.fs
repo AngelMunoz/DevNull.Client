@@ -477,7 +477,7 @@ let commitApiTests =
         Expect.equal (Some 2) commit.StarsCount "stars"
         Expect.equal (Some 1) commit.RepliesCount "replies"
         Expect.equal Approved commit.Status "status"
-        Expect.equal "octocat" commit.Author.Handle "author"
+        Expect.equal "octocat" (Author.handle commit.Author) "author"
 
         let image = commit.Images |> List.exactlyOne
         Expect.equal 1600 image.Width "image width"
@@ -1012,6 +1012,82 @@ let richCommitTests =
         let mention = commit.Mentions |> List.exactlyOne
         Expect.equal (UnknownMention "webring") mention.Kind "kind"
       | Error error -> failtestf "%A" error
+    }
+  ]
+
+let orgAuthor =
+  "{\"type\":\"organization\",\"handle\":\"devnull\",\"name\":\"DevNull\",\"avatar_url\":\"https://avatars.example/devnull.png\",\"bio\":\"The org.\",\"website\":\"https://dev-null.sh\",\"github_url\":null,\"html_url\":\"https://dev-null.sh/org/devnull\",\"is_followed\":false,\"can_claim\":false,\"settings_url\":null,\"lane\":null,\"followers_count\":11,\"admins\":[{\"id\":\"01a151db-7fee-727b-a7ce-c911a7556242\",\"handle\":\"octocat\",\"name\":\"The Octocat\",\"avatar_url\":null}]}"
+
+let orgCommitJson =
+  commitJson.Replace(
+    "\"author\":{\"id\":\"01a151db-7fee-727b-a7ce-c911a7556242\",\"handle\":\"octocat\",\"name\":\"The Octocat\",\"avatar_url\":\"https://avatars.example/octocat.png\"}",
+    "\"author\":" + orgAuthor
+  )
+
+let authorTests =
+  testList "Api.authors" [
+    test "a commit without a type still decodes as a person" {
+      match
+        CommitNode.decodePage(
+          sprintf
+            "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+            commitJson
+        )
+      with
+      | Ok page ->
+        match page.Items |> List.exactlyOne with
+        | LiveCommit commit ->
+          Expect.equal "octocat" (Author.handle commit.Author) "handle"
+          Expect.isFalse (Author.isOrganization commit.Author) "person"
+        | Tombstone _ -> failtest "expected a live commit"
+      | Error failure -> failtestf "%A" failure
+    }
+
+    test "a commit typed user decodes as a person" {
+      let typed =
+        commitJson.Replace(
+          "\"author\":{\"id\"",
+          "\"author\":{\"type\":\"user\",\"id\""
+        )
+
+      match
+        CommitNode.decodePage(
+          sprintf
+            "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+            typed
+        )
+      with
+      | Ok page ->
+        match page.Items |> List.exactlyOne with
+        | LiveCommit commit ->
+          Expect.equal "octocat" (Author.handle commit.Author) "handle"
+          Expect.isFalse (Author.isOrganization commit.Author) "person"
+        | Tombstone _ -> failtest "expected a live commit"
+      | Error failure -> failtestf "%A" failure
+    }
+
+    test "an organization commit decodes as an organization" {
+      match
+        CommitNode.decodePage(
+          sprintf
+            "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+            orgCommitJson
+        )
+      with
+      | Ok page ->
+        match page.Items |> List.exactlyOne with
+        | LiveCommit commit ->
+          Expect.isTrue (Author.isOrganization commit.Author) "organization"
+          Expect.equal "devnull" (Author.handle commit.Author) "handle"
+          Expect.equal "DevNull" (Author.name commit.Author) "name"
+
+          match Author.organization commit.Author with
+          | Some org ->
+            Expect.equal 1 org.Admins.Length "admins"
+            Expect.equal "octocat" org.Admins.Head.Handle "admin handle"
+          | None -> failtest "expected an organization"
+        | Tombstone _ -> failtest "expected a live commit"
+      | Error failure -> failtestf "%A" failure
     }
   ]
 

@@ -59,7 +59,7 @@ val pastel:
 [<Struct>]
 type ToggleArgs = {
   Session: SignedInSession
-  Author: User
+  Author: Author
   /// The held state the direction follows: held following unfollows,
   /// held muting unmutes, held blocking unblocks.
   Flag: bool

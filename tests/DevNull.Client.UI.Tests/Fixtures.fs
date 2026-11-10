@@ -2017,6 +2017,41 @@ let organizationMentionsEndPageJson =
     "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
     orgMentionCommitJson
 
+/// The organization author, as the wire names it on a commit: the
+/// org profile the viewer is a member of, so delete shows.
+let orgAuthorJson =
+  """{"type":"organization","id":"org-devnull","handle":"devnull","name":"DevNull","avatar_url":null,"bio":"A quiet place for loud commits.","website":"https://devnull.example","github_url":"https://github.com/devnull","html_url":"https://dev-null.sh/org/devnull","is_followed":false,"can_claim":false,"settings_url":null,"lane":3,"followers_count":12,"admins":[{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","handle":"octocat","name":"The Octocat","avatar_url":null}]}"""
+
+/// The same organization author where the viewer is not a member.
+let orgAuthorJsonNoMember =
+  """{"type":"organization","id":"org-devnull","handle":"devnull","name":"DevNull","avatar_url":null,"bio":"A quiet place for loud commits.","website":"https://devnull.example","github_url":"https://github.com/devnull","html_url":"https://dev-null.sh/org/devnull","is_followed":false,"can_claim":false,"settings_url":null,"lane":3,"followers_count":12,"admins":[{"id":"01a151db-7fee-727b-a7ce-c911a7556243","handle":"hubot","name":"The Hubot","avatar_url":null}]}"""
+
+/// One commit authored by the organization, viewer a member.
+let orgAuthorCommitJson =
+  commitJson.Replace(
+    "\"author\":{\"id\":\"01a151db-7fee-727b-a7ce-c911a7556242\",\"handle\":\"octocat\",\"name\":\"The Octocat\",\"avatar_url\":null}",
+    "\"author\":" + orgAuthorJson
+  )
+
+/// One commit authored by the organization, viewer not a member.
+let orgAuthorCommitJsonNoMember =
+  commitJson.Replace(
+    "\"author\":{\"id\":\"01a151db-7fee-727b-a7ce-c911a7556242\",\"handle\":\"octocat\",\"name\":\"The Octocat\",\"avatar_url\":null}",
+    "\"author\":" + orgAuthorJsonNoMember
+  )
+
+/// The log page carrying the member organization commit.
+let orgAuthorLogPageJson =
+  sprintf
+    "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
+    orgAuthorCommitJson
+
+/// The log page carrying the non-member organization commit.
+let orgAuthorLogPageJsonNoMember =
+  sprintf
+    "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
+    orgAuthorCommitJsonNoMember
+
 /// One organization mentions page with no commits.
 let organizationMentionsEmptyPageJson =
   """{"data":[],"links":{},"meta":{"per_page":20,"next_cursor":null,"prev_cursor":null}}"""

@@ -113,6 +113,7 @@ let identityHead(cache: ImageCacheService, profile: Profile) : Control =
         Lane = profile.Lane
         Size = 48.0
         Cache = cache
+        Square = false
       },
       StackPanel()
         .VerticalAlignment(VerticalAlignment.Center)

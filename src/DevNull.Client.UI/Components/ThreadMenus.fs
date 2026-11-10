@@ -197,6 +197,7 @@ let memberAvatar(cache: ImageCacheService, member': ThreadMember) : Control =
     Lane = member'.User.Lane
     Size = 26.0
     Cache = cache
+    Square = false
   })
     .Margin(-6.0, 0.0, 0.0, 0.0)
 

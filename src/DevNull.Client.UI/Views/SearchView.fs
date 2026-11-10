@@ -999,7 +999,8 @@ let view
               [||]
 
           let ordered: Control array =
-            tabs |> Array.append [| profileRows; results; quietRows |]
+            let head: Control array = [| profileRows |]
+            Array.append head (Array.append tabs [| results; quietRows |])
 
           StackPanel().Children(ordered)
     )

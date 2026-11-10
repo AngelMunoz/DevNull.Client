@@ -132,7 +132,10 @@ module CommitStatuses =
 type Segment =
   | TextSegment of text: string
   | CodeSegment of code: string
-  | BlockSegment of language: string option * html: string
+  | BlockSegment of
+    language: string option *
+    filename: string option *
+    html: string
 
 /// What one mention names. An unknown kind stays raw.
 type MentionKind =
@@ -1201,8 +1204,12 @@ let segmentDecoder(element: JsonElement) : Result<Segment, JDeck.DecodeError> =
         Optional.Property.get ("language", Optional.string) element
         |> Result.map Option.flatten
 
+      let! filename =
+        Optional.Property.get ("filename", Optional.string) element
+        |> Result.map Option.flatten
+
       let! html = Required.Property.get ("html", Required.string) element
-      return BlockSegment(language, html)
+      return BlockSegment(language, filename, html)
     }
   | Ok other ->
     JDeck.DecodeError.ofError<Segment>(

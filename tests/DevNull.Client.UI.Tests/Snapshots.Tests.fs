@@ -3099,4 +3099,18 @@ let captureTests =
       let bytes = IO.File.ReadAllBytes(path)
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }
+
+    testAsync "a titled code block shows its filename" {
+      let! window =
+        startShell(signedInStore(), titledCodeBlockLogApi() :> IHttp)
+
+      let! titled = showsText(window, "fig.sh")
+      Expect.isTrue titled "the filename never showed over the block"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F30/f30-code-block-title", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
   ]

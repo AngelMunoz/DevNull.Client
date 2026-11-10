@@ -257,17 +257,34 @@ module Parts =
             .Text(code)
             .TextWrapping(TextWrapping.Wrap)
         )
-    | BlockSegment(_, html) ->
-      Border()
-        .Classes(Theme.name Theme.SurfaceBack)
-        .CornerRadius(6.0)
-        .Padding(10.0)
-        .Margin(0.0, 4.0, 0.0, 0.0)
-        .Child(
-          TextBlock()
-            .Classes(Theme.name Theme.CodeBlock)
-            .Text(plainText html)
-            .TextWrapping(TextWrapping.Wrap)
+    | BlockSegment(language, filename, html) ->
+      let code: Control =
+        TextBlock()
+          .Classes(Theme.name Theme.CodeBlock)
+          .Text(plainText html)
+          .TextWrapping(TextWrapping.Wrap)
+
+      let border =
+        Border()
+          .Classes(Theme.name Theme.SurfaceBack)
+          .CornerRadius(6.0)
+          .Padding(10.0)
+          .Margin(0.0, 4.0, 0.0, 0.0)
+
+      match blockTitle(language, filename) with
+      | None -> border.Child(code)
+      | Some title ->
+        border.Child(
+          StackPanel()
+            .Orientation(Orientation.Vertical)
+            .Spacing(4.0)
+            .Children(
+              TextBlock()
+                .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
+                .FontSize(11.0)
+                .Text(title),
+              code
+            )
         )
 
   // One body from its parts, whatever carries it.

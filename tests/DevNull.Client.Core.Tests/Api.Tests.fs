@@ -904,10 +904,13 @@ let richCommitTests =
         Expect.equal 3 commit.BodySegments.Length "segments"
 
         match commit.BodySegments with
-        | [ TextSegment text; CodeSegment code; BlockSegment(language, html) ] ->
+        | [ TextSegment text
+            CodeSegment code
+            BlockSegment(language, filename, html) ] ->
           Expect.equal "It was DNS." text "text"
           Expect.equal "let x = 1" code "code"
           Expect.equal (Some "fsharp") language "language"
+          Expect.equal None filename "filename"
           Expect.equal "<span>let x = 1</span>" html "html"
         | _ -> failtest "expected three segments"
 
@@ -951,6 +954,28 @@ let richCommitTests =
           Expect.equal (Some "abc") preview.NextCursor "next cursor"
           Expect.equal 1 preview.Data.Length "reply data"
         | None -> failtest "expected a reply preview"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "decodes a block with its filename" {
+      let titled =
+        richCommitJson.Replace(
+          "{\"type\":\"block\",\"language\":\"fsharp\",\"html\":\"<span>let x = 1</span>\"}",
+          "{\"type\":\"block\",\"language\":\"fsharp\",\"filename\":\"Program.fs\",\"html\":\"<span>let x = 1</span>\"}"
+        )
+
+      let http = CapturingHttp(ok(sprintf "{\"data\":%s}" titled))
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(envFor http, commitRequest)
+
+      match result with
+      | Ok commit ->
+        match commit.BodySegments with
+        | [ TextSegment _; CodeSegment _; BlockSegment(language, filename, _) ] ->
+          Expect.equal (Some "fsharp") language "language"
+          Expect.equal (Some "Program.fs") filename "filename"
+        | _ -> failtest "expected three segments"
       | Error error -> failtestf "%A" error
     }
 

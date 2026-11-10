@@ -593,6 +593,22 @@ let tests =
       })
 
     testCaseAsync
+      "a titled code block shows its filename"
+      (async {
+        let! window =
+          startShell(signedInStore(), titledCodeBlockLogApi() :> IHttp)
+
+        let! titled = showsText(window, "fig.sh")
+
+        Expect.isTrue titled "the filename never showed over the block"
+
+        let! decoded =
+          showsText(window, "figlet \"HAVE A GREAT DAY GUYS\" | lolcat")
+
+        Expect.isTrue decoded "the block never showed its quotes"
+      })
+
+    testCaseAsync
       "the log separates the days and rides the rail"
       (async {
         let! window = startShell(signedInStore(), twoDaysLogApi() :> IHttp)

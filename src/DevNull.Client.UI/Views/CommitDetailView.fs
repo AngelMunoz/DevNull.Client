@@ -991,38 +991,42 @@ module State =
       },
       Cmd.none
     | ReportClosed -> { model with ReportOpen = ValueNone }, Cmd.none
-    | StarsOpened commit when
-      (Author.id commit.Author) = props.Session.Session.User.Id
-      && not(Author.isOrganization commit.Author)
-      ->
-      // The list reads fresh on every open, so stars given in the
-      // meantime show up without a reload.
-      {
-        model with
-            StarsOpen = ValueSome commit
-            Stars = []
-            StarsCursor = None
-            StarsBusy = true
-            StarsError = None
-      },
-      Cmd.OfAsync.perform
-        stargazers
-        (props.Env,
-         {
-           Session = props.Session
-           CommitId = commit.Id
-           Cursor = None
-         })
-        (fun result ->
-          StarsFetched(
-            {
-              Session = props.Session
-              CommitId = commit.Id
-              Cursor = None
-            },
-            result
-          ))
-    | StarsOpened _ -> model, Cmd.none
+    | StarsOpened commit ->
+      // The gate decides inside the case: only the author's own
+      // commit opens the list, and the list reads fresh on every
+      // open, so stars given in the meantime show up without a reload.
+      let own =
+        (Author.id commit.Author) = props.Session.Session.User.Id
+        && not(Author.isOrganization commit.Author)
+
+      match own with
+      | false -> model, Cmd.none
+      | true ->
+        {
+          model with
+              StarsOpen = ValueSome commit
+              Stars = []
+              StarsCursor = None
+              StarsBusy = true
+              StarsError = None
+        },
+        Cmd.OfAsync.perform
+          stargazers
+          (props.Env,
+           {
+             Session = props.Session
+             CommitId = commit.Id
+             Cursor = None
+           })
+          (fun result ->
+            StarsFetched(
+              {
+                Session = props.Session
+                CommitId = commit.Id
+                Cursor = None
+              },
+              result
+            ))
     | StarsClosed -> { model with StarsOpen = ValueNone }, Cmd.none
     | StarsFetched(ask, result) ->
       match result with
@@ -1048,8 +1052,9 @@ module State =
     | StarsMore ->
       // One walk both the load-more word and the retry run: the
       // cursor the list stands on, none on the first page.
-      match model.StarsOpen with
-      | ValueSome commit when not model.StarsBusy ->
+      model.StarsOpen
+      |> ValueOption.filter(fun _ -> not model.StarsBusy)
+      |> ValueOption.map(fun commit ->
         let ask: StarsAsk = {
           Session = props.Session
           CommitId = commit.Id
@@ -1062,8 +1067,8 @@ module State =
               StarsError = None
         },
         Cmd.OfAsync.perform stargazers (props.Env, ask) (fun result ->
-          StarsFetched(ask, result))
-      | _ -> model, Cmd.none
+          StarsFetched(ask, result)))
+      |> ValueOption.defaultValue(model, Cmd.none)
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
@@ -1474,33 +1479,33 @@ module Parts =
 
     columns.ColumnDefinitions <- ColumnDefinitions("Auto,*")
 
-    let _ =
-      columns.Children(
-        Avatar.view {
-          Name = person.Name
-          Url = person.AvatarUrl
-          Lane = person.Lane
-          Size = 36.0
-          Cache = props.Env.ImageCache
-          Square = false
-        }
-        |> _.Column(0)
-        |> _.Margin(0.0, 0.0, 12.0, 0.0),
-        StackPanel()
-          .VerticalAlignment(VerticalAlignment.Center)
-          .Spacing(2.0)
-          .Children(
-            TextBlock()
-              .Classes(Theme.name Theme.Subtitle)
-              .Text(person.Name)
-              .TextTrimming(TextTrimming.CharacterEllipsis),
-            TextBlock()
-              .Classes(Theme.name Theme.Mono)
-              .Text("@" + person.Handle)
-              .TextTrimming(TextTrimming.CharacterEllipsis)
-          )
-          .Column(1)
-      )
+    columns.Children(
+      Avatar.view {
+        Name = person.Name
+        Url = person.AvatarUrl
+        Lane = person.Lane
+        Size = 36.0
+        Cache = props.Env.ImageCache
+        Square = false
+      }
+      |> _.Column(0)
+      |> _.Margin(0.0, 0.0, 12.0, 0.0),
+      StackPanel()
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Spacing(2.0)
+        .Children(
+          TextBlock()
+            .Classes(Theme.name Theme.Subtitle)
+            .Text(person.Name)
+            .TextTrimming(TextTrimming.CharacterEllipsis),
+          TextBlock()
+            .Classes(Theme.name Theme.Mono)
+            .Text("@" + person.Handle)
+            .TextTrimming(TextTrimming.CharacterEllipsis)
+        )
+        .Column(1)
+    )
+    |> ignore
 
     Button()
       .Name("StargazerRow")

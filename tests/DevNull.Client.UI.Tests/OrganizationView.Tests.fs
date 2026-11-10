@@ -46,7 +46,7 @@ let openOrganization(window: Window) : Async<unit> = async {
 let tests =
   testList "organization view" [
     testCaseAsync
-      "the organization page renders its header, badge, tab, and mentions"
+      "the organization page renders its header, tab, and mentions"
       (async {
         let api = organizationMentionLogApi(organizationMentionsPageJson)
 
@@ -57,10 +57,6 @@ let tests =
         let! feed = showsText(window, "Organization feed")
 
         Expect.isTrue feed "the organization feed label never rendered"
-
-        let! badge = showsText(window, "Organization")
-
-        Expect.isTrue badge "the organization badge never rendered"
 
         let! kind = showsText(window, "organization")
 
@@ -184,5 +180,136 @@ let tests =
           api.Requests
           (fun request -> request.Target = "/api/v1/organizations/devnull")
           "the organization route never read the profile"
+      })
+
+    testCaseAsync
+      "the organization page follows and shows the follower count"
+      (async {
+        let api = organizationFollowToggleApi(organizationMentionsPageJson)
+
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        do! openOrganization(window)
+
+        let! follow =
+          waitForAsync(
+            5000,
+            (fun () -> buttonWithText(window, "Follow")),
+            Option.isSome
+          )
+
+        Expect.isTrue follow "the follow button never rendered"
+
+        let! count = showsText(window, "12")
+
+        Expect.isTrue count "the follower count never rendered"
+
+        let! label = showsText(window, "followers")
+
+        Expect.isTrue label "the followers label never rendered"
+
+        do! clickWhenShown(window, "Follow")
+
+        let! unfollow =
+          waitForAsync(
+            5000,
+            (fun () -> buttonWithText(window, "Unfollow")),
+            Option.isSome
+          )
+
+        Expect.isTrue unfollow "the unfollow button never rendered"
+
+        do! clickWhenShown(window, "Unfollow")
+
+        let! refollow =
+          waitForAsync(
+            5000,
+            (fun () -> buttonWithText(window, "Follow")),
+            Option.isSome
+          )
+
+        Expect.isTrue refollow "the follow button never came back"
+
+        Expect.exists
+          api.Requests
+          (fun request ->
+            request.Method = "POST"
+            && request.Target = "/api/v1/organizations/devnull/follow")
+          "the organization follow"
+
+        Expect.exists
+          api.Requests
+          (fun request ->
+            request.Method = "DELETE"
+            && request.Target = "/api/v1/organizations/devnull/follow")
+          "the organization unfollow"
+      })
+
+    testCaseAsync
+      "the organization page claims an unclaimed organization"
+      (async {
+        let api = organizationMentionLogApi(organizationMentionsPageJson)
+
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        do! openOrganization(window)
+
+        let! claim =
+          waitForAsync(
+            5000,
+            (fun () -> buttonWithText(window, "Claim this organization")),
+            Option.isSome
+          )
+
+        Expect.isTrue claim "the claim button never rendered"
+
+        do! clickWhenShown(window, "Claim this organization")
+
+        let! recorded =
+          waitForAsync(
+            5000,
+            (fun () ->
+              api.Requests
+              |> List.exists(fun request ->
+                request.Method = "POST"
+                && request.Target = "/api/v1/organizations/devnull/claim")),
+            id
+          )
+
+        Expect.isTrue recorded "the organization claim never recorded"
+
+        Expect.exists
+          api.Requests
+          (fun request ->
+            request.Method = "POST"
+            && request.Target = "/api/v1/organizations/devnull/claim")
+          "the organization claim"
+      })
+
+    testCaseAsync
+      "a refused claim shows the server words on the organization page"
+      (async {
+        let api = organizationClaimRefusedApi(organizationMentionsPageJson)
+
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        do! openOrganization(window)
+
+        do! clickWhenShown(window, "Claim this organization")
+
+        let! refused =
+          showsText(
+            window,
+            "dev-null.sh refused the request (HTTP 409): @devnull was already claimed by @admin."
+          )
+
+        Expect.isTrue refused "the claim refusal words never rendered"
+
+        Expect.exists
+          api.Requests
+          (fun request ->
+            request.Method = "POST"
+            && request.Target = "/api/v1/organizations/devnull/claim")
+          "the organization claim"
       })
   ]

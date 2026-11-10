@@ -58,8 +58,8 @@ own.
   mention links wait on a server field; the guest join link and the developer
   count stay out of scope. The organization claim flow gained an API in the
   2026-11-01 pull and is tracked in
-  [#11](https://github.com/AngelMunoz/DevNull.Client/issues/11), the pool's
-  first item below.
+  [#11](https://github.com/AngelMunoz/DevNull.Client/issues/11), implemented
+  and riding its open PR; the pool below is re-fed from it.
 - Media needs no endpoint work: every image and voice note arrives with a URL
   signed for the user, so the players download bytes directly and Core never
   calls the media routes.
@@ -128,38 +128,34 @@ the consolidated card actions.
 ## Issue index
 
 Phase 1 is done, and the cycle's index (#16, #9, #17, #4, #2) is done
-and merged. The next index is the ordered pool below: ten items, triaged
+and merged. The next index is the ordered pool below: nine items, triaged
 by effort and by how each one builds on the search and organization work
 that just landed. Each issue keeps its own detail in the tracker.
 
-1. [#11 — follow and claim organizations](https://github.com/AngelMunoz/DevNull.Client/issues/11).
-   The direct follow-on to #2: the search already carries an
-   organization's follow state, and this adds the follow, unfollow, and
-   claim calls and the organization page's button.
-2. [#7 — commit authors can be organizations](https://github.com/AngelMunoz/DevNull.Client/issues/7).
+1. [#7 — commit authors can be organizations](https://github.com/AngelMunoz/DevNull.Client/issues/7).
    A correctness fix: an organization author decodes as a person today
    and links wrong. The author shape must branch first, and #23 lands
    on it.
-3. [#23 — organization commits tab](https://github.com/AngelMunoz/DevNull.Client/issues/23).
+2. [#23 — organization commits tab](https://github.com/AngelMunoz/DevNull.Client/issues/23).
    One Core read and one tab on the organization page, on top of #7.
-4. [#24 — organization mentions bell](https://github.com/AngelMunoz/DevNull.Client/issues/24).
+3. [#24 — organization mentions bell](https://github.com/AngelMunoz/DevNull.Client/issues/24).
    Two decoder fields and the bell, count and jump first: no signed API
    marks mentions read yet, so that part waits.
-5. [#30 — code blocks: line ranges and titles out of the language label](https://github.com/AngelMunoz/DevNull.Client/issues/30).
+4. [#30 — code blocks: line ranges and titles out of the language label](https://github.com/AngelMunoz/DevNull.Client/issues/30).
    A check first, then a small split in the renderer if the fault is
    shared. Its own regression test decides.
-6. [#28 — log feed catch-up and batching](https://github.com/AngelMunoz/DevNull.Client/issues/28).
+5. [#28 — log feed catch-up and batching](https://github.com/AngelMunoz/DevNull.Client/issues/28).
    The feed misses late-approved commits today. The log request learns
    the catch-up parameters, and the feed batches what arrives.
-7. [#26 — hashtag links in commit text](https://github.com/AngelMunoz/DevNull.Client/issues/26).
+6. [#26 — hashtag links in commit text](https://github.com/AngelMunoz/DevNull.Client/issues/26).
    Renderer work only: a tag becomes a link into the search that just
    shipped.
-8. [#25 — stargazers on own commits](https://github.com/AngelMunoz/DevNull.Client/issues/25).
+7. [#25 — stargazers on own commits](https://github.com/AngelMunoz/DevNull.Client/issues/25).
    One Core page read and one entry point on the author's own commits.
-9. [#31 — profile pictures in the image viewer](https://github.com/AngelMunoz/DevNull.Client/issues/31).
+8. [#31 — profile pictures in the image viewer](https://github.com/AngelMunoz/DevNull.Client/issues/31).
    The viewer exists. Avatars on the card, the flyout, and the profile
    header learn to open it.
-10. [#27 — search: a Latest tab](https://github.com/AngelMunoz/DevNull.Client/issues/27).
+9. [#27 — search: a Latest tab](https://github.com/AngelMunoz/DevNull.Client/issues/27).
     Verify first: the API support is not confirmed, and the answer
     decides whether the tab is client work or waits on the server.
 

@@ -986,6 +986,42 @@ module Organizations =
       }
     )
 
+  let follow(env, request: Request) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "POST"
+        Target = path(request.Handle, "/follow")
+        Body = ""
+        Decode = Internal.decodeUnit
+      }
+    )
+
+  let unfollow(env, request: Request) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "DELETE"
+        Target = path(request.Handle, "/follow")
+        Body = ""
+        Decode = Internal.decodeUnit
+      }
+    )
+
+  let claim(env, request: Request) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "POST"
+        Target = path(request.Handle, "/claim")
+        Body = ""
+        Decode = Internal.decodeUnit
+      }
+    )
+
   let mentions(env, request: MentionsRequest) =
     let target =
       Internal.withQuery(

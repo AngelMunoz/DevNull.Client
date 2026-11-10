@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Search:** organizations join the results — the search palette and the search page show matching organizations under their own heading below the people, the keyboard walks people and organizations as one list, and a result opens the organization's page; the client now reads the site's profile search and no longer calls the deprecated people endpoint, and in a short window the palette keeps its input and footer in place while its list scrolls inside the card.
 - **Profile:** the follower and following counts open their lists — each row carries the follow control with "Follow back" for people who follow you, and the Following list gains an Organizations section above the people with its own show-more.
+- **Organizations:** an organization's page now carries a follow button with its follower count, so you can follow or stop following it without leaving the app; an organization nobody has claimed yet shows a claim action, and a claim the site refuses answers in the site's own words on the page; the organization's lane color now draws on its avatar and handle.
 
 ### Fixed
 

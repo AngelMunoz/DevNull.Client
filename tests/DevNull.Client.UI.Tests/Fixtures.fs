@@ -1990,7 +1990,14 @@ let orgMentionLogPageJson =
 /// One public organization profile, as GET /api/v1/organizations/{handle}
 /// answers it, inside the data envelope the decoder reads.
 let organizationProfileJson =
-  """{"data":{"handle":"devnull","name":"DevNull","avatar_url":null,"bio":"A quiet place for loud commits.","location":"The void","website":"https://devnull.example","github_url":"https://github.com/devnull","html_url":"https://dev-null.sh/org/devnull"}}"""
+  """{"data":{"handle":"devnull","name":"DevNull","avatar_url":null,"bio":"A quiet place for loud commits.","location":"The void","website":"https://devnull.example","github_url":"https://github.com/devnull","html_url":"https://dev-null.sh/org/devnull","is_following":false,"can_claim":true,"settings_url":null,"lane":3,"followers_count":12,"admins":[]}}"""
+
+/// The same organization profile with the viewer following it.
+let organizationProfileFollowingJson =
+  organizationProfileJson.Replace(
+    "\"is_following\":false",
+    "\"is_following\":true"
+  )
 
 /// One organization mentions page with a cursor to its second page.
 let organizationMentionsPageJson =
@@ -2019,7 +2026,17 @@ let organizationMentionsEmptyPageJson =
 let organizationAnswer
   (mentions: string, request: HttpRequest)
   : HttpResponse voption =
-  if request.Target = "/api/v1/organizations/devnull" then
+  if
+    (request.Method = "POST" || request.Method = "DELETE")
+    && request.Target = "/api/v1/organizations/devnull/follow"
+  then
+    ValueSome(ok "")
+  elif
+    request.Method = "POST"
+    && request.Target = "/api/v1/organizations/devnull/claim"
+  then
+    ValueSome(ok "")
+  elif request.Target = "/api/v1/organizations/devnull" then
     ValueSome(ok organizationProfileJson)
   elif request.Target.StartsWith "/api/v1/organizations/devnull/mentions" then
     if request.Target.Contains "cursor=next" then
@@ -2049,6 +2066,59 @@ let organizationApi(mentions: string) =
 /// organization.
 let organizationMentionLogApi(mentions: string) =
   organizationApiWith(orgMentionLogPageJson, mentions)
+
+/// The organization api whose profile follows the viewer's follow
+/// toggle: a follow makes the next profile read answer following, an
+/// unfollow makes it answer not following again.
+let organizationFollowToggleApi(mentions: string) =
+  let followed = ResizeArray<unit>()
+
+  FakeApi(fun request ->
+    if
+      request.Method = "POST"
+      && request.Target = "/api/v1/organizations/devnull/follow"
+    then
+      followed.Add()
+      ok ""
+    elif
+      request.Method = "DELETE"
+      && request.Target = "/api/v1/organizations/devnull/follow"
+    then
+      followed.Clear()
+      ok ""
+    elif request.Target = "/api/v1/organizations/devnull" then
+      if followed.Count > 0 then
+        ok organizationProfileFollowingJson
+      else
+        ok organizationProfileJson
+    else
+      (match organizationAnswer(mentions, request) with
+       | ValueSome answer -> answer
+       | ValueNone when request.Target.StartsWith "/api/v1/log/" ->
+         ok orgMentionLogPageJson
+       | ValueNone ->
+         (match accountAnswer request with
+          | ValueSome answer -> answer
+          | ValueNone -> ok "{}")))
+
+/// The organization api whose claim the server refuses with its own
+/// words.
+let organizationClaimRefusedApi(mentions: string) =
+  FakeApi(fun request ->
+    if
+      request.Method = "POST"
+      && request.Target = "/api/v1/organizations/devnull/claim"
+    then
+      refused(409, "@devnull was already claimed by @admin.")
+    else
+      (match organizationAnswer(mentions, request) with
+       | ValueSome answer -> answer
+       | ValueNone when request.Target.StartsWith "/api/v1/log/" ->
+         ok orgMentionLogPageJson
+       | ValueNone ->
+         (match accountAnswer request with
+          | ValueSome answer -> answer
+          | ValueNone -> ok "{}")))
 
 /// The first commit quoting the second one inline, so the quoted card
 /// rides under the body.

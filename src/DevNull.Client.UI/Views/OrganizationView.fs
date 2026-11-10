@@ -71,6 +71,7 @@ module State =
     Relations: Map<string, AuthorRelation>
     // The commit whose menu action is in flight, so its items disable.
     MenuBusy: string option
+    HeaderBusy: bool
   }
 
   type Msg =
@@ -101,6 +102,10 @@ module State =
     | AuthorBlockDone of Commit * Result<BlockResult, AppError>
     | DeleteRequested of Commit
     | Deleted of commitId: string * Result<unit, AppError>
+    | FollowToggled
+    | FollowDone of Result<unit, AppError>
+    | ClaimRequested
+    | ClaimDone of Result<unit, AppError>
 
   let initial = {
     ProfileLoading = true
@@ -117,6 +122,7 @@ module State =
     Translations = TranslationModel.initial
     Relations = Map.empty
     MenuBusy = None
+    HeaderBusy = false
   }
 
   [<Struct>]
@@ -229,6 +235,7 @@ module State =
         {
           model with
               ProfileLoading = false
+              HeaderBusy = false
               Details = Some profile
         },
         Cmd.ofAction(fun () ->
@@ -237,6 +244,7 @@ module State =
         {
           model with
               ProfileLoading = false
+              HeaderBusy = false
               Error = Some error
         },
         failed $"the organization {props.Handle}" error
@@ -479,6 +487,79 @@ module State =
          }
        | ValueNone -> model),
       Cmd.none
+    | FollowToggled ->
+      let following =
+        model.Details |> Option.map _.IsFollowing |> Option.defaultValue false
+
+      let request: Organizations.Request = {
+        KeyFile = props.Session.KeyFile
+        Handle = props.Handle
+      }
+
+      {
+        model with
+            HeaderBusy = true
+            Error = None
+      },
+      if following then
+        Cmd.OfAsync.perform
+          Organizations.unfollow
+          (props.Env, request)
+          FollowDone
+      else
+        Cmd.OfAsync.perform Organizations.follow (props.Env, request) FollowDone
+    | FollowDone result ->
+      match result with
+      | Ok() ->
+        model,
+        Cmd.OfAsync.perform
+          Organizations.get
+          (props.Env,
+           {
+             KeyFile = props.Session.KeyFile
+             Handle = props.Handle
+           })
+          Fetched
+      | Error error ->
+        {
+          model with
+              HeaderBusy = false
+              Error = Some error
+        },
+        failed "the organization follow" error
+    | ClaimRequested ->
+      {
+        model with
+            HeaderBusy = true
+            Error = None
+      },
+      Cmd.OfAsync.perform
+        Organizations.claim
+        (props.Env,
+         {
+           KeyFile = props.Session.KeyFile
+           Handle = props.Handle
+         })
+        ClaimDone
+    | ClaimDone result ->
+      match result with
+      | Ok() ->
+        model,
+        Cmd.OfAsync.perform
+          Organizations.get
+          (props.Env,
+           {
+             KeyFile = props.Session.KeyFile
+             Handle = props.Handle
+           })
+          Fetched
+      | Error error ->
+        {
+          model with
+              HeaderBusy = false
+              Error = Some error
+        },
+        failed "the organization claim" error
     | AuthorFollowToggled commit ->
       // The word flips at once and rolls back on a refusal, the way
       // the site's toggle answers before the server does.
@@ -680,18 +761,6 @@ module State =
 
 module Parts =
 
-  let badge() : Control =
-    Border()
-      .Classes(Theme.name Theme.Chip)
-      .CornerRadius(999.0)
-      .VerticalAlignment(VerticalAlignment.Center)
-      .Child(
-        TextBlock()
-          .Classes(Theme.name Theme.Muted)
-          .FontSize(11.0)
-          .Text("Organization")
-      )
-
   let identity
     (images: ImageCacheService, profile: OrganizationProfile)
     : Control =
@@ -702,7 +771,7 @@ module Parts =
         Avatar.view {
           Name = profile.Name
           Url = profile.AvatarUrl
-          Lane = None
+          Lane = profile.Lane
           Size = 64.0
           Cache = images
         },
@@ -710,16 +779,14 @@ module Parts =
           .VerticalAlignment(VerticalAlignment.Center)
           .Spacing(4.0)
           .Children(
-            TextBlock().Classes(Theme.name Theme.Headline).Text(profile.Name),
+            TextBlock()
+              .Classes(Theme.name Theme.Headline)
+              .TextTrimming(TextTrimming.CharacterEllipsis)
+              .Text(profile.Name),
             StackPanel()
               .Orientation(Orientation.Horizontal)
               .Spacing(8.0)
-              .Children(
-                TextBlock()
-                  .Classes(Theme.name Theme.Mono)
-                  .Text("@" + profile.Handle),
-                badge()
-              )
+              .Children(ProfileCard.laneHandle(profile.Lane, profile.Handle))
           )
       )
 
@@ -796,6 +863,81 @@ module Parts =
         |> Observable.distinctUntilChanged
         |> Observable.map(function
           | Some profile -> meta(log, profile)
+          | None -> Panel(): Control)
+        |> _.ToBinding()
+      )
+
+  let followButton
+    (
+      profile: OrganizationProfile,
+      model: IObservable<State.Model>,
+      dispatch: Dispatch<State.Msg>
+    ) : Control =
+    Button()
+      .Name("FollowOrganization:" + profile.Handle)
+      .Classes(Theme.name Theme.NavButton)
+      .Content(if profile.IsFollowing then "Unfollow" else "Follow")
+      .IsEnabled(model |> Observable.map(fun current -> not current.HeaderBusy))
+      .OnClickHandler(fun _ _ -> dispatch State.FollowToggled)
+
+  let claimButton
+    (
+      profile: OrganizationProfile,
+      model: IObservable<State.Model>,
+      dispatch: Dispatch<State.Msg>
+    ) : Control =
+    Button()
+      .Name("ClaimOrganization:" + profile.Handle)
+      .Classes(Theme.name Theme.NavButton)
+      .Content("Claim this organization")
+      .IsEnabled(model |> Observable.map(fun current -> not current.HeaderBusy))
+      .OnClickHandler(fun _ _ -> dispatch State.ClaimRequested)
+
+  let actions
+    (
+      profile: OrganizationProfile,
+      model: IObservable<State.Model>,
+      dispatch: Dispatch<State.Msg>
+    ) : Control =
+    let children: Control array = [|
+      followButton(profile, model, dispatch)
+
+      if profile.CanClaim then
+        claimButton(profile, model, dispatch)
+
+      yield!
+        profile.FollowersCount
+        |> Option.map(fun count ->
+          StackPanel()
+            .Orientation(Orientation.Horizontal)
+            .Spacing(4.0)
+            .VerticalAlignment(VerticalAlignment.Center)
+            .Children(
+              TextBlock().Classes(Theme.name Theme.StatNum).Text(string count),
+              TextBlock().Classes(Theme.name Theme.Muted).Text("followers")
+            )
+          : Control)
+        |> Option.toArray
+    |]
+
+    StackPanel()
+      .Orientation(Orientation.Horizontal)
+      .Spacing(12.0)
+      .VerticalAlignment(VerticalAlignment.Center)
+      .Children(children)
+
+  let actionsHost
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : Control =
+    ContentControl()
+      .Margin(12.0, 0.0, 0.0, 0.0)
+      .VerticalAlignment(VerticalAlignment.Top)
+      .Content(
+        model
+        |> Observable.map _.Details
+        |> Observable.distinctUntilChanged
+        |> Observable.map(function
+          | Some profile -> actions(profile, model, dispatch)
           | None -> Panel(): Control)
         |> _.ToBinding()
       )
@@ -931,7 +1073,13 @@ let view
         else
           PageChrome.Off
     Note = fun _ -> None
-    Header = fun () -> Parts.headerHost(props.Env.ImageCache, model)
+    Header =
+      fun () ->
+        DockPanel()
+          .Children(
+            Parts.actionsHost(model, dispatch).DockRight(),
+            Parts.headerHost(props.Env.ImageCache, model)
+          )
     Meta = ValueSome(fun () -> Parts.metaHost(log, model))
     FeedLabel = Some "Organization feed"
     Tabs = [

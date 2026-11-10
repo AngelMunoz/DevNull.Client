@@ -1319,6 +1319,62 @@ let accountApiTests =
       Expect.equal "/api/v1/organizations/devnull" sent.Target "target"
     }
 
+    testAsync "reads the new organization profile fields" {
+      let response =
+        """{"data":{"handle":"devnull","name":"DevNull","avatar_url":null,"bio":null,"location":null,"website":null,"github_url":null,"html_url":"https://dev-null.sh/org/devnull","is_following":true,"can_claim":true,"settings_url":"https://dev-null.sh/org/devnull/settings","lane":3,"followers_count":12,"admins":[{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0e","handle":"admin","name":"The Admin"}]}}"""
+
+      let http = CapturingHttp(ok response)
+
+      let request: Organizations.Request = {
+        KeyFile = "key-file"
+        Handle = "devnull"
+      }
+
+      let! (result: Result<OrganizationProfile, TestError>) =
+        Organizations.get(envFor http, request)
+
+      match result with
+      | Ok profile ->
+        Expect.equal true profile.IsFollowing "is following"
+        Expect.equal true profile.CanClaim "can claim"
+
+        Expect.equal
+          (Some "https://dev-null.sh/org/devnull/settings")
+          profile.SettingsUrl
+          "settings url"
+
+        Expect.equal (Some(LaneIndex 3)) profile.Lane "lane"
+        Expect.equal (Some 12) profile.FollowersCount "followers count"
+        Expect.equal 1 profile.Admins.Length "admins"
+        Expect.equal "admin" (List.head profile.Admins).Handle "first admin"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "the new organization profile fields default when absent" {
+      let response =
+        """{"data":{"handle":"devnull","name":"DevNull","avatar_url":null,"bio":null,"location":null,"website":null,"github_url":null,"html_url":"https://dev-null.sh/org/devnull"}}"""
+
+      let http = CapturingHttp(ok response)
+
+      let request: Organizations.Request = {
+        KeyFile = "key-file"
+        Handle = "devnull"
+      }
+
+      let! (result: Result<OrganizationProfile, TestError>) =
+        Organizations.get(envFor http, request)
+
+      match result with
+      | Ok profile ->
+        Expect.equal false profile.IsFollowing "is following"
+        Expect.equal false profile.CanClaim "can claim"
+        Expect.equal None profile.SettingsUrl "settings url"
+        Expect.equal None profile.Lane "lane"
+        Expect.equal None profile.FollowersCount "followers count"
+        Expect.equal [] profile.Admins "admins"
+      | Error error -> failtestf "%A" error
+    }
+
     testAsync "an unknown organization stays the refusal path" {
       let http =
         CapturingHttp(
@@ -2113,6 +2169,66 @@ let actionApiTests =
       let sent = http.Requests |> List.exactlyOne
       Expect.equal "POST" sent.Method "method"
       Expect.equal "/api/v1/users/octocat/follow" sent.Target "target"
+    }
+
+    testAsync "follows an organization" {
+      let http = CapturingHttp(ok "")
+
+      let request: Organizations.Request = {
+        KeyFile = "key-file"
+        Handle = "acme"
+      }
+
+      let! (result: Result<unit, TestError>) =
+        Organizations.follow(envFor http, request)
+
+      match result with
+      | Ok() -> ()
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "POST" sent.Method "method"
+      Expect.equal "/api/v1/organizations/acme/follow" sent.Target "target"
+    }
+
+    testAsync "unfollows an organization" {
+      let http = CapturingHttp(ok "")
+
+      let request: Organizations.Request = {
+        KeyFile = "key-file"
+        Handle = "acme"
+      }
+
+      let! (result: Result<unit, TestError>) =
+        Organizations.unfollow(envFor http, request)
+
+      match result with
+      | Ok() -> ()
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "DELETE" sent.Method "method"
+      Expect.equal "/api/v1/organizations/acme/follow" sent.Target "target"
+    }
+
+    testAsync "claims an organization" {
+      let http = CapturingHttp(ok "")
+
+      let request: Organizations.Request = {
+        KeyFile = "key-file"
+        Handle = "acme"
+      }
+
+      let! (result: Result<unit, TestError>) =
+        Organizations.claim(envFor http, request)
+
+      match result with
+      | Ok() -> ()
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "POST" sent.Method "method"
+      Expect.equal "/api/v1/organizations/acme/claim" sent.Target "target"
     }
 
     testAsync "suggests who to follow with the round and profile context" {

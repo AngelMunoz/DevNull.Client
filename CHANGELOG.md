@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-10
+
 ### Added
 
 - **Search:** organizations join the results — the search palette and the search page show matching organizations under their own heading below the people, the keyboard walks people and organizations as one list, and a result opens the organization's page; the client now reads the site's profile search and no longer calls the deprecated people endpoint, and in a short window the palette keeps its input and footer in place while its list scrolls inside the card.

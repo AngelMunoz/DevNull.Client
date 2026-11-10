@@ -13,13 +13,6 @@ on:
         description: "Released version, without the v (example: 0.10.0)"
         required: true
         type: string
-  workflow_call:
-    inputs:
-      version:
-        description: "Released version, without the v"
-        required: true
-        type: string
-
 # The flatpak branch is state: two channel runs must never push
 # against each other.
 concurrency:

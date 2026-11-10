@@ -268,18 +268,25 @@ jobs:
             artifacts/devnull-client.json
 
   # The channel follows the release inside this same run: a release
-  # published by this workflow's token starts no other workflow, so
-  # waiting for a release event would wait forever. The call cannot
-  # mark the release red; a channel failure retries by version
-  # through the channel workflow's manual dispatch. When the tag
-  # already exists the release job is skipped and the call still
-  # runs, so a missing channel heals itself.
-  flatpak:
+  # published by this workflow's token starts no other workflow
+  # event, but a dispatch is exempt from that rule, so this job
+  # starts the channel run by name. The channel runs on its own: its
+  # failure never marks the release red, and it retries by version
+  # through its own manual dispatch. When the tag already exists the
+  # release job is skipped and the dispatch still runs, so a missing
+  # channel heals itself.
+  channel:
     needs: [prepare, release]
     if: ${{ !cancelled() && needs.release.result != 'failure' }}
-    uses: ./.github/workflows/flatpak-channel.yml
-    with:
-      version: ${{ needs.prepare.outputs.version }}
+    runs-on: ubuntu-latest
     permissions:
-      contents: write
-    continue-on-error: true
+      actions: write
+    steps:
+      - name: Dispatch the flatpak channel
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run flatpak-channel.yml \
+            --repo "${{ github.repository }}" \
+            -f version="${{ needs.prepare.outputs.version }}"

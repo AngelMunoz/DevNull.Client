@@ -609,6 +609,46 @@ module Organizations =
       and Rejected<'e>
       and DecodeError<'e>
 
+  /// Follows one organization.
+  val follow:
+    env: 'env * request: Request -> Async<Result<unit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Stops following one organization.
+  val unfollow:
+    env: 'env * request: Request -> Async<Result<unit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Claims one organization for the signed-in user; the server checks
+  /// public GitHub membership and the first claimer becomes its admin.
+  val claim:
+    env: 'env * request: Request -> Async<Result<unit, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
   /// Reads the commits that mention one organization, newest first,
   /// twenty to a cursor page.
   val mentions:

@@ -63,7 +63,9 @@ type FollowedOrganization = {
 }
 
 /// One public organization profile, as the organization read answers
-/// it: its identity lines and its page address.
+/// it: its identity lines, its page address, the viewer's follow state,
+/// whether it can still be claimed, its lane, its follower count, and
+/// its admins, the first admin first.
 type OrganizationProfile = {
   Handle: string
   Name: string
@@ -73,6 +75,12 @@ type OrganizationProfile = {
   Website: string option
   GithubUrl: string option
   HtmlUrl: string
+  IsFollowing: bool
+  CanClaim: bool
+  SettingsUrl: string option
+  Lane: Lane option
+  FollowersCount: int option
+  Admins: User list
 }
 
 /// One issue or pull request a `#number` reference can name: the card

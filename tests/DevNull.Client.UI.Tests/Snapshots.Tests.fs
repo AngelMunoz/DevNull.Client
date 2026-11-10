@@ -313,6 +313,35 @@ let captureTests =
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }
 
+    testAsync "the organization page carries its follow and claim header" {
+      let! window =
+        startShell(
+          signedInStore(),
+          organizationMentionLogApi(organizationMentionsPageJson) :> IHttp
+        )
+
+      let! shown = showsText(window, ", it was DNS.")
+      Expect.isTrue shown "the log never rendered"
+      do! clickWhenShown(window, "@devnull")
+
+      let! opened = showsText(window, "Organization feed")
+      Expect.isTrue opened "the organization page never opened"
+
+      let! follow =
+        waitForAsync(
+          5000,
+          (fun () -> buttonWithText(window, "Follow")),
+          Option.isSome
+        )
+
+      Expect.isTrue follow "the follow button never rendered"
+      do! settleAsync()
+
+      let! path = captureAsync("F11/f11-org-follow", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
     testAsync "the thread clears the band at the wide width" {
       let! window = openThreadAsync()
 

@@ -3006,6 +3006,12 @@ type OrganizationProfile = {
   Website: string option
   GithubUrl: string option
   HtmlUrl: string
+  IsFollowing: bool
+  CanClaim: bool
+  SettingsUrl: string option
+  Lane: Lane option
+  FollowersCount: int option
+  Admins: User list
 }
 
 let organizationProfileDecoder(element: JsonElement) = decode {
@@ -3034,6 +3040,30 @@ let organizationProfileDecoder(element: JsonElement) = decode {
 
   let! htmlUrl = Required.Property.get ("html_url", Required.string) element
 
+  let! isFollowing =
+    Optional.Property.get ("is_following", Optional.boolean) element
+    |> Result.map Option.flatten
+
+  let! canClaim =
+    Optional.Property.get ("can_claim", Optional.boolean) element
+    |> Result.map Option.flatten
+
+  let! settingsUrl =
+    Optional.Property.get ("settings_url", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! lane =
+    Optional.Property.get ("lane", optionalDecoder laneDecoder) element
+    |> Result.map Option.flatten
+
+  let! followersCount =
+    Optional.Property.get ("followers_count", Optional.int) element
+    |> Result.map Option.flatten
+
+  let! admins =
+    Optional.Property.get ("admins", optionalListDecoder userDecoder) element
+    |> Result.map Option.flatten
+
   return {
     Handle = handle
     Name = name
@@ -3043,6 +3073,12 @@ let organizationProfileDecoder(element: JsonElement) = decode {
     Website = website
     GithubUrl = githubUrl
     HtmlUrl = htmlUrl
+    IsFollowing = Option.defaultValue false isFollowing
+    CanClaim = Option.defaultValue false canClaim
+    SettingsUrl = settingsUrl
+    Lane = lane
+    FollowersCount = followersCount
+    Admins = Option.defaultValue [] admins
   }
 }
 

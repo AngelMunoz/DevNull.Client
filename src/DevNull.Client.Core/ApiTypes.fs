@@ -657,8 +657,9 @@ type Notification = {
   Reason: string option
   ReadAt: DateTimeOffset option
   CreatedAt: DateTimeOffset
-  Actor: User
-  Actors: User list
+  Actor: Author
+  Actors: Author list
+  Organization: OrganizationProfile option
   GroupId: string
   EventCount: int
   ActorsCount: int
@@ -2242,10 +2243,16 @@ let notificationDecoder(element: JsonElement) = decode {
   let! createdAt =
     Required.Property.get ("created_at", Required.dateTimeOffset) element
 
-  let! actor = Required.Property.get ("actor", userDecoder) element
+  let! actor = Required.Property.get ("actor", authorDecoder) element
 
   let! actors =
-    Optional.Property.get ("actors", optionalListDecoder userDecoder) element
+    Optional.Property.get ("actors", optionalListDecoder authorDecoder) element
+    |> Result.map Option.flatten
+
+  let! organization =
+    Optional.Property.get
+      ("organization", optionalDecoder organizationProfileDecoder)
+      element
     |> Result.map Option.flatten
 
   let! groupId = Required.Property.get ("group_id", Required.string) element
@@ -2270,6 +2277,7 @@ let notificationDecoder(element: JsonElement) = decode {
     CreatedAt = createdAt
     Actor = actor
     Actors = Option.defaultValue [] actors
+    Organization = organization
     GroupId = groupId
     EventCount = eventCount
     ActorsCount = actorsCount

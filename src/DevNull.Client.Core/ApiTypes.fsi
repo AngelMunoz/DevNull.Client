@@ -618,8 +618,9 @@ type Notification = {
   Reason: string option
   ReadAt: DateTimeOffset option
   CreatedAt: DateTimeOffset
-  Actor: User
-  Actors: User list
+  Actor: Author
+  Actors: Author list
+  Organization: OrganizationProfile option
   GroupId: string
   EventCount: int
   ActorsCount: int

@@ -4552,6 +4552,31 @@ let tests =
       })
 
     testCaseAsync
+      "an organization context carries the whose wording"
+      (async {
+        let api = orgContextInboxApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Notifications")
+
+        let! replied = showsText(window, "replied to @acme's commit")
+
+        Expect.isTrue replied "the org-context reply never rendered"
+
+        let! mentioned = showsText(window, "mentioned @acme")
+
+        Expect.isTrue mentioned "the org-context mention never rendered"
+
+        let! actor = showsText(window, "Acme")
+
+        Expect.isTrue actor "the organization actor never rendered"
+      })
+
+    testCaseAsync
       "the inbox filter requests the typed list"
       (async {
         let api = groupedInboxApi()

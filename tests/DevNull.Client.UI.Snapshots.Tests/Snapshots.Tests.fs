@@ -324,6 +324,24 @@ let captureTests =
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }
 
+    testAsync "the organization context notification renders" {
+      let! window = startShell(signedInStore(), orgContextInboxApi() :> IHttp)
+
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the shell never rendered its content"
+
+      do! clickWhenShown(window, "Notifications")
+
+      let! row = showsText(window, "replied to @acme's commit")
+      Expect.isTrue row "the org-context row never rendered"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F54/f54-org-notification", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
     testAsync "the organization page carries its follow and claim header" {
       let! window =
         startShell(

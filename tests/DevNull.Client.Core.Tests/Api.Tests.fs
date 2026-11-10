@@ -1117,6 +1117,71 @@ let authorTests =
     }
   ]
 
+let notificationOrgJson =
+  sprintf
+    """{"id":"01a15752-dddd-7065-b076-99e5bdad596d","type":"replied","subject_id":null,"reason":null,"read_at":null,"created_at":"2026-10-20T04:17:19Z","actor":%s,"actors":[%s],"organization":%s,"group_id":"01a15751-cccc-7261-a486-e524bcb4d8e8","event_count":1,"actors_count":1,"unread_count":0,"commit":%s}"""
+    orgAuthor
+    orgAuthor
+    orgAuthor
+    commitJson
+
+let notificationOrgTests =
+  testList "Api.notificationOrganization" [
+    test "a notification with an organization and an org actor decodes" {
+      match
+        Notification.decodePage(
+          sprintf
+            "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+            notificationOrgJson
+        )
+      with
+      | Ok page ->
+        let item = page.Items |> List.exactlyOne
+
+        Expect.isTrue
+          (Author.isOrganization item.Actor)
+          "the actor is an organization"
+
+        Expect.equal "devnull" (Author.handle item.Actor) "actor handle"
+        Expect.equal 1 item.Actors.Length "actors"
+
+        Expect.isTrue
+          (item.Actors |> List.forall Author.isOrganization)
+          "actors are organizations"
+
+        match item.Organization with
+        | Some org -> Expect.equal "devnull" org.Handle "organization handle"
+        | None -> failtest "expected an organization context"
+      | Error failure -> failtestf "%A" failure
+    }
+
+    test "a person notification carries no organization" {
+      let nulled =
+        notificationJson.Replace(
+          "\"group_id\"",
+          "\"organization\":null,\"group_id\""
+        )
+
+      match
+        Notification.decodePage(
+          sprintf
+            "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+            nulled
+        )
+      with
+      | Ok page ->
+        let item = page.Items |> List.exactlyOne
+        Expect.isNone item.Organization "no organization context"
+
+        Expect.isFalse
+          (Author.isOrganization item.Actor)
+          "the actor is a person"
+
+        Expect.equal "octocat" (Author.handle item.Actor) "actor handle"
+      | Error failure -> failtestf "%A" failure
+    }
+  ]
+
 let devicesListJson =
   """{"data":[{"id":"018f4c1e-dev0-7c3a-9b2d-5e6f7a8b9c0d","name":"This Fedora desktop","app_name":null,"fingerprint":"SHA256:OwnDeviceFingerprint0123456789012345","approved_at":"2026-10-01T00:00:00Z","last_used_at":"2026-10-28T00:00:00Z"},{"id":"018f4c1e-dev1-7c3a-9b2d-5e6f7a8b9c0d","name":"A Mac laptop","app_name":"DevNull Client","fingerprint":"SHA256:AnotherDeviceFingerprint0123456789012","approved_at":"2026-09-01T00:00:00Z","last_used_at":null},{"id":"018f4c1e-dev2-7c3a-9b2d-5e6f7a8b9c0d","name":"A Linux desktop","fingerprint":"SHA256:ThirdDeviceFingerprint01234567890123","approved_at":"2026-08-01T00:00:00Z","last_used_at":null}]}"""
 

@@ -1875,6 +1875,56 @@ let groupedInboxApi() =
        | ValueSome answer -> answer
        | ValueNone -> ok "{}"))
 
+/// The acme organization as the inbox carries it: the actor shape
+/// and the organization context share the organization resource.
+let acmeOrgJson =
+  """{"type":"organization","handle":"acme","name":"Acme","avatar_url":null,"bio":"The org.","location":"Berlin","website":"https://acme.example","github_url":null,"html_url":"https://dev-null.sh/org/acme","is_followed":false,"can_claim":false,"settings_url":null,"lane":null,"followers_count":7,"admins":[]}"""
+
+/// One org-context reply: the actor is a person, the organization
+/// names the context the whose-wording carries.
+let orgContextReplyJson =
+  sprintf
+    """{"id":"01a15752-eeee-7065-b076-99e5bdad596d","type":"replied","subject_id":null,"reason":null,"read_at":null,"created_at":"2026-10-20T04:17:19Z","actor":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"organization":%s,"group_id":"01a15751-dddd-7261-a486-e524bcb4d8e8","event_count":1,"actors_count":1,"unread_count":0,"commit":%s}"""
+    acmeOrgJson
+    commitJson
+
+/// One org-context mention: the organization is mentioned instead
+/// of the viewer.
+let orgContextMentionJson =
+  sprintf
+    """{"id":"01a15752-ffff-7065-b076-99e5bdad596d","type":"mentioned","subject_id":null,"reason":null,"read_at":null,"created_at":"2026-10-20T04:17:19Z","actor":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"organization":%s,"group_id":"01a15751-eeee-7261-a486-e524bcb4d8e8","event_count":1,"actors_count":1,"unread_count":0,"commit":%s}"""
+    acmeOrgJson
+    commitJson
+
+/// One reply whose actor is the organization itself.
+let orgActorReplyJson =
+  sprintf
+    """{"id":"01a15752-aaaa-7065-b076-99e5bdad596d","type":"replied","subject_id":null,"reason":null,"read_at":null,"created_at":"2026-10-20T04:17:19Z","actor":%s,"organization":%s,"group_id":"01a15751-ffff-7261-a486-e524bcb4d8e8","event_count":1,"actors_count":1,"unread_count":0,"commit":%s}"""
+    acmeOrgJson
+    acmeOrgJson
+    commitJson
+
+/// The org-context inbox: a reply, a mention, and an org-actor reply.
+let orgContextInboxJson =
+  sprintf
+    "{\"data\":[%s,%s,%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"filters\":{\"type\":\"all\"},\"read_at\":\"2026-10-20T04:20:00Z\"}"
+    orgContextReplyJson
+    orgContextMentionJson
+    orgActorReplyJson
+
+/// The api of the org-context inbox test: the boot log and the
+/// org-context inbox answer from cans.
+let orgContextInboxApi() =
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/notifications" then
+      ok orgContextInboxJson
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
 /// The api of the profile stats test: the boot log and the carrying
 /// profile answer from cans.
 let statsProfileApi() =

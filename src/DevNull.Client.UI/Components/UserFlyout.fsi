@@ -33,3 +33,18 @@ val attach: source: Source * user: User * child: Control -> Control
 /// The author-shaped attach: a person rides the hover card, an
 /// organization opens its page on click.
 val attachAuthor: source: Source * author: Author * child: Control -> Control
+
+/// One named author attach: the source, the author, the trigger
+/// control name, and the child the trigger carries. The avatar
+/// keeps the `AuthorAvatar` name; an identity line uses its own
+/// name so a test can tell the two triggers apart.
+[<Struct>]
+type AuthorAttach = {
+  Source: Source
+  Author: Author
+  Name: string
+  Child: Control
+}
+
+/// The author-shaped attach under a caller-chosen trigger name.
+val attachAuthorNamed: args: AuthorAttach -> Control

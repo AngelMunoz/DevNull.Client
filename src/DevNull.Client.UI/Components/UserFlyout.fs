@@ -113,7 +113,18 @@ module Parts =
           .Child(StackPanel().Spacing(8.0).Children(children))
       )
 
-let attach(source: Source, user: User, child: Control) : Control =
+[<Struct>]
+type AttachArgs = {
+  Source: Source
+  User: User
+  Name: string
+  Child: Control
+}
+
+let attachNamed(args: AttachArgs) : Control =
+  let source = args.Source
+  let user = args.User
+  let child = args.Child
   let card = ContentControl().Name("UserFlyout")
 
   let popup =
@@ -161,7 +172,7 @@ let attach(source: Source, user: User, child: Control) : Control =
 
   let trigger =
     Button()
-      .Name("AuthorAvatar")
+      .Name(args.Name)
       .Classes(Theme.name Theme.GhostButton)
       .Padding(0.0)
       .Content(child)
@@ -183,18 +194,48 @@ let attach(source: Source, user: User, child: Control) : Control =
 
   Grid().Children(trigger, popup)
 
-/// The author-shaped attach: a person rides the hover card, an
-/// organization opens its page on click.
-let attachAuthor(source: Source, author: Author, child: Control) : Control =
-  match author with
-  | Person user -> attach(source, user, child)
+let attach(source: Source, user: User, child: Control) : Control =
+  attachNamed {
+    Source = source
+    User = user
+    Name = "AuthorAvatar"
+    Child = child
+  }
+
+[<Struct>]
+type AuthorAttach = {
+  Source: Source
+  Author: Author
+  Name: string
+  Child: Control
+}
+
+let attachAuthorNamed(args: AuthorAttach) : Control =
+  match args.Author with
+  | Person user ->
+    attachNamed {
+      Source = args.Source
+      User = user
+      Name = args.Name
+      Child = args.Child
+    }
   | Organization org ->
+    let source = args.Source
+
     (Button()
-      .Name("AuthorAvatar")
+      .Name(args.Name)
       .Classes(Theme.name Theme.GhostButton)
       .Padding(0.0)
-      .Content(child)
+      .Content(args.Child)
       .OnClickHandler(fun _ args ->
         args.Handled <- true
         source.OnOpenOrg org.Handle))
     :> Control
+
+let attachAuthor(source: Source, author: Author, child: Control) : Control =
+  attachAuthorNamed {
+    Source = source
+    Author = author
+    Name = "AuthorAvatar"
+    Child = child
+  }

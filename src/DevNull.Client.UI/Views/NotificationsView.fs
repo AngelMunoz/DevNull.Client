@@ -600,22 +600,59 @@ module Parts =
           .MaxLines(2)
           .TextTrimming(TextTrimming.CharacterEllipsis))
 
+  // What one row's parts read: the router, the dispatch, the model.
+  type RowCtx = {
+    Nav: INavigable
+    Dispatch: Dispatch<State.Msg>
+    Model: IObservable<State.Model>
+    Images: ImageCacheService
+    Flyout: Source voption
+  }
+
+  // The actor name as one piece, with the handle when the row shows
+  // one: with a flyout source the piece carries the hover card and
+  // the handled profile click; without one it stays plain text.
+  let identityPiece
+    (author: Author, flyout: Source voption, showHandle: bool)
+    : Control =
+    let children: Control array = [|
+      TextBlock().Classes(Theme.name Theme.Subtitle).Text(Author.name author)
+
+      if showHandle then
+        TextBlock()
+          .Classes(Theme.name Theme.Mono)
+          .Text($"@{Author.handle author}")
+          .TextTrimming(TextTrimming.CharacterEllipsis)
+    |]
+
+    let piece =
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Spacing(6.0)
+        .Children(children)
+
+    match flyout with
+    | ValueSome source ->
+      UserFlyout.attachAuthorNamed {
+        Source = source
+        Author = author
+        Name = "AuthorIdentity"
+        Child = piece
+      }
+    | ValueNone -> piece
+
   // One expanded event inside a group: the actor, the action, and the
   // excerpt, off a short spine.
-  let eventRow
-    (
-      cache: ImageCacheService,
-      notification: Notification,
-      now: IObservable<DateTimeOffset>
-    ) : Control =
+  let eventRow(ctx: RowCtx, notification: Notification) : Control =
+    let now = ctx.Model |> Observable.map _.Now
+    let cache = ctx.Images
+
     let identity =
       StackPanel()
         .Orientation(Orientation.Horizontal)
         .Spacing(6.0)
         .Children(
-          TextBlock()
-            .Classes(Theme.name Theme.Subtitle)
-            .Text(Author.name notification.Actor),
+          identityPiece(notification.Actor, ctx.Flyout, false),
           TextBlock()
             .Classes(Theme.name Theme.Mono)
             .Text(
@@ -648,29 +685,26 @@ module Parts =
       .Spacing(10.0)
       .Margin(0.0, 4.0, 0.0, 0.0)
       .Children(
-        Avatar.view {
-          Name = Author.name notification.Actor
-          Url = Author.avatarUrl notification.Actor
-          Lane = Author.lane notification.Actor
-          Size = 28.0
-          Cache = cache
-          Square = Author.isOrganization notification.Actor
-          Viewable = false
-        },
+        (let plain =
+          Avatar.view {
+            Name = Author.name notification.Actor
+            Url = Author.avatarUrl notification.Actor
+            Lane = Author.lane notification.Actor
+            Size = 28.0
+            Cache = cache
+            Square = Author.isOrganization notification.Actor
+            Viewable = false
+          }
+
+         match ctx.Flyout with
+         | ValueSome source ->
+           UserFlyout.attachAuthor(source, notification.Actor, plain)
+         | ValueNone -> plain),
         StackPanel()
           .VerticalAlignment(VerticalAlignment.Center)
           .Spacing(4.0)
           .Children(children)
       )
-
-  // What one row's parts read: the router, the dispatch, the model.
-  type RowCtx = {
-    Nav: INavigable
-    Dispatch: Dispatch<State.Msg>
-    Model: IObservable<State.Model>
-    Images: ImageCacheService
-    Flyout: Source voption
-  }
 
   // One group's expansion host: the toggle line and, while open, the
   // events the group endpoint returned. Every piece binds the group's
@@ -712,7 +746,7 @@ module Parts =
           id,
           fun current ->
             StackPanel().Margin(24.0, 0.0, 0.0, 0.0).Children [|
-              for item in current.Items -> eventRow(ctx.Images, item, now)
+              for item in current.Items -> eventRow(ctx, item)
             |]
         )
 
@@ -742,13 +776,7 @@ module Parts =
         .Orientation(Orientation.Horizontal)
         .Spacing(6.0)
         .Children(
-          TextBlock()
-            .Classes(Theme.name Theme.Subtitle)
-            .Text(Author.name notification.Actor),
-          TextBlock()
-            .Classes(Theme.name Theme.Mono)
-            .Text($"@{Author.handle notification.Actor}")
-            .TextTrimming(TextTrimming.CharacterEllipsis),
+          identityPiece(notification.Actor, ctx.Flyout, true),
           TextBlock()
             .Classes(Theme.name Theme.Mono)
             .Text(

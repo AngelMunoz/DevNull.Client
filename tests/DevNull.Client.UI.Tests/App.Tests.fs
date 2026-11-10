@@ -2739,6 +2739,178 @@ let tests =
       })
 
     testCaseAsync
+      "the author name and handle open the author's profile"
+      (async {
+        let api = logApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        let! identity =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "AuthorIdentity")),
+            (fun control ->
+              control
+              |> Option.map(fun found -> found :? Button)
+              |> Option.defaultValue false)
+          )
+
+        Expect.isTrue identity "the author identity trigger never appeared"
+
+        do! clickNamed(window, "AuthorIdentity")
+
+        let! profile = showsText(window, "Builds things.")
+
+        Expect.isTrue profile "the author's profile never opened"
+      })
+
+    testCaseAsync
+      "the card body still opens the commit beside the identity"
+      (async {
+        let api = logApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "It was DNS.") |> Option.iter click)
+
+        let! thread = showsText(window, "Back to the log")
+
+        Expect.isTrue thread "the thread never rendered"
+      })
+
+    testCaseAsync
+      "an organization author's identity opens the organization page"
+      (async {
+        let api =
+          FakeApi(fun request ->
+            if request.Target.StartsWith "/api/v1/log/" then
+              ok orgAuthorLogPageJson
+            elif request.Target = "/api/v1/organizations/devnull" then
+              ok organizationProfileJson
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickNamed(window, "AuthorIdentity")
+
+        let! org = showsText(window, "A quiet place for loud commits.")
+
+        Expect.isTrue org "the organization page never opened"
+      })
+
+    testCaseAsync
+      "the inbox identity opens the profile, not the commit"
+      (async {
+        let api = accountApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Notifications")
+
+        let! replied = showsText(window, "replied to your commit")
+
+        Expect.isTrue replied "the notification never rendered"
+
+        do! clickNamed(window, "AuthorIdentity")
+
+        let! profile = showsText(window, "Builds things.")
+
+        Expect.isTrue profile "the author's profile never opened"
+      })
+
+    testCaseAsync
+      "the inbox identity opens the profile with no commit behind it"
+      (async {
+        let inbox =
+          sprintf
+            """{"data":[%s],"links":{},"meta":{"per_page":20,"next_cursor":null,"prev_cursor":null},"filters":{"type":"all"},"read_at":"2026-10-20T04:20:00Z"}"""
+            (notificationJson.Replace(commitJson, "null"))
+
+        let api =
+          FakeApi(fun request ->
+            if request.Target.StartsWith "/api/v1/notifications" then
+              ok inbox
+            elif request.Target.StartsWith "/api/v1/log/" then
+              ok logPageJson
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Notifications")
+
+        let! replied = showsText(window, "replied to your commit")
+
+        Expect.isTrue replied "the notification never rendered"
+
+        do! clickNamed(window, "AuthorIdentity")
+
+        let! profile = showsText(window, "Builds things.")
+
+        Expect.isTrue profile "the author's profile never opened"
+      })
+
+    testCaseAsync
+      "an expanded group event identity opens the profile"
+      (async {
+        let api = groupedInboxApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Notifications")
+
+        do! clickWhenShown(window, "3 stars")
+
+        let! expanded = showsText(window, "Starred once.")
+
+        Expect.isTrue expanded "the group events never rendered"
+
+        // The last identity trigger is an event row's: the group row
+        // and its events share the actor, and each opens the profile.
+        do!
+          onUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.filter(fun visual -> visual.Name = "AuthorIdentity")
+            |> Seq.choose(fun visual ->
+              match visual with
+              | :? Button as button -> Some button
+              | _ -> None)
+            |> Seq.last
+            |> click)
+
+        let! profile = showsText(window, "Builds things.")
+
+        Expect.isTrue profile "the author's profile never opened"
+      })
+
+    testCaseAsync
       "the quote composer hides the attach button"
       (async {
         let api = threadApi()

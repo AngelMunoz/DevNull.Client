@@ -1042,14 +1042,11 @@ module Parts =
 
         asyncEx { do! clipboard.SetDataAsync data } |> Async.StartImmediate
 
-  // The identity line: name, handle, and time in the site's rhythm,
-  // the short hash docked to the right edge.
-  let header
-    (commit: Commit, now: IObservable<DateTimeOffset>, zone: Zone)
-    : Control =
-    let hash = TextBlock().Classes(Theme.name Theme.Mono).Text(commit.ShortHash)
-
-    let identity =
+  // The name and handle as one piece: with a flyout source the
+  // piece carries the hover card and the handled profile click;
+  // without one it stays plain text.
+  let authorIdentity(commit: Commit, flyout: Source voption) : Control =
+    let piece =
       StackPanel()
         .Orientation(Orientation.Horizontal)
         .Spacing(6.0)
@@ -1061,17 +1058,40 @@ module Parts =
           TextBlock()
             .Classes(Theme.name Theme.Mono)
             .Text($"@{(Author.handle commit.Author)}")
-            .TextTrimming(TextTrimming.CharacterEllipsis),
+            .TextTrimming(TextTrimming.CharacterEllipsis)
+        )
+
+    match flyout with
+    | ValueSome source ->
+      UserFlyout.attachAuthorNamed {
+        Source = source
+        Author = commit.Author
+        Name = "AuthorIdentity"
+        Child = piece
+      }
+    | ValueNone -> piece
+
+  // The identity line: name, handle, and time in the site's rhythm,
+  // the short hash docked to the right edge.
+  let header(props: Props, commit: Commit) : Control =
+    let hash = TextBlock().Classes(Theme.name Theme.Mono).Text(commit.ShortHash)
+
+    let identity =
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Spacing(6.0)
+        .Children(
+          authorIdentity(commit, props.Flyout),
           TextBlock().Classes(Theme.name Theme.Muted).Text("·"),
           TextBlock()
             .Classes(Theme.name Theme.Mono)
             .Text(
-              now
+              props.Now
               |> Observable.map(fun moment -> timeAgo(moment, commit.CreatedAt))
             )
         )
 
-    ToolTip.SetTip(identity, absolute(zone, commit.CreatedAt))
+    ToolTip.SetTip(identity, absolute(props.Zone, commit.CreatedAt))
 
     DockPanel().Children(hash.DockRight(), identity)
 
@@ -1198,20 +1218,13 @@ module Parts =
   // The identity line of a reply row: name, handle, time. The hash
   // stays off; the site keeps replies light this way.
   let replyIdentity
-    (commit: Commit, now: IObservable<DateTimeOffset>)
+    (flyout: Source voption, commit: Commit, now: IObservable<DateTimeOffset>)
     : Control =
     StackPanel()
       .Orientation(Orientation.Horizontal)
       .Spacing(6.0)
       .Children(
-        TextBlock()
-          .Classes(Theme.name Theme.Subtitle)
-          .Text((Author.name commit.Author)),
-        TextBlock().Classes(Theme.name Theme.Muted).Text("·"),
-        TextBlock()
-          .Classes(Theme.name Theme.Mono)
-          .Text($"@{(Author.handle commit.Author)}")
-          .TextTrimming(TextTrimming.CharacterEllipsis),
+        authorIdentity(commit, flyout),
         TextBlock().Classes(Theme.name Theme.Muted).Text("·"),
         TextBlock()
           .Classes(Theme.name Theme.Mono)
@@ -1540,11 +1553,7 @@ let view(props: Props) : Control =
   let content =
     StackPanel()
       .Margin(0.0, pad, 16.0, pad)
-      .Children(
-        Parts.header(commit, props.Now, props.Zone),
-        body,
-        Parts.actions props
-      )
+      .Children(Parts.header(props, commit), body, Parts.actions props)
 
   // The hairline stops at the rail column: the rail runs unbroken.
   let contentColumn =
@@ -1727,7 +1736,7 @@ type ChainSpot = {
 // body, the images. A click opens the reply's own thread.
 let slimContent(props: RowProps, commit: Commit) : Control =
   let children: Control array = [|
-    Parts.replyIdentity(commit, props.Now)
+    Parts.replyIdentity(props.Flyout, commit, props.Now)
     Parts.bodyOf(props.Flyout, commit)
 
     match commit.Images with

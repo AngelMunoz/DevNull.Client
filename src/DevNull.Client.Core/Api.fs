@@ -1980,11 +1980,18 @@ module Logs =
     let target =
       Internal.withQuery(
         "/api/v1/log/" + LogKinds.wire request.Log,
-        Internal.optionalParameter("since", since |> Option.map CommitIds.value)
-        @ (arrived |> List.map(fun id -> "arrived[]", CommitIds.value id))
-        @ (pending |> List.map(fun id -> "pending[]", CommitIds.value id))
-        @ Internal.flagParameter("everything", request.Everything)
-        @ Internal.optionalParameter("cursor", request.Cursor)
+        [
+          yield!
+            Internal.optionalParameter(
+              "since",
+              since |> Option.map CommitIds.value
+            )
+
+          yield! arrived |> List.map(fun id -> "arrived[]", CommitIds.value id)
+          yield! pending |> List.map(fun id -> "pending[]", CommitIds.value id)
+          yield! Internal.flagParameter("everything", request.Everything)
+          yield! Internal.optionalParameter("cursor", request.Cursor)
+        ]
       )
 
     let headers =

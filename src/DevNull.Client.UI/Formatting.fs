@@ -82,3 +82,6 @@ let plainText(html: string) : string =
   |> System.Net.WebUtility.HtmlDecode
   |> Option.ofObj
   |> Option.defaultValue ""
+
+let blockTitle(language: string option, filename: string option) =
+  filename |> Option.orElse language

@@ -128,30 +128,24 @@ the consolidated card actions.
 ## Issue index
 
 Phase 1 is done, and the cycle's index (#16, #9, #17, #4, #2) is done
-and merged. The next index is the ordered pool below: six items, triaged
+and merged. The next index is the ordered pool below: three items, triaged
 by effort and by how each one builds on the search and organization work
 that just landed. Each issue keeps its own detail in the tracker.
 [#7](https://github.com/AngelMunoz/DevNull.Client/issues/7),
 [#23](https://github.com/AngelMunoz/DevNull.Client/issues/23), and
-[#24](https://github.com/AngelMunoz/DevNull.Client/issues/24) are
+[#24](https://github.com/AngelMunoz/DevNull.Client/issues/24) are merged.
+[#30](https://github.com/AngelMunoz/DevNull.Client/issues/30),
+[#28](https://github.com/AngelMunoz/DevNull.Client/issues/28), and
+[#26](https://github.com/AngelMunoz/DevNull.Client/issues/26) are
 implemented and ride their stacked open pull requests; the pool below is
 re-fed from them.
 
-1. [#30 — code blocks: line ranges and titles out of the language label](https://github.com/AngelMunoz/DevNull.Client/issues/30).
-   A check first, then a small split in the renderer if the fault is
-   shared. Its own regression test decides.
-2. [#28 — log feed catch-up and batching](https://github.com/AngelMunoz/DevNull.Client/issues/28).
-   The feed misses late-approved commits today. The log request learns
-   the catch-up parameters, and the feed batches what arrives.
-3. [#26 — hashtag links in commit text](https://github.com/AngelMunoz/DevNull.Client/issues/26).
-   Renderer work only: a tag becomes a link into the search that just
-   shipped.
-4. [#25 — stargazers on own commits](https://github.com/AngelMunoz/DevNull.Client/issues/25).
+1. [#25 — stargazers on own commits](https://github.com/AngelMunoz/DevNull.Client/issues/25).
    One Core page read and one entry point on the author's own commits.
-5. [#31 — profile pictures in the image viewer](https://github.com/AngelMunoz/DevNull.Client/issues/31).
+2. [#31 — profile pictures in the image viewer](https://github.com/AngelMunoz/DevNull.Client/issues/31).
    The viewer exists. Avatars on the card, the flyout, and the profile
    header learn to open it.
-6. [#27 — search: a Latest tab](https://github.com/AngelMunoz/DevNull.Client/issues/27).
+3. [#27 — search: a Latest tab](https://github.com/AngelMunoz/DevNull.Client/issues/27).
     Verify first: the API support is not confirmed, and the answer
     decides whether the tab is client work or waits on the server.
 

@@ -22,12 +22,16 @@ type Waveform = DevNull.Client.Core.Commit.Waveform
 
 module Signing =
 
-  /// The values one signed v1 request needs.
+  /// The values one signed v1 request needs. Extra headers ride
+  /// beside the signature headers; they stay outside the signed
+  /// message, which carries the timestamp, the nonce, the method,
+  /// the target, and the body.
   type Request = {
     KeyFile: string
     Method: string
     Target: string
     Body: string
+    Headers: (string * string) list
   }
 
   /// The values one signed v1 request with images needs.
@@ -1181,12 +1185,23 @@ module Pasteis =
 
 module Logs =
 
-  /// One log page.
+  /// One log page. The poll extras ride a page read: `Arrived` are
+  /// the newer commits the poll heard while the pill waited, `Pending`
+  /// are the loaded live commits, `Everything` asks for the full
+  /// range, and `Through` names the oldest loaded range as ids in
+  /// caller order. Each id is validated as a commit id; `Arrived`
+  /// and `Pending` keep at most the first hundred, `Through` at most
+  /// the first twenty, in caller order, and `Through` rides the
+  /// `X-Log-Through` header only.
   type Request = {
     KeyFile: string
     Log: LogKind
     Since: string option
     Cursor: string option
+    Arrived: string list
+    Pending: string list
+    Everything: bool
+    Through: string list
   }
 
   /// Reads one log page.

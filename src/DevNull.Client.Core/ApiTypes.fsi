@@ -143,11 +143,16 @@ module CommitStatuses =
   /// The wire status.
   val wire: status: CommitStatus -> string
 
-/// One piece of a commit body.
+/// One piece of a commit body. A block carries the language the
+/// fence names and the title the fence names, when the server sends
+/// one; the title wins over the language on the header line.
 type Segment =
   | TextSegment of text: string
   | CodeSegment of code: string
-  | BlockSegment of language: string option * html: string
+  | BlockSegment of
+    language: string option *
+    filename: string option *
+    html: string
 
 /// What one mention names. An unknown kind stays raw.
 type MentionKind =

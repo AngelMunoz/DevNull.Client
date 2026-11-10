@@ -19,6 +19,7 @@ type Source = {
   Fetch: string -> Async<ProfileDetails option>
   OnOpen: string -> unit
   OnOpenOrg: string -> unit
+  OnOpenTag: string -> unit
   Cache: ImageCacheService
 }
 

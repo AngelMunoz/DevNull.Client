@@ -32,3 +32,9 @@ val dayLabel: now: DateTimeOffset * day: DateTimeOffset -> string
 /// back: tags go first, so an escaped `<` survives as the character it
 /// is.
 val plainText: html: string -> string
+
+/// The one line over a code block: the filename the fence names, or
+/// the language when no filename is there. None over an untitled
+/// block, whose box keeps no header.
+val blockTitle:
+  language: string option * filename: string option -> string option

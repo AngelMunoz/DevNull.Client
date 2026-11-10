@@ -115,6 +115,7 @@ module State =
     Relations: Map<string, AuthorRelation>
     // The commit whose menu action is in flight, so its items disable.
     MenuBusy: string option
+    HeardIds: string list
   }
 
   type Msg =
@@ -189,6 +190,7 @@ module State =
     ReportOpen = ValueNone
     Relations = Map.empty
     MenuBusy = None
+    HeardIds = []
   }
 
   // The id of the newest commit in a page: the head the since-poll
@@ -199,6 +201,19 @@ module State =
       | LiveCommit commit -> Some commit.Id
       | Tombstone _ -> None)
 
+  // One late commit lands among the loaded ones by its moment: the
+  // first live row older than it. Tombstones never move.
+  let insertLate(late: Commit, items: CommitNode list) : CommitNode list =
+    let at =
+      items
+      |> List.tryFindIndex(function
+        | Tombstone _ -> false
+        | LiveCommit commit -> commit.CreatedAt < late.CreatedAt)
+
+    match at with
+    | Some index -> items |> List.insertAt index (LiveCommit late)
+    | None -> items @ [ LiveCommit late ]
+
   let fetch(props: Props<'env>, cursor: string option) =
     Logs.get(
       props.Env,
@@ -207,10 +222,20 @@ module State =
         Log = props.Log
         Since = None
         Cursor = cursor
+        Arrived = []
+        Pending = []
+        Everything = false
+        Through = []
       }
     )
 
-  let checkNew(props: Props<'env>, head: string) =
+  let checkNew(props: Props<'env>, model: Model, head: string) =
+    let liveIds =
+      model.Items
+      |> List.choose(function
+        | LiveCommit commit -> Some commit.Id
+        | Tombstone _ -> None)
+
     Logs.get(
       props.Env,
       {
@@ -218,6 +243,10 @@ module State =
         Log = props.Log
         Since = Some head
         Cursor = None
+        Arrived = if model.Ranked then [] else model.HeardIds
+        Pending = liveIds |> List.truncate 100
+        Everything = false
+        Through = liveIds |> List.rev |> List.truncate 20
       }
     )
 
@@ -399,6 +428,7 @@ module State =
                   Head = headOf page.Page.Items
                   NewCount = None
                   Ranked = page.IsRanked
+                  HeardIds = []
             }
           )
 
@@ -427,19 +457,77 @@ module State =
       // nothing; the site skips the poll there too.
       match model.Head, model.Ranked with
       | Some head, false ->
-        model, Cmd.OfAsync.perform checkNew (props, head) NewChecked
+        model, Cmd.OfAsync.perform checkNew (props, model, head) NewChecked
       | _ -> model, Cmd.none
     | NewChecked result ->
       match result with
       | Ok page ->
-        // The since read answers the same first page; only its count is
-        // news. The commits themselves come with the pill's refresh.
-        {
-          model with
-              NewCount =
-                page.NewCommitsCount |> Option.filter(fun count -> count > 0)
-        },
-        Cmd.none
+        if model.Ranked then
+          {
+            model with
+                NewCount =
+                  page.NewCommitsCount |> Option.filter(fun count -> count > 0)
+          },
+          Cmd.none
+        else
+          let loaded =
+            model.Items
+            |> List.choose(function
+              | LiveCommit commit -> Some commit.Id
+              | Tombstone _ -> None)
+            |> Set.ofList
+
+          let headAt =
+            model.Items
+            |> List.tryPick(function
+              | LiveCommit commit when Some commit.Id = model.Head ->
+                Some commit.CreatedAt
+              | _ -> None)
+
+          let isNewer(commit: Commit) =
+            match headAt with
+            | Some at -> commit.CreatedAt > at
+            | None -> true
+
+          let unloaded =
+            page.Page.Items
+            |> List.choose(function
+              | LiveCommit commit when not(Set.contains commit.Id loaded) ->
+                Some commit
+              | _ -> None)
+
+          let late =
+            unloaded
+            |> List.filter(fun commit -> not(isNewer commit))
+            |> List.sortByDescending(fun commit -> commit.CreatedAt)
+
+          let merged =
+            late
+            |> List.fold
+              (fun items arrival -> insertLate(arrival, items))
+              model.Items
+
+          let mergedLoaded =
+            merged
+            |> List.choose(function
+              | LiveCommit commit -> Some commit.Id
+              | Tombstone _ -> None)
+            |> Set.ofList
+
+          let heard =
+            (model.HeardIds @ (unloaded |> List.filter isNewer |> List.map _.Id))
+            |> List.distinct
+            |> List.filter(fun id -> not(Set.contains id mergedLoaded))
+            |> List.truncate 100
+
+          {
+            model with
+                Items = merged
+                NewCount =
+                  page.NewCommitsCount |> Option.filter(fun count -> count > 0)
+                HeardIds = heard
+          },
+          Cmd.none
       | Error error -> model, failed "the new-commit check" error
     | NewRequested ->
       { model with NewCount = None },
@@ -458,6 +546,7 @@ module State =
               NextCursor = page.Page.NextCursor
               Head = headOf page.Page.Items
               Ranked = page.IsRanked
+              HeardIds = []
         }
 
         replaced,
@@ -1170,6 +1259,13 @@ module Parts =
         fun username -> Navigation.go(props.Nav, "/profile/" + username, ignore)
       OnOpenOrg =
         fun handle -> Navigation.go(props.Nav, "/org/" + handle, ignore)
+      OnOpenTag =
+        fun tag ->
+          Navigation.go(
+            props.Nav,
+            "/search/" + Uri.EscapeDataString tag,
+            ignore
+          )
       Cache = props.Env.ImageCache
     }
 

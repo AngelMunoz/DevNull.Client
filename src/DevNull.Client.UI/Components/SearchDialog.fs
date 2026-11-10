@@ -691,6 +691,13 @@ let view
               "/org/" + Uri.EscapeDataString handle,
               ignore
             )
+        OnOpenTag =
+          fun tag ->
+            Navigation.go(
+              props.Nav,
+              "/search/" + Uri.EscapeDataString tag,
+              ignore
+            )
         Cache = props.Env.ImageCache
       }
     Now = DateTimeOffset.UtcNow

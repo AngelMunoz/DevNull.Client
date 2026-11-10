@@ -1,6 +1,7 @@
 module DevNull.Client.Components.CommitCard
 
 open System
+open System.Text.RegularExpressions
 open Avalonia
 open Avalonia.Automation
 open Avalonia.Controls
@@ -223,11 +224,94 @@ module Parts =
     | _, ValueNone -> InlineUIContainer(handle)
     | UnknownMention _, ValueSome _ -> InlineUIContainer(handle)
 
+  // A hashtag as the web finds one: a `#` before a letter, not right
+  // after a letter, a mark, a number, `_`, `&`, `/`, `#`, `>`, or `-`,
+  // which keeps `#123` and `a#b` plain text.
+  let hashtagPattern =
+    Regex(@"(?<![\p{L}\p{M}\p{N}_&/#>-])#\p{L}[\p{L}\p{M}\p{N}_]*")
+
+  // One plain run after the hashtag split: prose, or one tag carrying
+  // the whole `#word` to search for.
+  type PlainPiece =
+    | Prose of string
+    | Tag of string
+
+  // The tag walk: every round takes the first tag and recurses on
+  // what is left, a tail call.
+  [<TailCall>]
+  let rec splitTagsFrom
+    (rest: string, pieces: PlainPiece list)
+    : PlainPiece list =
+    let found = hashtagPattern.Match rest
+
+    if found.Success then
+      let before = rest.Substring(0, found.Index)
+      let after = rest.Substring(found.Index + found.Length)
+
+      splitTagsFrom(
+        after,
+        Tag found.Value
+        :: (if before = "" then pieces else Prose before :: pieces)
+      )
+    else
+      Prose rest :: pieces
+
+  // Splits one plain run at its hashtags.
+  let splitTags(text: string) : PlainPiece list =
+    splitTagsFrom(text, []) |> List.rev
+
+  // One #tag of the body: the accent color, and the click that
+  // searches it. Without a flyout source the tag stays accent text
+  // alone.
+  let tagInline(flyout: Source voption, tag: string) : Inline =
+    let label = TextBlock().Name("HashtagTag").Text(tag)
+
+    label.Classes(Theme.name Theme.FgAccent) |> ignore
+
+    match flyout with
+    | ValueSome source ->
+      InlineUIContainer(
+        Button()
+          .Classes(Theme.name Theme.GhostButton)
+          .Padding(0.0)
+          .Content(label)
+          .OnClickHandler(fun _ args ->
+            // A handled click never opens the thread behind the tag.
+            args.Handled <- true
+
+            source.OnOpenTag tag)
+      )
+    | ValueNone -> InlineUIContainer(label)
+
+  // One plain run with its tags wrapped: prose runs beside tag
+  // inlines.
+  let withTags(args: BodyArgs, plain: string, inlines: InlineCollection) =
+    splitTags plain
+    |> List.iter(fun piece ->
+      match piece with
+      | Prose prose -> inlines.Add(Run prose) |> ignore
+      | Tag tag -> inlines.Add(tagInline(args.Flyout, tag)) |> ignore)
+
   // The body text with its mentions wrapped, flowing the way the
-  // site's inline links do.
+  // site's inline links do. Hashtags ride inside the plain pieces.
   let textWithMentions(args: BodyArgs, text: string) : Control =
     match args.Mentions with
-    | [] -> TextBlock().Text(text).TextWrapping(TextWrapping.Wrap)
+    | [] ->
+      match splitTags text with
+      | [ Prose plain ] ->
+        TextBlock().Text(plain).TextWrapping(TextWrapping.Wrap)
+      | pieces ->
+        let block = TextBlock().TextWrapping(TextWrapping.Wrap)
+        let inlines = InlineCollection()
+        block.Inlines <- inlines
+
+        pieces
+        |> List.iter(fun piece ->
+          match piece with
+          | Prose prose -> inlines.Add(Run prose) |> ignore
+          | Tag tag -> inlines.Add(tagInline(args.Flyout, tag)) |> ignore)
+
+        block
     | mentions ->
       let block = TextBlock().TextWrapping(TextWrapping.Wrap)
       let inlines = InlineCollection()
@@ -236,7 +320,7 @@ module Parts =
       splitMentions(text, mentions)
       |> List.iter(fun piece ->
         match piece with
-        | Plain plain -> inlines.Add(Run plain) |> ignore
+        | Plain plain -> withTags(args, plain, inlines)
         | Handle mention ->
           inlines.Add(handleInline(args.Flyout, args.Tone, mention)) |> ignore)
 

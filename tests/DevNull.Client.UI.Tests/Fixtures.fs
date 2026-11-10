@@ -725,6 +725,13 @@ let titledCodeBlockCommitJson =
     "{\"type\":\"block\",\"language\":\"shell\",\"filename\":\"fig.sh\""
   )
 
+/// One commit whose prose carries a real hashtag.
+let hashtagCommitJson =
+  commitJson.Replace(
+    "\"body_segments\":[]",
+    "\"body_segments\":[{\"type\":\"text\",\"text\":\"Pair with #fsharp today.\"}]"
+  )
+
 /// One log page with the commit above and a cursor for the next page.
 let logPageJson =
   sprintf
@@ -855,6 +862,25 @@ let titledCodeBlockLogApi() =
     sprintf
       "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
       titledCodeBlockCommitJson
+
+  FakeApi(
+    (fun request ->
+      if request.Target.StartsWith "/api/v1/log/" then
+        ok page
+      else
+        (match accountAnswer request with
+         | ValueSome answer -> answer
+         | ValueNone -> ok "{}")),
+    (fun _ -> Ok imageBytes)
+  )
+
+/// The api of the hashtag capture: the boot log carries the commit
+/// with the tag in its prose.
+let hashtagLogApi() =
+  let page =
+    sprintf
+      "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
+      hashtagCommitJson
 
   FakeApi(
     (fun request ->

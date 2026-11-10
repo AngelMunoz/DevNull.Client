@@ -3126,4 +3126,17 @@ let captureTests =
       let bytes = IO.File.ReadAllBytes(path)
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }
+
+    testAsync "a hashtag renders as a search link" {
+      let! window = startShell(signedInStore(), hashtagLogApi() :> IHttp)
+
+      let! tag = showsText(window, "#fsharp")
+      Expect.isTrue tag "the hashtag never rendered"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F26/f26-hashtag-links", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
   ]

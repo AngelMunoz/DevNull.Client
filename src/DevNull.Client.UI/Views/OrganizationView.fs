@@ -1128,6 +1128,13 @@ let view
                 Navigation.go(props.Nav, "/profile/" + username, ignore)
             OnOpenOrg =
               fun handle -> Navigation.go(props.Nav, "/org/" + handle, ignore)
+            OnOpenTag =
+              fun tag ->
+                Navigation.go(
+                  props.Nav,
+                  "/search/" + Uri.EscapeDataString tag,
+                  ignore
+                )
             Cache = props.Env.ImageCache
           }
         Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)

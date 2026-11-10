@@ -4143,6 +4143,7 @@ let tests =
           Fetch = fun _ -> async { return None }
           OnOpen = ignore
           OnOpenOrg = opened.Add
+          OnOpenTag = ignore
           Cache = (env :> IProvideImageCache).ImageCache
         }
 
@@ -4215,6 +4216,102 @@ let tests =
         Expect.isTrue navigated "the click never raised the navigation"
 
         Expect.equal opened[0] "devnull" "the navigation never named the org"
+      })
+
+    testCaseAsync
+      "a hashtag links its search, and only in prose"
+      (async {
+        let opened = ResizeArray<string>()
+
+        let env = TestEnv(signedInStore(), logApi() :> IHttp)
+
+        let source: UserFlyout.Source = {
+          Fetch = fun _ -> async { return None }
+          OnOpen = ignore
+          OnOpenOrg = ignore
+          OnOpenTag = opened.Add
+          Cache = (env :> IProvideImageCache).ImageCache
+        }
+
+        let! window =
+          probeUiAsync(fun () ->
+            let body =
+              CommitCard.body(
+                {
+                  Flyout = ValueSome source
+                  Tone = CommitCard.Accent
+                  Mentions = []
+                },
+                "",
+                [
+                  TextSegment("Pair with #fsharp and ref #123 and word a#b")
+                  CodeSegment "#fsharp"
+                ]
+              )
+
+            let window = Window(Content = body)
+            window.Show()
+            window)
+
+        let! tag =
+          waitForAsync(
+            5000,
+            (fun () ->
+              controlByName(window, "HashtagTag")
+              |> Option.bind(fun control ->
+                match control with
+                | :? TextBlock as block -> Some block.Text
+                | _ -> None)),
+            (fun text -> text = Some "#fsharp")
+          )
+
+        Expect.isTrue tag "the hashtag never rendered"
+
+        // `#123` and `a#b` stay prose, and the code segment never
+        // tokenizes: exactly one named tag control exists.
+        let! count =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.filter(fun visual -> visual.Name = "HashtagTag")
+            |> Seq.length)
+
+        Expect.equal count 1 "more than the real tag became clickable"
+
+        let! accented =
+          probeUiAsync(fun () ->
+            controlByName(window, "HashtagTag")
+            |> Option.map(fun tag -> tag.Classes.Contains(name FgAccent))
+            |> Option.defaultValue false)
+
+        Expect.isTrue accented "the hashtag never wore the accent"
+
+        // The wrap is the file's own inline button: the nearest
+        // ancestor of the tag takes the click.
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "HashtagTag")
+            |> Option.bind(fun tag ->
+              tag.GetVisualAncestors()
+              |> Seq.tryPick(function
+                | :? Button as button -> Some button
+                | _ -> None))
+            |> Option.iter click)
+
+        let! navigated =
+          waitForAsync(
+            5000,
+            (fun () -> opened),
+            (fun opened -> opened.Count = 1)
+          )
+
+        Expect.isTrue navigated "the click never raised the navigation"
+
+        Expect.equal opened[0] "#fsharp" "the navigation never named the tag"
+
+        Expect.equal
+          "/search/%23fsharp"
+          ("/search/" + Uri.EscapeDataString opened[0])
+          "the search url never escaped the tag"
       })
 
     testCaseAsync

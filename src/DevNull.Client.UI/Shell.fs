@@ -698,6 +698,7 @@ let aside(props: AsideProps<'env>) : Control =
         .Spacing(24.0)
         .Children(
           ProfileCard.Page { Env = props.Env; Session = entry },
+          LiveNow.Page { Env = props.Env; Session = entry },
           WhoToFollow.Page {
             Env = props.Env
             Session = entry

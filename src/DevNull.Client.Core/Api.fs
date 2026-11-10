@@ -589,6 +589,63 @@ module Me =
       }
     )
 
+  /// Going live: the stream link and for how many hours, as the
+  /// caller parsed them, so the server answers the session.
+  type LiveRequest = {
+    KeyFile: string
+    Url: string
+    Hours: int
+  }
+
+  let goLive(env, request: LiveRequest) =
+    let body =
+      Json.object [
+        "url", Encode.string request.Url
+        "hours", Encode.int request.Hours
+      ]
+      |> _.ToJsonString()
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "PUT"
+        Target = "/api/v1/me/live"
+        Body = body
+        Headers = []
+        Decode = Me.decode
+      }
+    )
+
+  /// Ending the stream early, as the server answers the session.
+  let endLive(env, request: Request) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "DELETE"
+        Target = "/api/v1/me/live"
+        Body = ""
+        Headers = []
+        Decode = Me.decode
+      }
+    )
+
+  /// The followed users who are live right now, a plain collection
+  /// rather than a cursor page.
+  let liveFollowing(env, request: Request) =
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target = "/api/v1/me/live-following"
+        Body = ""
+        Headers = []
+        Decode = Me.decodeLiveFollowing
+      }
+    )
+
   type SettingsRequest = { KeyFile: string }
 
   type TimezoneRequest = {

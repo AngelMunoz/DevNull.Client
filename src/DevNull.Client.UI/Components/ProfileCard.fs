@@ -101,8 +101,19 @@ let statRow(count: int, label: string) : Control =
       TextBlock().Classes(Theme.name Theme.Muted).Text(label)
     )
 
-// The identity head: the avatar beside the name and the lane handle.
+// The identity head: the avatar beside the name and the lane handle;
+// a live user's name wears the badge.
 let identityHead(cache: ImageCacheService, profile: Profile) : Control =
+  let name =
+    StackPanel()
+      .Orientation(Orientation.Horizontal)
+      .Spacing(6.0)
+      .VerticalAlignment(VerticalAlignment.Center)
+      .Children(
+        TextBlock().Classes(Theme.name Theme.Subtitle).Text(profile.User.Name),
+        LiveBadge.view profile.User.Live
+      )
+
   StackPanel()
     .Orientation(Orientation.Horizontal)
     .Spacing(12.0)
@@ -119,10 +130,7 @@ let identityHead(cache: ImageCacheService, profile: Profile) : Control =
       StackPanel()
         .VerticalAlignment(VerticalAlignment.Center)
         .Spacing(2.0)
-        .Children(
-          TextBlock().Classes(Theme.name Theme.Subtitle).Text(profile.User.Name),
-          laneHandle(profile.Lane, profile.User.Handle)
-        )
+        .Children(name, laneHandle(profile.Lane, profile.User.Handle))
     )
 
 let stats(profile: Profile) : Control =

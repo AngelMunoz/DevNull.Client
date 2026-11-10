@@ -1,4 +1,4 @@
-module DevNull.Client.Views.NotificationsView
+﻿module DevNull.Client.Views.NotificationsView
 
 open System
 open System.Collections.Generic
@@ -420,66 +420,69 @@ module Parts =
     |]
 
   // The icon one notification type wears.
-  let glyphOf(kind: string) : Glyph =
+  let glyphOf(kind: NotificationKind) : Glyph =
     match kind with
-    | "followed" -> Glyph.UserPlus
-    | "replied" -> Glyph.Reply
-    | "quoted" -> Glyph.Quote
-    | "starred" -> Glyph.Star
-    | "mentioned" -> Glyph.At
-    | "leveled_up" -> Glyph.ChevronsUp
-    | "approved" -> Glyph.Check
-    | "rejected" -> Glyph.Close
-    | _ -> Glyph.Notifications
+    | NotificationKind.Followed -> Glyph.UserPlus
+    | NotificationKind.Replied -> Glyph.Reply
+    | NotificationKind.Quoted -> Glyph.Quote
+    | NotificationKind.Starred -> Glyph.Star
+    | NotificationKind.Mentioned -> Glyph.At
+    | NotificationKind.LeveledUp -> Glyph.ChevronsUp
+    | NotificationKind.Approved -> Glyph.Check
+    | NotificationKind.Rejected -> Glyph.Close
+    | NotificationKind.FirstCommit -> Glyph.Commit
+    | NotificationKind.UnknownKind _ -> Glyph.Notifications
 
   // The sentence one notification type says after the actor; the
   // organization's handle replaces "your" when the notification names
   // one, and a mention names the organization instead of "you".
   let actionOf
-    (kind: string, organization: OrganizationProfile option)
+    (kind: NotificationKind, organization: OrganizationProfile option)
     : string =
     match kind with
-    | "followed" -> "followed you"
-    | "replied" ->
+    | NotificationKind.Followed -> "followed you"
+    | NotificationKind.Replied ->
       let whose =
         organization
         |> Option.map(fun org -> $"@{org.Handle}'s")
         |> Option.defaultValue "your"
 
       $"replied to {whose} commit"
-    | "quoted" ->
+    | NotificationKind.Quoted ->
       let whose =
         organization
         |> Option.map(fun org -> $"@{org.Handle}'s")
         |> Option.defaultValue "your"
 
       $"quoted {whose} commit"
-    | "starred" ->
+    | NotificationKind.Starred ->
       let whose =
         organization
         |> Option.map(fun org -> $"@{org.Handle}'s")
         |> Option.defaultValue "your"
 
       $"starred {whose} commit"
-    | "mentioned" ->
+    | NotificationKind.Mentioned ->
       organization
       |> Option.map(fun org -> $"mentioned @{org.Handle}")
       |> Option.defaultValue "mentioned you"
-    | "approved" ->
+    | NotificationKind.FirstCommit -> "made their first commit"
+    | NotificationKind.Approved ->
       organization
       |> Option.map(fun org -> $"@{org.Handle}'s commit was approved")
       |> Option.defaultValue "Your commit was approved"
-    | "rejected" ->
+    | NotificationKind.Rejected ->
       organization
       |> Option.map(fun org -> $"@{org.Handle}'s commit was rejected")
       |> Option.defaultValue "Your commit was rejected"
-    | _ -> "sent an update"
+    | NotificationKind.LeveledUp -> "sent an update"
+    | NotificationKind.UnknownKind _ -> "sent an update"
 
   // The noun a grouped row counts.
-  let nounOf(kind: string) : string =
+  let nounOf(kind: NotificationKind) : string =
     match kind with
-    | "followed" -> "followers"
-    | "starred" -> "stars"
+    | NotificationKind.Followed -> "followers"
+    | NotificationKind.Starred -> "stars"
     | _ -> "updates"
 
   // The commit the notification points at, when it points at one.
@@ -499,9 +502,10 @@ module Parts =
     ) : Control =
     let actorsCommit =
       match notification.Type with
-      | "replied"
-      | "quoted"
-      | "mentioned" -> true
+      | NotificationKind.Replied
+      | NotificationKind.Quoted
+      | NotificationKind.Mentioned
+      | NotificationKind.FirstCommit -> true
       | _ -> false
 
     let line =
@@ -567,9 +571,9 @@ module Parts =
   // the viewer's own commits, inline for the actor's.
   let excerptBox(notification: Notification) : Control option =
     match notification.Type with
-    | "starred"
-    | "approved"
-    | "rejected" ->
+    | NotificationKind.Starred
+    | NotificationKind.Approved
+    | NotificationKind.Rejected ->
       commitOf notification
       |> Option.map(fun commit ->
         Border()

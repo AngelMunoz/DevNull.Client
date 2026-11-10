@@ -2000,6 +2000,86 @@ let bioMentionsApi() =
        | ValueSome answer -> answer
        | ValueNone -> ok "{}"))
 
+/// The youtube stream as the wire carries it on a live user.
+let liveStreamJson =
+  """{"platform":"youtube","url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","thumbnail_url":"https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault_live.jpg","ends_at":"2026-10-20T08:17:19Z"}"""
+
+/// The octocat profile while live on that stream.
+let liveProfileJson =
+  profileJson.Replace(
+    "\"lane\":3}",
+    "\"lane\":3,\"live\":" + liveStreamJson + "}"
+  )
+
+/// One user who is live, as the live-following collection lists it.
+let liveUserJson =
+  apiUserJson.Replace(
+    "\"lane\":3}",
+    "\"lane\":3,\"live\":" + liveStreamJson + "}"
+  )
+
+/// The live-following collection: one live user.
+let liveFollowingJson = sprintf "{\"data\":[%s]}" liveUserJson
+
+/// The api of the live tests: the octocat profile is live, the
+/// live-following collection carries one live user, and the boot
+/// log answers.
+let liveBadgeApi() =
+  FakeApi(fun request ->
+    if request.Target = "/api/v1/users/octocat" then
+      ok liveProfileJson
+    elif request.Target = "/api/v1/me/live-following" then
+      ok liveFollowingJson
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+/// The api of the go-live test: the octocat profile starts not
+/// live, and a landed PUT turns the profile fetch live.
+let goLiveApi() =
+  let wentLive = ResizeArray<bool>()
+
+  FakeApi(fun request ->
+    if request.Method = "PUT" && request.Target = "/api/v1/me/live" then
+      wentLive.Add true
+      ok meJson
+    elif request.Target = "/api/v1/users/octocat" then
+      ok(
+        if wentLive.Contains true then
+          liveProfileJson
+        else
+          profileJson
+      )
+    elif request.Target = "/api/v1/me/live-following" then
+      ok liveFollowingJson
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+/// The api of the end-stream test: the octocat profile starts live,
+/// and a landed DELETE turns the profile fetch not live.
+let endLiveApi() =
+  let ended = ResizeArray<bool>()
+
+  FakeApi(fun request ->
+    if request.Method = "DELETE" && request.Target = "/api/v1/me/live" then
+      ended.Add true
+      ok meJson
+    elif request.Target = "/api/v1/users/octocat" then
+      ok(if ended.Contains true then profileJson else liveProfileJson)
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
 /// The api of the profile stats test: the boot log and the carrying
 /// profile answer from cans.
 let statsProfileApi() =

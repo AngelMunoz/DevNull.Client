@@ -1,4 +1,4 @@
-module DevNull.Client.Views.TranslationModel
+﻿module DevNull.Client.Views.TranslationModel
 
 open System
 open System.Globalization
@@ -94,9 +94,9 @@ let view(surface: Surface) : TranslationView voption =
     state.Available
     |> Option.defaultValue(
       match surface.Commit.Status with
-      | Approved
+      | CommitStatus.Approved
       | Pending -> surface.Commit.Body <> ""
-      | Rejected
+      | CommitStatus.Rejected
       | UnknownStatus _ -> false
     )
 
@@ -230,9 +230,9 @@ let pending(book: Book, commits: Commit list) : Commit list =
   |> List.filter(fun commit ->
     let translatable =
       match commit.Status with
-      | Approved
+      | CommitStatus.Approved
       | Pending -> commit.Body <> ""
-      | Rejected
+      | CommitStatus.Rejected
       | UnknownStatus _ -> false
 
     translatable

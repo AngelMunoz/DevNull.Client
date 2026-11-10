@@ -1,4 +1,4 @@
-module DevNull.Client.Views.ConnectionsView
+﻿module DevNull.Client.Views.ConnectionsView
 
 open System
 open Avalonia
@@ -522,14 +522,31 @@ module Parts =
     | ValueNone -> avatar
 
   // The text block beside the avatar: the identity line over the
-  // two-line bio.
+  // two-line bio. A live user's name wears the badge.
   let userText(user: User) : Control =
-    StackPanel()
-      .Spacing(2.0)
-      .Children(
-        identityLine(user.Name, user.Handle, user.Lane),
-        bioLine user.Bio
-      )
+    let grid = Grid()
+
+    grid.ColumnDefinitions <- ColumnDefinitions("Auto,Auto,Auto,*")
+
+    grid.Children(
+      TextBlock()
+        .Classes(Theme.name Theme.Subtitle)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .MaxLines(1)
+        .Text(user.Name)
+        .Column(0),
+      ProfileCard
+        .laneHandle(user.Lane, user.Handle)
+        .Column(1)
+        .Margin(6.0, 0.0, 0.0, 0.0),
+      (LiveBadge.view user.Live)
+        .Column(2)
+        .Margin(6.0, 0.0, 0.0, 0.0)
+        .VerticalAlignment(VerticalAlignment.Center)
+    )
+    |> ignore
+
+    StackPanel().Spacing(2.0).Children(grid, bioLine user.Bio)
 
   // The organization row: the avatar in the shared left lane, the
   // text beside it, and the whole row opening the org page. No follow

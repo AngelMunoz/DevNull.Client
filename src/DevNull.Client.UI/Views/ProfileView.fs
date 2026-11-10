@@ -114,6 +114,8 @@ module State =
     Relations: Map<string, AuthorRelation>
     // The commit whose menu action is in flight, so its items disable.
     MenuBusy: string option
+    // Whether the go-live dialog is open, on the owner's own profile.
+    LiveOpen: bool
   }
 
   type Msg =
@@ -155,6 +157,11 @@ module State =
     | AuthorBlockDone of Commit * Result<BlockResult, AppError>
     | DeleteRequested of Commit
     | Deleted of commitId: string * Result<unit, AppError>
+    | GoLiveChosen
+    | LiveDialogClosed
+    | GoLiveDone of Result<Me, AppError>
+    | EndLiveRequested
+    | EndLiveDone of Result<Me, AppError>
 
   let replaceNode(items: CommitNode list, updated: Commit) : CommitNode list =
     items
@@ -223,6 +230,7 @@ module State =
     Translations = TranslationModel.initial
     Relations = Map.empty
     MenuBusy = None
+    LiveOpen = false
   }
 
   // The feed viewport under which the full header gives way at once:
@@ -996,6 +1004,44 @@ module State =
               Error = Some error
         },
         failed "the commit deletion" error
+    | GoLiveChosen -> { model with LiveOpen = true }, Cmd.none
+    | LiveDialogClosed -> { model with LiveOpen = false }, Cmd.none
+    | GoLiveDone result ->
+      match result with
+      | Ok _ ->
+        // The stream is live; a refetch shows the marker.
+        { model with LiveOpen = false },
+        Cmd.OfAsync.perform
+          Users.get
+          (props.Env,
+           {
+             KeyFile = props.Session.KeyFile
+             Username = username
+           })
+          Fetched
+      | Error error ->
+        { model with LiveOpen = false }, failed "going live" error
+    | EndLiveRequested ->
+      model,
+      Cmd.OfAsync.perform
+        Me.endLive
+        (props.Env, { KeyFile = props.Session.KeyFile })
+        EndLiveDone
+    | EndLiveDone result ->
+      match result with
+      | Ok _ ->
+        // The stream ended; a refetch takes the marker off.
+        model,
+        Cmd.OfAsync.perform
+          Users.get
+          (props.Env,
+           {
+             KeyFile = props.Session.KeyFile
+             Username = username
+           })
+          Fetched
+      | Error error ->
+        { model with Error = Some error }, failed "ending the stream" error
     | HeaderChosen Full -> { model with HeaderForm = Full }, Cmd.none
     | HeaderChosen Compact -> { model with HeaderForm = Compact }, Cmd.none
     | HeaderChosen Auto -> model, Cmd.none
@@ -1062,13 +1108,32 @@ module Parts =
       .Content("Block")
       .OnClickHandler(fun _ _ -> dispatch State.BlockToggled)
 
+  // The owner's live action: going live opens the dialog, and while
+  // live the button ends the stream instead.
+  let liveButton
+    (details: ProfileDetails, dispatch: Dispatch<State.Msg>)
+    : Control =
+    match details.Profile.User.Live with
+    | Some _ ->
+      Button()
+        .Name("EndStream")
+        .Classes(Theme.name Theme.DangerButton)
+        .Content("End stream")
+        .OnClickHandler(fun _ _ -> dispatch State.EndLiveRequested)
+    | None ->
+      Button()
+        .Name("GoLiveButton")
+        .Classes(Theme.name Theme.AccentButton)
+        .Content("Go live")
+        .OnClickHandler(fun _ _ -> dispatch State.GoLiveChosen)
+
   // The follow, mute, and block actions; the viewer's own header
-  // carries none.
+  // carries the live action instead.
   let actions
     (details: ProfileDetails, isSelf: bool, dispatch: Dispatch<State.Msg>)
     : Control array =
     if isSelf then
-      [||]
+      [| liveButton(details, dispatch) |]
     else
       [|
         followButton(details, dispatch)
@@ -1253,13 +1318,10 @@ module Parts =
 
     let tail = String.Join(" · ", rest)
 
+    // A company with no mention renders as the plain joined line, as
+    // before; the chips only open when a mention stands.
     match profile.Company with
-    | None ->
-      TextBlock()
-        .Classes(Theme.name Theme.Mono)
-        .TextWrapping(TextWrapping.Wrap)
-        .Text(tail)
-    | Some company ->
+    | Some company when mentionPattern.IsMatch company ->
       let block =
         TextBlock()
           .Classes(Theme.name Theme.Mono)
@@ -1274,6 +1336,16 @@ module Parts =
       inlines.Add(Run(" · " + tail)) |> ignore
 
       block
+    | Some company ->
+      TextBlock()
+        .Classes(Theme.name Theme.Mono)
+        .TextWrapping(TextWrapping.Wrap)
+        .Text(String.Join(" · ", company :: rest))
+    | None ->
+      TextBlock()
+        .Classes(Theme.name Theme.Mono)
+        .TextWrapping(TextWrapping.Wrap)
+        .Text(tail)
 
   // The activity bars: one lane-colored column per bucket, bottom
   // aligned, the height following the count.
@@ -1514,7 +1586,14 @@ module Parts =
             .Children(actions(details, isSelf, dispatch)),
           ring
         )
-      TextBlock().Classes(Theme.name Theme.Headline).Text(user.Name)
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Spacing(8.0)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Children(
+          TextBlock().Classes(Theme.name Theme.Headline).Text(user.Name),
+          LiveBadge.view user.Live
+        )
       StackPanel()
         .Orientation(Orientation.Horizontal)
         .Spacing(10.0)
@@ -1675,6 +1754,29 @@ module Parts =
 
     ContentControl().Content(content.ToBinding())
 
+  // The go-live dialog's overlay layer: it opens from the model's
+  // open flag on the owner's own profile and closes back into it.
+  let liveLayer
+    (
+      props: Props<'env>,
+      model: IObservable<State.Model>,
+      dispatch: Dispatch<State.Msg>
+    ) : Control =
+    DialogChrome.layer {
+      Open = model |> Observable.map _.LiveOpen
+      Content =
+        fun () ->
+          GoLiveDialog.Page {
+            Env = props.Env
+            Session = props.Session
+            WentLive = fun result -> dispatch(State.GoLiveDone result)
+            Close = fun () -> dispatch State.LiveDialogClosed
+          }
+      Scrim = true
+      OnScrimClick = ValueSome(fun () -> dispatch State.LiveDialogClosed)
+      Place = DialogChrome.Center
+    }
+
 // The row inputs the page compares by reference, so a tick that left
 // them the same does not reshape the feed.
 let rowInputsComparer = {
@@ -1789,81 +1891,84 @@ let view
       })
     )
 
-  ProfileShell.view {
-    Model = model
-    Title = fun _ -> ""
-    Kind = None
-    Padding = Theme.pinnedPadding
-    ErrorOf = _.Error
-    Busy =
-      fun current ->
-        if current.Loading then
-          PageChrome.Words "Loading the profile…"
-        else
-          PageChrome.Off
-    Empty =
-      fun current ->
-        // A profile with nothing but a pinned commit shows the pinned
-        // slot, not the empty state — the server keeps the pinned
-        // commit out of the list itself.
-        let pinned =
-          match current.Tab with
-          | State.Commits ->
-            current.Details |> Option.bind _.PinnedCommit |> Option.isSome
-          | State.Replies -> false
-
-        if
-          not current.Loading
-          && current.Error.IsNone
-          && current.Commits.IsEmpty
-          && not pinned
-        then
-          PageChrome.Words(
+  let page =
+    ProfileShell.view {
+      Model = model
+      Title = fun _ -> ""
+      Kind = None
+      Padding = Theme.pinnedPadding
+      ErrorOf = _.Error
+      Busy =
+        fun current ->
+          if current.Loading then
+            PageChrome.Words "Loading the profile…"
+          else
+            PageChrome.Off
+      Empty =
+        fun current ->
+          // A profile with nothing but a pinned commit shows the pinned
+          // slot, not the empty state — the server keeps the pinned
+          // commit out of the list itself.
+          let pinned =
             match current.Tab with
-            | State.Commits -> "No commits yet."
-            | State.Replies -> "No replies yet."
-          )
-        else
-          PageChrome.Off
-    Note = _.Note
-    Header = fun () -> Parts.headerHost(props, dispatch, model)
-    Meta = ValueNone
-    FeedLabel = None
-    Tabs = [
-      {
-        Label = "Commits"
-        Active =
-          model |> Observable.map(fun current -> current.Tab = State.Commits)
-        Badge = ValueNone
-        Choose = fun () -> dispatch(State.TabChosen State.Commits)
+            | State.Commits ->
+              current.Details |> Option.bind _.PinnedCommit |> Option.isSome
+            | State.Replies -> false
+
+          if
+            not current.Loading
+            && current.Error.IsNone
+            && current.Commits.IsEmpty
+            && not pinned
+          then
+            PageChrome.Words(
+              match current.Tab with
+              | State.Commits -> "No commits yet."
+              | State.Replies -> "No replies yet."
+            )
+          else
+            PageChrome.Off
+      Note = _.Note
+      Header = fun () -> Parts.headerHost(props, dispatch, model)
+      Meta = ValueNone
+      FeedLabel = None
+      Tabs = [
+        {
+          Label = "Commits"
+          Active =
+            model |> Observable.map(fun current -> current.Tab = State.Commits)
+          Badge = ValueNone
+          Choose = fun () -> dispatch(State.TabChosen State.Commits)
+        }
+        {
+          Label = "Replies"
+          Active =
+            model |> Observable.map(fun current -> current.Tab = State.Replies)
+          Badge = ValueNone
+          Choose = fun () -> dispatch(State.TabChosen State.Replies)
+        }
+      ]
+      Feed = {
+        Items =
+          model
+          |> Observable.distinctUntilChangedKeyCompare
+            (fun current -> current.Details, current.Commits, current.Tab)
+            rowInputsComparer
+          |> Observable.map State.rowsOf
+        KeyOf = State.rowKey
+        Row =
+          function
+          | State.PinnedCaption -> FeedParts.pinnedRow()
+          | State.PinnedNode node -> ProfileShell.commitRow(ctx, node)
+          | State.FeedNode node -> ProfileShell.commitRow(ctx, node)
+        HasMore = model |> Observable.map _.NextCursor.IsSome
+        OnMore = fun () -> dispatch State.MoreCommits
+        OnRide = ValueSome(State.FeedRead >> dispatch)
+        End = System.Reactive.Linq.Observable.Return(None: string option)
       }
-      {
-        Label = "Replies"
-        Active =
-          model |> Observable.map(fun current -> current.Tab = State.Replies)
-        Badge = ValueNone
-        Choose = fun () -> dispatch(State.TabChosen State.Replies)
-      }
-    ]
-    Feed = {
-      Items =
-        model
-        |> Observable.distinctUntilChangedKeyCompare
-          (fun current -> current.Details, current.Commits, current.Tab)
-          rowInputsComparer
-        |> Observable.map State.rowsOf
-      KeyOf = State.rowKey
-      Row =
-        function
-        | State.PinnedCaption -> FeedParts.pinnedRow()
-        | State.PinnedNode node -> ProfileShell.commitRow(ctx, node)
-        | State.FeedNode node -> ProfileShell.commitRow(ctx, node)
-      HasMore = model |> Observable.map _.NextCursor.IsSome
-      OnMore = fun () -> dispatch State.MoreCommits
-      OnRide = ValueSome(State.FeedRead >> dispatch)
-      End = System.Reactive.Linq.Observable.Return(None: string option)
     }
-  }
+
+  Grid().Children(page, Parts.liveLayer(props, model, dispatch))
 
 type Page<'env
   when 'env :> IProvideClock

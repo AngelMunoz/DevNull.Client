@@ -112,6 +112,8 @@
     <Compile Include="Components\ImageViewer.fs" />
     <Compile Include="Components\Avatar.fsi" />
     <Compile Include="Components\Avatar.fs" />
+    <Compile Include="Components\LiveBadge.fsi" />
+    <Compile Include="Components\LiveBadge.fs" />
     <Compile Include="Components\ProfileCard.fsi" />
     <Compile Include="Components\ProfileCard.fs" />
     <Compile Include="Components\UserFlyout.fsi" />
@@ -164,6 +166,10 @@
     <Compile Include="Components\ShareDialog.fs" />
     <Compile Include="Components\ReportDialog.fsi" />
     <Compile Include="Components\ReportDialog.fs" />
+    <Compile Include="Components\GoLiveDialog.fsi" />
+    <Compile Include="Components\GoLiveDialog.fs" />
+    <Compile Include="Components\LiveNow.fsi" />
+    <Compile Include="Components\LiveNow.fs" />
     <Compile Include="Components\ThreadVoice.fsi" />
     <Compile Include="Components\ThreadVoice.fs" />
     <Compile Include="Views\CommitActions.fsi" />

@@ -1,4 +1,4 @@
-module Tests.Scheduled
+﻿module Tests.Scheduled
 
 open System
 open Expecto
@@ -156,8 +156,16 @@ let apiTests =
         | Ok page -> (page.Items |> List.item 1).Status
         | Error failure -> failtestf "%A" failure
 
-      Expect.equal (SubmittedAs Approved) (decodeStatus "approved") "approved"
-      Expect.equal (SubmittedAs Rejected) (decodeStatus "rejected") "rejected"
+      Expect.equal
+        (SubmittedAs CommitStatus.Approved)
+        (decodeStatus "approved")
+        "approved"
+
+      Expect.equal
+        (SubmittedAs CommitStatus.Rejected)
+        (decodeStatus "rejected")
+        "rejected"
+
       Expect.equal CommitDeleted (decodeStatus "deleted") "deleted"
 
       Expect.equal

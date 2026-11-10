@@ -1,4 +1,4 @@
-module DevNull.Client.UI.Tests.Translation
+﻿module DevNull.Client.UI.Tests.Translation
 
 open System
 open System.IO
@@ -55,6 +55,7 @@ let user: User = {
   FollowedByFollowingCount = None
   IsFollowed = None
   FollowsYou = None
+  Live = None
 }
 
 let commitOf(translation: CommitTranslation option) : Commit = {
@@ -70,7 +71,7 @@ let commitOf(translation: CommitTranslation option) : Commit = {
   CreatedAt = DateTimeOffset.UnixEpoch
   StarsCount = None
   RepliesCount = None
-  Status = Approved
+  Status = CommitStatus.Approved
   Author = Person user
   Images = []
   Starred = None
@@ -256,7 +257,10 @@ let tests =
     testCaseAsync
       "a commit with nothing to translate shows nothing"
       (async {
-        let commit = { commitOf None with Status = Rejected }
+        let commit = {
+          commitOf None with
+              Status = CommitStatus.Rejected
+        }
 
         let card =
           view {

@@ -234,6 +234,54 @@ module Me =
       and Rejected<'e>
       and DecodeError<'e>
 
+  /// Going live: the stream link and for how many hours, as the
+  /// caller parsed them, so the server answers the session.
+  type LiveRequest = {
+    KeyFile: string
+    Url: string
+    Hours: int
+  }
+
+  /// Going live answers the session.
+  val goLive:
+    env: 'env * request: LiveRequest -> Async<Result<Me, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Ending the stream early answers the session.
+  val endLive:
+    env: 'env * request: Request -> Async<Result<Me, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// The followed users who are live right now, a plain collection
+  /// rather than a cursor page.
+  val liveFollowing:
+    env: 'env * request: Request -> Async<Result<User list, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
   /// One settings read.
   type SettingsRequest = { KeyFile: string }
 

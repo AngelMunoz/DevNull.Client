@@ -18,6 +18,20 @@ type Lane =
   | LaneIndex of index: int
   | LaneColor of color: string
 
+/// Which platform a stream runs on, as the wire names it.
+type LivePlatform =
+  | YouTube
+  | Twitch
+
+/// One stream a user is live on: the platform, the stream page, the
+/// poster's address while the stream runs, and when it ends.
+type LiveStream = {
+  Platform: LivePlatform
+  Url: string
+  ThumbnailUrl: string option
+  EndsAt: DateTimeOffset
+}
+
 type User = {
   Id: string
   Handle: string
@@ -31,6 +45,7 @@ type User = {
   FollowedByFollowingCount: int option
   IsFollowed: bool option
   FollowsYou: bool option
+  Live: LiveStream option
 }
 
 /// One organization the wire names: the profile a mention suggestion
@@ -653,9 +668,51 @@ type MuteResult = { User: User; IsMuting: bool }
 
 type BlockResult = { User: User; IsBlocking: bool }
 
+/// What one notification says happened, as the wire names it. An
+/// unknown kind stays raw.
+type NotificationKind =
+  | Followed
+  | Replied
+  | Quoted
+  | Starred
+  | Mentioned
+  | LeveledUp
+  | Approved
+  | Rejected
+  | FirstCommit
+  | UnknownKind of raw: string
+
+module NotificationKinds =
+
+  let parse(raw: string) =
+    match raw with
+    | "followed" -> Followed
+    | "replied" -> Replied
+    | "quoted" -> Quoted
+    | "starred" -> Starred
+    | "mentioned" -> Mentioned
+    | "leveled_up" -> LeveledUp
+    | "approved" -> Approved
+    | "rejected" -> Rejected
+    | "first_commit" -> FirstCommit
+    | raw -> UnknownKind raw
+
+  let wire(kind: NotificationKind) =
+    match kind with
+    | Followed -> "followed"
+    | Replied -> "replied"
+    | Quoted -> "quoted"
+    | Starred -> "starred"
+    | Mentioned -> "mentioned"
+    | LeveledUp -> "leveled_up"
+    | Approved -> "approved"
+    | Rejected -> "rejected"
+    | FirstCommit -> "first_commit"
+    | UnknownKind raw -> raw
+
 type Notification = {
   Id: string
-  Type: string
+  Type: NotificationKind
   SubjectId: string option
   Reason: string option
   ReadAt: DateTimeOffset option
@@ -1086,6 +1143,168 @@ let logKindDecoder(element: JsonElement) : Result<LogKind, JDeck.DecodeError> =
       )
       |> Error)
 
+module LivePlatforms =
+
+  let wire(platform: LivePlatform) =
+    match platform with
+    | YouTube -> "youtube"
+    | Twitch -> "twitch"
+
+  let parse(raw: string) : LivePlatform option =
+    match raw with
+    | "youtube" -> Some YouTube
+    | "twitch" -> Some Twitch
+    | _ -> None
+
+  // The hosts a YouTube stream link may wear; the same list the
+  // server's embed check uses.
+  let youtubeHosts = [
+    "youtube.com"
+    "www.youtube.com"
+    "m.youtube.com"
+    "music.youtube.com"
+  ]
+
+  // The hosts a Twitch channel link may wear.
+  let twitchHosts = [ "twitch.tv"; "www.twitch.tv"; "m.twitch.tv" ]
+
+  // The channel paths Twitch serves as pages of its own.
+  let twitchReserved = [
+    "directory"
+    "downloads"
+    "drops"
+    "friends"
+    "inventory"
+    "jobs"
+    "login"
+    "messages"
+    "p"
+    "prime"
+    "search"
+    "settings"
+    "signup"
+    "store"
+    "subscriptions"
+    "turbo"
+    "videos"
+    "wallet"
+  ]
+
+  let videoIdPattern = Regex(@"^[A-Za-z0-9_-]{11}$")
+
+  let playlistPattern = Regex(@"^[A-Za-z0-9_-]+$")
+
+  // The "k=v&..." of a link, each side URL decoded, as the server
+  // reads it.
+  let queryOf(query: string) : Map<string, string> =
+    query.Split('&')
+    |> Array.choose(fun (pair: string) ->
+      let parts = pair.Split('=', 2)
+
+      match parts with
+      | [| key; value |] ->
+        Some(Uri.UnescapeDataString(key), Uri.UnescapeDataString(value))
+      | _ -> None)
+    |> Map.ofArray
+
+  // Whether the link plays one YouTube video: the server's embed
+  // answer decides, so the short host, the watch page, the playlist
+  // page, and the embed, live, and shorts paths are the only links.
+  let isYouTubeLink(uri: Uri) : bool =
+    let host = uri.Host.ToLowerInvariant()
+    let path = uri.AbsolutePath.TrimEnd('/')
+    let query = uri.Query.TrimStart('?') |> queryOf
+
+    if host = "youtu.be" then
+      videoIdPattern.IsMatch(path.TrimStart('/'))
+    elif List.contains host youtubeHosts then
+      match path with
+      | "/watch" -> query.TryFind "v" |> Option.exists videoIdPattern.IsMatch
+      | "/playlist" ->
+        query.TryFind "list" |> Option.exists playlistPattern.IsMatch
+      | _ ->
+        let parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries)
+
+        parts.Length = 2
+        && List.contains parts[0] [ "embed"; "live"; "shorts" ]
+        && videoIdPattern.IsMatch parts[1]
+    else
+      false
+
+  // Whether the link points at a Twitch channel: the hosts above and
+  // one 3-to-25 word path that is not a page of Twitch's own.
+  let isTwitchChannel(uri: Uri) : bool =
+    let host = uri.Host.ToLowerInvariant()
+    let path = uri.AbsolutePath.TrimEnd('/')
+
+    if not(List.contains host twitchHosts) then
+      false
+    else
+      let parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries)
+
+      if parts.Length <> 1 then
+        false
+      else
+        let channel = parts[0].ToLowerInvariant()
+
+        channel.Length >= 3
+        && channel.Length <= 25
+        && channel
+           |> Seq.forall(fun c ->
+             c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c = '_')
+        && not(List.contains channel twitchReserved)
+
+  // The platform a stream link points to, if any: the same
+  // acceptance the server's drivers use.
+  let forUrl(url: string) : LivePlatform option =
+    match Uri.TryCreate(url, UriKind.Absolute) with
+    | true, uri ->
+      match Option.ofObj uri with
+      | None -> None
+      | Some parsed ->
+        if isYouTubeLink parsed then Some YouTube
+        elif isTwitchChannel parsed then Some Twitch
+        else None
+    | false, _ -> None
+
+  // The longest a stream may show as live, in hours.
+  let maxHours = 12
+
+  // The hour count a stream lasts: the dialog's slider already
+  // cannot leave 1 to 12, and the parse refuses the rest.
+  let tryParseHours(hours: int) : int option =
+    if hours >= 1 && hours <= maxHours then Some hours else None
+
+let liveStreamDecoder(element: JsonElement) = decode {
+  let! platform =
+    Required.Property.get ("platform", Required.string) element
+    |> Result.bind(fun raw ->
+      match LivePlatforms.parse raw with
+      | Some platform -> Ok platform
+      | None ->
+        JDeck.DecodeError.ofError<LivePlatform>(
+          element.Clone(),
+          $"Unknown live platform '{raw}'."
+        )
+        |> Error)
+
+  let! url = Required.Property.get ("url", Required.string) element
+
+  let! thumbnailUrl =
+    Optional.Property.get ("thumbnail_url", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! endsAt =
+    Required.Property.get ("ends_at", Required.dateTimeOffset) element
+
+  return {
+    Platform = platform
+    Url = url
+    ThumbnailUrl = thumbnailUrl
+    EndsAt = endsAt
+  }
+}
+
 let userDecoder(element: JsonElement) = decode {
   let! id = Required.Property.get ("id", Required.string) element
   let! handle = Required.Property.get ("handle", Required.string) element
@@ -1127,6 +1346,10 @@ let userDecoder(element: JsonElement) = decode {
     Optional.Property.get ("follows_you", Optional.boolean) element
     |> Result.map Option.flatten
 
+  let! live =
+    Optional.Property.get ("live", optionalDecoder liveStreamDecoder) element
+    |> Result.map Option.flatten
+
   return {
     Id = id
     Handle = handle
@@ -1140,6 +1363,7 @@ let userDecoder(element: JsonElement) = decode {
     FollowedByFollowingCount = followedByFollowingCount
     IsFollowed = isFollowed
     FollowsYou = followsYou
+    Live = live
   }
 }
 
@@ -2239,11 +2463,20 @@ let blockResultDecoder(element: JsonElement) = decode {
   return { User = user; IsBlocking = isBlocking }
 }
 
+// The followed users who are live right now: a plain collection,
+// not a cursor page.
+let liveFollowingDecoder(element: JsonElement) = decode {
+  let! users = Required.Property.list ("data", userDecoder) element
+
+  return users
+}
+
 let notificationDecoder(element: JsonElement) = decode {
   let! id = Required.Property.get ("id", Required.string) element
 
   let! notificationType =
     Required.Property.get ("type", Required.string) element
+    |> Result.map NotificationKinds.parse
 
   let! subjectId =
     Optional.Property.get ("subject_id", Optional.string) element
@@ -3071,6 +3304,9 @@ let inline decodeScheduledCommit
 
 module Me =
   let decode(body: string) = decodeMe body
+
+  let decodeLiveFollowing(body: string) : Result<User list, DecodeFailure> =
+    parseBody body liveFollowingDecoder
 
 module UserSettings =
   let decode(body: string) =

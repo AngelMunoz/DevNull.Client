@@ -1,4 +1,4 @@
-module Tests.Api
+﻿module Tests.Api
 
 open System
 open System.Text.RegularExpressions
@@ -477,7 +477,7 @@ let commitApiTests =
         Expect.equal None commit.ParentId "parent"
         Expect.equal (Some 2) commit.StarsCount "stars"
         Expect.equal (Some 1) commit.RepliesCount "replies"
-        Expect.equal Approved commit.Status "status"
+        Expect.equal CommitStatus.Approved commit.Status "status"
         Expect.equal "octocat" (Author.handle commit.Author) "author"
 
         let image = commit.Images |> List.exactlyOne
@@ -1182,6 +1182,141 @@ let notificationOrgTests =
     }
   ]
 
+let liveTests =
+  testList "Api.live" [
+    test "a user with a live stream decodes" {
+      let liveUserJson =
+        apiUserJson.Replace(
+          "\"lane\":3}",
+          "\"lane\":3,\"live\":{\"platform\":\"youtube\",\"url\":\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\",\"thumbnail_url\":\"https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault_live.jpg\",\"ends_at\":\"2026-10-20T08:17:19Z\"}}"
+        )
+
+      match Me.decodeLiveFollowing(sprintf "{\"data\":[%s]}" liveUserJson) with
+      | Ok users ->
+        let user = users |> List.exactlyOne
+
+        match user.Live with
+        | Some stream ->
+          Expect.equal YouTube stream.Platform "platform"
+
+          Expect.equal
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+            stream.Url
+            "url"
+
+          Expect.equal
+            (Some "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault_live.jpg")
+            stream.ThumbnailUrl
+            "thumbnail"
+
+          Expect.equal
+            (DateTimeOffset(2026, 10, 20, 8, 17, 19, TimeSpan.Zero))
+            stream.EndsAt
+            "ends at"
+        | None -> failtest "expected a live stream"
+      | Error failure -> failtestf "%A" failure
+    }
+
+    test "a user without a stream decodes with no live" {
+      match Me.decodeLiveFollowing(sprintf "{\"data\":[%s]}" apiUserJson) with
+      | Ok users ->
+        let user = users |> List.exactlyOne
+        Expect.isNone user.Live "no live"
+      | Error failure -> failtestf "%A" failure
+    }
+
+    test "a null live decodes with no live" {
+      let nulled =
+        apiUserJson.Replace("\"lane\":3}", "\"lane\":3,\"live\":null}")
+
+      match Me.decodeLiveFollowing(sprintf "{\"data\":[%s]}" nulled) with
+      | Ok users ->
+        let user = users |> List.exactlyOne
+        Expect.isNone user.Live "no live"
+      | Error failure -> failtestf "%A" failure
+    }
+
+    test "a first commit notification decodes its kind" {
+      let firstCommitJson =
+        notificationJson.Replace(
+          "\"type\":\"replied\"",
+          "\"type\":\"first_commit\""
+        )
+
+      match
+        Notification.decodePage(
+          sprintf
+            "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+            firstCommitJson
+        )
+      with
+      | Ok page ->
+        let item = page.Items |> List.exactlyOne
+        Expect.equal FirstCommit item.Type "kind"
+      | Error failure -> failtestf "%A" failure
+    }
+
+    test "a stream link names its platform" {
+      Expect.equal
+        (Some YouTube)
+        (LivePlatforms.forUrl "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        "watch"
+
+      Expect.equal
+        (Some YouTube)
+        (LivePlatforms.forUrl "https://youtu.be/dQw4w9WgXcQ")
+        "short"
+
+      Expect.equal
+        (Some YouTube)
+        (LivePlatforms.forUrl "https://www.youtube.com/live/dQw4w9WgXcQ")
+        "live path"
+
+      Expect.equal
+        (Some Twitch)
+        (LivePlatforms.forUrl "https://twitch.tv/somechannel")
+        "channel"
+
+      Expect.equal
+        (Some Twitch)
+        (LivePlatforms.forUrl "https://www.twitch.tv/some_channel")
+        "underscored channel"
+    }
+
+    test "a link no driver takes names no platform" {
+      Expect.isNone
+        (LivePlatforms.forUrl "https://www.youtube.com/watch?v=short")
+        "short id refused"
+
+      Expect.isNone
+        (LivePlatforms.forUrl "https://twitch.tv/videos/123")
+        "video refused"
+
+      Expect.isNone
+        (LivePlatforms.forUrl "https://twitch.tv/login")
+        "reserved refused"
+
+      Expect.isNone
+        (LivePlatforms.forUrl "https://example.test/stream")
+        "foreign host refused"
+    }
+
+    test "the hour count parses in range only" {
+      Expect.equal (Some 1) (LivePlatforms.tryParseHours 1) "one"
+      Expect.equal (Some 12) (LivePlatforms.tryParseHours 12) "twelve"
+      Expect.isNone (LivePlatforms.tryParseHours 0) "zero"
+      Expect.isNone (LivePlatforms.tryParseHours 13) "thirteen"
+    }
+
+    test "the platform parses and wires round trip" {
+      Expect.equal (Some YouTube) (LivePlatforms.parse "youtube") "youtube"
+      Expect.equal (Some Twitch) (LivePlatforms.parse "twitch") "twitch"
+      Expect.isNone (LivePlatforms.parse "vimeo") "other"
+      Expect.equal "youtube" (LivePlatforms.wire YouTube) "wire youtube"
+      Expect.equal "twitch" (LivePlatforms.wire Twitch) "wire twitch"
+    }
+  ]
+
 let devicesListJson =
   """{"data":[{"id":"018f4c1e-dev0-7c3a-9b2d-5e6f7a8b9c0d","name":"This Fedora desktop","app_name":null,"fingerprint":"SHA256:OwnDeviceFingerprint0123456789012345","approved_at":"2026-10-01T00:00:00Z","last_used_at":"2026-10-28T00:00:00Z"},{"id":"018f4c1e-dev1-7c3a-9b2d-5e6f7a8b9c0d","name":"A Mac laptop","app_name":"DevNull Client","fingerprint":"SHA256:AnotherDeviceFingerprint0123456789012","approved_at":"2026-09-01T00:00:00Z","last_used_at":null},{"id":"018f4c1e-dev2-7c3a-9b2d-5e6f7a8b9c0d","name":"A Linux desktop","fingerprint":"SHA256:ThirdDeviceFingerprint01234567890123","approved_at":"2026-08-01T00:00:00Z","last_used_at":null}]}"""
 
@@ -1461,6 +1596,96 @@ let accountApiTests =
       | Ok details ->
         Expect.isTrue (Map.isEmpty details.Profile.BioProfiles) "empty"
       | Error error -> failtestf "%A" error
+    }
+
+    testAsync "goes live over the session answer" {
+      let http = CapturingHttp(ok sessionJson)
+
+      let request: Me.LiveRequest = {
+        KeyFile = "key-file"
+        Url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        Hours = 3
+      }
+
+      let! (result: Result<Me, TestError>) = Me.goLive(envFor http, request)
+
+      match result with
+      | Ok session ->
+        Expect.equal "octocat" session.Profile.User.Handle "username"
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "PUT" sent.Method "method"
+      Expect.equal "/api/v1/me/live" sent.Target "target"
+
+      Expect.equal
+        """{"url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","hours":3}"""
+        (bodyText sent)
+        "body"
+    }
+
+    testAsync "a refused go-live carries the server words" {
+      let http =
+        CapturingHttp(
+          refused
+            422
+            """{"message":"Use a link to your stream on YouTube or Twitch."}"""
+        )
+
+      let request: Me.LiveRequest = {
+        KeyFile = "key-file"
+        Url = "https://example.test/stream"
+        Hours = 2
+      }
+
+      let! (result: Result<Me, TestError>) = Me.goLive(envFor http, request)
+
+      match result with
+      | Error(Refused(422, None, message)) ->
+        Expect.equal
+          "Use a link to your stream on YouTube or Twitch."
+          message
+          "words"
+      | other -> failtestf "%A" other
+    }
+
+    testAsync "ends the stream over the session answer" {
+      let http = CapturingHttp(ok sessionJson)
+
+      let! (result: Result<Me, TestError>) =
+        Me.endLive(envFor http, { KeyFile = "key-file" })
+
+      match result with
+      | Ok session ->
+        Expect.equal "octocat" session.Profile.User.Handle "username"
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "DELETE" sent.Method "method"
+      Expect.equal "/api/v1/me/live" sent.Target "target"
+    }
+
+    testAsync "reads the live-following collection" {
+      let body =
+        sprintf
+          "{\"data\":[%s,%s]}"
+          apiUserJson
+          (apiUserJson.Replace("\"handle\":\"octocat\"", "\"handle\":\"hubot\""))
+
+      let http = CapturingHttp(ok body)
+
+      let! (result: Result<User list, TestError>) =
+        Me.liveFollowing(envFor http, { KeyFile = "key-file" })
+
+      match result with
+      | Ok users ->
+        Expect.equal 2 users.Length "users"
+        Expect.equal "octocat" users.Head.Handle "first handle"
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+      Expect.equal "GET" sent.Method "method"
+      Expect.equal "/api/v1/me/live-following" sent.Target "target"
     }
 
     testAsync "a root profile with no next level decodes" {
@@ -1921,7 +2146,7 @@ let listApiTests =
         Expect.equal 1 page.Page.Items.Length "items"
 
         let item = page.Page.Items |> List.exactlyOne
-        Expect.equal "replied" item.Type "type"
+        Expect.equal Replied item.Type "type"
         Expect.equal true item.Commit.IsSome "commit"
       | Error error -> failtestf "%A" error
 

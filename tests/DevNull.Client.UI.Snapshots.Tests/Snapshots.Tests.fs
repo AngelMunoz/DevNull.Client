@@ -342,6 +342,24 @@ let captureTests =
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }
 
+    testAsync "the live profile with its badge and the live-now card renders" {
+      let! window = startShell(signedInStore(), liveBadgeApi() :> IHttp)
+
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the shell never rendered its content"
+
+      do! clickWhenShown(window, "Profile")
+
+      let! badge = showsText(window, "LIVE")
+      Expect.isTrue badge "the live badge never rendered"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F3/f3-live-profile", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
     testAsync "the profile bio with its mention chips renders" {
       let! window = startShell(signedInStore(), bioMentionsApi() :> IHttp)
 

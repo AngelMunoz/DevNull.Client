@@ -1,4 +1,4 @@
-module DevNull.Client.Components.CommitCard
+﻿module DevNull.Client.Components.CommitCard
 
 open System
 open System.Text.RegularExpressions
@@ -188,6 +188,7 @@ module Parts =
     FollowedByFollowingCount = None
     IsFollowed = None
     FollowsYou = None
+    Live = None
   }
 
   // One @handle of the body: the accent color, the hover card, and
@@ -614,7 +615,7 @@ module Parts =
   // opened, the viewer has not voted, it is not the viewer's poll, and
   // the clock has not passed the close time.
   let canVote(gate: VoteGate) : bool =
-    gate.Commit.Status = Approved
+    gate.Commit.Status = CommitStatus.Approved
     && gate.Poll.ClosesAt.IsSome
     && not gate.Poll.HasVoted
     && not(hasExpired(gate.Now, gate.Poll))

@@ -464,12 +464,19 @@ let view
 
   let row(user: User) : Control =
     let name =
-      TextBlock()
-        .Classes(Theme.name Theme.Subtitle)
-        .FontSize(13.0)
-        .MaxLines(1)
-        .TextTrimming(TextTrimming.CharacterEllipsis)
-        .Text(user.Name)
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Spacing(6.0)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Children(
+          TextBlock()
+            .Classes(Theme.name Theme.Subtitle)
+            .FontSize(13.0)
+            .MaxLines(1)
+            .TextTrimming(TextTrimming.CharacterEllipsis)
+            .Text(user.Name),
+          LiveBadge.view user.Live
+        )
 
     let handle = ProfileCard.laneHandle(user.Lane, user.Handle)
 

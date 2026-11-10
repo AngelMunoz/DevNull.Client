@@ -6853,6 +6853,242 @@ let tests =
       })
 
     testCaseAsync
+      "a late older commit lands in place, and heard ones ride the next poll"
+      (async {
+        let api =
+          FakeApi(fun request ->
+            if request.Target.StartsWith "/api/v1/log/" then
+              ok latePageJson
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let env = TestEnv(signedInStore(), api :> IHttp)
+
+        let props: LogView.Props<TestEnv> = {
+          Env = env
+          Log = Latest
+          Session = signedInSession()
+          Nav = Unchecked.defaultof<Navs.INavigable>
+          Context = Unchecked.defaultof<Navs.RouteContext>
+        }
+
+        let headPage =
+          sprintf
+            "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
+            (datedCommitJson(
+              "0a0a0a0a-0000-0000-0000-000000000001",
+              "aaa1111",
+              "First landing.",
+              "2020-04-03T12:00:00Z"
+            ))
+
+        let loaded =
+          match LogPage.decode headPage with
+          | Ok page -> page
+          | Error failure ->
+            failwith $"the loaded page never decoded: {failure.Message}"
+
+        let model = {
+          LogView.State.initial with
+              Head = Some "0a0a0a0a-0000-0000-0000-000000000001"
+              Items = loaded.Page.Items
+        }
+
+        let late =
+          match LogPage.decode latePageJson with
+          | Ok page -> page
+          | Error failure ->
+            failwith $"the poll page never decoded: {failure.Message}"
+
+        // The late commit is not newer than the head, so the burst
+        // lands in the feed in one update: no pill, no reload.
+        let staged, _ =
+          LogView.State.update props (LogView.State.NewChecked(Ok late)) model
+
+        Expect.isNone staged.NewCount "the late commit staged the pill"
+
+        Expect.equal 2 staged.Items.Length "the late commit never landed"
+
+        Expect.equal [] staged.HeardIds "the late commit never became heard"
+
+        let rows = LogView.State.toRows(staged.Items, false, None)
+
+        Expect.contains
+          (rows |> List.map LogView.State.keyOf)
+          "0a0a0a0a-0000-0000-0000-000000000000"
+          "the late commit never showed in place"
+
+        // A newer-than-head commit stages the pill and is heard; the
+        // next poll reports it as arrived.
+        let newer =
+          match LogPage.decode newerPageJson with
+          | Ok page -> page
+          | Error failure ->
+            failwith $"the newer page never decoded: {failure.Message}"
+
+        let heard, _ =
+          LogView.State.update props (LogView.State.NewChecked(Ok newer)) model
+
+        Expect.equal
+          (Some 1)
+          heard.NewCount
+          "the newer commit never staged the pill"
+
+        Expect.equal
+          [ "0a0a0a0a-0000-0000-0000-000000000003" ]
+          heard.HeardIds
+          "the newer commit never became heard"
+
+        Expect.equal model.Items heard.Items "the newer commit touched the feed"
+
+        let _, polled = LogView.State.update props LogView.State.CheckNew heard
+
+        polled ignore ignore
+
+        let! sent =
+          waitForAsync(
+            5000,
+            (fun () -> api.Requests),
+            fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Target.Contains "arrived[]=")
+          )
+
+        Expect.isTrue sent "the next poll never sent the heard ids"
+
+        let poll =
+          api.Requests
+          |> List.find(fun request -> request.Target.Contains "arrived[]=")
+
+        Expect.isTrue
+          (poll.Target.Contains "arrived[]=0a0a0a0a-0000-0000-0000-000000000003")
+          "the heard id never rode the poll"
+
+        Expect.isTrue
+          (poll.Target.Contains "pending[]=")
+          "the loaded ids never rode the poll"
+
+        Expect.isTrue
+          (poll.Headers |> List.exists(fun (name, _) -> name = "X-Log-Through"))
+          "the oldest range never rode the poll"
+      })
+
+    testCaseAsync
+      "a burst of two late commits lands together"
+      (async {
+        let env = TestEnv(signedInStore(), twoDaysLogApi() :> IHttp)
+
+        let props: LogView.Props<TestEnv> = {
+          Env = env
+          Log = Latest
+          Session = signedInSession()
+          Nav = Unchecked.defaultof<Navs.INavigable>
+          Context = Unchecked.defaultof<Navs.RouteContext>
+        }
+
+        let headJson =
+          datedCommitJson(
+            "0a0a0a0a-0000-0000-0000-000000000001",
+            "aaa1111",
+            "First landing.",
+            "2020-04-03T12:00:00Z"
+          )
+
+        let headPage =
+          sprintf
+            "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
+            headJson
+
+        let loaded =
+          match LogPage.decode headPage with
+          | Ok page -> page
+          | Error failure ->
+            failwith $"the head page never decoded: {failure.Message}"
+
+        let model = {
+          LogView.State.initial with
+              Head = Some "0a0a0a0a-0000-0000-0000-000000000001"
+              Items = loaded.Page.Items
+        }
+
+        let olderJson =
+          datedCommitJson(
+            "0a0a0a0a-0000-0000-0000-000000000010",
+            "old1111",
+            "The older late.",
+            "2020-04-01T12:00:00Z"
+          )
+
+        let burstJson =
+          sprintf
+            "{\"data\":[%s,%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
+            lateCommitJson
+            olderJson
+
+        let burst =
+          match LogPage.decode burstJson with
+          | Ok page -> page
+          | Error failure ->
+            failwith $"the burst page never decoded: {failure.Message}"
+
+        // One poll burst lands as that one update, newest first.
+        let staged, _ =
+          LogView.State.update props (LogView.State.NewChecked(Ok burst)) model
+
+        Expect.equal 3 staged.Items.Length "the burst never landed together"
+
+        Expect.isNone staged.NewCount "the burst staged the pill"
+
+        Expect.equal
+          [
+            "0a0a0a0a-0000-0000-0000-000000000001"
+            "0a0a0a0a-0000-0000-0000-000000000000"
+            "0a0a0a0a-0000-0000-0000-000000000010"
+          ]
+          (staged.Items
+           |> List.map(function
+             | LiveCommit commit -> commit.Id
+             | Tombstone tombstone -> tombstone.Id))
+          "the burst landed out of order"
+      })
+
+    testCaseAsync
+      "reselecting the log scrolls to its top"
+      (async {
+        let env = TestEnv(signedInStore(), logApi() :> IHttp)
+
+        let! window = async {
+          let! born = probeUiAsync(fun () -> Shell(env, None) :> Window)
+          return! showAsync born
+        }
+
+        let! shown = showsText(window, "The Octocat")
+        Expect.isTrue shown "the log never rendered"
+
+        let timeline =
+          (env :> DevNull.Client.Timeline.IProvideTimeline).Timeline
+
+        let scrolled = ResizeArray<Timeline.Request>()
+        let listen = timeline.Requests.Subscribe scrolled.Add
+        scrolled.Clear()
+
+        do! clickWhenShown(window, "Log")
+
+        let! raised =
+          waitForAsync(
+            5000,
+            (fun () -> scrolled),
+            fun seen -> seen.Contains Timeline.ScrollToTop
+          )
+
+        listen.Dispose()
+        Expect.isTrue raised "the Log entry never raised a scroll to top"
+      })
+
+    testCaseAsync
       "a stored session that predates the terms never gates"
       (async {
         let api = logApi()

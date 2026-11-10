@@ -3113,4 +3113,17 @@ let captureTests =
       let bytes = IO.File.ReadAllBytes(path)
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }
+
+    testAsync "the log shows the caught-up feed in place" {
+      let! window = startShell(signedInStore(), catchUpLogApi() :> IHttp)
+
+      let! late = showsText(window, "A late commit.")
+      Expect.isTrue late "the caught-up commit never rendered"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F28/f28-log-catch-up", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
   ]

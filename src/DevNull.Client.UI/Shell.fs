@@ -134,6 +134,7 @@ type NavContext = {
   Navigate: string -> unit
   Active: BehaviorSubject<string voption>
   Compact: IObservable<bool>
+  ScrollToTop: unit -> unit
 }
 
 let navItem(context: NavContext, entry: NavEntry) : Control =
@@ -187,7 +188,11 @@ let navItem(context: NavContext, entry: NavEntry) : Control =
     Button()
       .Classes(Theme.name Theme.NavItem)
       .Content(content)
-      .OnClickHandler(fun _ _ -> context.Navigate entry.Url)
+      .OnClickHandler(fun _ _ ->
+        if entry.Section = "log" && context.Active.Value = ValueSome "log" then
+          context.ScrollToTop()
+        else
+          context.Navigate entry.Url)
 
   ToolTip.SetTip(item, entry.Label)
 
@@ -491,6 +496,7 @@ type SidebarProps = {
   OpenSearch: unit -> unit
   ToggleSidebar: unit -> unit
   FocusComposer: unit -> bool
+  ScrollToTop: unit -> unit
 }
 
 // The sidebar content: the wordmark, the entries, the commit and
@@ -622,6 +628,7 @@ let sidebar(props: SidebarProps) : Control =
     Navigate = props.Navigate
     Active = props.Active
     Compact = props.Compact
+    ScrollToTop = props.ScrollToTop
   }
 
   let navChildren: Control array = [|
@@ -1225,6 +1232,7 @@ type Shell<'env
         OpenSearch = fun () -> searchOpen.OnNext true
         ToggleSidebar = toggleSidebar
         FocusComposer = focusInlineComposer
+        ScrollToTop = timeline.ScrollToTop
       }
 
     // The pane keeps one look per mode: the drawer fills with the

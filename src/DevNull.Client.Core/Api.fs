@@ -48,6 +48,7 @@ module Signing =
     Method: string
     Target: string
     Body: string
+    Headers: (string * string) list
   }
 
   type ImageRequest = {
@@ -105,14 +106,16 @@ module Signing =
     return {
       Method = method
       Target = request.Target
-      Headers = [
-        "User-Agent", userAgent
-        "Accept-Language", acceptLanguage()
-        "X-Devnull-Timestamp", string timestamp
-        "X-Devnull-Nonce", Nonces.value nonce
-        "X-SSH-Signature", signature
-        "Content-Type", "application/json"
-      ]
+      Headers =
+        [
+          "User-Agent", userAgent
+          "Accept-Language", acceptLanguage()
+          "X-Devnull-Timestamp", string timestamp
+          "X-Devnull-Nonce", Nonces.value nonce
+          "X-SSH-Signature", signature
+          "Content-Type", "application/json"
+        ]
+        @ request.Headers
       Body = if request.Body = "" then Empty else Text request.Body
     }
   }
@@ -220,6 +223,7 @@ module Internal =
     Method: string
     Target: string
     Body: string
+    Headers: (string * string) list
     Decode: string -> Result<'value, DecodeFailure>
   }
 
@@ -295,6 +299,7 @@ module Internal =
           Method = call.Method
           Target = call.Target
           Body = call.Body
+          Headers = call.Headers
         }
       )
     with
@@ -466,6 +471,7 @@ module Device =
           Method = "POST"
           Target = "/api/v1/devices"
           Body = body
+          Headers = []
           Decode = Me.decode
         }
       )
@@ -491,6 +497,7 @@ module Me =
         Method = "GET"
         Target = "/api/v1/me"
         Body = ""
+        Headers = []
         Decode = Me.decode
       }
     )
@@ -503,6 +510,7 @@ module Me =
         Method = "DELETE"
         Target = "/api/v1/me"
         Body = ""
+        Headers = []
         Decode = Internal.decodeUnit
       }
     )
@@ -519,6 +527,7 @@ module Me =
         Method = "PUT"
         Target = "/api/v1/me/pasteis-mode"
         Body = body
+        Headers = []
         Decode = Me.decode
       }
     )
@@ -531,6 +540,7 @@ module Me =
         Method = "PUT"
         Target = "/api/v1/me/github"
         Body = ""
+        Headers = []
         Decode = Me.decode
       }
     )
@@ -556,6 +566,7 @@ module Me =
           Method = "PUT"
           Target = "/api/v1/me/lane"
           Body = body
+          Headers = []
           Decode = Me.decode
         }
       )
@@ -573,6 +584,7 @@ module Me =
         Method = "PUT"
         Target = "/api/v1/me/terms"
         Body = body
+        Headers = []
         Decode = Me.decode
       }
     )
@@ -599,6 +611,7 @@ module Me =
         Method = "GET"
         Target = "/api/v1/me/settings"
         Body = ""
+        Headers = []
         Decode = UserSettings.decode
       }
     )
@@ -626,6 +639,7 @@ module Me =
         Method = "PUT"
         Target = "/api/v1/me/timezone"
         Body = body
+        Headers = []
         Decode = Me.decode
       }
     )
@@ -642,6 +656,7 @@ module Me =
         Method = "PUT"
         Target = "/api/v1/me/automatic-translation"
         Body = body
+        Headers = []
         Decode = Me.decode
       }
     )
@@ -663,6 +678,7 @@ module Me =
         Method = "PUT"
         Target = "/api/v1/me/translation-language"
         Body = body
+        Headers = []
         Decode = Me.decode
       }
     )
@@ -681,6 +697,7 @@ module Devices =
         Method = "GET"
         Target = "/api/v1/me/devices"
         Body = ""
+        Headers = []
         Decode = Devices.decode
       }
     )
@@ -693,6 +710,7 @@ module Devices =
         Method = "DELETE"
         Target = "/api/v1/me/devices/" + Uri.EscapeDataString request.DeviceId
         Body = ""
+        Headers = []
         Decode = Internal.decodeUnit
       }
     )
@@ -740,6 +758,7 @@ module Users =
         Method = "GET"
         Target = Internal.userPath(request.Username, "")
         Body = ""
+        Headers = []
         Decode = ProfileDetails.decode
       }
     )
@@ -759,6 +778,7 @@ module Users =
         Method = "GET"
         Target = target
         Body = ""
+        Headers = []
         Decode = CommitNode.decodePage
       }
     )
@@ -777,6 +797,7 @@ module Users =
         Method = "GET"
         Target = target
         Body = ""
+        Headers = []
         Decode = User.decodePage
       }
     )
@@ -795,6 +816,7 @@ module Users =
         Method = "GET"
         Target = target
         Body = ""
+        Headers = []
         Decode = User.decodePage
       }
     )
@@ -813,6 +835,7 @@ module Users =
         Method = "GET"
         Target = target
         Body = ""
+        Headers = []
         Decode = FollowedOrganization.decodePage
       }
     )
@@ -825,6 +848,7 @@ module Users =
         Method = "POST"
         Target = Internal.userPath(request.Username, "/follow")
         Body = ""
+        Headers = []
         Decode = Internal.decodeUnit
       }
     )
@@ -837,6 +861,7 @@ module Users =
         Method = "DELETE"
         Target = Internal.userPath(request.Username, "/follow")
         Body = ""
+        Headers = []
         Decode = Internal.decodeUnit
       }
     )
@@ -861,6 +886,7 @@ module Users =
         Method = "GET"
         Target = target
         Body = ""
+        Headers = []
         Decode = SuggestedUsers.decode
       }
     )
@@ -873,6 +899,7 @@ module Users =
         Method = "POST"
         Target = Internal.userPath(request.Username, "/dismiss")
         Body = ""
+        Headers = []
         Decode = Internal.decodeUnit
       }
     )
@@ -891,6 +918,7 @@ module Users =
         Method = "GET"
         Target = target
         Body = ""
+        Headers = []
         Decode = User.decodePage
       }
     )
@@ -903,6 +931,7 @@ module Users =
         Method = "POST"
         Target = Internal.userPath(request.Username, "/mute")
         Body = ""
+        Headers = []
         Decode = MuteResult.decode
       }
     )
@@ -915,6 +944,7 @@ module Users =
         Method = "DELETE"
         Target = Internal.userPath(request.Username, "/mute")
         Body = ""
+        Headers = []
         Decode = MuteResult.decode
       }
     )
@@ -933,6 +963,7 @@ module Users =
         Method = "GET"
         Target = target
         Body = ""
+        Headers = []
         Decode = User.decodePage
       }
     )
@@ -945,6 +976,7 @@ module Users =
         Method = "POST"
         Target = Internal.userPath(request.Username, "/block")
         Body = ""
+        Headers = []
         Decode = BlockResult.decode
       }
     )
@@ -957,6 +989,7 @@ module Users =
         Method = "DELETE"
         Target = Internal.userPath(request.Username, "/block")
         Body = ""
+        Headers = []
         Decode = BlockResult.decode
       }
     )
@@ -982,6 +1015,7 @@ module Organizations =
         Method = "GET"
         Target = path(request.Handle, "")
         Body = ""
+        Headers = []
         Decode = OrganizationProfile.decode
       }
     )
@@ -994,6 +1028,7 @@ module Organizations =
         Method = "POST"
         Target = path(request.Handle, "/follow")
         Body = ""
+        Headers = []
         Decode = Internal.decodeUnit
       }
     )
@@ -1006,6 +1041,7 @@ module Organizations =
         Method = "DELETE"
         Target = path(request.Handle, "/follow")
         Body = ""
+        Headers = []
         Decode = Internal.decodeUnit
       }
     )
@@ -1018,6 +1054,7 @@ module Organizations =
         Method = "POST"
         Target = path(request.Handle, "/claim")
         Body = ""
+        Headers = []
         Decode = Internal.decodeUnit
       }
     )
@@ -1036,6 +1073,7 @@ module Organizations =
         Method = "GET"
         Target = target
         Body = ""
+        Headers = []
         Decode = CommitNode.decodePage
       }
     )
@@ -1054,6 +1092,7 @@ module Organizations =
         Method = "GET"
         Target = target
         Body = ""
+        Headers = []
         Decode = CommitNode.decodePage
       }
     )
@@ -1279,6 +1318,7 @@ module Commits =
       Method = "POST"
       Target = "/api/v1/commits"
       Body = json
+      Headers = []
       Decode = Commit.decodeCreated
     }
 
@@ -1313,6 +1353,7 @@ module Commits =
       Method = "POST"
       Target = path
       Body = json
+      Headers = []
       Decode = Commit.decodeCreated
     }
 
@@ -1330,6 +1371,7 @@ module Commits =
           Method = "GET"
           Target = path
           Body = ""
+          Headers = []
           Decode = CommitPage.decode
         }
       )
@@ -1353,6 +1395,7 @@ module Commits =
           Method = "GET"
           Target = target
           Body = ""
+          Headers = []
           Decode = CommitNode.decodePage
         }
       )
@@ -1372,6 +1415,7 @@ module Commits =
           Method = "GET"
           Target = path
           Body = ""
+          Headers = []
           Decode = RelatedCommits.decode
         }
       )
@@ -1388,6 +1432,7 @@ module Commits =
           Method = "DELETE"
           Target = path
           Body = ""
+          Headers = []
           Decode = Internal.decodeUnit
         }
       )
@@ -1404,6 +1449,7 @@ module Commits =
           Method = "POST"
           Target = path
           Body = ""
+          Headers = []
           Decode = Commit.decodeCreated
         }
       )
@@ -1438,6 +1484,7 @@ module Commits =
       Method = "POST"
       Target = path
       Body = body
+      Headers = []
       Decode = Internal.decodeUnit
     }
 
@@ -1476,6 +1523,7 @@ module Commits =
           Method = "POST"
           Target = "/api/v1/commits/preview"
           Body = json
+          Headers = []
           Decode = CommitPreview.decode
         }
       )
@@ -1504,6 +1552,7 @@ module Commits =
             + Uri.EscapeDataString(CommitIds.value commitId)
             + "/translation"
           Body = body
+          Headers = []
           Decode =
             fun answer ->
               CommitTranslation.decode answer
@@ -1551,6 +1600,7 @@ module ScheduledCommits =
         Method = "GET"
         Target = target
         Body = ""
+        Headers = []
         Decode = ApiTypes.ScheduledCommits.decodePage
       }
     )
@@ -1591,6 +1641,7 @@ module ScheduledCommits =
       Method = "POST"
       Target = "/api/v1/scheduled-commits"
       Body = json
+      Headers = []
       Decode = ApiTypes.ScheduledCommits.decode
     }
 
@@ -1619,6 +1670,7 @@ module ScheduledCommits =
         Method = "DELETE"
         Target = path(request.ScheduledCommitId, "")
         Body = ""
+        Headers = []
         Decode = Internal.decodeUnit
       }
     )
@@ -1631,6 +1683,7 @@ module ScheduledCommits =
         Method = "POST"
         Target = path(request.ScheduledCommitId, "/submission")
         Body = ""
+        Headers = []
         Decode = ApiTypes.ScheduledCommits.decode
       }
     )
@@ -1658,6 +1711,7 @@ module Stars =
         Method = "GET"
         Target = target
         Body = ""
+        Headers = []
         Decode = CommitNode.decodePage
       }
     )
@@ -1673,6 +1727,7 @@ module Stars =
           Method = "POST"
           Target = path
           Body = ""
+          Headers = []
           Decode = Commit.decodeCreated
         }
       )
@@ -1689,6 +1744,7 @@ module Stars =
           Method = "DELETE"
           Target = path
           Body = ""
+          Headers = []
           Decode = Commit.decodeCreated
         }
       )
@@ -1712,6 +1768,7 @@ module CommitPins =
           Method = "PUT"
           Target = path
           Body = ""
+          Headers = []
           Decode = Commit.decodeCreated
         }
       )
@@ -1731,6 +1788,7 @@ module CommitPins =
           Method = "DELETE"
           Target = path
           Body = ""
+          Headers = []
           Decode = Commit.decodeCreated
         }
       )
@@ -1762,6 +1820,7 @@ module Search =
             List.singleton("q", request.Term)
           )
         Body = ""
+        Headers = []
         Decode = SearchProfiles.decode
       }
     )
@@ -1788,6 +1847,7 @@ module Search =
             ]
           )
         Body = ""
+        Headers = []
         Decode = SearchCommits.decode
       }
     )
@@ -1832,6 +1892,7 @@ module Suggestions =
             ]
           )
         Body = ""
+        Headers = []
         Decode = MentionSuggestions.decode
       }
     )
@@ -1850,6 +1911,7 @@ module Suggestions =
             List.singleton("q", IssueNumber.value request.Number)
           )
         Body = ""
+        Headers = []
         Decode = IssueSuggestions.decode
       }
     )
@@ -1869,6 +1931,7 @@ module Pasteis =
           Method = "POST"
           Target = path
           Body = ""
+          Headers = []
           Decode = PastelResult.decode
         }
       )
@@ -1881,17 +1944,55 @@ module Logs =
     Log: LogKind
     Since: string option
     Cursor: string option
+    Arrived: string list
+    Pending: string list
+    Everything: bool
+    Through: string list
   }
+
+  [<Literal>]
+  let ArrivedCap = 100
+
+  [<Literal>]
+  let PendingCap = 100
+
+  [<Literal>]
+  let ThroughCap = 20
 
   let get(env, request: Request) = asyncResult {
     let! since = request.Since |> Option.traverseResult CommitIds.parse
+
+    let! arrived =
+      request.Arrived
+      |> List.traverseResultM CommitIds.parse
+      |> Result.map(List.truncate ArrivedCap)
+
+    let! pending =
+      request.Pending
+      |> List.traverseResultM CommitIds.parse
+      |> Result.map(List.truncate PendingCap)
+
+    let! through =
+      request.Through
+      |> List.traverseResultM CommitIds.parse
+      |> Result.map(List.truncate ThroughCap)
 
     let target =
       Internal.withQuery(
         "/api/v1/log/" + LogKinds.wire request.Log,
         Internal.optionalParameter("since", since |> Option.map CommitIds.value)
+        @ (arrived |> List.map(fun id -> "arrived[]", CommitIds.value id))
+        @ (pending |> List.map(fun id -> "pending[]", CommitIds.value id))
+        @ Internal.flagParameter("everything", request.Everything)
         @ Internal.optionalParameter("cursor", request.Cursor)
       )
+
+    let headers =
+      match through with
+      | [] -> []
+      | ids -> [
+          "X-Log-Through", ids |> List.map CommitIds.value |> String.concat ","
+        ]
 
     return!
       Internal.sendSigned(
@@ -1901,6 +2002,7 @@ module Logs =
           Method = "GET"
           Target = target
           Body = ""
+          Headers = headers
           Decode = LogPage.decode
         }
       )
@@ -1949,6 +2051,7 @@ module Notifications =
         Method = "GET"
         Target = target
         Body = ""
+        Headers = []
         Decode = NotificationPage.decode
       }
     )
@@ -1970,6 +2073,7 @@ module Notifications =
         Method = "GET"
         Target = target
         Body = ""
+        Headers = []
         Decode = Notification.decodePage
       }
     )
@@ -2130,6 +2234,7 @@ module Remotes =
         Method = "GET"
         Target = target
         Body = ""
+        Headers = []
         Decode = Inbox.decode
       }
     )
@@ -2161,6 +2266,7 @@ module Remotes =
         Method = "GET"
         Target = target
         Body = ""
+        Headers = []
         Decode = Thread.decode
       }
     )
@@ -2192,6 +2298,7 @@ module Remotes =
         Method = "GET"
         Target = target
         Body = ""
+        Headers = []
         Decode = OrgThread.decode
       }
     )
@@ -2267,6 +2374,7 @@ module Remotes =
       Method = "POST"
       Target = path(request.Target, "/messages")
       Body = json
+      Headers = []
       Decode = Message.decode
     }
 
@@ -2309,6 +2417,7 @@ module Remotes =
         Method = "PUT"
         Target = path(request.Target, "/read")
         Body = body
+        Headers = []
         Decode = Internal.decodeUnit
       }
     )
@@ -2321,6 +2430,7 @@ module Remotes =
         Method = "PUT"
         Target = path(request.Target, "/typing")
         Body = ""
+        Headers = []
         Decode = Internal.decodeUnit
       }
     )
@@ -2335,6 +2445,7 @@ module Remotes =
         Method = "POST"
         Target = path(request.Target, "/ping")
         Body = ""
+        Headers = []
         Decode = Internal.decodeUnit
       }
     )
@@ -2347,6 +2458,7 @@ module Remotes =
         Method = "POST"
         Target = path(request.Target, "/archive")
         Body = ""
+        Headers = []
         Decode = Internal.decodeUnit
       }
     )
@@ -2359,6 +2471,7 @@ module Remotes =
         Method = "DELETE"
         Target = path(request.Target, "/archive")
         Body = ""
+        Headers = []
         Decode = Internal.decodeUnit
       }
     )
@@ -2380,6 +2493,7 @@ module Remotes =
         Method = "PUT"
         Target = path(request.Target, "/mute")
         Body = body
+        Headers = []
         Decode = ThreadMuteResult.decode
       }
     )
@@ -2396,6 +2510,7 @@ module Remotes =
         Method = "PUT"
         Target = path(request.Target, "/pin")
         Body = body
+        Headers = []
         Decode = PinResult.decode
       }
     )
@@ -2408,6 +2523,7 @@ module Remotes =
         Method = "POST"
         Target = path(Partner request.Partner, "/merge")
         Body = ""
+        Headers = []
         Decode = Internal.decodeUnit
       }
     )
@@ -2420,6 +2536,7 @@ module Remotes =
         Method = "POST"
         Target = path(Partner request.Partner, "/drop")
         Body = ""
+        Headers = []
         Decode = Internal.decodeUnit
       }
     )
@@ -2432,6 +2549,7 @@ module Remotes =
         Method = "GET"
         Target = "/api/v1/remotes/reactions"
         Body = ""
+        Headers = []
         Decode = ReactionUses.decode
       }
     )
@@ -2449,6 +2567,7 @@ module Remotes =
         Target =
           "/api/v1/remotes/messages/" + string request.MessageId + "/reactions"
         Body = body
+        Headers = []
         Decode = Reactions.decode
       }
     )
@@ -2466,6 +2585,7 @@ module Remotes =
         Target =
           "/api/v1/remotes/messages/" + string request.MessageId + "/reactions"
         Body = body
+        Headers = []
         Decode = Reactions.decode
       }
     )
@@ -2481,6 +2601,7 @@ module Remotes =
           + string request.MessageId
           + "/link-preview"
         Body = ""
+        Headers = []
         Decode = MessageLinkPreview.decode
       }
     )
@@ -2500,6 +2621,7 @@ module Remotes =
         Method = "PUT"
         Target = "/api/v1/remotes/messages/" + string request.MessageId + "/pin"
         Body = ""
+        Headers = []
         Decode = MessagePinResult.decode
       }
     )
@@ -2512,6 +2634,7 @@ module Remotes =
         Method = "DELETE"
         Target = "/api/v1/remotes/messages/" + string request.MessageId + "/pin"
         Body = ""
+        Headers = []
         Decode = MessagePinResult.decode
       }
     )
@@ -2544,6 +2667,7 @@ module Remotes =
         Method = "GET"
         Target = target
         Body = ""
+        Headers = []
         Decode = RemoteCandidates.decode
       }
     )
@@ -2571,6 +2695,7 @@ module Remotes =
         Method = "POST"
         Target = "/api/v1/remotes/orgs"
         Body = body
+        Headers = []
         Decode = CreatedOrg.decode
       }
     )
@@ -2594,6 +2719,7 @@ module Remotes =
         Method = "PUT"
         Target = "/api/v1/remotes/orgs/" + Uri.EscapeDataString request.OrgId
         Body = body
+        Headers = []
         Decode = Internal.decodeUnit
       }
     )
@@ -2616,6 +2742,7 @@ module Remotes =
           + Uri.EscapeDataString request.OrgId
           + "/members"
         Body = body
+        Headers = []
         Decode = Internal.decodeUnit
       }
     )
@@ -2638,6 +2765,7 @@ module Remotes =
           + "/members/"
           + Uri.EscapeDataString request.Member
         Body = body
+        Headers = []
         Decode = Internal.decodeUnit
       }
     )
@@ -2654,6 +2782,7 @@ module Remotes =
           + "/members/"
           + Uri.EscapeDataString request.Member
         Body = ""
+        Headers = []
         Decode = Internal.decodeUnit
       }
     )
@@ -2670,6 +2799,7 @@ module Remotes =
         Method = "PUT"
         Target = "/api/v1/me/remotes"
         Body = body
+        Headers = []
         Decode = Me.decode
       }
     )
@@ -2689,6 +2819,7 @@ module Remotes =
         Method = "PUT"
         Target = "/api/v1/me/remote-preferences"
         Body = body
+        Headers = []
         Decode = Me.decode
       }
     )

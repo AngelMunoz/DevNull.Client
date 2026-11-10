@@ -133,6 +133,10 @@ module State =
     Relations: Map<string, AuthorRelation>
     /// The commit whose menu action is in flight, so its items disable.
     MenuBusy: string option
+    /// The newer-than-head commits the poll heard while the pill
+    /// waited; the next poll reports them as arrived, and a landed
+    /// refresh or a row that loaded clears them.
+    HeardIds: string list
   }
 
   /// The messages of the log page, including the since-poll pair.

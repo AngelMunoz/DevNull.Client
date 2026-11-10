@@ -1336,6 +1336,44 @@ let signedInSession() = {
   KeyFile = devicePrivateKeyPath
 }
 
+/// One late commit older than the head but never loaded: the catch-up
+/// poll merges it in place.
+let lateCommitJson =
+  datedCommitJson(
+    "0a0a0a0a-0000-0000-0000-000000000000",
+    "zzz9999",
+    "A late commit.",
+    "2020-04-02T12:00:00Z"
+  )
+
+/// A poll page carrying only the late commit, with no news count.
+let latePageJson =
+  sprintf
+    "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
+    lateCommitJson
+
+/// The api of the catch-up capture: the boot log already holds the
+/// head and the late commit in place.
+let catchUpLogApi() =
+  let page =
+    sprintf
+      "{\"data\":[%s,%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
+      (datedCommitJson(
+        "0a0a0a0a-0000-0000-0000-000000000001",
+        "aaa1111",
+        "First landing.",
+        "2020-04-03T12:00:00Z"
+      ))
+      lateCommitJson
+
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/log/" then
+      ok page
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
 /// One log page carrying a single commit newer than the head.
 let newerPageJson =
   sprintf

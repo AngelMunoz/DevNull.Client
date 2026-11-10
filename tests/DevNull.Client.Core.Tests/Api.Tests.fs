@@ -16,6 +16,7 @@ let request: Signing.Request = {
   Method = "post"
   Target = "/api/v1/commits"
   Body = "{\"body\":\"It was DNS.\"}"
+  Headers = []
 }
 
 let header name (headers: (string * string) list) =
@@ -1592,6 +1593,10 @@ let listApiTests =
         Log = Latest
         Since = Some "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
         Cursor = Some "abc"
+        Arrived = []
+        Pending = []
+        Everything = false
+        Through = []
       }
 
       let! (result: Result<LogPage, TestError>) = Logs.get(envFor http, request)
@@ -1621,6 +1626,84 @@ let listApiTests =
         Log = Latest
         Since = Some "not-a-uuid"
         Cursor = None
+        Arrived = []
+        Pending = []
+        Everything = false
+        Through = []
+      }
+
+      let! (result: Result<LogPage, TestError>) = Logs.get(envFor http, request)
+
+      match result with
+      | Error(InvalidCommitId "not-a-uuid") -> ()
+      | _ -> failtest "expected InvalidCommitId"
+
+      Expect.equal [] http.Requests "no request"
+    }
+
+    testAsync "the poll extras ride the target and the header" {
+      let idIndex index =
+        sprintf "018f4c1e-6f8a-7c3a-9b2d-%012x" index
+
+      let http = CapturingHttp(ok logResponse)
+
+      let request: Logs.Request = {
+        KeyFile = "key-file"
+        Log = Latest
+        Since = Some(idIndex 1)
+        Cursor = None
+        Arrived = [ for index in 1..105 -> idIndex index ]
+        Pending = [ idIndex 201 ]
+        Everything = true
+        Through = [ for index in 1..25 -> idIndex index ]
+      }
+
+      let! (result: Result<LogPage, TestError>) = Logs.get(envFor http, request)
+
+      match result with
+      | Ok _ -> ()
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+
+      Expect.isTrue
+        (sent.Target.StartsWith "/api/v1/log/latest?since=")
+        "since first"
+
+      Expect.equal
+        100
+        (sent.Target.Split("arrived[]=").Length - 1)
+        "arrived count capped"
+
+      Expect.equal
+        1
+        (sent.Target.Split("pending[]=").Length - 1)
+        "pending count"
+
+      Expect.isTrue (sent.Target.Contains("everything=1")) "everything flag"
+
+      Expect.equal
+        (List.init 20 (fun index -> idIndex(index + 1)) |> String.concat ",")
+        (header "X-Log-Through" sent.Headers |> Option.defaultValue "")
+        "through header capped in order"
+
+      Expect.isTrue
+        (sent.Target.Contains("arrived[]=" + idIndex 1))
+        "first arrived first"
+    }
+
+    testAsync "an invalid arrived id fails before the request" {
+      let http = CapturingHttp(ok logResponse)
+
+      let request: Logs.Request = {
+        KeyFile = "key-file"
+        Log = Latest
+        Since = None
+        Cursor = None
+        Arrived = [ "not-a-uuid" ]
+        Pending = []
+        Everything = false
+        Through = []
       }
 
       let! (result: Result<LogPage, TestError>) = Logs.get(envFor http, request)

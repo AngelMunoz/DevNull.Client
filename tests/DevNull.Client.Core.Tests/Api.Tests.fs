@@ -1528,6 +1528,37 @@ let listApiTests =
         "target"
     }
 
+    testAsync "reads an organization's commits page" {
+      let http = CapturingHttp(ok(pageOf orgCommitJson))
+
+      let request: Organizations.MentionsRequest = {
+        KeyFile = "key-file"
+        Handle = "devnull"
+        Cursor = Some "abc"
+      }
+
+      let! (result: Result<Page<CommitNode>, TestError>) =
+        Organizations.commits(envFor http, request)
+
+      match result with
+      | Ok page ->
+        Expect.equal 1 page.Items.Length "items"
+
+        match page.Items.Head with
+        | LiveCommit commit ->
+          Expect.equal "devnull" (Author.handle commit.Author) "author"
+          Expect.isTrue (Author.isOrganization commit.Author) "organization"
+        | Tombstone _ -> failtest "expected a live commit"
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+
+      Expect.equal
+        "/api/v1/organizations/devnull/commits?cursor=abc"
+        sent.Target
+        "target"
+    }
+
     testAsync "reads a log with since and cursor" {
       let http = CapturingHttp(ok logResponse)
 

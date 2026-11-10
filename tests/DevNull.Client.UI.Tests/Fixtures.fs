@@ -2056,6 +2056,21 @@ let orgAuthorLogPageJsonNoMember =
 let organizationMentionsEmptyPageJson =
   """{"data":[],"links":{},"meta":{"per_page":20,"next_cursor":null,"prev_cursor":null}}"""
 
+/// The organization's own commit, with a body the mentions feed never
+/// carries so the tabs read apart.
+let orgCommitsCommitJson =
+  orgAuthorCommitJson.Replace(
+    "\"body\":\"It was DNS.\"",
+    "\"body\":\"Org commit.\""
+  )
+
+/// One organization commits page: the organization's own commits, one
+/// of them authored by the organization itself.
+let organizationCommitsPageJson =
+  sprintf
+    "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+    orgCommitsCommitJson
+
 /// The organization answers: its profile, its mentions and their cursor
 /// page, when the request names the canned handle.
 let organizationAnswer
@@ -2078,6 +2093,8 @@ let organizationAnswer
       ValueSome(ok organizationMentionsNextPageJson)
     else
       ValueSome(ok mentions)
+  elif request.Target.StartsWith "/api/v1/organizations/devnull/commits" then
+    ValueSome(ok organizationCommitsPageJson)
   else
     ValueNone
 

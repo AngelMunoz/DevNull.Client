@@ -342,6 +342,31 @@ let captureTests =
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }
 
+    testAsync "the organization commits tab renders" {
+      let! window =
+        startShell(
+          signedInStore(),
+          organizationMentionLogApi(organizationMentionsPageJson) :> IHttp
+        )
+
+      let! shown = showsText(window, ", it was DNS.")
+      Expect.isTrue shown "the log never rendered"
+      do! clickWhenShown(window, "@devnull")
+
+      let! opened = showsText(window, "Organization feed")
+      Expect.isTrue opened "the organization page never opened"
+
+      do! clickWhenShown(window, "Commits")
+
+      let! orgCommit = showsText(window, "Org commit.")
+      Expect.isTrue orgCommit "the commits tab never loaded"
+      do! settleAsync()
+
+      let! path = captureAsync("F23/f23-org-commits-tab", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
     testAsync "an organization authored commit card renders" {
       let api =
         FakeApi(fun request ->

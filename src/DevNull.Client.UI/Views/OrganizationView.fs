@@ -53,13 +53,23 @@ type Props<'env
 
 module State =
 
+  // The feed tab the page shows: the commits that mention the
+  // organization, or the organization's own commits.
+  type OrgTab =
+    | Mentions
+    | Commits
+
   type Model = {
     ProfileLoading: bool
     MentionsLoading: bool
+    CommitsLoading: bool
     Error: AppError option
     Details: OrganizationProfile option
-    Items: CommitNode list
-    NextCursor: string option
+    MentionsItems: CommitNode list
+    MentionsNextCursor: string option
+    CommitsItems: CommitNode list
+    CommitsNextCursor: string option
+    Tab: OrgTab
     Now: DateTimeOffset
     Pasteis: bool
     Voting: string option
@@ -78,6 +88,9 @@ module State =
     | Fetched of Result<OrganizationProfile, AppError>
     | MentionsFetched of Result<Page<CommitNode>, AppError>
     | MentionsAppended of Result<Page<CommitNode>, AppError>
+    | CommitsFetched of Result<Page<CommitNode>, AppError>
+    | CommitsAppended of Result<Page<CommitNode>, AppError>
+    | TabChosen of OrgTab
     | MoreRequested
     | StarToggled of Commit
     | StarDone of Result<Commit, AppError>
@@ -110,10 +123,14 @@ module State =
   let initial = {
     ProfileLoading = true
     MentionsLoading = true
+    CommitsLoading = false
     Error = None
     Details = None
-    Items = []
-    NextCursor = None
+    MentionsItems = []
+    MentionsNextCursor = None
+    CommitsItems = []
+    CommitsNextCursor = None
+    Tab = Mentions
     Now = DateTimeOffset.UtcNow
     Pasteis = false
     Voting = None
@@ -141,6 +158,26 @@ module State =
         Cursor = query.Cursor
       }
     )
+
+  let fetchCommits(env, query: MentionsQuery) =
+    Organizations.commits(
+      env,
+      {
+        KeyFile = query.Session.KeyFile
+        Handle = query.Handle
+        Cursor = query.Cursor
+      }
+    )
+
+  let inline itemsOf(tab: OrgTab, model: Model) =
+    match tab with
+    | Mentions -> model.MentionsItems
+    | Commits -> model.CommitsItems
+
+  let inline nextCursorOf(tab: OrgTab, model: Model) =
+    match tab with
+    | Mentions -> model.MentionsNextCursor
+    | Commits -> model.CommitsNextCursor
 
   let init (props: Props<'env>) () =
     {
@@ -254,8 +291,8 @@ module State =
         {
           model with
               MentionsLoading = false
-              Items = page.Items
-              NextCursor = page.NextCursor
+              MentionsItems = page.Items
+              MentionsNextCursor = page.NextCursor
         },
         Cmd.ofAction(fun () ->
           log.LogDebug(
@@ -270,24 +307,104 @@ module State =
               Error = Some error
         },
         failed $"the mentions of {props.Handle}" error
+    | CommitsFetched result ->
+      match result with
+      | Ok page ->
+        {
+          model with
+              CommitsLoading = false
+              CommitsItems = page.Items
+              CommitsNextCursor = page.NextCursor
+        },
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The commits of {Handle} fetched {Count} commits.",
+            props.Handle,
+            page.Items.Length
+          ))
+      | Error error ->
+        {
+          model with
+              CommitsLoading = false
+              Error = Some error
+        },
+        failed $"the commits of {props.Handle}" error
+    | TabChosen tab ->
+      if tab = model.Tab then
+        model, Cmd.none
+      else
+        let empty =
+          match tab with
+          | Mentions -> model.MentionsItems.IsEmpty
+          | Commits -> model.CommitsItems.IsEmpty
+
+        let chosen = { model with Tab = tab }
+
+        if empty then
+          match tab with
+          | Mentions ->
+            {
+              chosen with
+                  MentionsLoading = true
+                  Error = None
+            },
+            Cmd.OfAsync.perform
+              fetchMentions
+              (props.Env,
+               {
+                 Session = props.Session
+                 Handle = props.Handle
+                 Cursor = None
+               })
+              MentionsFetched
+          | Commits ->
+            {
+              chosen with
+                  CommitsLoading = true
+                  Error = None
+            },
+            Cmd.OfAsync.perform
+              fetchCommits
+              (props.Env,
+               {
+                 Session = props.Session
+                 Handle = props.Handle
+                 Cursor = None
+               })
+              CommitsFetched
+        else
+          chosen, Cmd.none
     | MoreRequested ->
-      model,
-      Cmd.OfAsync.perform
-        fetchMentions
-        (props.Env,
-         {
-           Session = props.Session
-           Handle = props.Handle
-           Cursor = model.NextCursor
-         })
-        MentionsAppended
+      match model.Tab with
+      | Mentions ->
+        model,
+        Cmd.OfAsync.perform
+          fetchMentions
+          (props.Env,
+           {
+             Session = props.Session
+             Handle = props.Handle
+             Cursor = model.MentionsNextCursor
+           })
+          MentionsAppended
+      | Commits ->
+        model,
+        Cmd.OfAsync.perform
+          fetchCommits
+          (props.Env,
+           {
+             Session = props.Session
+             Handle = props.Handle
+             Cursor = model.CommitsNextCursor
+           })
+          CommitsAppended
     | MentionsAppended result ->
       match result with
       | Ok page ->
         {
           model with
-              Items = model.Items @ page.Items
-              NextCursor = page.NextCursor
+              MentionsItems = model.MentionsItems @ page.Items
+              MentionsNextCursor = page.NextCursor
         },
         Cmd.ofAction(fun () ->
           log.LogDebug(
@@ -298,6 +415,23 @@ module State =
       | Error error ->
         { model with Error = Some error },
         failed $"the next mentions of {props.Handle}" error
+    | CommitsAppended result ->
+      match result with
+      | Ok page ->
+        {
+          model with
+              CommitsItems = model.CommitsItems @ page.Items
+              CommitsNextCursor = page.NextCursor
+        },
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The commits of {Handle} grew by {Count} commits.",
+            props.Handle,
+            page.Items.Length
+          ))
+      | Error error ->
+        { model with Error = Some error },
+        failed $"the next commits of {props.Handle}" error
     | StarToggled commit ->
       { model with Error = None },
       Cmd.OfAsync.perform
@@ -309,7 +443,8 @@ module State =
       | Ok updated ->
         {
           model with
-              Items = replaceNode(model.Items, updated)
+              MentionsItems = replaceNode(model.MentionsItems, updated)
+              CommitsItems = replaceNode(model.CommitsItems, updated)
         },
         Cmd.ofAction(fun () ->
           log.LogDebug("The star on {Commit} settled.", updated.Id))
@@ -350,7 +485,8 @@ module State =
       | Ok updated ->
         {
           model with
-              Items = replaceNode(model.Items, updated)
+              MentionsItems = replaceNode(model.MentionsItems, updated)
+              CommitsItems = replaceNode(model.CommitsItems, updated)
               Voting = None
               PollChoices = model.PollChoices |> Map.remove updated.Id
         },
@@ -378,7 +514,8 @@ module State =
       | Ok pastel ->
         {
           model with
-              Items = replaceNode(model.Items, pastel.Commit)
+              MentionsItems = replaceNode(model.MentionsItems, pastel.Commit)
+              CommitsItems = replaceNode(model.CommitsItems, pastel.Commit)
         },
         Cmd.ofAction(fun () ->
           log.LogDebug("The pastel on {Commit} landed.", pastel.Commit.Id))
@@ -725,8 +862,14 @@ module State =
         // toast and owns the restore.
         {
           model with
-              Items =
-                model.Items
+              MentionsItems =
+                model.MentionsItems
+                |> List.map(function
+                  | LiveCommit commit when commit.Id = commitId ->
+                    Tombstone(tombstoneOf commit)
+                  | node -> node)
+              CommitsItems =
+                model.CommitsItems
                 |> List.map(function
                   | LiveCommit commit when commit.Id = commitId ->
                     Tombstone(tombstoneOf commit)
@@ -1036,15 +1179,21 @@ let view
   let endSentence =
     model
     |> Observable.map(fun current ->
+      let items = State.itemsOf(current.Tab, current)
+
       let ended =
         not current.ProfileLoading
         && not current.MentionsLoading
+        && not current.CommitsLoading
         && current.Error.IsNone
-        && not current.Items.IsEmpty
-        && current.NextCursor.IsNone
+        && not items.IsEmpty
+        && (State.nextCursorOf(current.Tab, current)).IsNone
 
       if ended then
-        Some $"That's the first commit mentioning @{props.Handle}."
+        match current.Tab with
+        | State.Mentions ->
+          Some $"That's the first commit mentioning @{props.Handle}."
+        | State.Commits -> Some "That's the oldest commit."
       else
         None)
 
@@ -1058,7 +1207,10 @@ let view
     ErrorOf = _.Error
     Busy =
       fun current ->
-        let loading = current.ProfileLoading || current.MentionsLoading
+        let loading =
+          current.ProfileLoading
+          || current.MentionsLoading
+          || current.CommitsLoading
 
         if loading then
           PageChrome.Words "Loading the organization…"
@@ -1066,14 +1218,25 @@ let view
           PageChrome.Off
     Empty =
       fun current ->
+        let items = State.itemsOf(current.Tab, current)
+
+        let loading =
+          match current.Tab with
+          | State.Mentions -> current.MentionsLoading
+          | State.Commits -> current.CommitsLoading
+
         if
           not current.ProfileLoading
-          && not current.MentionsLoading
+          && not loading
           && current.Error.IsNone
-          && current.Items.IsEmpty
+          && items.IsEmpty
         then
-          PageChrome.Words
-            $"Nobody has mentioned @{props.Handle} yet. Mention it in a commit and it shows up here."
+          PageChrome.Words(
+            match current.Tab with
+            | State.Mentions ->
+              $"Nobody has mentioned @{props.Handle} yet. Mention it in a commit and it shows up here."
+            | State.Commits -> "No commits yet."
+          )
         else
           PageChrome.Off
     Note = fun _ -> None
@@ -1089,16 +1252,29 @@ let view
     Tabs = [
       {
         Label = "Mentions"
-        Active = System.Reactive.Linq.Observable.Return true
+        Active =
+          model |> Observable.map(fun current -> current.Tab = State.Mentions)
         Badge = ValueNone
-        Choose = ignore
+        Choose = fun () -> dispatch(State.TabChosen State.Mentions)
+      }
+      {
+        Label = "Commits"
+        Active =
+          model |> Observable.map(fun current -> current.Tab = State.Commits)
+        Badge = ValueNone
+        Choose = fun () -> dispatch(State.TabChosen State.Commits)
       }
     ]
     Feed = {
-      Items = model |> Observable.map _.Items
+      Items =
+        model
+        |> Observable.map(fun current -> State.itemsOf(current.Tab, current))
       KeyOf = FeedParts.nodeKey
       Row = fun node -> ProfileShell.commitRow(ctx, node)
-      HasMore = model |> Observable.map _.NextCursor.IsSome
+      HasMore =
+        model
+        |> Observable.map(fun current ->
+          (State.nextCursorOf(current.Tab, current)).IsSome)
       OnMore = fun () -> dispatch State.MoreRequested
       OnRide = ValueNone
       End = endSentence

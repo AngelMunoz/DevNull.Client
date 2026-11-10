@@ -34,7 +34,7 @@ own.
    apply to every phase and every issue; the skill gate below is part of every
    deliverable's definition of done.
 
-## State as of 2026-11-09
+## State as of 2026-11-10
 
 - Installation is done on both heads and leaves this roadmap: the Windows app
   installs with scoop straight from the release URL, and the Linux app
@@ -48,9 +48,8 @@ own.
   ([#1](https://github.com/AngelMunoz/DevNull.Client/issues/1), PR #33).
 - The index's other shipped items — #15, #8, #13, #12, #10 — are merged and
   closed, and #16 and #9 closed after them (PRs #34 and #35). #17 and #4 are
-  merged (PRs #36 and #37). #2 is implemented and past its visual review; it
-  rides its open PR, and with it the cycle's index is done. The pool below
-  feeds the next one.
+  merged (PRs #36 and #37), and #2 is merged after them (PR #38). With it
+  the cycle's index is done. The ordered pool below is the next one.
 - The server repository was pulled to `4cb5538` on 2026-11-01 and re-audited
   through `33cf978` on 2026-11-07: no decoder break, no Core change due.
   The sync's findings carry #23–#31, and its one required UI fix — the
@@ -59,8 +58,8 @@ own.
   mention links wait on a server field; the guest join link and the developer
   count stay out of scope. The organization claim flow gained an API in the
   2026-11-01 pull and is tracked in
-  [#11](https://github.com/AngelMunoz/DevNull.Client/issues/11), outside this
-  cycle.
+  [#11](https://github.com/AngelMunoz/DevNull.Client/issues/11), the pool's
+  first item below.
 - Media needs no endpoint work: every image and voice note arrives with a URL
   signed for the user, so the players download bytes directly and Core never
   calls the media routes.
@@ -129,20 +128,50 @@ the consolidated card actions.
 ## Issue index
 
 Phase 1 is done, and the cycle's index (#16, #9, #17, #4, #2) is done
-through #2's open PR. The next index re-feeds from the open pool:
+and merged. The next index is the ordered pool below: ten items, triaged
+by effort and by how each one builds on the search and organization work
+that just landed. Each issue keeps its own detail in the tracker.
 
-After this cycle, in the tracker and not yet scheduled:
-[#11](https://github.com/AngelMunoz/DevNull.Client/issues/11) (follow and
-claim organizations),
-[#3](https://github.com/AngelMunoz/DevNull.Client/issues/3) (live users and
-the first-commit notification),
-[#7](https://github.com/AngelMunoz/DevNull.Client/issues/7) (organizations
-as commit authors),
+1. [#11 — follow and claim organizations](https://github.com/AngelMunoz/DevNull.Client/issues/11).
+   The direct follow-on to #2: the search already carries an
+   organization's follow state, and this adds the follow, unfollow, and
+   claim calls and the organization page's button.
+2. [#7 — commit authors can be organizations](https://github.com/AngelMunoz/DevNull.Client/issues/7).
+   A correctness fix: an organization author decodes as a person today
+   and links wrong. The author shape must branch first, and #23 lands
+   on it.
+3. [#23 — organization commits tab](https://github.com/AngelMunoz/DevNull.Client/issues/23).
+   One Core read and one tab on the organization page, on top of #7.
+4. [#24 — organization mentions bell](https://github.com/AngelMunoz/DevNull.Client/issues/24).
+   Two decoder fields and the bell, count and jump first: no signed API
+   marks mentions read yet, so that part waits.
+5. [#30 — code blocks: line ranges and titles out of the language label](https://github.com/AngelMunoz/DevNull.Client/issues/30).
+   A check first, then a small split in the renderer if the fault is
+   shared. Its own regression test decides.
+6. [#28 — log feed catch-up and batching](https://github.com/AngelMunoz/DevNull.Client/issues/28).
+   The feed misses late-approved commits today. The log request learns
+   the catch-up parameters, and the feed batches what arrives.
+7. [#26 — hashtag links in commit text](https://github.com/AngelMunoz/DevNull.Client/issues/26).
+   Renderer work only: a tag becomes a link into the search that just
+   shipped.
+8. [#25 — stargazers on own commits](https://github.com/AngelMunoz/DevNull.Client/issues/25).
+   One Core page read and one entry point on the author's own commits.
+9. [#31 — profile pictures in the image viewer](https://github.com/AngelMunoz/DevNull.Client/issues/31).
+   The viewer exists. Avatars on the card, the flyout, and the profile
+   header learn to open it.
+10. [#27 — search: a Latest tab](https://github.com/AngelMunoz/DevNull.Client/issues/27).
+    Verify first: the API support is not confirmed, and the answer
+    decides whether the tab is client work or waits on the server.
+
+The rest stay in the tracker, in no pool order:
+[#3](https://github.com/AngelMunoz/DevNull.Client/issues/3) (live users
+and the first-commit notification, a wide surface),
 [#6](https://github.com/AngelMunoz/DevNull.Client/issues/6) (calls in
-remotes), and the sync findings #23–#31. The cycle's index done,
-the roadmap is re-fed from whatever is open then.
+remotes, the largest build here), and
+[#29](https://github.com/AngelMunoz/DevNull.Client/issues/29) (live
+updates, blocked until the server publishes its socket settings).
 [#5](https://github.com/AngelMunoz/DevNull.Client/issues/5) (release
-hardening) runs whenever a phase ships, not in the index order.
+hardening) runs whenever a phase ships, not in the pool order.
 
 ## Not in scope
 

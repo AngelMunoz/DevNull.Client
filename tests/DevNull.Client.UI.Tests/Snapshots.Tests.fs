@@ -3159,7 +3159,22 @@ let captureTests =
 
       match viewer() with
       | Some viewed ->
-        do! settleAsync()
+        let! rendered =
+          waitForAsync(
+            8000,
+            (fun () ->
+              controlByName(viewed, "ImageViewerStage")
+              |> Option.exists(fun stage ->
+                stage.GetVisualDescendants()
+                |> Seq.exists(fun visual ->
+                  match visual with
+                  | :? Avalonia.Controls.Image as image ->
+                    image.Source <> null
+                  | _ -> false))),
+            id
+          )
+
+        Expect.isTrue rendered "the picture never rendered"
 
         let! path = captureAsync("F31/f31-profile-picture-viewer", viewed)
 

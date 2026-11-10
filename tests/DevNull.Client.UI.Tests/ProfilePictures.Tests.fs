@@ -22,20 +22,23 @@ let profileWithAvatarJson =
 /// The api of the picture tests: the log feeds the boot, and the
 /// profile answers with the test's own avatar state.
 let avatarApi(profileBody: string) =
-  FakeApi(fun request ->
-    if request.Target.StartsWith "/api/v1/log/" then
-      ok logPageJson
-    elif request.Target = "/api/v1/users/octocat" then
-      ok profileBody
-    elif request.Target.StartsWith "/api/v1/users/octocat/commits" then
-      ok(commitsPageOf commitJson)
-    elif request.Target.Contains "/replies" then
-      ok
-        "{\"data\":[],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
-    else
-      (match accountAnswer request with
-       | ValueSome answer -> answer
-       | ValueNone -> ok "{}"))
+  FakeApi(
+    (fun request ->
+      if request.Target.StartsWith "/api/v1/log/" then
+        ok logPageJson
+      elif request.Target = "/api/v1/users/octocat" then
+        ok profileBody
+      elif request.Target.StartsWith "/api/v1/users/octocat/commits" then
+        ok(commitsPageOf commitJson)
+      elif request.Target.Contains "/replies" then
+        ok
+          "{\"data\":[],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+      else
+        (match accountAnswer request with
+         | ValueSome answer -> answer
+         | ValueNone -> ok "{}")),
+    (fun _ -> Ok opaqueImageBytes)
+  )
 
 /// Opens the profile page from the shell's Profile. The window
 /// runs tall, so the full header — the avatar the viewer arms —

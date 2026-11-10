@@ -13,7 +13,28 @@ open DevNull.Client.RecentSearchStore
 open DevNull.Client.Search
 
 /// Waits past both of the session's pauses.
-let settle() = Async.Sleep 700
+let settle() = Async.Sleep(Harness.waitBudget 700)
+
+/// Polls until `ready` holds or the budget runs out. A fixed sleep
+/// here races the session's own throttle on a slow runner: the pause
+/// is real time, and the scheduler that serves it is the same one the
+/// suite starves. The budget scales the way the harness's waits do.
+let settledWhen(ready: unit -> bool) : Async<bool> = async {
+  let budget = Harness.waitBudget 5000
+  let watch = System.Diagnostics.Stopwatch.StartNew()
+
+  let rec loop() = async {
+    if ready() then
+      return true
+    elif watch.ElapsedMilliseconds >= int64 budget then
+      return false
+    else
+      do! Async.Sleep 20
+      return! loop()
+  }
+
+  return! loop()
+}
 
 /// One person to find, named by the term it answered.
 let private personOf(term: string) : User = {
@@ -96,6 +117,12 @@ let tests =
         session.Set "kai"
         session.Set "kai"
         session.Set "ka"
+
+        let! settled = settledWhen(fun () -> calls.Count = 1 && found.Count = 1)
+
+        Expect.isTrue settled "the pause never answered"
+
+        // One more pause: a second call would land inside it.
         do! settle()
 
         Expect.equal 1 calls.Count "the pause collapsed the typing"
@@ -276,6 +303,12 @@ let completionTests =
         session.Set(ValueSome "kai")
         session.Set(ValueSome "kai")
         session.Set(ValueSome "ka")
+
+        let! settled = settledWhen(fun () -> calls.Count = 1 && found.Count = 1)
+
+        Expect.isTrue settled "the pause never answered"
+
+        // One more pause: a second call would land inside it.
         do! settle()
 
         Expect.equal

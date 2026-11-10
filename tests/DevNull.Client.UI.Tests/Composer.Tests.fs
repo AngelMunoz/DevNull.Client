@@ -157,6 +157,42 @@ let emojiSearch(window: Window) : TextBox option =
     | :? TextBox as box -> Some box
     | _ -> None)
 
+/// True while any picker popup stands open.
+let pickerStands(window: Window) : bool =
+  window.GetVisualDescendants()
+  |> Seq.exists(fun visual ->
+    match visual with
+    | :? Popup as popup -> popup.Name = "EmojiPanel" && popup.IsOpen
+    | _ -> false)
+
+/// Drives the picker open. One click can land while its composer is
+/// being rebuilt or starved on a slow runner, and then nothing opens
+/// no matter how long the test waits. While no popup stands open,
+/// click again; a popup that stands open is never clicked at, so the
+/// drive cannot toggle it shut.
+let drivePickerOpen
+  (window: Window, pick: Button list -> Button option)
+  : Async<bool> =
+  let rec loop(remaining: int) : Async<bool> = async {
+    let! standing = probeUiAsync(fun () -> pickerStands window)
+
+    if standing then
+      return! waitForAsync(5000, (fun () -> emojiSearch window), Option.isSome)
+    elif remaining = 0 then
+      return! waitForAsync(5000, (fun () -> emojiSearch window), Option.isSome)
+    else
+      do!
+        onUiAsync(fun () ->
+          visibleEmojiButtons window |> pick |> Option.iter click)
+
+      let! seen =
+        waitForAsync(1000, (fun () -> emojiSearch window), Option.isSome)
+
+      if seen then return true else return! loop(remaining - 1)
+  }
+
+  loop 4
+
 /// Opens the composer's emoji picker and waits for its search field.
 let openEmojiPicker(window: Window) : Async<unit> = async {
   let! offered =
@@ -168,12 +204,7 @@ let openEmojiPicker(window: Window) : Async<unit> = async {
 
   Expect.isTrue offered "the emoji trigger never appeared"
 
-  do!
-    onUiAsync(fun () ->
-      visibleEmojiButtons window |> List.tryHead |> Option.iter click)
-
-  let! search =
-    waitForAsync(5000, (fun () -> emojiSearch window), Option.isSome)
+  let! search = drivePickerOpen(window, List.tryHead)
 
   Expect.isTrue search "the emoji panel never opened"
 }
@@ -201,19 +232,16 @@ let openBottomEmojiPicker(window: Window) : Async<unit> = async {
 
   Expect.isTrue offered "the composer never offered a trigger"
 
-  do!
-    onUiAsync(fun () ->
-      visibleEmojiButtons window
-      |> List.sortBy(fun button ->
-        button.TranslatePoint(Point(0.0, 0.0), window)
-        |> Option.ofNullable
-        |> Option.map _.Y
-        |> Option.defaultValue 0.0)
-      |> List.tryLast
-      |> Option.iter click)
+  let lowest(buttons: Button list) : Button option =
+    buttons
+    |> List.sortBy(fun button ->
+      button.TranslatePoint(Point(0.0, 0.0), window)
+      |> Option.ofNullable
+      |> Option.map _.Y
+      |> Option.defaultValue 0.0)
+    |> List.tryLast
 
-  let! search =
-    waitForAsync(5000, (fun () -> emojiSearch window), Option.isSome)
+  let! search = drivePickerOpen(window, lowest)
 
   Expect.isTrue search "the emoji panel never opened"
 }

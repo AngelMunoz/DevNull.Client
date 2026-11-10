@@ -18,7 +18,7 @@ open DevNull.Client.TranslationCache
 /// Everything the search page reads: the env it searches through, the
 /// signed account, the term the route opened with (`?q=`), the recents
 /// it shows beside an empty box, and the router its picks open on.
-/// `Searches` is the page's own commit session; the page class builds
+/// `Searches` is the page's own search session; the page class builds
 /// one over the env when none is handed in.
 type Props<'env
   when 'env :> IProvideClock
@@ -43,8 +43,9 @@ type Props<'env
   Context: RouteContext
 }
 
-/// The search results page: commits by meaning, as the site's own
-/// results page shows them.
+/// The search results page: the people, the organizations, and the
+/// commits the term matches, as the site's own results page shows
+/// them.
 type Page<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource

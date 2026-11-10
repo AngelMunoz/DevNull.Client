@@ -353,12 +353,12 @@ let searchPage
     fun session ->
       let log = env.LoggerFactory.CreateLogger "DevNull.Client.Views.Search"
 
-      // The page's own session: its commits channel runs alone, the
-      // way the page's submit does, and it dies with the route.
+      // The page's own session: its channels run the way the page's
+      // submit does, and it dies with the route.
       let searches =
         new Search.Session(
           (fun term ->
-            DevNull.Client.Core.Api.Search.users(
+            DevNull.Client.Core.Api.Search.profiles(
               env,
               {
                 KeyFile = session.KeyFile

@@ -4,13 +4,14 @@ open System
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Errors
 
-/// One settled people answer: the term it answers, the people found —
-/// empty when nothing matched or the read failed — and whether the
-/// server asked to slow down.
+/// One settled profile answer: the term it answers, the people and the
+/// organizations found — empty when nothing matched or the read failed
+/// — and whether the server asked to slow down.
 [<Struct>]
-type PeopleFound = {
+type ProfilesFound = {
   Term: string
   Users: User list
+  Organizations: Organization list
   Throttled: bool
 }
 
@@ -28,14 +29,14 @@ type CommitsFound = {
 /// own one. `Set` takes the term as typed; the session trims it, gates
 /// it by the server's own rules, waits out the typing, and answers for
 /// the newest term only — a slower answer for an older term never
-/// shows. The people channel waits 120 milliseconds and the commit
+/// shows. The profile channel waits 120 milliseconds and the commit
 /// channel 350, the site's own pauses, because every commit search
 /// pays for an embedding.
 type Session =
   /// The calls are the two searches with their host's own limits
   /// closed in; the logger carries the session's lines.
   new:
-    people: (string -> Async<Result<User list, AppError>>) *
+    profiles: (string -> Async<Result<ProfileMatches, AppError>>) *
     commits: (string -> Async<Result<CommitNode list, AppError>>) *
     log: Microsoft.Extensions.Logging.ILogger ->
       Session
@@ -47,8 +48,8 @@ type Session =
   /// searches commits the way its own submit does.
   member SetCommits: term: string -> unit
 
-  /// Every settled people answer, newest term only.
-  member People: IObservable<PeopleFound>
+  /// Every settled profile answer, newest term only.
+  member Profiles: IObservable<ProfilesFound>
 
   /// Every settled commit answer, newest term only.
   member Commits: IObservable<CommitsFound>

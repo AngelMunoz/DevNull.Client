@@ -1684,7 +1684,7 @@ module CommitPins =
 
 module Search =
 
-  type UsersRequest = { KeyFile: string; Term: string }
+  type ProfilesRequest = { KeyFile: string; Term: string }
 
   type CommitsRequest = {
     KeyFile: string
@@ -1692,10 +1692,11 @@ module Search =
     Limit: int option
   }
 
-  /// Reads the people matching a name or handle, as the site's search
-  /// finds them: the server's eight at most, exact handles first, the
-  /// viewer's muted and blocked left out.
-  let users(env, request: UsersRequest) =
+  /// Reads the people and the organizations matching the term, as the
+  /// site's profile search finds them: the server's eight people at
+  /// most, exact handles first, the viewer's muted and blocked left
+  /// out.
+  let profiles(env, request: ProfilesRequest) =
     Internal.sendSigned(
       env,
       {
@@ -1703,11 +1704,11 @@ module Search =
         Method = "GET"
         Target =
           Internal.withQuery(
-            "/api/v1/search/users",
+            "/api/v1/search/profiles",
             List.singleton("q", request.Term)
           )
         Body = ""
-        Decode = SearchUsers.decode
+        Decode = SearchProfiles.decode
       }
     )
 

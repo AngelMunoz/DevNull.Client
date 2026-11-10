@@ -1017,9 +1017,9 @@ module CommitPins =
 
 module Search =
 
-  /// One people search: a term the caller already normalized through
+  /// One profile search: a term the caller already normalized through
   /// `SearchTerms.peopleTerm`.
-  type UsersRequest = { KeyFile: string; Term: string }
+  type ProfilesRequest = { KeyFile: string; Term: string }
 
   /// One commit search: a term the caller already normalized through
   /// `SearchTerms.commitTerm`, and the limit to ask for.
@@ -1029,11 +1029,12 @@ module Search =
     Limit: int option
   }
 
-  /// Reads the people matching a name or handle, as the site's search
-  /// finds them: the server's eight at most, exact handles first, the
-  /// viewer's muted and blocked left out.
-  val users:
-    env: 'env * request: UsersRequest -> Async<Result<User list, 'e>>
+  /// Reads the people and the organizations matching the term, as the
+  /// site's profile search finds them: the server's eight people at
+  /// most, exact handles first, the viewer's muted and blocked left
+  /// out.
+  val profiles:
+    env: 'env * request: ProfilesRequest -> Async<Result<ProfileMatches, 'e>>
       when 'env :> IProvideClock
       and 'env :> IProvideNonceSource
       and 'env :> IProvideSigner

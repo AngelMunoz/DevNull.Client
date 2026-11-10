@@ -48,8 +48,9 @@ own.
   ([#1](https://github.com/AngelMunoz/DevNull.Client/issues/1), PR #33).
 - The index's other shipped items — #15, #8, #13, #12, #10 — are merged and
   closed, and #16 and #9 closed after them (PRs #34 and #35). #17 and #4 are
-  implemented and past their visual review; both ride open PRs. One remains,
-  listed below.
+  merged (PRs #36 and #37). #2 is implemented and past its visual review; it
+  rides its open PR, and with it the cycle's index is done. The pool below
+  feeds the next one.
 - The server repository was pulled to `4cb5538` on 2026-11-01 and re-audited
   through `33cf978` on 2026-11-07: no decoder break, no Core change due.
   The sync's findings carry #23–#31, and its one required UI fix — the
@@ -127,11 +128,8 @@ the consolidated card actions.
 
 ## Issue index
 
-Phase 1 is done; #17 and #4 ride open PRs; the rest, least work to most:
-
-| Issue | Notes |
-|---|---|
-| [#2 — search: organizations and the deprecated people search](https://github.com/AngelMunoz/DevNull.Client/issues/2) | a new Core decode and rows in two surfaces |
+Phase 1 is done, and the cycle's index (#16, #9, #17, #4, #2) is done
+through #2's open PR. The next index re-feeds from the open pool:
 
 After this cycle, in the tracker and not yet scheduled:
 [#11](https://github.com/AngelMunoz/DevNull.Client/issues/11) (follow and

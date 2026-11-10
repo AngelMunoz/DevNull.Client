@@ -9,7 +9,7 @@ open Microsoft.Extensions.Logging
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Errors
 
-// The site's own pauses: people answers are cheap and land while the
+// The site's own pauses: profile answers are cheap and land while the
 // person types; every commit search pays for an embedding, so it waits
 // for a pause first.
 let peopleWindow = TimeSpan.FromMilliseconds 120.0
@@ -17,9 +17,10 @@ let peopleWindow = TimeSpan.FromMilliseconds 120.0
 let commitWindow = TimeSpan.FromMilliseconds 350.0
 
 [<Struct>]
-type PeopleFound = {
+type ProfilesFound = {
   Term: string
   Users: User list
+  Organizations: Organization list
   Throttled: bool
 }
 
@@ -106,7 +107,7 @@ let timed (window: TimeSpan) (source: IObservable<string voption>) =
 
 type Session
   (
-    people: string -> Async<Result<User list, AppError>>,
+    profiles: string -> Async<Result<ProfileMatches, AppError>>,
     commits: string -> Async<Result<CommitNode list, AppError>>,
     log: ILogger
   ) =
@@ -114,18 +115,19 @@ type Session
   // The gate holds the newest term that passed the server's own rules;
   // it is both the throttle's source and the latest-wins check, so an
   // answer for a term the gate has moved past never shows.
-  let peopleGate = new BehaviorSubject<string voption>(ValueNone)
+  let profileGate = new BehaviorSubject<string voption>(ValueNone)
 
   let commitGate = new BehaviorSubject<string voption>(ValueNone)
 
   // The answers replay their latest to late subscribers: a page's
   // first search fires from its init, and the program's subscription
   // can attach after the answer landed.
-  let peopleFound =
-    new BehaviorSubject<PeopleFound>(
+  let profilesFound =
+    new BehaviorSubject<ProfilesFound>(
       {
         Term = ""
         Users = []
+        Organizations = []
         Throttled = false
       }
     )
@@ -139,30 +141,33 @@ type Session
       }
     )
 
-  let peopleChannel: Channel<User list, PeopleFound> = {
-    Gate = peopleGate
-    Call = people
-    Found = peopleFound
+  let profileChannel: Channel<ProfileMatches, ProfilesFound> = {
+    Gate = profileGate
+    Call = profiles
+    Found = profilesFound
     Build =
-      fun term users -> {
+      fun term found -> {
         Term = term
-        Users = users
+        Users = found.Users
+        Organizations = found.Organizations
         Throttled = false
       }
     Empty =
       fun term -> {
         Term = term
         Users = []
+        Organizations = []
         Throttled = false
       }
     Throttled =
       fun term -> {
         Term = term
         Users = []
+        Organizations = []
         Throttled = true
       }
     Log = log
-    What = "people"
+    What = "profile"
   }
 
   let commitChannel: Channel<CommitNode list, CommitsFound> = {
@@ -196,26 +201,26 @@ type Session
     |> timed window
     |> Observable.subscribe(fun gated -> run(channel, gated))
 
-  let peoplePipe = pipeOf(peopleChannel, peopleWindow)
+  let profilePipe = pipeOf(profileChannel, peopleWindow)
 
   let commitPipe = pipeOf(commitChannel, commitWindow)
 
   member _.Set(term: string) =
-    peopleGate.OnNext(SearchTerms.peopleTerm term)
+    profileGate.OnNext(SearchTerms.peopleTerm term)
     commitGate.OnNext(SearchTerms.commitTerm term)
 
   member _.SetCommits(term: string) =
     commitGate.OnNext(SearchTerms.commitTerm term)
 
-  member _.People: IObservable<PeopleFound> = peopleFound :> _
+  member _.Profiles: IObservable<ProfilesFound> = profilesFound
 
-  member _.Commits: IObservable<CommitsFound> = commitsFound :> _
+  member _.Commits: IObservable<CommitsFound> = commitsFound
 
   interface IDisposable with
     member _.Dispose() =
-      peoplePipe.Dispose()
+      profilePipe.Dispose()
       commitPipe.Dispose()
-      peopleFound.OnCompleted()
+      profilesFound.OnCompleted()
       commitsFound.OnCompleted()
 
 [<Struct>]

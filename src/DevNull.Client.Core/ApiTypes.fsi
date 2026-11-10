@@ -33,12 +33,20 @@ type User = {
   FollowsYou: bool option
 }
 
-/// One organization a mention can name: the profile the site's own
-/// suggestion carries, as its completion row shows it.
+/// One organization the wire names: the profile a mention suggestion
+/// or a search answer carries, its identity lines and counts, and the
+/// viewer's follow state the search answer reports.
 type Organization = {
   Handle: string
   Name: string
   AvatarUrl: string option
+  Bio: string option
+  Website: string option
+  GithubUrl: string option
+  HtmlUrl: string option
+  Lane: Lane option
+  FollowersCount: int option
+  IsFollowed: bool
 }
 
 /// One organization a followed-organizations page lists: the row the
@@ -79,6 +87,13 @@ type Issue = {
 /// the viewer follows first — and the organizations beside them, at
 /// most three and only once the query has letters.
 type MentionResults = {
+  Users: User list
+  Organizations: Organization list
+}
+
+/// One profile search answer: the people and the organizations the
+/// term matched.
+type ProfileMatches = {
   Users: User list
   Organizations: Organization list
 }
@@ -950,11 +965,11 @@ module RelatedCommits =
   /// to one commit, closest first, nothing paginated.
   val decode: body: string -> Result<CommitNode list, DecodeFailure>
 
-module SearchUsers =
-  /// Reads the plain `{data: [...]}` collection of GET
-  /// /api/v1/search/users: the people matching a name or handle,
-  /// the server's eight at most.
-  val decode: body: string -> Result<User list, DecodeFailure>
+module SearchProfiles =
+  /// Reads the raw `{users: [...], organizations: [...]}` answer of GET
+  /// /api/v1/search/profiles: the people and the organizations the term
+  /// matched, no data envelope around them.
+  val decode: body: string -> Result<ProfileMatches, DecodeFailure>
 
 module SuggestedUsers =
   /// Reads the plain `{data: [...]}` collection of GET

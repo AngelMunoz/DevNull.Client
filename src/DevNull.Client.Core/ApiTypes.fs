@@ -33,12 +33,20 @@ type User = {
   FollowsYou: bool option
 }
 
-/// One organization a mention can name: the profile the site's own
-/// suggestion carries, as its completion row shows it.
+/// One organization the wire names: the profile a mention suggestion
+/// or a search answer carries, its identity lines and counts, and the
+/// viewer's follow state the search answer reports.
 type Organization = {
   Handle: string
   Name: string
   AvatarUrl: string option
+  Bio: string option
+  Website: string option
+  GithubUrl: string option
+  HtmlUrl: string option
+  Lane: Lane option
+  FollowersCount: int option
+  IsFollowed: bool
 }
 
 /// One organization a followed-organizations page lists: the row the
@@ -66,6 +74,13 @@ type Issue = {
 /// the viewer follows first — and the organizations beside them, at
 /// most three and only once the query has letters.
 type MentionResults = {
+  Users: User list
+  Organizations: Organization list
+}
+
+/// One profile search answer: the people and the organizations the
+/// term matched.
+type ProfileMatches = {
   Users: User list
   Organizations: Organization list
 }
@@ -2936,10 +2951,47 @@ let organizationDecoder(element: JsonElement) = decode {
     Optional.Property.get ("avatar_url", Optional.string) element
     |> Result.map Option.flatten
 
+  let! bio =
+    Optional.Property.get ("bio", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! website =
+    Optional.Property.get ("website", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! githubUrl =
+    Optional.Property.get ("github_url", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! htmlUrl =
+    Optional.Property.get ("html_url", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! lane =
+    Optional.Property.get ("lane", optionalDecoder laneDecoder) element
+    |> Result.map Option.flatten
+
+  let! followersCount =
+    Optional.Property.get ("followers_count", Optional.int) element
+    |> Result.map Option.flatten
+
+  // The mention answer carries no follow flag; an absent one reads as
+  // not followed, and the search answer's own flag always lands.
+  let! isFollowed =
+    Optional.Property.get ("is_followed", Optional.boolean) element
+    |> Result.map(Option.flatten >> Option.defaultValue false)
+
   return {
     Handle = handle
     Name = name
     AvatarUrl = avatarUrl
+    Bio = bio
+    Website = website
+    GithubUrl = githubUrl
+    HtmlUrl = htmlUrl
+    Lane = lane
+    FollowersCount = followersCount
+    IsFollowed = isFollowed
   }
 }
 
@@ -3006,7 +3058,7 @@ let issueDecoder(element: JsonElement) = decode {
   }
 }
 
-let decodeMentionResults(body: string) =
+let decodeMentionResults(body: string) : Result<MentionResults, DecodeFailure> =
   parseBody body (fun element -> decode {
     let! users = Required.Property.list ("data", userDecoder) element
 
@@ -3031,8 +3083,21 @@ module MentionSuggestions =
 module IssueSuggestions =
   let decode(body: string) = decodeIssueAnswer body
 
-module SearchUsers =
-  let decode(body: string) = decodeFoundUsers body
+module SearchProfiles =
+  // The raw `{users, organizations}` object: no data envelope around
+  // it.
+  let decode(body: string) : Result<ProfileMatches, DecodeFailure> =
+    parseBody body (fun element -> decode {
+      let! users = Required.Property.list ("users", userDecoder) element
+
+      let! organizations =
+        Required.Property.list ("organizations", organizationDecoder) element
+
+      return {
+        Users = users
+        Organizations = organizations
+      }
+    })
 
 module SuggestedUsers =
   let decode(body: string) = decodeFoundUsers body

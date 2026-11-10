@@ -56,6 +56,7 @@ module State =
   type Entry =
     | Compose
     | Person of User
+    | Organization of Organization
     | Found of Commit
     | SeeAll
     | Recent of string
@@ -64,7 +65,7 @@ module State =
   type Model = {
     Term: string
     Active: int
-    People: PeopleFound voption
+    Profiles: ProfilesFound voption
     Commits: CommitsFound voption
     Recents: string list
     Now: DateTimeOffset
@@ -74,7 +75,7 @@ module State =
 
   type Msg =
     | Typed of string
-    | PeopleArrived of PeopleFound
+    | ProfilesArrived of ProfilesFound
     | CommitsArrived of CommitsFound
     | Moved of index: int
     | Stepped of step: int
@@ -88,7 +89,7 @@ module State =
     let model = {
       Term = ""
       Active = 0
-      People = ValueNone
+      Profiles = ValueNone
       Commits = ValueNone
       Recents = props.Recents.Recent(props.SignedIn.Session.User.Id)
       Now = DateTimeOffset.UtcNow
@@ -99,14 +100,15 @@ module State =
 
   let inline trimmed(model: Model) = model.Term.Trim()
 
-  // The people answer that belongs to the term now typed, when it has
+  // The profile answer that belongs to the term now typed, when it has
   // settled. A channel with nothing to search for counts as settled.
-  let peopleOf(model: Model) : PeopleFound =
-    match SearchTerms.peopleTerm model.Term, model.People with
+  let profilesOf(model: Model) : ProfilesFound =
+    match SearchTerms.peopleTerm model.Term, model.Profiles with
     | ValueSome term, ValueSome found when found.Term = term -> found
     | _ -> {
         Term = ""
         Users = []
+        Organizations = []
         Throttled = false
       }
 
@@ -128,19 +130,19 @@ module State =
     if term = "" || SearchParts.Intent.awaitsDeveloperName term then
       false
     else
-      let peopleOut =
+      let profilesOut =
         SearchTerms.peopleTerm model.Term |> ValueOption.isSome
-        && (peopleOf model).Term = ""
+        && (profilesOf model).Term = ""
 
       let commitsOut =
         SearchTerms.commitTerm model.Term |> ValueOption.isSome
         && (commitsOf model).Term = ""
 
-      peopleOut || commitsOut
+      profilesOut || commitsOut
 
   // True when the server asked either channel to slow down.
   let throttled(model: Model) : bool =
-    (peopleOf model).Throttled || (commitsOf model).Throttled
+    (profilesOf model).Throttled || (commitsOf model).Throttled
 
   // The compose action answers once the term starts one of its words,
   // the site's own three-letter floor.
@@ -166,9 +168,13 @@ module State =
 
       let action = if composeAnswers term then [ Compose ] else []
 
-      let people =
-        peopleOf model
-        |> fun found -> [ for user in found.Users -> Person user ]
+      let answer = profilesOf model
+
+      let people = [ for user in answer.Users -> Person user ]
+
+      let organizations = [
+        for organization in answer.Organizations -> Organization organization
+      ]
 
       let found =
         if SearchParts.Intent.searchesCommits reading then
@@ -188,10 +194,21 @@ module State =
         else
           []
 
-      if reading = SearchParts.Intent.Topic then
-        action @ found @ seeAll @ people
-      else
-        action @ people @ found @ seeAll
+      [
+        yield! action
+
+        match reading with
+        | SearchParts.Intent.Topic ->
+          yield! found
+          yield! seeAll
+          yield! people
+          yield! organizations
+        | _ ->
+          yield! people
+          yield! organizations
+          yield! found
+          yield! seeAll
+      ]
 
   // True when every channel the term reaches has answered and none of
   // them found anything.
@@ -204,9 +221,10 @@ module State =
   // The rows the list shows: the term's finds, or — while nothing is
   // typed or nothing was found — the recents and the suggestions.
   let entriesOf(model: Model) : Entry list =
-    let quiet() =
-      [ for known in model.Recents -> Recent known ]
-      @ [ for words in SearchParts.suggestions -> Suggestion words ]
+    let quiet() = [
+      for known in model.Recents -> Recent known
+      for words in SearchParts.suggestions -> Suggestion words
+    ]
 
     if trimmed model = "" || foundNothing model then
       quiet()
@@ -236,7 +254,7 @@ module State =
       let term = trimmed model
 
       let settled =
-        not(String.IsNullOrWhiteSpace (peopleOf model).Term)
+        not(String.IsNullOrWhiteSpace (profilesOf model).Term)
         || SearchTerms.peopleTerm model.Term |> ValueOption.isNone
 
       let commitsSettled =
@@ -262,8 +280,12 @@ module State =
     | Typed text ->
       { model with Term = text; Active = 0 },
       Cmd.ofAction(fun () -> props.Searches.Set text)
-    | PeopleArrived found ->
-      let settled, remember = settle { model with People = ValueSome found }
+    | ProfilesArrived found ->
+      let settled, remember =
+        settle {
+          model with
+              Profiles = ValueSome found
+        }
 
       {
         settled with
@@ -326,6 +348,8 @@ module State =
         Cmd.batch [ Cmd.ofAction props.Close; Cmd.ofAction props.OpenCompose ]
       | Person user ->
         model, closeAndGo("/profile/" + Uri.EscapeDataString user.Handle)
+      | Organization organization ->
+        model, closeAndGo("/org/" + Uri.EscapeDataString organization.Handle)
       | Found commit -> model, closeAndGo("/commit/" + commit.Id)
       | SeeAll -> model, closeAndGo("/search/" + trimmed model)
       | Recent term
@@ -344,8 +368,8 @@ module State =
   let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
     [
       Sub.fromObservable
-        "people"
-        (props.Searches.People |> Observable.map PeopleArrived)
+        "profiles"
+        (props.Searches.Profiles |> Observable.map ProfilesArrived)
 
       Sub.fromObservable
         "commits"
@@ -455,7 +479,7 @@ module Parts =
     Content: Control
   }
 
-  // One option row: its content, the armed surface and the enter chip
+  // One option row: its content, the armed wash and the enter chip
   // bound to the armed stream, and the click that opens it. The armed
   // state is a binding, so the row never rebuilds for it — a rebuilt
   // list is a replaced scroll content, and its place resets. The
@@ -469,7 +493,16 @@ module Parts =
 
     let shown = armed |> Observable.map(fun on -> if on then 1.0 else 0.0)
 
-    let surface =
+    // The armed row wears the primary-soft wash every selected or
+    // focused row in the app wears, so its text keeps its own colors;
+    // the same stream raises the enter chip at the right edge.
+    let wash =
+      Border()
+        .Classes(Theme.name Theme.PrimarySoftBack)
+        .Opacity(shown)
+        .CornerRadius(8.0)
+
+    let chip =
       Border()
         .Classes(Theme.name Theme.SurfaceBack)
         .Opacity(shown)
@@ -480,16 +513,25 @@ module Parts =
       .Classes(Theme.name Theme.GhostButton)
       .HorizontalAlignmentStretch()
       .VerticalAlignmentCenter()
+      .Padding(0.0)
       .OnClickHandler(fun _ _ -> row.Dispatch(State.Opened row.Entry))
       .Margin(16, 8)
       .Content(
-        DockPanel()
+        Grid()
           .Name($"SearchRow{row.Index}")
           .Classes(Theme.name Theme.GhostButton)
-          .LastChildFill(true)
           .Children(
-            surface.Child(SearchParts.kbdChip(KbdTone.Outline, "↵")).DockRight(),
-            row.Content.DockLeft()
+            wash,
+            DockPanel()
+              .Classes(Theme.name Theme.GhostButton)
+              .LastChildFill(true)
+              .Margin(12.0, 8.0, 12.0, 8.0)
+              .Children(
+                chip
+                  .Child(SearchParts.kbdChip(KbdTone.Outline, "↵"))
+                  .DockRight(),
+                row.Content
+              )
           )
       )
 
@@ -506,6 +548,8 @@ module Parts =
       match entry with
       | State.Compose -> if seen <> "action" then "Actions" else ""
       | State.Person _ -> if seen <> "developer" then "Developers" else ""
+      | State.Organization _ ->
+        if seen <> "organization" then "Organizations" else ""
       | State.Found _ ->
         if seen <> "commit" then "Most relevant commits" else ""
       | State.SeeAll -> ""
@@ -517,6 +561,7 @@ module Parts =
       match entry with
       | State.Compose -> "action"
       | State.Person _ -> "developer"
+      | State.Organization _ -> "organization"
       | State.Found _ -> "commit"
       | State.SeeAll -> ""
       | State.Recent _ -> "recent"
@@ -556,6 +601,8 @@ module Parts =
                 TextBlock().FontSize(13.0).Text("Write a commit")
               )
           | State.Person user -> SearchParts.peopleIdentity(ctx, user)
+          | State.Organization organization ->
+            SearchParts.orgIdentity(ctx, organization)
           | State.Found commit -> SearchParts.commitIdentity(ctx, commit)
           | State.SeeAll -> SearchParts.seeAllIdentity()
           | State.Recent term
@@ -651,6 +698,12 @@ let view
 
   let listControl = Parts.list(rowCtx, model, dispatch)
 
+  // The list takes the star row, the report card's shape: in a short
+  // window the row shrinks and the list scrolls inside the card,
+  // while the input and the footer keep their height.
+  let cardGrid = Grid()
+  cardGrid.RowDefinitions <- RowDefinitions("Auto,Auto,*,Auto")
+
   let card =
     Border()
       .Name("SearchDialogCard")
@@ -660,16 +713,16 @@ let view
       .HorizontalAlignment(HorizontalAlignment.Center)
       .VerticalAlignment(VerticalAlignment.Top)
       .Child(
-        StackPanel()
-          .Children(
-            Parts.inputRow(model, dispatch),
-            Parts.status model,
-            listControl,
-            Border()
-              .Classes(Theme.name Theme.Hairline)
-              .BorderThickness(Thickness(0.0, 1.0, 0.0, 0.0))
-              .Child(Parts.footer())
-          )
+        cardGrid.Children(
+          Parts.inputRow(model, dispatch).Row(0),
+          (Parts.status model).Row(1),
+          listControl.Row(2),
+          Border()
+            .Classes(Theme.name Theme.Hairline)
+            .BorderThickness(Thickness(0.0, 1.0, 0.0, 0.0))
+            .Child(Parts.footer())
+            .Row(3)
+        )
       )
 
   card.AttachedToVisualTree.Add(fun _ ->

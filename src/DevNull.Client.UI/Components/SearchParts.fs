@@ -97,28 +97,47 @@ let heading(text: string) : Control =
 // The person's avatar, with the hover card when the host gave a
 // source.
 let avatarOf(ctx: RowCtx, user: User, size: float) : Control =
+  // Avalonia centers a sized control under Stretch, so the avatar
+  // pins to the row's left lane like the organization avatars.
   let plain =
-    Avatar.view {
+    (Avatar.view {
       Name = user.Name
       Url = user.AvatarUrl
       Lane = user.Lane
       Size = size
       Cache = ctx.Images
-    }
+    })
+      .HorizontalAlignment(HorizontalAlignment.Left)
 
   match ctx.Flyout with
   | ValueSome source -> UserFlyout.attach(source, user, plain)
   | ValueNone -> plain
 
-// The lane dot as an inline of the line around it. A side-by-side
+// The lane dot as an inline of the line around it, the six-dip gap
+// before the handle the site's lane handle carries. A side-by-side
 // panel measures its children without bound and never trims; inline,
 // the line ellipsizes as one text.
-let laneInline(user: User) : Inline =
-  let dot = Ellipse().Width(6.0).Height(6.0)
+let laneInline(lane: Lane option) : Inline =
+  let dot = Ellipse().Width(6.0).Height(6.0).Margin(0.0, 0.0, 6.0, 0.0)
 
-  Theme.laneFill(dot, user.Lane)
+  Theme.laneFill(dot, lane)
 
   InlineUIContainer(Child = dot, BaselineAlignment = BaselineAlignment.Center)
+
+// The row frame the search identities share: the avatar in its own
+// left lane and the lines beside it in a bounded column, so a long
+// line ellipsizes instead of pushing past the row.
+let besideAvatar(avatar: Control, lines: Control) : Control =
+  let grid = Grid()
+  grid.ColumnDefinitions <- ColumnDefinitions("Auto,*")
+
+  grid.Children(
+    avatar.Column(0).VerticalAlignment(VerticalAlignment.Top),
+    lines
+      .Column(1)
+      .Margin(8.0, 0.0, 0.0, 0.0)
+      .VerticalAlignment(VerticalAlignment.Center)
+  )
 
 let peopleIdentity(ctx: RowCtx, user: User) : Control =
   let identity =
@@ -138,7 +157,7 @@ let peopleIdentity(ctx: RowCtx, user: User) : Control =
     let inlines = InlineCollection()
     inlines.Add name
     inlines.Add(Run " ")
-    inlines.Add(laneInline user)
+    inlines.Add(laneInline user.Lane)
     inlines.Add handle
 
     block.Inlines <- inlines
@@ -156,7 +175,89 @@ let peopleIdentity(ctx: RowCtx, user: User) : Control =
         |> Option.defaultValue false
       )
 
-  StackPanel().Spacing(2.0).Children(avatarOf(ctx, user, 36.0), identity, bio)
+  besideAvatar(
+    avatarOf(ctx, user, 36.0),
+    StackPanel().Spacing(2.0).Children(identity, bio)
+  )
+
+// One small label chip, the site's "Follows you" and "Muted" marks.
+let followMark() : Control =
+  Border()
+    .Classes(Theme.name Theme.Chip)
+    .CornerRadius(999.0)
+    .VerticalAlignment(VerticalAlignment.Center)
+    .Child(
+      TextBlock()
+        .Classes(Theme.name Theme.Muted)
+        .FontSize(11.0)
+        .Text("Following")
+    )
+
+let orgIdentity(ctx: RowCtx, organization: Organization) : Control =
+  let identity =
+    let block =
+      TextBlock()
+        .Classes(Theme.name Theme.Subtitle)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .TextTrimming(TextTrimming.CharacterEllipsis)
+
+    let name = Run organization.Name
+
+    let handle = Run("@" + organization.Handle)
+
+    handle.FontFamily <- Theme.Fonts.mono
+    handle.FontSize <- 13.0
+
+    let inlines = InlineCollection()
+    inlines.Add name
+    inlines.Add(Run " ")
+    inlines.Add(laneInline organization.Lane)
+    inlines.Add handle
+
+    block.Inlines <- inlines
+    block
+
+  let bio =
+    TextBlock()
+      .Classes(Theme.name Theme.Muted)
+      .FontSize(13.0)
+      .Text(organization.Bio |> Option.defaultValue "")
+      .TextTrimming(TextTrimming.CharacterEllipsis)
+      .IsVisible(
+        organization.Bio
+        |> Option.map(fun bio -> bio <> "")
+        |> Option.defaultValue false
+      )
+
+  // Avalonia centers a sized control under Stretch, so the avatar pins
+  // to the row's left lane, the column the name line starts at.
+  let avatar =
+    (Avatar.view {
+      Name = organization.Name
+      Url = organization.AvatarUrl
+      Lane = organization.Lane
+      Size = 36.0
+      Cache = ctx.Images
+    })
+      .HorizontalAlignment(HorizontalAlignment.Left)
+
+  besideAvatar(
+    avatar,
+    StackPanel()
+      .Spacing(2.0)
+      .Children(
+        identity,
+        DockPanel()
+          .LastChildFill(true)
+          .Children(
+            followMark()
+              .IsVisible(organization.IsFollowed)
+              .Margin(0.0, 0.0, 6.0, 0.0)
+              .DockLeft(),
+            bio
+          )
+      )
+  )
 
 let commitIdentity(ctx: RowCtx, commit: Commit) : Control =
   let meta =
@@ -168,7 +269,7 @@ let commitIdentity(ctx: RowCtx, commit: Commit) : Control =
         .TextTrimming(TextTrimming.CharacterEllipsis)
 
     let inlines = InlineCollection()
-    inlines.Add(laneInline commit.Author)
+    inlines.Add(laneInline commit.Author.Lane)
     inlines.Add(Run("@" + commit.Author.Handle))
     inlines.Add(Run " · ")
     inlines.Add(Run(Formatting.timeAgo(ctx.Now, commit.CreatedAt)))
@@ -176,17 +277,19 @@ let commitIdentity(ctx: RowCtx, commit: Commit) : Control =
     block.Inlines <- inlines
     block
 
-  StackPanel()
-    .Spacing(2.0)
-    .Children(
-      avatarOf(ctx, commit.Author, 36.0),
-      meta,
-      TextBlock()
-        .FontSize(13.0)
-        .TextWrapping(TextWrapping.Wrap)
-        .MaxLines(2)
-        .Text(commit.Body)
-    )
+  besideAvatar(
+    avatarOf(ctx, commit.Author, 36.0),
+    StackPanel()
+      .Spacing(2.0)
+      .Children(
+        meta,
+        TextBlock()
+          .FontSize(13.0)
+          .TextWrapping(TextWrapping.Wrap)
+          .MaxLines(2)
+          .Text(commit.Body)
+      )
+  )
 
 let termIdentity(term: string) : Control =
   StackPanel()

@@ -2840,4 +2840,113 @@ let captureTests =
       let bytes = IO.File.ReadAllBytes(path)
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }
+
+    testAsync "the search palette lists the organizations below the people" {
+      let! window =
+        startShell(signedInStore(), searchApi(false, false) :> IHttp)
+
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do! clickWhenShown(window, "Search")
+
+      // The at keeps the developer reading, so the person stands first
+      // and the organizations follow under their heading.
+      do!
+        onUiAsync(fun () ->
+          controlByName(window, "SearchInput")
+          |> Option.iter(fun control -> (control :?> TextBox).Text <- "@kai"))
+
+      let! settled = seesVisible(window, "@acme")
+      Expect.isTrue settled "the search never settled"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F2/f2-dialog-orgs", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the keys arm an organization row in the search palette" {
+      let! window =
+        startShell(signedInStore(), searchApi(false, false) :> IHttp)
+
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do! clickWhenShown(window, "Search")
+
+      do!
+        onUiAsync(fun () ->
+          controlByName(window, "SearchInput")
+          |> Option.iter(fun control -> (control :?> TextBox).Text <- "@kai"))
+
+      let! settled = seesVisible(window, "@acme")
+      Expect.isTrue settled "the search never settled"
+
+      // Down leaves the person row and arms the first organization.
+      do!
+        onUiAsync(fun () ->
+          controlByName(window, "SearchInput")
+          |> Option.iter(fun control ->
+            (control :?> TextBox)
+              .RaiseEvent(
+                KeyEventArgs(
+                  RoutedEvent = InputElement.KeyDownEvent,
+                  Key = Key.Down
+                )
+              )))
+
+      do! settleAsync()
+
+      let! path = captureAsync("F2/f2-dialog-org-armed", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the search palette stays inside a short window" {
+      let! window =
+        startShell(signedInStore(), searchApi(false, false) :> IHttp)
+
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do!
+        onUiAsync(fun () ->
+          window.MinHeight <- 0.0
+          window.Height <- 480.0)
+
+      do! clickWhenShown(window, "Search")
+
+      do!
+        onUiAsync(fun () ->
+          controlByName(window, "SearchInput")
+          |> Option.iter(fun control ->
+            (control :?> TextBox).Text <- "kai kou"))
+
+      let! settled = seesVisible(window, "@acme")
+      Expect.isTrue settled "the search never settled"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F2/f2-dialog-short-window", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the results page stands the profile sections above the commits" {
+      let! window = openSearchPageAsync()
+
+      let! developers = seesVisible(window, "Developers")
+      Expect.isTrue developers "the developers heading never rendered"
+
+      let! orgs = seesVisible(window, "@acme")
+      Expect.isTrue orgs "the organizations never rendered"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F2/f2-search-page-profiles", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
   ]

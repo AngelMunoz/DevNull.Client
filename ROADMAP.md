@@ -128,7 +128,7 @@ the consolidated card actions.
 ## Issue index
 
 Phase 1 is done, and the cycle's index (#16, #9, #17, #4, #2) is done
-and merged. The next index is the ordered pool below: three items, triaged
+and merged. The next index is the ordered pool below: two items, triaged
 by effort and by how each one builds on the search and organization work
 that just landed. Each issue keeps its own detail in the tracker.
 [#7](https://github.com/AngelMunoz/DevNull.Client/issues/7),
@@ -143,11 +143,9 @@ that just landed. Each issue keeps its own detail in the tracker.
 [#27](https://github.com/AngelMunoz/DevNull.Client/issues/27) are merged
 (PRs #49, #50, #51) and ship in 0.14.0.
 
-1. [#55 — Bios mention profiles the client never decodes](https://github.com/AngelMunoz/DevNull.Client/issues/55).
-   One decoder field and bio links; the macOS app already renders these.
-2. [#3 — Live users and the first-commit notification](https://github.com/AngelMunoz/DevNull.Client/issues/3).
+1. [#3 — Live users and the first-commit notification](https://github.com/AngelMunoz/DevNull.Client/issues/3).
    The live field, the go-live calls, and one notification type.
-3. [#6 — Calls in remotes](https://github.com/AngelMunoz/DevNull.Client/issues/6).
+2. [#6 — Calls in remotes](https://github.com/AngelMunoz/DevNull.Client/issues/6).
    The largest item: WebRTC surface plus call state polling (the
    macOS app polls call state; no WebSocket).
 

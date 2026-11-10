@@ -146,6 +146,7 @@ type StyleClass =
   | MsgRow
   | HoverActions
   | FlashRing
+  | ArmedRow
   | TypingDot1
   | TypingDot2
   | TypingDot3
@@ -222,6 +223,7 @@ let name class' =
   | MsgRow -> "msg-row"
   | HoverActions -> "hover-actions"
   | FlashRing -> "flash-ring"
+  | ArmedRow -> "armed-row"
   | TypingDot1 -> "typing-dot-1"
   | TypingDot2 -> "typing-dot-2"
   | TypingDot3 -> "typing-dot-3"
@@ -1290,6 +1292,40 @@ let styles() =
         [| Primitives.TemplatedControl.ForegroundProperty, themed resource |]
       )
     )
+
+  // The search palette's armed row: the accent wash carries the
+  // accent's own foreground, and the muted line dims to stay legible
+  // on it. Later styles win, so these stand after the classes the row
+  // text wears. The depths cover the identity lines and the nested
+  // muted line; the avatar letter already reads on accent.
+  styles.Add(
+    styleOf(
+      (fun selector ->
+        selector
+          .OfType<StackPanel>()
+          .Class(name ArmedRow)
+          .Descendant()
+          .OfType<TextBlock>()),
+      [| TextBlock.ForegroundProperty, themed Keys.onAccent |]
+    )
+  )
+
+  styles.Add(
+    styleOf(
+      (fun selector ->
+        selector
+          .OfType<StackPanel>()
+          .Class(name ArmedRow)
+          .Descendant()
+          .Descendant()
+          .OfType<TextBlock>()
+          .Class(name Muted)),
+      [|
+        TextBlock.ForegroundProperty, themed Keys.onAccent
+        Visual.OpacityProperty, box 0.8
+      |]
+    )
+  )
 
   styles
 

@@ -97,26 +97,30 @@ let heading(text: string) : Control =
 // The person's avatar, with the hover card when the host gave a
 // source.
 let avatarOf(ctx: RowCtx, user: User, size: float) : Control =
+  // Avalonia centers a sized control under Stretch, so the avatar
+  // pins to the row's left lane like the organization avatars.
   let plain =
-    Avatar.view {
+    (Avatar.view {
       Name = user.Name
       Url = user.AvatarUrl
       Lane = user.Lane
       Size = size
       Cache = ctx.Images
-    }
+    })
+      .HorizontalAlignment(HorizontalAlignment.Left)
 
   match ctx.Flyout with
   | ValueSome source -> UserFlyout.attach(source, user, plain)
   | ValueNone -> plain
 
-// The lane dot as an inline of the line around it. A side-by-side
+// The lane dot as an inline of the line around it, the six-dip gap
+// before the handle the site's lane handle carries. A side-by-side
 // panel measures its children without bound and never trims; inline,
 // the line ellipsizes as one text.
-let laneInline(user: User) : Inline =
-  let dot = Ellipse().Width(6.0).Height(6.0)
+let laneInline(lane: Lane option) : Inline =
+  let dot = Ellipse().Width(6.0).Height(6.0).Margin(0.0, 0.0, 6.0, 0.0)
 
-  Theme.laneFill(dot, user.Lane)
+  Theme.laneFill(dot, lane)
 
   InlineUIContainer(Child = dot, BaselineAlignment = BaselineAlignment.Center)
 
@@ -138,7 +142,7 @@ let peopleIdentity(ctx: RowCtx, user: User) : Control =
     let inlines = InlineCollection()
     inlines.Add name
     inlines.Add(Run " ")
-    inlines.Add(laneInline user)
+    inlines.Add(laneInline user.Lane)
     inlines.Add handle
 
     block.Inlines <- inlines
@@ -158,6 +162,77 @@ let peopleIdentity(ctx: RowCtx, user: User) : Control =
 
   StackPanel().Spacing(2.0).Children(avatarOf(ctx, user, 36.0), identity, bio)
 
+// One small label chip, the site's "Follows you" and "Muted" marks.
+let followMark() : Control =
+  Border()
+    .Classes(Theme.name Theme.Chip)
+    .CornerRadius(999.0)
+    .Child(
+      TextBlock()
+        .Classes(Theme.name Theme.Muted)
+        .FontSize(11.0)
+        .Text("Following")
+    )
+
+let orgIdentity(ctx: RowCtx, organization: Organization) : Control =
+  let identity =
+    let block =
+      TextBlock()
+        .Classes(Theme.name Theme.Subtitle)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .TextTrimming(TextTrimming.CharacterEllipsis)
+
+    let name = Run organization.Name
+
+    let handle = Run("@" + organization.Handle)
+
+    handle.FontFamily <- Theme.Fonts.mono
+    handle.FontSize <- 13.0
+
+    let inlines = InlineCollection()
+    inlines.Add name
+    inlines.Add(Run " ")
+    inlines.Add(laneInline organization.Lane)
+    inlines.Add handle
+
+    block.Inlines <- inlines
+    block
+
+  let bio =
+    TextBlock()
+      .Classes(Theme.name Theme.Muted)
+      .FontSize(13.0)
+      .Text(organization.Bio |> Option.defaultValue "")
+      .TextTrimming(TextTrimming.CharacterEllipsis)
+      .IsVisible(
+        organization.Bio
+        |> Option.map(fun bio -> bio <> "")
+        |> Option.defaultValue false
+      )
+
+  // Avalonia centers a sized control under Stretch, so the avatar pins
+  // to the row's left lane, the column the name line starts at.
+  let avatar =
+    (Avatar.view {
+      Name = organization.Name
+      Url = organization.AvatarUrl
+      Lane = organization.Lane
+      Size = 36.0
+      Cache = ctx.Images
+    })
+      .HorizontalAlignment(HorizontalAlignment.Left)
+
+  StackPanel()
+    .Spacing(2.0)
+    .Children(
+      avatar,
+      identity,
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Spacing(6.0)
+        .Children(followMark().IsVisible(organization.IsFollowed), bio)
+    )
+
 let commitIdentity(ctx: RowCtx, commit: Commit) : Control =
   let meta =
     let block =
@@ -168,7 +243,7 @@ let commitIdentity(ctx: RowCtx, commit: Commit) : Control =
         .TextTrimming(TextTrimming.CharacterEllipsis)
 
     let inlines = InlineCollection()
-    inlines.Add(laneInline commit.Author)
+    inlines.Add(laneInline commit.Author.Lane)
     inlines.Add(Run("@" + commit.Author.Handle))
     inlines.Add(Run " · ")
     inlines.Add(Run(Formatting.timeAgo(ctx.Now, commit.CreatedAt)))

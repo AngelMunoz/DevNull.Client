@@ -65,6 +65,7 @@ module State =
     // submitted, not the draft.
     Term: string
     Answer: CommitsFound voption
+    Profiles: ProfilesFound voption
     Now: DateTimeOffset
     Recents: string list
     // Whether translations show by themselves.
@@ -82,6 +83,7 @@ module State =
     | SearchedFor of string
     | Cleared
     | Picked of string
+    | ProfilesArrived of ProfilesFound
     | CommitsArrived of CommitsFound
     | CardEvent of CommitCard.Event
     | StarToggled of Commit
@@ -106,6 +108,7 @@ module State =
     let model = {
       Term = props.Term
       Answer = ValueNone
+      Profiles = ValueNone
       Now = DateTimeOffset.UtcNow
       Recents = props.Recents.Recent(props.SignedIn.Session.User.Id)
       Automatic = props.SignedIn.Session.AutomaticTranslation
@@ -122,7 +125,7 @@ module State =
     else
       model,
       Cmd.batch [
-        Cmd.ofAction(fun () -> props.Searches.SetCommits term)
+        Cmd.ofAction(fun () -> props.Searches.Set term)
 
         Cmd.ofAction(fun () ->
           props.Recents.Remember(props.SignedIn.Session.User.Id, term))
@@ -135,6 +138,17 @@ module State =
     | _ -> {
         Term = ""
         Commits = []
+        Throttled = false
+      }
+
+  // The profile answer that belongs to the term last submitted.
+  let profilesOf(model: Model) : ProfilesFound =
+    match SearchTerms.peopleTerm model.Term, model.Profiles with
+    | ValueSome term, ValueSome found when found.Term = term -> found
+    | _ -> {
+        Term = ""
+        Users = []
+        Organizations = []
         Throttled = false
       }
 
@@ -219,7 +233,7 @@ module State =
 
       { model with Term = trimmed },
       Cmd.batch [
-        Cmd.ofAction(fun () -> props.Searches.SetCommits trimmed)
+        Cmd.ofAction(fun () -> props.Searches.Set trimmed)
 
         Cmd.ofAction(fun () ->
           props.Recents.Remember(props.SignedIn.Session.User.Id, trimmed)
@@ -231,10 +245,17 @@ module State =
         model with
             Term = ""
             Answer = ValueNone
+            Profiles = ValueNone
             Recents = props.Recents.Recent(props.SignedIn.Session.User.Id)
       },
       Cmd.none
     | Picked term -> model, Cmd.ofMsg(SearchedFor term)
+    | ProfilesArrived found ->
+      {
+        model with
+            Profiles = ValueSome found
+      },
+      Cmd.none
     | CommitsArrived found -> { model with Answer = ValueSome found }, Cmd.none
     | CardEvent(CommitCard.Opened commit) ->
       model,
@@ -522,9 +543,13 @@ module State =
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
-  // The page's inlets: its session's commit channel and the clock.
+  // The page's inlets: its session's two channels and the clock.
   let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
     [
+      Sub.fromObservable
+        "profiles"
+        (props.Searches.Profiles |> Observable.map ProfilesArrived)
+
       Sub.fromObservable
         "commits"
         (props.Searches.Commits |> Observable.map CommitsArrived)
@@ -658,6 +683,26 @@ module Parts =
 
     StackPanel().Children(cards) :> _
 
+  // One quiet row a profile section lists, opening its page on a
+  // click.
+  let profileRow(nav: INavigable, url: string, content: Control) : Control =
+    Button()
+      .Classes(Theme.name Theme.GhostButton, Theme.name Theme.Hairline)
+      .BorderThickness(Thickness(1.0))
+      .CornerRadius(8.0)
+      .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+      .Padding(12.0, 8.0, 12.0, 8.0)
+      .Margin(16.0, 0.0, 16.0, 8.0)
+      .Content(content)
+      .OnClickHandler(fun _ _ -> Navigation.go(nav, url, ignore))
+
+  // One profile section: its rows under the mono heading the site's
+  // sections wear.
+  let profileSection(headingText: string, rows: Control array) : Control =
+    StackPanel()
+      .Margin(0.0, 8.0, 0.0, 8.0)
+      .Children(SearchParts.heading headingText, StackPanel().Children(rows))
+
   // The fatal line and its hint, the site's own words.
   let fatalOf(term: string) : Control =
     StackPanel()
@@ -754,10 +799,23 @@ let view
       })
     )
 
+  let rowCtx: SearchParts.RowCtx = {
+    Images = props.Env.ImageCache
+    Flyout = ValueNone
+    Now = DateTimeOffset.UtcNow
+  }
+
   let bodyKey(current: State.Model) =
     let answer = State.answerOf current
+    let found = State.profilesOf current
 
-    current.Term, current.Recents, answer.Term, answer.Commits
+    current.Term,
+    current.Recents,
+    answer.Term,
+    answer.Commits,
+    found.Term,
+    found.Users,
+    found.Organizations
 
   let body =
     PageChrome.rebuildOn(
@@ -782,6 +840,38 @@ let view
           quietRows
         else
           let answer = State.answerOf current
+
+          let found = State.profilesOf current
+
+          let developers = [|
+            for user in found.Users ->
+              Parts.profileRow(
+                props.Nav,
+                "/profile/" + Uri.EscapeDataString user.Handle,
+                SearchParts.peopleIdentity(rowCtx, user)
+              )
+          |]
+
+          let organizations = [|
+            for organization in found.Organizations ->
+              Parts.profileRow(
+                props.Nav,
+                "/org/" + Uri.EscapeDataString organization.Handle,
+                SearchParts.orgIdentity(rowCtx, organization)
+              )
+          |]
+
+          let profileRows =
+            StackPanel()
+              .Children(
+                [|
+                  if developers.Length > 0 then
+                    Parts.profileSection("Developers", developers)
+
+                  if organizations.Length > 0 then
+                    Parts.profileSection("Organizations", organizations)
+                |]
+              )
 
           let results =
             if State.searching current then
@@ -808,7 +898,7 @@ let view
               StackPanel()
                 .Children(Parts.countHeader(answer.Commits.Length), rows)
 
-          StackPanel().Children(results, quietRows)
+          StackPanel().Children(profileRows, results, quietRows)
     )
 
   PageChrome.page {

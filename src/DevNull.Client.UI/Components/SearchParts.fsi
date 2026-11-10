@@ -48,6 +48,11 @@ val heading: text: string -> Control
 /// the handle with its lane dot, and the bio under them.
 val peopleIdentity: ctx: RowCtx * user: User -> Control
 
+/// One organization as a row's content: the avatar on its lane, the
+/// name, the handle with its lane dot, the bio under them, and the
+/// quiet mark the viewer's follow wears.
+val orgIdentity: ctx: RowCtx * organization: Organization -> Control
+
 /// One commit as a row's content: the avatar, the handle with its lane
 /// dot beside its age, and two lines of the body.
 val commitIdentity: ctx: RowCtx * commit: Commit -> Control

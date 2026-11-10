@@ -1806,32 +1806,91 @@ let actionApiTests =
       | Error error -> failtestf "%A" error
     }
 
-    testAsync "searches people by name or handle" {
+    test "the profile search reads both arrays it answers" {
+      match
+        SearchProfiles.decode
+          """{"users":[{"id":"01a15638-ae71-733c-89b3-373a1a0c538a","handle":"kai-kou","name":"kai kou","avatar_url":null,"bio":"Writes about Rails.","lane":3,"is_followed":true,"follows_you":true}],"organizations":[{"handle":"acme","name":"Acme","avatar_url":"https://example/acme.png","bio":"Ships everything.","website":"https://acme.example","github_url":"https://github.com/acme","html_url":"https://dev-null.sh/org/acme","lane":3,"followers_count":12,"is_followed":true},{"handle":"void","name":"The Void","avatar_url":null,"bio":null,"website":null,"github_url":null,"html_url":null,"lane":null,"is_followed":false}]}"""
+      with
+      | Ok found ->
+        Expect.equal 1 found.Users.Length "one person"
+        Expect.equal 2 found.Organizations.Length "two organizations"
+
+        match found.Users with
+        | user :: _ ->
+          Expect.equal (Some true) user.IsFollowed "the person's follow flag"
+
+          Expect.equal (Some true) user.FollowsYou "follows the viewer"
+        | _ -> failtest "expected one person"
+
+        match found.Organizations with
+        | acme :: bare :: _ ->
+          Expect.equal "acme" acme.Handle "the handle"
+
+          Expect.equal (Some "Ships everything.") acme.Bio "the bio"
+
+          Expect.equal (Some "https://acme.example") acme.Website "the site"
+
+          Expect.equal
+            (Some "https://github.com/acme")
+            acme.GithubUrl
+            "the github line"
+
+          Expect.equal
+            (Some "https://dev-null.sh/org/acme")
+            acme.HtmlUrl
+            "the page address"
+
+          Expect.equal (Some(Lane.LaneIndex 3)) acme.Lane "the lane"
+
+          Expect.equal (Some 12) acme.FollowersCount "the follower count"
+
+          Expect.equal true acme.IsFollowed "followed"
+
+          Expect.equal "void" bare.Handle "the second handle"
+
+          Expect.equal None bare.Bio "a null bio stays none"
+
+          Expect.equal None bare.Lane "a null lane stays none"
+
+          Expect.equal None bare.FollowersCount "an absent count stays none"
+
+          Expect.equal false bare.IsFollowed "not followed"
+        | _ -> failtest "expected two organizations"
+      | Error failure -> failtestf "%A" failure
+    }
+
+    testAsync "searches profiles for people and organizations" {
       let http =
         CapturingHttp(
           ok
-            """{"data":[{"id":"01a15638-ae71-733c-89b3-373a1a0c538a","handle":"kai-kou","name":"kai kou","avatar_url":null,"bio":"Writes about Rails.","lane":3}]}"""
+            """{"users":[{"id":"01a15638-ae71-733c-89b3-373a1a0c538a","handle":"kai-kou","name":"kai kou","avatar_url":null,"bio":"Writes about Rails.","lane":3,"is_followed":false,"follows_you":false}],"organizations":[]}"""
         )
 
-      let request: Search.UsersRequest = { KeyFile = "key-file"; Term = "kai" }
+      let request: Search.ProfilesRequest = {
+        KeyFile = "key-file"
+        Term = "kai"
+      }
 
-      let! (result: Result<User list, TestError>) =
-        Search.users(envFor http, request)
+      let! (result: Result<ProfileMatches, TestError>) =
+        Search.profiles(envFor http, request)
 
       match result with
-      | Ok users ->
-        Expect.equal 1 users.Length "one person found"
+      | Ok found ->
+        Expect.equal 1 found.Users.Length "one person found"
 
-        match users with
+        Expect.equal 0 found.Organizations.Length "no organizations found"
+
+        match found.Users with
         | user :: _ ->
           Expect.equal "kai-kou" user.Handle "the handle"
 
           Expect.equal (Some "Writes about Rails.") user.Bio "the bio"
+        | _ -> failtest "expected one person"
       | Error error -> failtestf "%A" error
 
       let sent = http.Requests |> List.exactlyOne
       Expect.equal "GET" sent.Method "method"
-      Expect.equal "/api/v1/search/users?q=kai" sent.Target "target"
+      Expect.equal "/api/v1/search/profiles?q=kai" sent.Target "target"
     }
 
     testAsync "searches commits by meaning with the limit asked for" {

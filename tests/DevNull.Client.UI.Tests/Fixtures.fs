@@ -1080,17 +1080,33 @@ let relatedApi(related: string) =
        | ValueSome answer -> answer
        | ValueNone -> ok "{}"))
 
-/// The people a search finds, as GET /api/v1/search/users answers.
-let searchUsersJson =
-  """{"data":[{"id":"01a15638-ae71-733c-89b3-373a1a0c538a","handle":"kai-kou","name":"kai kou","avatar_url":null,"bio":"Writes about Rails.","lane":3}]}"""
+/// The profiles a search finds, as GET /api/v1/search/profiles answers:
+/// the people and the organizations beside them.
+let searchProfilesJson =
+  """{"users":[{"id":"01a15638-ae71-733c-89b3-373a1a0c538a","handle":"kai-kou","name":"kai kou","avatar_url":null,"bio":"Writes about Rails.","lane":3,"is_followed":false,"follows_you":false}],"organizations":[{"handle":"acme","name":"Acme","avatar_url":null,"bio":"Ships everything.","website":"https://acme.example","github_url":"https://github.com/acme","html_url":"https://dev-null.sh/org/acme","lane":null,"followers_count":12,"is_followed":true},{"handle":"void","name":"Void Collective","avatar_url":null,"bio":null,"website":null,"github_url":null,"html_url":null,"lane":null,"is_followed":false}]}"""
 
-/// The api of the search tests: people and commits answer their
-/// searches, the slow-down flag answers the commit search with the
+/// The organization page a search result opens, as GET
+/// /api/v1/organizations/acme answers it.
+let searchOrgJson =
+  """{"data":{"handle":"acme","name":"Acme","avatar_url":null,"bio":"Ships everything, eventually.","location":"The moon","website":"https://acme.example","github_url":"https://github.com/acme","html_url":"https://dev-null.sh/org/acme"}}"""
+
+/// The api of the search tests: profiles and commits answer their
+/// searches, the slow-down flag answers both searches with the
 /// server's own refusal, and the empty flag answers both with nothing.
 let searchApi(slowDown: bool, empty: bool) =
   FakeApi(fun request ->
-    if request.Target.StartsWith "/api/v1/search/users" then
-      if empty then ok """{"data":[]}""" else ok searchUsersJson
+    if request.Target.StartsWith "/api/v1/search/profiles" then
+      if slowDown then
+        refused(429, "Slow down: too many searches. Give it a few seconds.")
+      elif empty then
+        ok """{"users":[],"organizations":[]}"""
+      else
+        ok searchProfilesJson
+    elif request.Target.StartsWith "/api/v1/organizations/acme/mentions" then
+      ok
+        "{\"data\":[],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+    elif request.Target.StartsWith "/api/v1/organizations/acme" then
+      ok searchOrgJson
     elif request.Target.StartsWith "/api/v1/search/commits" then
       if slowDown then
         refused(429, "Slow down: too many searches. Give it a few seconds.")

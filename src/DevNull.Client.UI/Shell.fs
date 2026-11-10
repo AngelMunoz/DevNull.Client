@@ -926,12 +926,9 @@ type Shell<'env
         let searches =
           new Search.Session(
             (fun term ->
-              DevNull.Client.Core.Api.Search.users(
-                env,
-                { KeyFile = entry.KeyFile; Term = term }
-              )),
+              Search.profiles(env, { KeyFile = entry.KeyFile; Term = term })),
             (fun term ->
-              DevNull.Client.Core.Api.Search.commits(
+              Search.commits(
                 env,
                 {
                   KeyFile = entry.KeyFile

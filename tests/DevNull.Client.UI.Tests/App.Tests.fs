@@ -5187,14 +5187,119 @@ let tests =
 
         Expect.exists
           api.Requests
-          (fun request -> request.Target = "/api/v1/search/users?q=kai%20kou")
-          "the people search"
+          (fun request ->
+            request.Target = "/api/v1/search/profiles?q=kai%20kou")
+          "the profile search"
 
         Expect.exists
           api.Requests
           (fun request ->
             request.Target = "/api/v1/search/commits?q=kai%20kou&limit=5")
           "the commit search with the dialog's limit"
+      })
+
+    testCaseAsync
+      "the search dialog lists organizations under their heading"
+      (async {
+        let api = searchApi(false, false)
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Search")
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "SearchInput")
+            |> Option.iter(fun control ->
+              (control :?> TextBox).Text <- "kai kou"))
+
+        let! person = seesVisible(window, "@kai-kou")
+
+        Expect.isTrue person "the person never listed"
+
+        let! heading = seesVisible(window, "Organizations")
+
+        Expect.isTrue heading "the organizations heading never showed"
+
+        let! org = seesVisible(window, "@acme")
+
+        Expect.isTrue org "the organization never listed"
+
+        let! bare = seesVisible(window, "@void")
+
+        Expect.isTrue bare "the second organization never listed"
+
+        Expect.exists
+          api.Requests
+          (fun request ->
+            request.Target = "/api/v1/search/profiles?q=kai%20kou")
+          "the profile search"
+      })
+
+    testCaseAsync
+      "the keys walk into the organizations and open one"
+      (async {
+        let api = searchApi(false, false)
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Search")
+
+        // The at keeps the developer reading, so the person stands
+        // first and the organizations follow.
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "SearchInput")
+            |> Option.iter(fun control -> (control :?> TextBox).Text <- "@kai"))
+
+        let! settled = seesVisible(window, "@kai-kou")
+
+        Expect.isTrue settled "the search never settled"
+
+        let! org = seesVisible(window, "@acme")
+
+        Expect.isTrue org "the organization never listed"
+
+        // Down leaves the person row and arms the first organization.
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "SearchInput")
+            |> Option.iter(fun control ->
+              (control :?> TextBox)
+                .RaiseEvent(
+                  KeyEventArgs(
+                    RoutedEvent = InputElement.KeyDownEvent,
+                    Key = Key.Down
+                  )
+                )))
+
+        // Enter opens the armed organization.
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "SearchInput")
+            |> Option.iter(fun control ->
+              (control :?> TextBox)
+                .RaiseEvent(
+                  KeyEventArgs(
+                    RoutedEvent = InputElement.KeyDownEvent,
+                    Key = Key.Enter
+                  )
+                )))
+
+        let! opened = seesVisible(window, "Ships everything, eventually.")
+
+        Expect.isTrue opened "the organization page never opened"
+
+        Expect.exists
+          api.Requests
+          (fun request -> request.Target = "/api/v1/organizations/acme")
+          "the organization read"
       })
 
     testCaseAsync
@@ -5259,6 +5364,20 @@ let tests =
             controlByName(window, "SearchInput")
             |> Option.iter(fun control -> (control :?> TextBox).Text <- "ab"))
 
+        // The people channel still answers a short term; wait for its
+        // request, then give a wrongly-gated commit call its window.
+        let! asked =
+          waitForAsync(
+            5000,
+            (fun () -> api.Requests),
+            (fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Target = "/api/v1/search/profiles?q=ab"))
+          )
+
+        Expect.isTrue asked "the profile search never ran"
+
         do! Async.Sleep 700
 
         Expect.isFalse
@@ -5266,11 +5385,6 @@ let tests =
            |> List.exists(fun request ->
              request.Target.StartsWith "/api/v1/search/commits"))
           "a short term searched commits"
-
-        Expect.exists
-          api.Requests
-          (fun request -> request.Target = "/api/v1/search/users?q=ab")
-          "the people search still ran"
       })
 
     testCaseAsync
@@ -5439,6 +5553,129 @@ let tests =
           api.Requests
           (fun request -> request.Target = "/api/v1/search/commits?q=shippin")
           "the page asked for a page of results"
+      })
+
+    testCaseAsync
+      "the results page lists developers and organizations above the commits"
+      (async {
+        let api = searchApi(false, false)
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Search")
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "SearchInput")
+            |> Option.iter(fun control ->
+              (control :?> TextBox).Text <- "kai kou"))
+
+        let! settled = seesVisible(window, "@kai-kou")
+
+        Expect.isTrue settled "the search never settled"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "See all matching commits")
+            |> Option.iter click)
+
+        let! counted = seesVisible(window, "1 match")
+
+        Expect.isTrue counted "the results page never counted its match"
+
+        let! developers = seesVisible(window, "Developers")
+
+        Expect.isTrue developers "the developers heading never showed"
+
+        let! organizations = seesVisible(window, "Organizations")
+
+        Expect.isTrue organizations "the organizations heading never showed"
+
+        // The profile sections stand above the commit results.
+        let! ordered =
+          probeUiAsync(fun () ->
+            match
+              buttonWithText(window, "Acme"),
+              buttonWithText(window, "It was DNS.")
+            with
+            | Some org, Some commit ->
+              let orgAt =
+                org.TranslatePoint(
+                  Point(org.Bounds.Width / 2.0, org.Bounds.Height / 2.0),
+                  window
+                )
+
+              let commitAt =
+                commit.TranslatePoint(
+                  Point(commit.Bounds.Width / 2.0, commit.Bounds.Height / 2.0),
+                  window
+                )
+
+              orgAt.HasValue
+              && commitAt.HasValue
+              && orgAt.Value.Y < commitAt.Value.Y
+            | _ -> false)
+
+        Expect.isTrue ordered "the profile rows never stood above the commits"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "Acme") |> Option.iter click)
+
+        let! opened = seesVisible(window, "Ships everything, eventually.")
+
+        Expect.isTrue opened "the organization page never opened"
+
+        Expect.exists
+          api.Requests
+          (fun request -> request.Target = "/api/v1/organizations/acme")
+          "the organization read"
+      })
+
+    testCaseAsync
+      "neither search surface calls the deprecated people endpoint"
+      (async {
+        let api = searchApi(false, false)
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Search")
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "SearchInput")
+            |> Option.iter(fun control ->
+              (control :?> TextBox).Text <- "kai kou"))
+
+        let! settled = seesVisible(window, "@kai-kou")
+
+        Expect.isTrue settled "the search never settled"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "See all matching commits")
+            |> Option.iter click)
+
+        let! counted = seesVisible(window, "1 match")
+
+        Expect.isTrue counted "the results page never counted its match"
+
+        Expect.isFalse
+          (api.Requests
+           |> List.exists(fun request ->
+             request.Target.Contains "/api/v1/search/users"))
+          "the deprecated people endpoint answered a search"
+
+        Expect.exists
+          api.Requests
+          (fun request -> request.Target.StartsWith "/api/v1/search/profiles")
+          "the profile search ran"
       })
 
     testCaseAsync

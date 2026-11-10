@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Search:** organizations join the results — the search palette and the search page show matching organizations under their own heading below the people, the keyboard walks people and organizations as one list, and a result opens the organization's page; the client now reads the site's profile search and no longer calls the deprecated people endpoint.
 - **Profile:** the follower and following counts open their lists — each row carries the follow control with "Follow back" for people who follow you, and the Following list gains an Organizations section above the people with its own show-more.
 
 ### Fixed

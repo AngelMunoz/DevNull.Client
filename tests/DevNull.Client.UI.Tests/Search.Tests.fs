@@ -68,7 +68,7 @@ let tests =
       "one settled call per pause of typing"
       (async {
         let calls = ResizeArray<string>()
-        let found = ResizeArray<PeopleFound>()
+        let found = ResizeArray<ProfilesFound>()
 
         use session =
           new Session(
@@ -76,13 +76,18 @@ let tests =
               calls.Add term
 
               async {
-                return Ok [ personOf term ]: Result<User list, AppError>
+                return
+                  Ok {
+                    Users = [ personOf term ]
+                    Organizations = []
+                  }
+                  : Result<ProfileMatches, AppError>
               }),
             (fun _ -> async { return Ok [] }),
             NullLogger.Instance
           )
 
-        session.People
+        session.Profiles
         |> Observable.filter(fun answer -> answer.Term <> "")
         |> Observable.add found.Add
 
@@ -107,7 +112,11 @@ let tests =
 
         use session =
           new Session(
-            (fun _ -> async { return Ok [] }),
+            (fun _ -> async {
+              return
+                Ok { Users = []; Organizations = [] }
+                : Result<ProfileMatches, AppError>
+            }),
             (fun term -> async {
               // The first term's answer waits until the newer one
               // has already landed.
@@ -138,7 +147,11 @@ let tests =
 
         use session =
           new Session(
-            (fun _ -> async { return Ok [] }),
+            (fun _ -> async {
+              return
+                Ok { Users = []; Organizations = [] }
+                : Result<ProfileMatches, AppError>
+            }),
             (fun _ -> async {
               return
                 Error(
@@ -165,13 +178,52 @@ let tests =
       })
 
     testCaseAsync
+      "a slow-down profiles answer settles as throttled"
+      (async {
+        let found = ResizeArray<ProfilesFound>()
+
+        use session =
+          new Session(
+            (fun _ -> async {
+              return
+                Error(
+                  AppError.Refused(
+                    429,
+                    None,
+                    "Slow down: too many searches. Give it a few seconds."
+                  )
+                )
+            }),
+            (fun _ -> async { return Ok [] }),
+            NullLogger.Instance
+          )
+
+        session.Profiles
+        |> Observable.filter(fun answer -> answer.Term <> "")
+        |> Observable.add found.Add
+
+        session.Set "rails"
+        do! settle()
+
+        Expect.equal 1 found.Count "the refusal settled"
+        Expect.equal true found[0].Throttled "marked throttled"
+        Expect.equal 0 found[0].Users.Length "nothing found"
+
+        Expect.equal 0 found[0].Organizations.Length "no organizations found"
+      })
+
+    testCaseAsync
       "a commit term under the server's minimum never calls"
       (async {
         let calls = ResizeArray<string>()
 
         use session =
           new Session(
-            (fun _ -> async { return Ok [] }),
+            (fun _ -> async {
+              return
+                Ok { Users = []; Organizations = [] }
+                : Result<ProfileMatches, AppError>
+            }),
             (fun term ->
               calls.Add term
               async { return Ok [] }),

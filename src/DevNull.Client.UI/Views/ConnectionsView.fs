@@ -159,22 +159,25 @@ module State =
   // The rows one list renders: the organizations section and its
   // show-more row first, then the people heading above the people
   // when the section stands.
-  let rowsOf(model: Model) : FeedRow list =
-    match model.Organizations with
-    | [] -> model.People |> List.map UserNode
-    | orgs ->
-      let orgRows =
-        OrgCaption :: (orgs |> List.map OrgNode)
-        @ if model.OrgCursor.IsSome then
-            List.singleton OrgMore
-          else
-            []
+  let rowsOf(model: Model) : FeedRow list = [
+    if model.Organizations.IsEmpty then
+      for user in model.People do
+        UserNode user
+    else
+      OrgCaption
 
-      orgRows
-      @ if model.People.IsEmpty then
-          []
-        else
-          PeopleCaption :: (model.People |> List.map UserNode)
+      for org in model.Organizations do
+        OrgNode org
+
+      if model.OrgCursor.IsSome then
+        OrgMore
+
+      if not model.People.IsEmpty then
+        PeopleCaption
+
+        for user in model.People do
+          UserNode user
+  ]
 
   let updateCore (log: ILogger, props: Props<'env>) msg model =
     // Every log line is an effect: update returns it as a command,

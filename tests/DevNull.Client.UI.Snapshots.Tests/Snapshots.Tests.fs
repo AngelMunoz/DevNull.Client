@@ -342,6 +342,24 @@ let captureTests =
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }
 
+    testAsync "the profile bio with its mention chips renders" {
+      let! window = startShell(signedInStore(), bioMentionsApi() :> IHttp)
+
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the shell never rendered its content"
+
+      do! clickWhenShown(window, "Profile")
+
+      let! mention = showsText(window, "@DevNull")
+      Expect.isTrue mention "the mention chip never rendered"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F55/f55-bio-mentions", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
     testAsync "the organization page carries its follow and claim header" {
       let! window =
         startShell(

@@ -4,6 +4,8 @@ open System
 open System.Collections.Generic
 open System.Globalization
 open System.Runtime.CompilerServices
+open System.Text.RegularExpressions
+open Avalonia.Controls.Documents
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
@@ -11,6 +13,7 @@ open Avalonia.Media
 open Avalonia.Layout
 open NXUI.Extensions
 open FSharp.Control.Reactive
+open IcedTasks
 open MVUish.Avalonia
 open Navs
 open DevNull.Client
@@ -1104,20 +1107,127 @@ module Parts =
 
     chip
 
+  // A GitHub handle after an "@" that follows no letter, digit, "_",
+  // ".", "/", "@", or "-", and runs into no path or domain, so emails
+  // and "@vue.js" stay plain. The server's own rule, in .NET form.
+  let mentionPattern =
+    Regex(
+      @"(?<![\p{L}\p{N}_./@-])@([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38})(?![A-Za-z0-9_@/-]|\.[A-Za-z0-9])"
+    )
+
+  // One piece of a bio after the mention split: plain prose, or one
+  // handle and its canonical page handle, when the map names one.
+  type BioPiece =
+    | BioPlain of string
+    | BioHandle of handle: string * canonical: string option
+
+  // Splits one bio into prose and handles at the first match every
+  // round, so a handle named twice wraps twice. A tail call never
+  // grows the stack on a bio dense with handles.
+  [<TailCall>]
+  let rec splitBio
+    (rest: string, profiles: Map<string, string>, pieces: BioPiece list)
+    : BioPiece list =
+    let matches = mentionPattern.Matches(rest)
+
+    match matches |> Seq.tryHead with
+    | None -> (if rest = "" then [] else [ BioPlain rest ]) @ pieces |> List.rev
+    | Some found ->
+      let handle = found.Groups[1].Value
+      let before = rest.Substring(0, found.Index)
+      let after = rest.Substring(found.Index + found.Length)
+
+      let canonical = Map.tryFind (handle.ToLowerInvariant()) profiles
+
+      let withHandle = BioHandle(handle, canonical) :: pieces
+
+      let next =
+        if before = "" then
+          withHandle
+        else
+          BioPlain before :: withHandle
+
+      splitBio(after, profiles, next)
+
+  // The clickable chip one bio handle wears: a mapped handle opens
+  // its page here, an unmapped one opens its GitHub page outside.
+  let bioChip
+    (
+      openMention: string -> Async<unit>,
+      handle: string,
+      canonical: string option
+    ) : Inline =
+    let activate() =
+      match canonical with
+      | Some target ->
+        asyncEx { do! openMention target } |> Async.StartImmediate
+      | None ->
+        DeviceAuth.startBrowser($"https://github.com/{handle}") |> ignore
+
+    let chip =
+      Border()
+        .Classes(Theme.name Theme.Chip)
+        .CornerRadius(999.0)
+        .Child(
+          TextBlock()
+            .Classes(Theme.name Theme.FgAccent)
+            .FontSize(13.0)
+            .Text("@" + handle)
+        )
+
+    InlineUIContainer(
+      Button()
+        .Name("BioMention")
+        .Classes(Theme.name Theme.GhostButton)
+        .Padding(0.0)
+        .Content(chip)
+        .OnClickHandler(fun _ args ->
+          args.Handled <- true
+          activate())
+    )
+
+  // One text run as prose with its mention chips: plain runs and one
+  // chip per handle, in order.
+  let mentionInlines
+    (
+      openMention: string -> Async<unit>,
+      profiles: Map<string, string>,
+      text: string
+    ) : Inline list =
+    splitBio(text, profiles, [])
+    |> List.map(fun piece ->
+      match piece with
+      | BioPlain plain -> Run plain
+      | BioHandle(handle, canonical) -> bioChip(openMention, handle, canonical))
+
+  // One bio as prose with its mention chips, flowing inside a
+  // wrapping text block.
+  let bioBlock
+    (
+      openMention: string -> Async<unit>,
+      profiles: Map<string, string>,
+      text: string
+    ) : Control =
+    let block = TextBlock().TextWrapping(TextWrapping.Wrap)
+    let inlines = InlineCollection()
+    block.Inlines <- inlines
+
+    mentionInlines(openMention, profiles, text)
+    |> List.iter(fun part -> inlines.Add(part) |> ignore)
+
+    block
+
   // The joined-and-links line under the bio: company, location, the
-  // website host, and the join month.
-  let metaLine(profile: Profile) : Control =
+  // website host, and the join month. The company's mentions ride
+  // the same map as the bio's.
+  let metaLine(profile: Profile, openMention: string -> Async<unit>) : Control =
     let stripScheme(url: string) =
       url.Replace("https://", "").Replace("http://", "")
 
     let joined =
       profile.CreatedAt.ToString("MMMM yyyy", CultureInfo.InvariantCulture)
 
-    let parts: string list = [
-      match profile.Company with
-      | Some company -> company
-      | None -> ()
-
+    let rest: string list = [
       match profile.Location with
       | Some location -> location
       | None -> ()
@@ -1129,10 +1239,29 @@ module Parts =
       $"Joined {joined}"
     ]
 
-    TextBlock()
-      .Classes(Theme.name Theme.Mono)
-      .TextWrapping(TextWrapping.Wrap)
-      .Text(String.Join(" · ", parts))
+    let tail = String.Join(" · ", rest)
+
+    match profile.Company with
+    | None ->
+      TextBlock()
+        .Classes(Theme.name Theme.Mono)
+        .TextWrapping(TextWrapping.Wrap)
+        .Text(tail)
+    | Some company ->
+      let block =
+        TextBlock()
+          .Classes(Theme.name Theme.Mono)
+          .TextWrapping(TextWrapping.Wrap)
+
+      let inlines = InlineCollection()
+      block.Inlines <- inlines
+
+      mentionInlines(openMention, profile.BioProfiles, company)
+      |> List.iter(fun part -> inlines.Add(part) |> ignore)
+
+      inlines.Add(Run(" · " + tail)) |> ignore
+
+      block
 
   // The activity bars: one lane-colored column per bucket, bottom
   // aligned, the height following the count.
@@ -1263,8 +1392,8 @@ module Parts =
     |]
 
   // What the identity header reads: the profile, the viewer's
-  // relation to it, the dispatch, the image cache, and the nav the
-  // count buttons follow.
+  // relation to it, the dispatch, the image cache, the nav the
+  // count buttons follow, and what a bio mention opens.
   [<Struct>]
   type IdentityCtx = {
     Images: ImageCacheService
@@ -1272,6 +1401,7 @@ module Parts =
     IsSelf: bool
     Dispatch: Dispatch<State.Msg>
     Nav: INavigable
+    OpenMention: string -> Async<unit>
   }
 
   // One count-and-label pair, the stats row's piece.
@@ -1381,11 +1511,13 @@ module Parts =
           mark("Muted").IsVisible(details.IsMuting),
           achievementsChip(details.Achievements, profile.Lane)
         )
-      TextBlock()
-        .TextWrapping(TextWrapping.Wrap)
+      (bioBlock(
+        ctx.OpenMention,
+        profile.BioProfiles,
+        profile.Bio |> Option.defaultValue ""
+      ))
         .IsVisible(profile.Bio.IsSome)
-        .Text(profile.Bio |> Option.defaultValue "")
-      metaLine profile
+      metaLine(profile, ctx.OpenMention)
       counts(profile, ctx.Nav)
     |]
 
@@ -1453,6 +1585,29 @@ module Parts =
     let formIs(wanted: State.HeaderForm) =
       form |> Observable.map(fun current -> current = wanted)
 
+    // What a bio mention opens: the profile fetch answers a person,
+    // the organization read answers an organization, and the map
+    // guarantees one of the two names a page here.
+    let openMention(handle: string) : Async<unit> = asyncEx {
+      let! details = props.Env.Profiles.Fetch handle
+
+      match details with
+      | Some _ -> Navigation.go(props.Nav, "/profile/" + handle, ignore)
+      | None ->
+        let! (organization: Result<OrganizationProfile, AppError>) =
+          Organizations.get(
+            props.Env,
+            {
+              KeyFile = props.Session.KeyFile
+              Handle = handle
+            }
+          )
+
+        match organization with
+        | Ok _ -> Navigation.go(props.Nav, "/org/" + handle, ignore)
+        | Error _ -> ()
+    }
+
     let content =
       PageChrome.rebuildOn(
         model,
@@ -1466,6 +1621,7 @@ module Parts =
               IsSelf = details.Profile.User.Id = props.Session.Session.User.Id
               Dispatch = dispatch
               Nav = props.Nav
+              OpenMention = openMention
             }
 
             // The full form is the identity and the sections together,

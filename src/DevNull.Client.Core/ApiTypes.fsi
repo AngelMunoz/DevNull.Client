@@ -367,6 +367,9 @@ type Profile = {
   FollowersCount: int option
   FollowingCount: int option
   Lane: Lane option
+  /// The bio and company mentions with a page here, by lowercase
+  /// handle, so their chips link internally instead of to GitHub.
+  BioProfiles: Map<string, string>
 }
 
 /// One activity bucket.

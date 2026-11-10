@@ -1420,6 +1420,49 @@ let accountApiTests =
       Expect.equal "/api/v1/users/octo%20cat" sent.Target "target"
     }
 
+    testAsync "a profile with bio profiles decodes its map" {
+      let response =
+        profileResponse.Replace(
+          "\"lane\":3}",
+          "\"lane\":3,\"bio_profiles\":{\"octocat\":\"octocat\",\"devnull\":\"DevNull\"}}"
+        )
+
+      let http = CapturingHttp(ok response)
+
+      let request: Users.Request = {
+        KeyFile = "key-file"
+        Username = "octocat"
+      }
+
+      let! (result: Result<ProfileDetails, TestError>) =
+        Users.get(envFor http, request)
+
+      match result with
+      | Ok details ->
+        Expect.equal
+          (Map.ofList [ "octocat", "octocat"; "devnull", "DevNull" ])
+          details.Profile.BioProfiles
+          "bio profiles"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "a profile without bio profiles decodes an empty map" {
+      let http = CapturingHttp(ok profileResponse)
+
+      let request: Users.Request = {
+        KeyFile = "key-file"
+        Username = "octocat"
+      }
+
+      let! (result: Result<ProfileDetails, TestError>) =
+        Users.get(envFor http, request)
+
+      match result with
+      | Ok details ->
+        Expect.isTrue (Map.isEmpty details.Profile.BioProfiles) "empty"
+      | Error error -> failtestf "%A" error
+    }
+
     testAsync "a root profile with no next level decodes" {
       let response =
         profileResponse.Replace(

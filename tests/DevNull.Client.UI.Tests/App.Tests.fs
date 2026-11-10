@@ -223,6 +223,25 @@ let startShellWith
     return! showAsync window
   }
 
+/// Builds and shows the shell over one test env with the given fake
+/// profile worker.
+let startShellWithProfiles
+  (store: SessionStore, http: IHttp, profiles: FakeProfiles)
+  : Async<Window> =
+  let env = TestEnv(store, http, profiles = profiles)
+
+  async {
+    let! window = probeUiAsync(fun () -> Shell(env, None) :> Window)
+    return! showAsync window
+  }
+
+/// The canned profile as the page's own profile worker answers it.
+let profileDetailsOf(json: string) : ProfileDetails =
+  match ProfileDetails.decode json with
+  | Ok details -> details
+  | Error failure ->
+    failwith $"the canned profile never decoded: {failure.Message}"
+
 /// Builds and shows the shell over one test env with a pre-seeded
 /// last-visit store.
 let startShellSeeded
@@ -4682,6 +4701,113 @@ let tests =
         let! follow = probeUiAsync(fun () -> buttonWithText(window, "Follow"))
 
         Expect.isNone follow "the follow button leaked"
+      })
+
+    testCaseAsync
+      "a bio mention chip opens the mapped user page"
+      (async {
+        let api = bioMentionsApi()
+
+        let profiles =
+          FakeProfiles(
+            ByUsername =
+              Map.ofList [
+                "devnull", Some(profileDetailsOf devnullProfileJson)
+              ]
+          )
+
+        let! window =
+          startShellWithProfiles(signedInStore(), api :> IHttp, profiles)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Profile")
+
+        let! mention = showsText(window, "@DevNull")
+
+        Expect.isTrue mention "the mention chip never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "@DevNull") |> Option.iter click)
+
+        let! resolved =
+          waitForAsync(
+            5000,
+            (fun () -> profiles.Asked),
+            (fun asked -> asked |> List.contains "devnull")
+          )
+
+        Expect.isTrue resolved "the profile resolution never happened"
+
+        let! opened = showsText(window, "Dev Null")
+
+        Expect.isTrue opened "the mapped user page never opened"
+      })
+
+    testCaseAsync
+      "a bio mention chip opens the mapped organization page"
+      (async {
+        let api = bioMentionsApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Profile")
+
+        let! mention = showsText(window, "@ACME")
+
+        Expect.isTrue mention "the mention chip never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "@ACME") |> Option.iter click)
+
+        let! resolved =
+          waitForAsync(
+            5000,
+            (fun () -> api.Requests),
+            (fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Method = "GET"
+                && request.Target = "/api/v1/organizations/acme"))
+          )
+
+        Expect.isTrue resolved "the organization resolution never happened"
+
+        let! opened = showsText(window, "Acme")
+
+        Expect.isTrue opened "the mapped organization page never opened"
+      })
+
+    testCaseAsync
+      "an unmapped bio mention stays on the profile"
+      (async {
+        let api = bioMentionsApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Profile")
+
+        let! mention = showsText(window, "@ghost")
+
+        Expect.isTrue mention "the unmapped chip never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "@ghost") |> Option.iter click)
+
+        let! still = showsText(window, "The Octocat")
+
+        Expect.isTrue still "the unmapped mention navigated away"
       })
 
     testCaseAsync

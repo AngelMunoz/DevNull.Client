@@ -374,6 +374,9 @@ type Profile = {
   FollowersCount: int option
   FollowingCount: int option
   Lane: Lane option
+  /// The bio and company mentions with a page here, by lowercase
+  /// handle, so their chips link internally instead of to GitHub.
+  BioProfiles: Map<string, string>
 }
 
 type ActivityBucket = { Date: string; Count: int }
@@ -1581,6 +1584,25 @@ let achievementsDecoder(element: JsonElement) = decode {
   }
 }
 
+// Which bio mentions have a page here, by lowercase handle, as the
+// user read sends them. A missing or non-object map is no map.
+let bioProfilesDecoder(element: JsonElement) : Map<string, string> =
+  match element.TryGetProperty "bio_profiles" with
+  | false, _ -> Map.empty
+  | true, profiles when profiles.ValueKind = JsonValueKind.Object ->
+    [
+      for property in profiles.EnumerateObject() ->
+        match property.Value.ValueKind with
+        | JsonValueKind.String ->
+          match Option.ofObj(property.Value.GetString()) with
+          | Some handle -> Some(property.Name, handle)
+          | None -> None
+        | _ -> None
+    ]
+    |> List.choose id
+    |> Map.ofList
+  | true, _ -> Map.empty
+
 let profileDecoder(element: JsonElement) = decode {
   let! user = userDecoder element
 
@@ -1637,6 +1659,7 @@ let profileDecoder(element: JsonElement) = decode {
     FollowersCount = followersCount
     FollowingCount = followingCount
     Lane = lane
+    BioProfiles = bioProfilesDecoder element
   }
 }
 

@@ -125,6 +125,11 @@ type FakeProfiles() =
 
   member val Details: ProfileDetails option = None with get, set
 
+  // The per-username answers, when one test needs several kinds at
+  // once; a username the map does not name takes the Details answer.
+  member val ByUsername: Map<string, ProfileDetails option> =
+    Map.empty with get, set
+
   member val Gate: TaskCompletionSource<unit> option = None with get, set
 
   member _.Asked = asked |> Seq.toList
@@ -137,7 +142,10 @@ type FakeProfiles() =
       | Some gate -> do! gate.Task |> Async.AwaitTask
       | None -> ()
 
-      return this.Details
+      return
+        match Map.tryFind username this.ByUsername with
+        | Some details -> details
+        | None -> this.Details
     }
 
 /// The one "type base64" line the fake key source offers and the fake
@@ -1918,6 +1926,49 @@ let orgContextInboxApi() =
   FakeApi(fun request ->
     if request.Target.StartsWith "/api/v1/notifications" then
       ok orgContextInboxJson
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+/// The octocat profile whose bio mentions one mapped user, one
+/// mapped organization, and one unmapped handle, with the server's
+/// lowercase map of the mapped two.
+let bioMentionsProfileJson =
+  profileJson
+    .Replace(
+      "\"bio\":\"Builds things.\"",
+      "\"bio\":\"Builds with @DevNull and @ACME, plus @ghost.\""
+    )
+    .Replace(
+      "\"lane\":3}",
+      "\"lane\":3,\"bio_profiles\":{\"devnull\":\"devnull\",\"acme\":\"acme\"}}"
+    )
+
+/// The devnull user, as the mention chip's profile fetch answers it.
+let devnullProfileJson =
+  profileJson
+    .Replace("\"handle\":\"octocat\"", "\"handle\":\"devnull\"")
+    .Replace("\"name\":\"The Octocat\"", "\"name\":\"Dev Null\"")
+
+/// The api of the bio mention test: the mention owner's profile
+/// carries the map; the mapped user answers as a user, the mapped
+/// organization answers only as an organization.
+let bioMentionsApi() =
+  FakeApi(fun request ->
+    if request.Target = "/api/v1/users/octocat" then
+      ok bioMentionsProfileJson
+    elif request.Target = "/api/v1/users/devnull" then
+      ok devnullProfileJson
+    elif request.Target = "/api/v1/users/acme" then
+      refused(404, "Not found.")
+    elif request.Target = "/api/v1/organizations/acme" then
+      ok searchOrgJson
+    elif request.Target.StartsWith "/api/v1/organizations/acme/mentions" then
+      ok
+        "{\"data\":[],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
     elif request.Target.StartsWith "/api/v1/log/" then
       ok logPageJson
     else

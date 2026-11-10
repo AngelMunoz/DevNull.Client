@@ -140,16 +140,15 @@ module Parts =
   let hoursRow
     (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
     : Control =
-    let slider = Slider()
-
-    slider.Minimum <- 1.0
-    slider.Maximum <- float LivePlatforms.maxHours
-    slider.Value <- 2.0
-    slider.TickFrequency <- 1.0
-    slider.IsSnapToTickEnabled <- true
-
-    slider.ValueChanged.Add(fun args ->
-      dispatch(State.HoursChanged(int args.NewValue)))
+    let slider =
+      Slider()
+        .Minimum(1.0)
+        .Maximum(float LivePlatforms.maxHours)
+        .Value(2.0)
+        .TickFrequency(1.0)
+        .IsSnapToTickEnabled(true)
+        .OnValueChangedHandler(fun _ args ->
+          dispatch(State.HoursChanged(int args.NewValue)))
 
     StackPanel()
       .Spacing(8.0)

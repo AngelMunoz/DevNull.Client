@@ -2239,17 +2239,43 @@ let orgMessageJson
 let orgRowJson(id: string, name: string, ahead: int, at: string) : string =
   $"""{{"id":"{id}","kind":"org","name":"{name}","partner":null,"members":null,"last_message":null,"last_message_at":"{at}","ahead":{ahead},"last_incoming_message_id":null,"last_incoming_sender":null,"partner_read_through_id":0,"partner_read_at":null,"is_archived":false,"pinned_at":null,"muted_until_at":null}}"""
 
-/// One org-thread answer: the messages, the viewer's role, and the
-/// pinned list — `None` for the wire's null, the keep-what-you-hold
-/// answer.
-let orgThreadAnswerJson
-  (messages: string list, role: string, pinned: string list option, version: int) : string =
+/// One org-thread answer carrying its mentions of the signed user.
+let orgThreadAnswerJsonWithMentions
+  (
+    messages: string list,
+    role: string,
+    pinned: string list option,
+    version: int,
+    mentions: string list
+  ) : string =
   let pinnedJson =
     match pinned with
     | None -> "null"
     | Some pins -> "[" + String.concat "," pins + "]"
 
-  $"""{{"data":{{"org":{{"id":"org-1","name":"the org"}},"messages":[{String.concat "," messages}],"has_older":false,"reactions_version":{version},"reaction_changes":[],"pinned":{pinnedJson},"read_through_id":0,"members":[{{"user":{orgPartnerJson},"role":"maintainer","read_through_id":0}},{{"user":{orgViewerJson},"role":"{role}","read_through_id":0}}],"typing":[],"is_archived":false,"pinned_at":null,"muted_until_at":null,"role":"{role}","access":"open"}}}}"""
+  let baseJson =
+    $"""{{"data":{{"org":{{"id":"org-1","name":"the org"}},"messages":[{String.concat "," messages}],"has_older":false,"reactions_version":{version},"reaction_changes":[],"pinned":{pinnedJson},"read_through_id":0,"members":[{{"user":{orgPartnerJson},"role":"maintainer","read_through_id":0}},{{"user":{orgViewerJson},"role":"{role}","read_through_id":0}}],"typing":[],"is_archived":false,"pinned_at":null,"muted_until_at":null,"role":"{role}","access":"open"}}}}"""
+
+  if mentions.IsEmpty then
+    baseJson
+  else
+    let withMentions =
+      ",\"mentions\":["
+      + String.concat "," mentions
+      + "],\"mentions_count\":"
+      + string mentions.Length
+
+    baseJson.Replace(
+      "\"access\":\"open\"}}",
+      "\"access\":\"open\"" + withMentions + "}}"
+    )
+
+/// One org-thread answer: the messages, the viewer's role, and the
+/// pinned list — `None` for the wire's null, the keep-what-you-hold
+/// answer.
+let orgThreadAnswerJson
+  (messages: string list, role: string, pinned: string list option, version: int) : string =
+  orgThreadAnswerJsonWithMentions(messages, role, pinned, version, [])
 
 /// The answer of a pin or an unpin: the org's whole pinned list,
 /// latest first, with the version the thread polls against.

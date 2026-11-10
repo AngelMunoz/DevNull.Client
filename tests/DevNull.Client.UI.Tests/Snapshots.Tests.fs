@@ -342,6 +342,81 @@ let captureTests =
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }
 
+    testAsync "the org thread mentions bell renders" {
+      let mentions = [
+        orgMessageJson(43, partnerId, "mention one", None)
+        orgMessageJson(44, partnerId, "mention two", None)
+      ]
+
+      let thread =
+        orgThreadAnswerJsonWithMentions(
+          [
+            orgMessageJson(41, partnerId, "hold this one", None)
+            orgMessageJson(42, viewerId, "mine then", None)
+            orgMessageJson(43, partnerId, "mention one", None)
+            orgMessageJson(44, partnerId, "mention two", None)
+          ],
+          "maintainer",
+          None,
+          0,
+          mentions
+        )
+
+      let api =
+        FakeApi(fun request ->
+          if
+            request.Target.StartsWith "/api/v1/remotes/orgs/org-1/messages"
+          then
+            ok thread
+          elif request.Target.StartsWith "/api/v1/remotes" then
+            ok(
+              Remotes.inboxPageJson(
+                [ orgRowJson("org-1", "the org", 0, "2026-10-21T04:00:00Z") ],
+                false,
+                0,
+                0
+              )
+            )
+          else
+            (match accountAnswer request with
+             | ValueSome answer -> answer
+             | ValueNone -> ok "{}"))
+
+      let! window = startShell(remotesStoreOn(), api :> IHttp)
+
+      do! clickWhenShown(window, "Remotes")
+
+      do!
+        (async {
+          let! entered =
+            waitForAsync(
+              5000,
+              (fun () -> window),
+              (fun root ->
+                root.GetVisualDescendants()
+                |> Seq.exists(fun visual -> visual.Name = "RemotesSearch"))
+            )
+
+          Expect.isTrue entered "the remotes page never rendered"
+        })
+
+      do! clickWhenShown(window, "the org")
+
+      let! bell =
+        waitForAsync(
+          5000,
+          (fun () -> controlByName(window, "MentionsBell")),
+          Option.isSome
+        )
+
+      Expect.isTrue bell "the mentions bell never showed"
+      do! settleAsync()
+
+      let! path = captureAsync("F24/f24-org-mentions-bell", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
     testAsync "the organization commits tab renders" {
       let! window =
         startShell(

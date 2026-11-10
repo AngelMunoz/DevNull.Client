@@ -864,6 +864,12 @@ type OrgThread = {
   MutedUntilAt: DateTimeOffset option
   Role: OrgRole option
   Access: PushAccess
+  /// The messages that mention the signed user, newest last; absent
+  /// on older answers, which answer none.
+  Mentions: Message list
+  /// The unread mentions the bell counts; an absent count reads as
+  /// the mentions list length.
+  MentionsCount: int
 }
 
 /// Someone a new remote or org can be started with, and the reason they

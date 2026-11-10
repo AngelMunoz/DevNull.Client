@@ -5193,4 +5193,79 @@ let pinTests =
 
         Expect.equal pins 1 "the second confirm sent another pin"
       })
+
+    testCaseAsync
+      "the org thread carries a mentions bell jumping to the last mention"
+      (async {
+        let mentions = [
+          orgMessageJson(43, partnerId, "mention one", None)
+          orgMessageJson(44, partnerId, "mention two", None)
+        ]
+
+        let thread =
+          orgThreadAnswerJsonWithMentions(
+            [
+              orgMessageJson(41, partnerId, "hold this one", None)
+              orgMessageJson(42, viewerId, "mine then", None)
+              orgMessageJson(43, partnerId, "mention one", None)
+              orgMessageJson(44, partnerId, "mention two", None)
+            ],
+            "maintainer",
+            None,
+            0,
+            mentions
+          )
+
+        let api = pinApi(thread, [])
+        let! window = startShell(remotesOnStore(false, 0), api)
+
+        do! openOrgAsync window
+
+        let! bell =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "MentionsBell")),
+            Option.isSome
+          )
+
+        Expect.isTrue bell "the mentions bell never showed"
+
+        let! count =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "2"))
+          )
+
+        Expect.isTrue count "the mentions count never showed"
+
+        let flashShown(root: Control) =
+          root.GetVisualDescendants()
+          |> Seq.exists(fun visual ->
+            match visual with
+            | :? Border as border when border.Name = "ChatMessage44" ->
+              border.Classes.Contains "flash-ring"
+            | _ -> false)
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "MentionsBell")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! lit = waitForAsync(5000, (fun () -> window), flashShown)
+
+        Expect.isTrue lit "the bell jump never flashed the last mention"
+
+        let! faded =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> not(flashShown root)
+          )
+
+        Expect.isTrue faded "the bell jump flash never ended"
+      })
   ]

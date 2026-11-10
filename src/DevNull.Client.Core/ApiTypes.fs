@@ -938,6 +938,8 @@ type OrgThread = {
   MutedUntilAt: DateTimeOffset option
   Role: OrgRole option
   Access: PushAccess
+  Mentions: Message list
+  MentionsCount: int
 }
 
 type RemoteCandidate = { User: User; Reason: string option }
@@ -2710,6 +2712,18 @@ let orgThreadDataDecoder(element: JsonElement) = decode {
 
   let! access = Required.Property.get ("access", pushAccessDecoder) element
 
+  let! mentions =
+    Optional.Property.get
+      ("mentions", optionalListDecoder messageDecoder)
+      element
+    |> Result.map Option.flatten
+
+  let! mentionsCount =
+    Optional.Property.get ("mentions_count", Optional.int) element
+    |> Result.map Option.flatten
+
+  let mentionList = Option.defaultValue [] mentions
+
   return {
     Org = org
     Messages = messages
@@ -2725,6 +2739,8 @@ let orgThreadDataDecoder(element: JsonElement) = decode {
     MutedUntilAt = mutedUntilAt
     Role = role
     Access = access
+    Mentions = mentionList
+    MentionsCount = mentionsCount |> Option.defaultValue mentionList.Length
   }
 }
 

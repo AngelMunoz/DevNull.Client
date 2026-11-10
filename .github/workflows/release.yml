@@ -207,10 +207,11 @@ jobs:
 
       - name: Build the flatpak bundle
         run: |
-          hash="$(sha256sum "artifacts/DevNull.Client-${VERSION}-linux-x64.tar.gz" | cut -d' ' -f1)"
-          .github/flatpak/build.sh "$VERSION" \
-            "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/DevNull.Client-${VERSION}-linux-x64.tar.gz" \
-            "$hash"
+          # The release URL does not exist yet at this point in the
+          # run, so the bundle builds from the local tarball; the
+          # channel workflow rebuilds from the release URL later.
+          .github/flatpak/build.sh \
+            "artifacts/DevNull.Client-${VERSION}-linux-x64.tar.gz"
           flatpak build-bundle \
             --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
             "$FLATPAK_REPO" \

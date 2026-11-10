@@ -128,28 +128,26 @@ the consolidated card actions.
 ## Issue index
 
 Phase 1 is done, and the cycle's index (#16, #9, #17, #4, #2) is done
-and merged. The next index is the ordered pool below: five items, triaged
+and merged. The next index is the ordered pool below: four items, triaged
 by effort and by how each one builds on the search and organization work
 that just landed. Each issue keeps its own detail in the tracker.
 [#7](https://github.com/AngelMunoz/DevNull.Client/issues/7),
 [#23](https://github.com/AngelMunoz/DevNull.Client/issues/23), and
 [#24](https://github.com/AngelMunoz/DevNull.Client/issues/24) are merged.
-[#30](https://github.com/AngelMunoz/DevNull.Client/issues/30) is
-implemented and rides its open pull request; the pool below is re-fed
-from it.
+[#30](https://github.com/AngelMunoz/DevNull.Client/issues/30) and
+[#28](https://github.com/AngelMunoz/DevNull.Client/issues/28) are
+implemented and ride their stacked open pull requests; the pool below is
+re-fed from them.
 
-1. [#28 — log feed catch-up and batching](https://github.com/AngelMunoz/DevNull.Client/issues/28).
-   The feed misses late-approved commits today. The log request learns
-   the catch-up parameters, and the feed batches what arrives.
-2. [#26 — hashtag links in commit text](https://github.com/AngelMunoz/DevNull.Client/issues/26).
+1. [#26 — hashtag links in commit text](https://github.com/AngelMunoz/DevNull.Client/issues/26).
    Renderer work only: a tag becomes a link into the search that just
    shipped.
-3. [#25 — stargazers on own commits](https://github.com/AngelMunoz/DevNull.Client/issues/25).
+2. [#25 — stargazers on own commits](https://github.com/AngelMunoz/DevNull.Client/issues/25).
    One Core page read and one entry point on the author's own commits.
-4. [#31 — profile pictures in the image viewer](https://github.com/AngelMunoz/DevNull.Client/issues/31).
+3. [#31 — profile pictures in the image viewer](https://github.com/AngelMunoz/DevNull.Client/issues/31).
    The viewer exists. Avatars on the card, the flyout, and the profile
    header learn to open it.
-5. [#27 — search: a Latest tab](https://github.com/AngelMunoz/DevNull.Client/issues/27).
+4. [#27 — search: a Latest tab](https://github.com/AngelMunoz/DevNull.Client/issues/27).
     Verify first: the API support is not confirmed, and the answer
     decides whether the tab is client work or waits on the server.
 

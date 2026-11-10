@@ -476,6 +476,7 @@ module ThreadPane =
                 Lane = partner.Lane
                 Size = 36.0
                 Cache = media.Cache
+                Square = false
               },
               StackPanel()
                 .VerticalAlignment(VerticalAlignment.Center)
@@ -541,6 +542,51 @@ module ThreadPane =
           Actions = menuActions
         }
 
+      // The mentions bell: org threads only, visible while mentions
+      // wait unread. It jumps to the last mention, the newest. It is
+      // read-only: no mark-read call exists, and the count is never
+      // cleared locally.
+      let bell: Control =
+        match target with
+        | Partner _ -> Panel()
+        | Org _ ->
+          ContentControl()
+            .Content(
+              PageChrome.rebuildOn(
+                thread,
+                (fun current -> current.MentionsCount),
+                (fun current ->
+                  if current.MentionsCount <= 0 then
+                    Panel() :> Control
+                  else
+                    Button()
+                      .Name("MentionsBell")
+                      .Classes(Theme.name Theme.GhostButton)
+                      .Padding(6.0, 2.0, 6.0, 2.0)
+                      .Content(
+                        StackPanel()
+                          .Orientation(Orientation.Horizontal)
+                          .Spacing(4.0)
+                          .Children(
+                            Icons.iconAt(Icons.Glyph.Notifications, 16.0),
+                            Border()
+                              .Classes(Theme.name Theme.TabBadge)
+                              .Child(
+                                TextBlock().Text(string current.MentionsCount)
+                              )
+                          )
+                      )
+                      .OnClickHandler(fun _ args ->
+                        args.Handled <- true
+
+                        current.Mentions
+                        |> List.tryLast
+                        |> Option.iter(fun mention ->
+                          dispatch(State.GhostWanted mention.Id))))
+              )
+              |> _.ToBinding()
+            )
+
       let menu: Control =
         match target with
         | Org org ->
@@ -576,7 +622,9 @@ module ThreadPane =
           :> Control
         | Partner _ -> actions
 
-      DockPanel().LastChildFill(true).Children(menu.Dock(Dock.Right), identity)
+      DockPanel()
+        .LastChildFill(true)
+        .Children(menu.Dock(Dock.Right), bell.Dock(Dock.Right), identity)
 
     let loadingOlder = thread |> Observable.map _.IsLoadingOlder
 

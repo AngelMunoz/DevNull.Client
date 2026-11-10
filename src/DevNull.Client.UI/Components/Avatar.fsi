@@ -14,6 +14,9 @@ type Props = {
   Lane: Lane option
   Size: float
   Cache: ImageCacheService
+  /// The square shape the organization's avatar uses; persons draw
+  /// the disc.
+  Square: bool
 }
 
 /// Renders the avatar.

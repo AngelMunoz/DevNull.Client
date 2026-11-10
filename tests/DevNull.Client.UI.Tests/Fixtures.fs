@@ -2017,9 +2017,59 @@ let organizationMentionsEndPageJson =
     "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
     orgMentionCommitJson
 
+/// The organization author, as the wire names it on a commit: the
+/// org profile the viewer is a member of, so delete shows.
+let orgAuthorJson =
+  """{"type":"organization","id":"org-devnull","handle":"devnull","name":"DevNull","avatar_url":null,"bio":"A quiet place for loud commits.","website":"https://devnull.example","github_url":"https://github.com/devnull","html_url":"https://dev-null.sh/org/devnull","is_followed":false,"can_claim":false,"settings_url":null,"lane":3,"followers_count":12,"admins":[{"id":"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d","handle":"octocat","name":"The Octocat","avatar_url":null}]}"""
+
+/// The same organization author where the viewer is not a member.
+let orgAuthorJsonNoMember =
+  """{"type":"organization","id":"org-devnull","handle":"devnull","name":"DevNull","avatar_url":null,"bio":"A quiet place for loud commits.","website":"https://devnull.example","github_url":"https://github.com/devnull","html_url":"https://dev-null.sh/org/devnull","is_followed":false,"can_claim":false,"settings_url":null,"lane":3,"followers_count":12,"admins":[{"id":"01a151db-7fee-727b-a7ce-c911a7556243","handle":"hubot","name":"The Hubot","avatar_url":null}]}"""
+
+/// One commit authored by the organization, viewer a member.
+let orgAuthorCommitJson =
+  commitJson.Replace(
+    "\"author\":{\"id\":\"01a151db-7fee-727b-a7ce-c911a7556242\",\"handle\":\"octocat\",\"name\":\"The Octocat\",\"avatar_url\":null}",
+    "\"author\":" + orgAuthorJson
+  )
+
+/// One commit authored by the organization, viewer not a member.
+let orgAuthorCommitJsonNoMember =
+  commitJson.Replace(
+    "\"author\":{\"id\":\"01a151db-7fee-727b-a7ce-c911a7556242\",\"handle\":\"octocat\",\"name\":\"The Octocat\",\"avatar_url\":null}",
+    "\"author\":" + orgAuthorJsonNoMember
+  )
+
+/// The log page carrying the member organization commit.
+let orgAuthorLogPageJson =
+  sprintf
+    "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
+    orgAuthorCommitJson
+
+/// The log page carrying the non-member organization commit.
+let orgAuthorLogPageJsonNoMember =
+  sprintf
+    "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
+    orgAuthorCommitJsonNoMember
+
 /// One organization mentions page with no commits.
 let organizationMentionsEmptyPageJson =
   """{"data":[],"links":{},"meta":{"per_page":20,"next_cursor":null,"prev_cursor":null}}"""
+
+/// The organization's own commit, with a body the mentions feed never
+/// carries so the tabs read apart.
+let orgCommitsCommitJson =
+  orgAuthorCommitJson.Replace(
+    "\"body\":\"It was DNS.\"",
+    "\"body\":\"Org commit.\""
+  )
+
+/// One organization commits page: the organization's own commits, one
+/// of them authored by the organization itself.
+let organizationCommitsPageJson =
+  sprintf
+    "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+    orgCommitsCommitJson
 
 /// The organization answers: its profile, its mentions and their cursor
 /// page, when the request names the canned handle.
@@ -2043,6 +2093,8 @@ let organizationAnswer
       ValueSome(ok organizationMentionsNextPageJson)
     else
       ValueSome(ok mentions)
+  elif request.Target.StartsWith "/api/v1/organizations/devnull/commits" then
+    ValueSome(ok organizationCommitsPageJson)
   else
     ValueNone
 
@@ -2187,17 +2239,43 @@ let orgMessageJson
 let orgRowJson(id: string, name: string, ahead: int, at: string) : string =
   $"""{{"id":"{id}","kind":"org","name":"{name}","partner":null,"members":null,"last_message":null,"last_message_at":"{at}","ahead":{ahead},"last_incoming_message_id":null,"last_incoming_sender":null,"partner_read_through_id":0,"partner_read_at":null,"is_archived":false,"pinned_at":null,"muted_until_at":null}}"""
 
-/// One org-thread answer: the messages, the viewer's role, and the
-/// pinned list — `None` for the wire's null, the keep-what-you-hold
-/// answer.
-let orgThreadAnswerJson
-  (messages: string list, role: string, pinned: string list option, version: int) : string =
+/// One org-thread answer carrying its mentions of the signed user.
+let orgThreadAnswerJsonWithMentions
+  (
+    messages: string list,
+    role: string,
+    pinned: string list option,
+    version: int,
+    mentions: string list
+  ) : string =
   let pinnedJson =
     match pinned with
     | None -> "null"
     | Some pins -> "[" + String.concat "," pins + "]"
 
-  $"""{{"data":{{"org":{{"id":"org-1","name":"the org"}},"messages":[{String.concat "," messages}],"has_older":false,"reactions_version":{version},"reaction_changes":[],"pinned":{pinnedJson},"read_through_id":0,"members":[{{"user":{orgPartnerJson},"role":"maintainer","read_through_id":0}},{{"user":{orgViewerJson},"role":"{role}","read_through_id":0}}],"typing":[],"is_archived":false,"pinned_at":null,"muted_until_at":null,"role":"{role}","access":"open"}}}}"""
+  let baseJson =
+    $"""{{"data":{{"org":{{"id":"org-1","name":"the org"}},"messages":[{String.concat "," messages}],"has_older":false,"reactions_version":{version},"reaction_changes":[],"pinned":{pinnedJson},"read_through_id":0,"members":[{{"user":{orgPartnerJson},"role":"maintainer","read_through_id":0}},{{"user":{orgViewerJson},"role":"{role}","read_through_id":0}}],"typing":[],"is_archived":false,"pinned_at":null,"muted_until_at":null,"role":"{role}","access":"open"}}}}"""
+
+  if mentions.IsEmpty then
+    baseJson
+  else
+    let withMentions =
+      ",\"mentions\":["
+      + String.concat "," mentions
+      + "],\"mentions_count\":"
+      + string mentions.Length
+
+    baseJson.Replace(
+      "\"access\":\"open\"}}",
+      "\"access\":\"open\"" + withMentions + "}}"
+    )
+
+/// One org-thread answer: the messages, the viewer's role, and the
+/// pinned list — `None` for the wire's null, the keep-what-you-hold
+/// answer.
+let orgThreadAnswerJson
+  (messages: string list, role: string, pinned: string list option, version: int) : string =
+  orgThreadAnswerJsonWithMentions(messages, role, pinned, version, [])
 
 /// The answer of a pin or an unpin: the org's whole pinned list,
 /// latest first, with the version the thread polls against.

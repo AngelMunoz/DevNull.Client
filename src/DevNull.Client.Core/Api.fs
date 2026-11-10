@@ -1040,6 +1040,24 @@ module Organizations =
       }
     )
 
+  let commits(env, request: MentionsRequest) =
+    let target =
+      Internal.withQuery(
+        path(request.Handle, "/commits"),
+        Internal.optionalParameter("cursor", request.Cursor)
+      )
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target = target
+        Body = ""
+        Decode = CommitNode.decodePage
+      }
+    )
+
 module Commits =
 
   type Target =

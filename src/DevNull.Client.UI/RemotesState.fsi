@@ -59,6 +59,11 @@ type InboxList = {
 type ThreadState = {
   Target: ChatTarget
   Messages: Message list
+  /// The org thread's mentions of the signed user, newest last; an
+  /// empty list while no mention rides: the bell stays hidden.
+  Mentions: Message list
+  /// The unread mentions the bell counts.
+  MentionsCount: int
   HasOlder: bool
   ReadThroughId: int
   PartnerReadThroughId: int

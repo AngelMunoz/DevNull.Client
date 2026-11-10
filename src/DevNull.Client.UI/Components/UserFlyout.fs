@@ -63,6 +63,7 @@ module Parts =
             Lane = lane
             Size = 48.0
             Cache = source.Cache
+            Square = false
           },
           StackPanel()
             .VerticalAlignment(VerticalAlignment.Center)
@@ -179,3 +180,19 @@ let attach(source: Source, user: User, child: Control) : Control =
   card.PointerExited.Add(fun _ -> closeTimer.Start())
 
   Grid().Children(trigger, popup)
+
+/// The author-shaped attach: a person rides the hover card, an
+/// organization opens its page on click.
+let attachAuthor(source: Source, author: Author, child: Control) : Control =
+  match author with
+  | Person user -> attach(source, user, child)
+  | Organization org ->
+    (Button()
+      .Name("AuthorAvatar")
+      .Classes(Theme.name Theme.GhostButton)
+      .Padding(0.0)
+      .Content(child)
+      .OnClickHandler(fun _ args ->
+        args.Handled <- true
+        source.OnOpenOrg org.Handle))
+    :> Control

@@ -45,6 +45,8 @@ type InboxList = {
 type ThreadState = {
   Target: ChatTarget
   Messages: Message list
+  Mentions: Message list
+  MentionsCount: int
   HasOlder: bool
   ReadThroughId: int
   PartnerReadThroughId: int
@@ -228,6 +230,8 @@ let emptyList: InboxList = {
 let emptyThread(target: ChatTarget) : ThreadState = {
   Target = target
   Messages = []
+  Mentions = []
+  MentionsCount = 0
   HasOlder = false
   ReadThroughId = 0
   PartnerReadThroughId = 0
@@ -595,6 +599,8 @@ let mergeThread(state: RemotesState, merge: ThreadMerge) : RemotesState =
     | OrgFresh thread -> {
         carried with
             Target = Org thread.Org
+            Mentions = thread.Mentions
+            MentionsCount = thread.MentionsCount
             Members = thread.Members
             Typing = thread.Typing
             Role = thread.Role

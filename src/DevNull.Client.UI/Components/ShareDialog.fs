@@ -226,6 +226,7 @@ module Parts =
         Lane = person.User.Lane
         Size = 40.0
         Cache = ctx.Props.Env.ImageCache
+        Square = false
       }
 
     let columns = Grid()
@@ -359,7 +360,7 @@ module Parts =
             .Children(
               TextBlock()
                 .Classes(Theme.name Theme.Mono)
-                .Text("@" + props.Commit.Author.Handle),
+                .Text("@" + (Author.handle props.Commit.Author)),
               TextBlock()
                 .Text(props.Commit.Body)
                 .TextWrapping(TextWrapping.Wrap)

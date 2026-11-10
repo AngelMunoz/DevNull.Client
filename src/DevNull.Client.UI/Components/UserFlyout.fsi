@@ -27,3 +27,7 @@ type Source = {
 /// every pointer path stops them — and a recycled row's popup closes
 /// with its tree.
 val attach: source: Source * user: User * child: Control -> Control
+
+/// The author-shaped attach: a person rides the hover card, an
+/// organization opens its page on click.
+val attachAuthor: source: Source * author: Author * child: Control -> Control

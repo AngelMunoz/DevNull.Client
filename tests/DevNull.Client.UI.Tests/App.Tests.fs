@@ -6962,20 +6962,21 @@ let tests =
             StarsCount = None
             RepliesCount = None
             Status = Approved
-            Author = {
-              Id = "01a15638-ae71-733c-89b3-373a1a0c538a"
-              Handle = String.replicate 300 "n"
-              Name = "found"
-              AvatarUrl = None
-              Bio = None
-              Lane = None
-              CommitsCount = None
-              FollowersCount = None
-              FollowingCount = None
-              FollowedByFollowingCount = None
-              IsFollowed = None
-              FollowsYou = None
-            }
+            Author =
+              Person {
+                Id = "01a15638-ae71-733c-89b3-373a1a0c538a"
+                Handle = String.replicate 300 "n"
+                Name = "found"
+                AvatarUrl = None
+                Bio = None
+                Lane = None
+                CommitsCount = None
+                FollowersCount = None
+                FollowingCount = None
+                FollowedByFollowingCount = None
+                IsFollowed = None
+                FollowsYou = None
+              }
             Images = []
             Starred = None
             IsPinned = false

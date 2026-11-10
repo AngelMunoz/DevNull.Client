@@ -287,6 +287,44 @@ let tests =
       })
 
     testCaseAsync
+      "the organization page switches between mentions and commits"
+      (async {
+        let api = organizationMentionLogApi(organizationMentionsPageJson)
+
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        do! openOrganization(window)
+
+        let! mentionsTab = showsText(window, "Mentions")
+        let! commitsTab = showsText(window, "Commits")
+
+        Expect.isTrue mentionsTab "the mentions tab never rendered"
+        Expect.isTrue commitsTab "the commits tab never rendered"
+
+        let! mentionCard = showsText(window, ", it was DNS.")
+
+        Expect.isTrue mentionCard "the mentions feed never rendered"
+
+        do! clickWhenShown(window, "Commits")
+
+        let! orgCommit = showsText(window, "Org commit.")
+
+        Expect.isTrue orgCommit "the commits tab never loaded"
+
+        Expect.exists
+          api.Requests
+          (fun request ->
+            request.Target.StartsWith "/api/v1/organizations/devnull/commits")
+          "the organization commits read"
+
+        do! clickWhenShown(window, "Mentions")
+
+        let! back = showsText(window, ", it was DNS.")
+
+        Expect.isTrue back "the mentions tab never returned"
+      })
+
+    testCaseAsync
       "a refused claim shows the server words on the organization page"
       (async {
         let api = organizationClaimRefusedApi(organizationMentionsPageJson)

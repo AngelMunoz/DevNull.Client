@@ -20,6 +20,9 @@ type Props = {
   Lane: Lane option
   Size: float
   Cache: ImageCacheService
+  /// The square shape the organization's avatar uses; persons draw
+  /// the disc.
+  Square: bool
 }
 
 let initial(name: string) =
@@ -31,17 +34,31 @@ let initial(name: string) =
     trimmed.Substring(0, 1).ToUpperInvariant()
 
 let view(props: Props) : Control =
-  let disc = Ellipse().Width(props.Size).Height(props.Size)
+  let backing: Control =
+    if props.Square then
+      (Border().Width(props.Size).Height(props.Size).CornerRadius(8.0))
+      :> Control
+    else
+      (Ellipse().Width(props.Size).Height(props.Size)) :> Control
 
-  Theme.laneFill(disc, props.Lane)
+  match backing with
+  | :? Shape as shape -> Theme.laneFill(shape, props.Lane)
+  | :? Border as border -> Theme.laneBack(border, props.Lane)
+  | _ -> ()
 
   let children: Control array = [|
-    disc
+    backing
 
     match props.Url with
     | Some url ->
       // The image clips to the disc; the letter under it stays the
       // fallback until the bitmap lands.
+      let clip: Geometry =
+        if props.Square then
+          RectangleGeometry(Rect(0.0, 0.0, props.Size, props.Size))
+        else
+          EllipseGeometry(Rect(0.0, 0.0, props.Size, props.Size))
+
       let image =
         AsyncImage.view {
           Cache = props.Cache
@@ -52,10 +69,7 @@ let view(props: Props) : Control =
           ToolTip = ValueNone
         }
 
-      image
-        .Name("AvatarImage")
-        .Clip(EllipseGeometry(Rect(0.0, 0.0, props.Size, props.Size)))
-        .ClipToBounds(true)
+      image.Name("AvatarImage").Clip(clip).ClipToBounds(true)
     | None ->
       TextBlock()
         .Text(initial props.Name)

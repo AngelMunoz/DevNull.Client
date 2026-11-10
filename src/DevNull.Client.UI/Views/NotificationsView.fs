@@ -490,6 +490,7 @@ module Parts =
             Lane = notification.Actor.Lane
             Size = 40.0
             Cache = cache
+            Square = false
           }
 
         let avatar =
@@ -617,6 +618,7 @@ module Parts =
           Lane = notification.Actor.Lane
           Size = 28.0
           Cache = cache
+          Square = false
         },
         StackPanel()
           .VerticalAlignment(VerticalAlignment.Center)

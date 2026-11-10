@@ -663,6 +663,20 @@ module Organizations =
       and Rejected<'e>
       and DecodeError<'e>
 
+  /// Reads one organization's commits, twenty to a cursor page; signed
+  /// members also see pending commits.
+  val commits:
+    env: 'env * request: MentionsRequest -> Async<Result<Page<CommitNode>, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
 module Commits =
 
   /// What a new commit points at: nothing, a parent, or a quoted commit.

@@ -106,11 +106,30 @@ let avatarOf(ctx: RowCtx, user: User, size: float) : Control =
       Lane = user.Lane
       Size = size
       Cache = ctx.Images
+      Square = false
     })
       .HorizontalAlignment(HorizontalAlignment.Left)
 
   match ctx.Flyout with
   | ValueSome source -> UserFlyout.attach(source, user, plain)
+  | ValueNone -> plain
+
+// One commit author's avatar, with the hover card when the host gave
+// a source; organizations draw square.
+let authorAvatarOf(ctx: RowCtx, author: Author, size: float) : Control =
+  let plain =
+    (Avatar.view {
+      Name = (Author.name author)
+      Url = (Author.avatarUrl author)
+      Lane = (Author.lane author)
+      Size = size
+      Cache = ctx.Images
+      Square = (Author.isOrganization author)
+    })
+      .HorizontalAlignment(HorizontalAlignment.Left)
+
+  match ctx.Flyout with
+  | ValueSome source -> UserFlyout.attachAuthor(source, author, plain)
   | ValueNone -> plain
 
 // The lane dot as an inline of the line around it, the six-dip gap
@@ -238,6 +257,7 @@ let orgIdentity(ctx: RowCtx, organization: Organization) : Control =
       Lane = organization.Lane
       Size = 36.0
       Cache = ctx.Images
+      Square = false
     })
       .HorizontalAlignment(HorizontalAlignment.Left)
 
@@ -269,8 +289,8 @@ let commitIdentity(ctx: RowCtx, commit: Commit) : Control =
         .TextTrimming(TextTrimming.CharacterEllipsis)
 
     let inlines = InlineCollection()
-    inlines.Add(laneInline commit.Author.Lane)
-    inlines.Add(Run("@" + commit.Author.Handle))
+    inlines.Add(laneInline(Author.lane commit.Author))
+    inlines.Add(Run("@" + (Author.handle commit.Author)))
     inlines.Add(Run " · ")
     inlines.Add(Run(Formatting.timeAgo(ctx.Now, commit.CreatedAt)))
 
@@ -278,7 +298,7 @@ let commitIdentity(ctx: RowCtx, commit: Commit) : Control =
     block
 
   besideAvatar(
-    avatarOf(ctx, commit.Author, 36.0),
+    authorAvatarOf(ctx, commit.Author, 36.0),
     StackPanel()
       .Spacing(2.0)
       .Children(

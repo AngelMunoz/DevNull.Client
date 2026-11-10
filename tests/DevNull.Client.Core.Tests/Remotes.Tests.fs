@@ -70,6 +70,18 @@ let orgThreadUnpinnedJson =
     "\"reaction_changes\":[],\"pinned\":null,"
   )
 
+let orgThreadMentionsJson =
+  orgThreadJson.Replace(
+    "\"access\":\"open\"}",
+    $"\"access\":\"open\",\"mentions\":[{messageJson},{hiddenReplyJson}],\"mentions_count\":2}}"
+  )
+
+let orgThreadCountOnlyJson =
+  orgThreadJson.Replace(
+    "\"access\":\"open\"}",
+    "\"access\":\"open\",\"mentions_count\":3}"
+  )
+
 let pinAnswerJson = $"""{{"pinned":[{messageJson}],"reactions_version":8}}"""
 
 let inboxJson =
@@ -577,6 +589,30 @@ let pinTests =
     test "a null pinned list holds nothing" {
       match OrgThread.decode $"{{\"data\":{orgThreadUnpinnedJson}}}" with
       | Ok thread -> Expect.equal None thread.Pinned "nothing held"
+      | Error failure -> failtestf "%A" failure
+    }
+
+    test "reads the org thread's mentions with their count" {
+      match OrgThread.decode $"{{\"data\":{orgThreadMentionsJson}}}" with
+      | Ok thread ->
+        Expect.equal [ 42; 44 ] (thread.Mentions |> List.map _.Id) "mentions"
+        Expect.equal 2 thread.MentionsCount "count"
+      | Error failure -> failtestf "%A" failure
+    }
+
+    test "an absent mentions count defaults to the list length" {
+      match OrgThread.decode $"{{\"data\":{orgThreadJson}}}" with
+      | Ok thread ->
+        Expect.isEmpty thread.Mentions "no mentions"
+        Expect.equal 0 thread.MentionsCount "zero count"
+      | Error failure -> failtestf "%A" failure
+    }
+
+    test "an absent mentions list with a count keeps the count" {
+      match OrgThread.decode $"{{\"data\":{orgThreadCountOnlyJson}}}" with
+      | Ok thread ->
+        Expect.isEmpty thread.Mentions "no mentions"
+        Expect.equal 3 thread.MentionsCount "count"
       | Error failure -> failtestf "%A" failure
     }
 

@@ -810,15 +810,15 @@ module State =
       // read carries no block flag, so that flag moves only when a
       // block answers. The viewer's own commit needs no read at all.
       if
-        commit.Author.Id = props.Session.Session.User.Id
-        || model.Relations |> Map.containsKey commit.Author.Handle
+        (Author.id commit.Author) = props.Session.Session.User.Id
+        || model.Relations |> Map.containsKey(Author.handle commit.Author)
       then
         model, Cmd.none
       else
         model,
         Cmd.OfAsync.perform
           props.Env.Profiles.Fetch
-          commit.Author.Handle
+          (Author.handle commit.Author)
           (fun details ->
             let toRelation(loaded: ProfileDetails) : AuthorRelation = {
               IsFollowing = loaded.IsFollowing
@@ -829,7 +829,7 @@ module State =
             let relation =
               details |> Option.map toRelation |> ValueOption.ofOption
 
-            RelationLoaded(commit.Author.Handle, relation))
+            RelationLoaded((Author.handle commit.Author), relation))
     | RelationLoaded(handle, relation) ->
       (match relation with
        | ValueSome current -> {
@@ -841,14 +841,14 @@ module State =
     | AuthorFollowToggled commit ->
       // The word flips at once and rolls back on a refusal, the way
       // the site's toggle answers before the server does.
-      let held = heldRelation(model, commit.Author.Handle)
+      let held = heldRelation(model, (Author.handle commit.Author))
 
       {
         model with
             MenuBusy = Some commit.Id
             Relations =
               model.Relations
-              |> Map.add commit.Author.Handle {
+              |> Map.add (Author.handle commit.Author) {
                 held with
                     IsFollowing = not held.IsFollowing
               }
@@ -869,31 +869,31 @@ module State =
         Cmd.ofAction(fun () ->
           log.LogDebug(
             "The follow of @{Author} settled.",
-            commit.Author.Handle
+            (Author.handle commit.Author)
           ))
       | Error error ->
-        let held = heldRelation(model, commit.Author.Handle)
+        let held = heldRelation(model, (Author.handle commit.Author))
 
         {
           model with
               MenuBusy = None
               Relations =
                 model.Relations
-                |> Map.add commit.Author.Handle {
+                |> Map.add (Author.handle commit.Author) {
                   held with
                       IsFollowing = not held.IsFollowing
                 }
         },
         failed "the follow toggle" error
     | AuthorMuteToggled commit ->
-      let held = heldRelation(model, commit.Author.Handle)
+      let held = heldRelation(model, (Author.handle commit.Author))
 
       {
         model with
             MenuBusy = Some commit.Id
             Relations =
               model.Relations
-              |> Map.add commit.Author.Handle {
+              |> Map.add (Author.handle commit.Author) {
                 held with
                     IsMuting = not held.IsMuting
               }
@@ -911,36 +911,39 @@ module State =
       match result with
       | Ok mute ->
         // The server's answer is the truth the state keeps.
-        let held = heldRelation(model, commit.Author.Handle)
+        let held = heldRelation(model, (Author.handle commit.Author))
 
         {
           model with
               MenuBusy = None
               Relations =
                 model.Relations
-                |> Map.add commit.Author.Handle {
+                |> Map.add (Author.handle commit.Author) {
                   held with
                       IsMuting = mute.IsMuting
                 }
         },
         Cmd.ofAction(fun () ->
-          log.LogDebug("The mute of @{Author} settled.", commit.Author.Handle))
+          log.LogDebug(
+            "The mute of @{Author} settled.",
+            (Author.handle commit.Author)
+          ))
       | Error error ->
-        let held = heldRelation(model, commit.Author.Handle)
+        let held = heldRelation(model, (Author.handle commit.Author))
 
         {
           model with
               MenuBusy = None
               Relations =
                 model.Relations
-                |> Map.add commit.Author.Handle {
+                |> Map.add (Author.handle commit.Author) {
                   held with
                       IsMuting = not held.IsMuting
                 }
         },
         failed "the mute toggle" error
     | AuthorBlockRequested commit ->
-      let held = heldRelation(model, commit.Author.Handle)
+      let held = heldRelation(model, (Author.handle commit.Author))
 
       { model with MenuBusy = Some commit.Id },
       Cmd.OfAsync.perform
@@ -955,14 +958,14 @@ module State =
     | AuthorBlockDone(commit, result) ->
       match result with
       | Ok blocked ->
-        let held = heldRelation(model, commit.Author.Handle)
+        let held = heldRelation(model, (Author.handle commit.Author))
 
         {
           model with
               MenuBusy = None
               Relations =
                 model.Relations
-                |> Map.add commit.Author.Handle {
+                |> Map.add (Author.handle commit.Author) {
                   held with
                       IsBlocking = blocked.IsBlocking
                 }
@@ -970,7 +973,7 @@ module State =
         Cmd.ofAction(fun () ->
           log.LogInformation(
             "The block of @{Author} settled.",
-            commit.Author.Handle
+            (Author.handle commit.Author)
           ))
       | Error error ->
         {
@@ -1121,7 +1124,8 @@ module State =
             items
             |> List.truncate seenAt
             |> List.exists(function
-              | LiveCommit commit -> commit.Author.Id <> visit.ViewerId
+              | LiveCommit commit ->
+                (Author.id commit.Author) <> visit.ViewerId
               | Tombstone _ -> false)
 
           match newerFromOthers with
@@ -1231,8 +1235,8 @@ module Parts =
                     let author = commit.Author
 
                     let authorRow: ReplyPicker.ParticipantRow = {
-                      Id = author.Id
-                      Handle = author.Handle
+                      Id = (Author.id author)
+                      Handle = (Author.handle author)
                       IsAuthor = true
                     }
 
@@ -1455,7 +1459,7 @@ let view
               |> Observable.map(fun current ->
                 fun commit ->
                   current.Relations
-                  |> Map.tryFind commit.Author.Handle
+                  |> Map.tryFind(Author.handle commit.Author)
                   |> ValueOption.ofOption)
             Busy = model |> Observable.map _.MenuBusy
           }

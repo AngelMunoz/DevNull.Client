@@ -93,10 +93,13 @@ let rowsFor
     | _ -> Panel()
 
   let authorRows: Control list =
-    if commit.Author.Id = props.ViewerId then
+    if
+      (Author.id commit.Author) = props.ViewerId
+      || Author.isOrganization commit.Author
+    then
       []
     else
-      let handle = commit.Author.Handle
+      let handle = (Author.handle commit.Author)
       let current = relation |> ValueOption.defaultValue unknownRelation
 
       let followRow =
@@ -145,14 +148,19 @@ let rowsFor
   let reportRow: Control =
     match slot.Report with
     | ValueSome command when
-      commit.Status = Approved && commit.Author.Id <> props.ViewerId
+      commit.Status = Approved
+      && (Author.id commit.Author) <> props.ViewerId
+      && not(Author.isOrganization commit.Author)
       ->
       menuPick("Report commit", fun () -> command commit).IsEnabled(idle)
     | _ -> Panel() :> Control
 
   let deleteRow: Control =
     match slot.Delete with
-    | ValueSome command when commit.Author.Id = props.ViewerId ->
+    | ValueSome command when
+      (Author.id commit.Author) = props.ViewerId
+      || Author.isAdmin(commit.Author, props.ViewerId)
+      ->
       (confirmPick {
         Label = "Delete commit"
         Title = deleteTitle

@@ -527,6 +527,7 @@ let view
         Lane = user.Lane
         Size = 36.0
         Cache = props.Env.ImageCache
+        Square = false
       }
 
     let avatarWithFlyout = UserFlyout.attach(flyout, user, avatar)

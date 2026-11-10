@@ -456,7 +456,7 @@ module Parts =
             .Children(
               TextBlock()
                 .Classes(Theme.name Theme.Mono)
-                .Text($"@{commit.Author.Handle}"),
+                .Text($"@{(Author.handle commit.Author)}"),
               TextBlock()
                 .Text(commit.Body)
                 .TextWrapping(TextWrapping.Wrap)
@@ -515,7 +515,8 @@ module Parts =
     && gate.Poll.ClosesAt.IsSome
     && not gate.Poll.HasVoted
     && not(hasExpired(gate.Now, gate.Poll))
-    && gate.Commit.Author.Id <> gate.ViewerId
+    && (Author.id gate.Commit.Author) <> gate.ViewerId
+    && not(Author.isOrganization gate.Commit.Author)
 
   // The site's time-left wording: days, hours, then minutes, never
   // below one minute.
@@ -949,11 +950,11 @@ module Parts =
         .Children(
           TextBlock()
             .Classes(Theme.name Theme.Subtitle)
-            .Text(commit.Author.Name),
+            .Text((Author.name commit.Author)),
           TextBlock().Classes(Theme.name Theme.Muted).Text("·"),
           TextBlock()
             .Classes(Theme.name Theme.Mono)
-            .Text($"@{commit.Author.Handle}")
+            .Text($"@{(Author.handle commit.Author)}")
             .TextTrimming(TextTrimming.CharacterEllipsis),
           TextBlock().Classes(Theme.name Theme.Muted).Text("·"),
           TextBlock()
@@ -977,7 +978,7 @@ module Parts =
         TextBlock()
           .Classes(Theme.name Theme.Muted)
           .Margin(0.0, 2.0, 0.0, 0.0)
-          .Text($"replying to @{parent.Author.Handle}")
+          .Text($"replying to @{(Author.handle parent.Author)}")
       )
     | Some(Tombstone _) ->
       Some(
@@ -994,6 +995,9 @@ module Parts =
     Lane: Lane option
     Dense: bool
     Continues: bool
+    /// The square shape an organization's avatar uses; persons draw
+    /// the disc, and the ring follows the avatar's silhouette.
+    Square: bool
   }
 
   // The rail cell: the author's avatar sitting on a short lane-colored
@@ -1045,7 +1049,7 @@ module Parts =
       Border()
         .Classes(Theme.name Theme.CardBack)
         .BorderThickness(Thickness(2.0))
-        .CornerRadius(nodeSize)
+        .CornerRadius(if cell.Square then 8.0 else nodeSize)
         .Padding(1.0)
         .HorizontalAlignment(HorizontalAlignment.Center)
         .VerticalAlignment(VerticalAlignment.Top)
@@ -1068,13 +1072,13 @@ module Parts =
 
   // The ringed avatar alone: the rail node of a reply row. A reply is
   // a node, not a commit card — no tail, no dot.
-  let ringCell(avatar: Control, lane: Lane option) : Panel =
+  let ringCell(avatar: Control, lane: Lane option, square: bool) : Panel =
     let ring =
       Border()
         .Name("ReplyRing")
         .Classes(Theme.name Theme.CardBack)
         .BorderThickness(Thickness(2.0))
-        .CornerRadius(28.0)
+        .CornerRadius(if square then 8.0 else 28.0)
         .Padding(1.0)
         .HorizontalAlignment(HorizontalAlignment.Center)
         .VerticalAlignment(VerticalAlignment.Top)
@@ -1094,11 +1098,13 @@ module Parts =
       .Orientation(Orientation.Horizontal)
       .Spacing(6.0)
       .Children(
-        TextBlock().Classes(Theme.name Theme.Subtitle).Text(commit.Author.Name),
+        TextBlock()
+          .Classes(Theme.name Theme.Subtitle)
+          .Text((Author.name commit.Author)),
         TextBlock().Classes(Theme.name Theme.Muted).Text("·"),
         TextBlock()
           .Classes(Theme.name Theme.Mono)
-          .Text($"@{commit.Author.Handle}")
+          .Text($"@{(Author.handle commit.Author)}")
           .TextTrimming(TextTrimming.CharacterEllipsis),
         TextBlock().Classes(Theme.name Theme.Muted).Text("·"),
         TextBlock()
@@ -1137,11 +1143,13 @@ module Parts =
 
     // The server refuses a star on the author's own commit: the site
     // answers with a read-only count, so the toggle never arms. A host
-    // with no star slot draws no star control at all.
+    // with no star slot draws no star control at all. An organization's
+    // commit carries no star at all.
     let star: Control =
       match props.Star with
       | ValueNone -> Panel()
-      | ValueSome _ when commit.Author.Id = props.ViewerId ->
+      | ValueSome _ when Author.isOrganization commit.Author -> Panel()
+      | ValueSome _ when (Author.id commit.Author) = props.ViewerId ->
         (iconAction {
           Name = "StarCount"
           Glyph = Glyph.Star
@@ -1169,6 +1177,7 @@ module Parts =
 
     let pastel: Control =
       match props.Pastel with
+      | ValueSome _ when Author.isOrganization commit.Author -> Panel()
       | ValueSome slot ->
         let count =
           if commit.PasteisCount > 0 then
@@ -1219,7 +1228,8 @@ module Parts =
     let pin: Control =
       match props.Pin with
       | ValueSome toggle when
-        commit.Author.Id = props.ViewerId && Option.isNone commit.ParentId
+        (Author.id commit.Author) = props.ViewerId
+        && Option.isNone commit.ParentId
         ->
         let pinned = commit.IsPinned
         let glyph = if pinned then Glyph.PinOff else Glyph.Pin
@@ -1356,6 +1366,7 @@ let view(props: Props) : Control =
     | images -> Parts.imagesView(props.Images, images)
 
     match commit.Poll with
+    | Some _ when Author.isOrganization commit.Author -> ()
     | Some poll ->
       Parts.pollView {
         Commit = commit
@@ -1385,17 +1396,18 @@ let view(props: Props) : Control =
 
   let plain =
     Avatar.view {
-      Name = commit.Author.Name
-      Url = commit.Author.AvatarUrl
-      Lane = commit.Author.Lane
+      Name = (Author.name commit.Author)
+      Url = (Author.avatarUrl commit.Author)
+      Lane = (Author.lane commit.Author)
       Size = if dense then 28.0 else 40.0
       Cache = props.Images
+      Square = (Author.isOrganization commit.Author)
     }
 
   // The hover card rides the avatar when the host gave it a source.
   let avatar =
     match props.Flyout with
-    | ValueSome source -> UserFlyout.attach(source, commit.Author, plain)
+    | ValueSome source -> UserFlyout.attachAuthor(source, commit.Author, plain)
     | ValueNone -> plain
 
   let pad = if dense then 8.0 else 12.0
@@ -1431,9 +1443,10 @@ let view(props: Props) : Control =
   let rail =
     Parts.railCell {
       Avatar = avatar
-      Lane = commit.Author.Lane
+      Lane = (Author.lane commit.Author)
       Dense = dense
       Continues = continues
+      Square = (Author.isOrganization commit.Author)
     }
 
   let rowButton =
@@ -1463,7 +1476,7 @@ let view(props: Props) : Control =
 
   AutomationProperties.SetName(
     rowButton,
-    $"Commit {commit.ShortHash} by @{commit.Author.Handle}"
+    $"Commit {commit.ShortHash} by @{(Author.handle commit.Author)}"
   )
 
   rowButton
@@ -1640,16 +1653,18 @@ let rec chainRow(ctx: ChainCtx, spot: ChainSpot, node: CommitNode) : Control =
 
     let avatar =
       Avatar.view {
-        Name = commit.Author.Name
-        Url = commit.Author.AvatarUrl
-        Lane = commit.Author.Lane
+        Name = (Author.name commit.Author)
+        Url = (Author.avatarUrl commit.Author)
+        Lane = (Author.lane commit.Author)
         Size = 28.0
         Cache = ctx.Props.Images
+        Square = (Author.isOrganization commit.Author)
       }
 
     let ringged =
       match ctx.Props.Flyout with
-      | ValueSome source -> UserFlyout.attach(source, commit.Author, avatar)
+      | ValueSome source ->
+        UserFlyout.attachAuthor(source, commit.Author, avatar)
       | ValueNone -> avatar
 
     let flatRow =
@@ -1681,10 +1696,14 @@ let rec chainRow(ctx: ChainCtx, spot: ChainSpot, node: CommitNode) : Control =
 
         if chained then
           FeedParts
-            .laneSpineAt(commit.Author.Lane, 24.0)
+            .laneSpineAt((Author.lane commit.Author), 24.0)
             .Margin(23.25, 40.0, 0.0, 0.0)
 
-        Parts.ringCell(ringged, commit.Author.Lane)
+        Parts.ringCell(
+          ringged,
+          (Author.lane commit.Author),
+          (Author.isOrganization commit.Author)
+        )
       |]
 
       let child = { ctx with Depth = ctx.Depth + 1 }
@@ -1699,8 +1718,8 @@ let rec chainRow(ctx: ChainCtx, spot: ChainSpot, node: CommitNode) : Control =
             chainRows(
               {
                 child with
-                    ParentLane = commit.Author.Lane
-                    ParentHandle = commit.Author.Handle
+                    ParentLane = (Author.lane commit.Author)
+                    ParentHandle = (Author.handle commit.Author)
               },
               replies
             )
@@ -1729,7 +1748,7 @@ and chainRows(ctx: ChainCtx, nodes: CommitNode list) : Control =
           ctx.ParentLane
         else
           match nodes[index - 1] with
-          | LiveCommit previous -> previous.Author.Lane
+          | LiveCommit previous -> (Author.lane previous.Author)
           | Tombstone _ -> ctx.ParentLane
 
       chainRow(
@@ -1766,7 +1785,7 @@ let replyBlock
   | None -> Panel() :> Control
   | Some _ when replies.IsEmpty && remaining <= 0 -> Panel() :> Control
   | Some _ ->
-    let lane = commit.Author.Lane
+    let lane = (Author.lane commit.Author)
 
     let children: Control array = [|
       // The card above runs its lane tail to its bottom edge when this
@@ -1782,7 +1801,7 @@ let replyBlock
                 Props = props
                 Depth = 0
                 ParentLane = lane
-                ParentHandle = commit.Author.Handle
+                ParentHandle = (Author.handle commit.Author)
                 Grow = ValueNone
               },
               replies

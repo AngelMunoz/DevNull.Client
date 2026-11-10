@@ -76,6 +76,7 @@ let personContent(images: ImageCacheService, user: User) : Control =
         Lane = user.Lane
         Size = 28.0
         Cache = images
+        Square = false
       },
       StackPanel()
         .VerticalAlignment(VerticalAlignment.Center)
@@ -109,6 +110,7 @@ let orgContent
         Lane = None
         Size = 28.0
         Cache = images
+        Square = false
       },
       StackPanel()
         .VerticalAlignment(VerticalAlignment.Center)

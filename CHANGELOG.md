@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Commits:** your own commit's star count opens the list of who starred it, newest first, with more on demand. Another user's commit keeps its count read-only.
 - **Commits:** a code block now shows a title over the code — the file name the author gave the block, or its language when there is no file name.
 - **Log:** the feed catches up on its own — a commit approved late lands in its place on the next check without a reload, a burst of late commits lands as one batch, and selecting Log again scrolls to the top.
 - **Commits:** a hashtag in commit text is a link now — it opens the search for that tag. A hashtag inside code stays plain text.

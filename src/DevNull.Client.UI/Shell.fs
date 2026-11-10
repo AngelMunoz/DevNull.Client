@@ -680,6 +680,7 @@ type AsideProps<'env
   and 'env :> IProvideSession
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
+  and 'env :> IProvideBrowser
   and 'env :> IProvideRoutes
   and 'env :> IProvideLogging> = {
   Env: 'env

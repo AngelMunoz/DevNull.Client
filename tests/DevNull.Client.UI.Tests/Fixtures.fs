@@ -2002,7 +2002,7 @@ let bioMentionsApi() =
 
 /// The youtube stream as the wire carries it on a live user.
 let liveStreamJson =
-  """{"platform":"youtube","url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","thumbnail_url":"https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault_live.jpg","ends_at":"2026-10-20T08:17:19Z"}"""
+  """{"platform":"youtube","url":"https://www.youtube.com/watch?v=NeutralVid1","thumbnail_url":"https://i.ytimg.com/vi/NeutralVid1/hqdefault_live.jpg","ends_at":"2026-10-20T08:17:19Z"}"""
 
 /// The octocat profile while live on that stream.
 let liveProfileJson =

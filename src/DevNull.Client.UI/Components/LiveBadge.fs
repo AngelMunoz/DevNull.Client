@@ -7,7 +7,7 @@ open NXUI.Extensions
 open DevNull.Client
 open DevNull.Client.Core.ApiTypes
 
-let view(live: LiveStream option) : Control =
+let view(onOpenExternal: string -> unit, live: LiveStream option) : Control =
   match live with
   | None -> TextBlock().IsVisible(false)
   | Some stream ->
@@ -35,4 +35,4 @@ let view(live: LiveStream option) : Control =
       .Content(chip)
       .OnClickHandler(fun _ args ->
         args.Handled <- true
-        DeviceAuth.startBrowser stream.Url |> ignore)
+        onOpenExternal stream.Url)

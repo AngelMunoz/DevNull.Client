@@ -20,6 +20,7 @@ type Props<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
   and 'env :> IProvideRoutes
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
@@ -38,6 +39,7 @@ type Page<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
   and 'env :> IProvideRoutes
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

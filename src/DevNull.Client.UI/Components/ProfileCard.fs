@@ -25,7 +25,8 @@ type Props<'env
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
   and 'env :> IProvideSession
-  and 'env :> IProvideImageCache> = { Env: 'env; Session: SignedInSession }
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideBrowser> = { Env: 'env; Session: SignedInSession }
 
 // The card's state logic: model, messages, and update.
 module State =
@@ -103,7 +104,11 @@ let statRow(count: int, label: string) : Control =
 
 // The identity head: the avatar beside the name and the lane handle;
 // a live user's name wears the badge.
-let identityHead(cache: ImageCacheService, profile: Profile) : Control =
+let identityHead
+  (browser: IBrowser, cache: ImageCacheService, profile: Profile)
+  : Control =
+  let openExternal(url: string) = browser.Open(url) |> ignore
+
   let name =
     StackPanel()
       .Orientation(Orientation.Horizontal)
@@ -111,7 +116,7 @@ let identityHead(cache: ImageCacheService, profile: Profile) : Control =
       .VerticalAlignment(VerticalAlignment.Center)
       .Children(
         TextBlock().Classes(Theme.name Theme.Subtitle).Text(profile.User.Name),
-        LiveBadge.view profile.User.Live
+        LiveBadge.view(openExternal, profile.User.Live)
       )
 
   StackPanel()
@@ -172,8 +177,11 @@ module Parts =
 
   // The card itself, rebuilt whenever the profile changes.
   let cardHost
-    (cache: ImageCacheService, model: IObservable<State.Model>)
-    : Control =
+    (
+      browser: IBrowser,
+      cache: ImageCacheService,
+      model: IObservable<State.Model>
+    ) : Control =
     let card =
       PageChrome.rebuildOn(
         model,
@@ -184,7 +192,7 @@ module Parts =
             StackPanel()
               .Spacing(16.0)
               .Children(
-                identityHead(cache, details.Profile),
+                identityHead(browser, cache, details.Profile),
                 stats details.Profile,
                 bioLine details.Profile
               )
@@ -205,7 +213,7 @@ let view
   StackPanel()
     .Spacing(8.0)
     .Children(
-      Parts.cardHost(props.Env.ImageCache, model),
+      Parts.cardHost(props.Env.Browser, props.Env.ImageCache, model),
       Parts.errorText model,
       Parts.busy model
     )
@@ -217,7 +225,8 @@ type Page<'env
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
   and 'env :> IProvideSession
-  and 'env :> IProvideImageCache>(props: Props<'env>) as this =
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideBrowser>(props: Props<'env>) as this =
   inherit UserControl()
 
   do

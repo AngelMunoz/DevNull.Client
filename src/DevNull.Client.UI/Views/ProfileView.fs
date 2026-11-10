@@ -1592,7 +1592,10 @@ module Parts =
         .VerticalAlignment(VerticalAlignment.Center)
         .Children(
           TextBlock().Classes(Theme.name Theme.Headline).Text(user.Name),
-          LiveBadge.view user.Live
+          LiveBadge.view(
+            (fun url -> ctx.Browser.Open(url) |> ignore),
+            user.Live
+          )
         )
       StackPanel()
         .Orientation(Orientation.Horizontal)

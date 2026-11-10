@@ -16,7 +16,8 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
-  and 'env :> IProvideImageCache> = { Env: 'env; Session: SignedInSession }
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideBrowser> = { Env: 'env; Session: SignedInSession }
 
 /// The followed users who are live right now, as the shell's aside
 /// shows them: a card over the names and live badges, polled a
@@ -27,6 +28,7 @@ type Page<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
-  and 'env :> IProvideImageCache> =
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideBrowser> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

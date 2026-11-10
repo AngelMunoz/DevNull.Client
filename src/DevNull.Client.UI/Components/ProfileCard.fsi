@@ -25,7 +25,8 @@ type Props<'env
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
   and 'env :> IProvideSession
-  and 'env :> IProvideImageCache> = { Env: 'env; Session: SignedInSession }
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideBrowser> = { Env: 'env; Session: SignedInSession }
 
 /// One profile card, self-contained: mounts the MVUish program.
 type Page<'env
@@ -35,6 +36,7 @@ type Page<'env
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
   and 'env :> IProvideSession
-  and 'env :> IProvideImageCache> =
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideBrowser> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

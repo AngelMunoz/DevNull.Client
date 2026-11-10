@@ -4876,7 +4876,8 @@ let tests =
       "a live profile wears the live badge"
       (async {
         let api = liveBadgeApi()
-        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! window, env = startShellWithBrowser(signedInStore(), api :> IHttp)
 
         let! shown = showsText(window, "The Octocat")
 
@@ -4896,6 +4897,24 @@ let tests =
         let! word = showsText(window, "LIVE")
 
         Expect.isTrue word "the live word never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "LiveBadge")
+            |> Option.bind(function
+              | :? Button as button -> Some button
+              | _ -> None)
+            |> Option.iter click)
+
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> env.OpenedUrls),
+            (fun urls ->
+              urls = [ "https://www.youtube.com/watch?v=NeutralVid1" ])
+          )
+
+        Expect.isTrue opened "the live badge never opened externally"
       })
 
     testCaseAsync
@@ -4930,7 +4949,7 @@ let tests =
             controlByName(window, "LiveUrl")
             |> Option.iter(fun control ->
               (control :?> TextBox).Text <-
-                "https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+                "https://www.youtube.com/watch?v=NeutralVid1"))
 
         do!
           onUiAsync(fun () ->
@@ -5027,7 +5046,8 @@ let tests =
       "the aside lists who is live now"
       (async {
         let api = liveBadgeApi()
-        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! window, env = startShellWithBrowser(signedInStore(), api :> IHttp)
 
         do!
           onUiAsync(fun () ->
@@ -5058,6 +5078,16 @@ let tests =
               | :? Button as button -> Some button
               | _ -> None)
             |> Option.iter click)
+
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> env.OpenedUrls),
+            (fun urls ->
+              urls = [ "https://www.youtube.com/watch?v=NeutralVid1" ])
+          )
+
+        Expect.isTrue opened "the live-now row never opened externally"
 
         let! still = showsText(window, "The Octocat")
 

@@ -23,7 +23,8 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
-  and 'env :> IProvideImageCache> = { Env: 'env; Session: SignedInSession }
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideBrowser> = { Env: 'env; Session: SignedInSession }
 
 // The section's state logic: model, messages, update, and the
 // minute poll that feeds it from outside.
@@ -61,8 +62,10 @@ module Parts =
 
   // One live-now row: the name over the handle, beside the badge,
   // opening the stream outside the app.
-  let row(cache: ImageCacheService, user: User) : Control =
+  let row(browser: IBrowser, cache: ImageCacheService, user: User) : Control =
     let streamUrl = user.Live |> Option.map _.Url |> Option.defaultValue ""
+
+    let openExternal(url: string) = browser.Open(url) |> ignore
 
     Button()
       .Name("OpenLiveNow:" + user.Handle)
@@ -92,13 +95,13 @@ module Parts =
                   .Classes(Theme.name Theme.Subtitle)
                   .FontSize(13.0)
                   .Text(user.Name),
-                LiveBadge.view user.Live
+                LiveBadge.view(openExternal, user.Live)
               )
           )
       )
       .OnClickHandler(fun _ args ->
         args.Handled <- true
-        DeviceAuth.startBrowser streamUrl |> ignore)
+        openExternal streamUrl)
 
   // The card, shown while anyone the viewer follows is live.
   let section(props: Props<'env>, model: IObservable<State.Model>) : Control =
@@ -111,7 +114,8 @@ module Parts =
           | [] -> Panel()
           | users ->
             StackPanel().Spacing(2.0).Children [|
-              for user in users -> row(props.Env.ImageCache, user)
+              for user in users ->
+                row(props.Env.Browser, props.Env.ImageCache, user)
             |]
       )
 
@@ -146,7 +150,8 @@ type Page<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
-  and 'env :> IProvideImageCache>(props: Props<'env>) as this =
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideBrowser>(props: Props<'env>) as this =
   inherit UserControl()
 
   do

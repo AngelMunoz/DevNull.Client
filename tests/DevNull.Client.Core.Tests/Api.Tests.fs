@@ -1188,7 +1188,7 @@ let liveTests =
       let liveUserJson =
         apiUserJson.Replace(
           "\"lane\":3}",
-          "\"lane\":3,\"live\":{\"platform\":\"youtube\",\"url\":\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\",\"thumbnail_url\":\"https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault_live.jpg\",\"ends_at\":\"2026-10-20T08:17:19Z\"}}"
+          "\"lane\":3,\"live\":{\"platform\":\"youtube\",\"url\":\"https://www.youtube.com/watch?v=NeutralVid1\",\"thumbnail_url\":\"https://i.ytimg.com/vi/NeutralVid1/hqdefault_live.jpg\",\"ends_at\":\"2026-10-20T08:17:19Z\"}}"
         )
 
       match Me.decodeLiveFollowing(sprintf "{\"data\":[%s]}" liveUserJson) with
@@ -1200,12 +1200,12 @@ let liveTests =
           Expect.equal YouTube stream.Platform "platform"
 
           Expect.equal
-            "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+            "https://www.youtube.com/watch?v=NeutralVid1"
             stream.Url
             "url"
 
           Expect.equal
-            (Some "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault_live.jpg")
+            (Some "https://i.ytimg.com/vi/NeutralVid1/hqdefault_live.jpg")
             stream.ThumbnailUrl
             "thumbnail"
 
@@ -1259,17 +1259,17 @@ let liveTests =
     test "a stream link names its platform" {
       Expect.equal
         (Some YouTube)
-        (LivePlatforms.forUrl "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        (LivePlatforms.forUrl "https://www.youtube.com/watch?v=NeutralVid1")
         "watch"
 
       Expect.equal
         (Some YouTube)
-        (LivePlatforms.forUrl "https://youtu.be/dQw4w9WgXcQ")
+        (LivePlatforms.forUrl "https://youtu.be/NeutralVid1")
         "short"
 
       Expect.equal
         (Some YouTube)
-        (LivePlatforms.forUrl "https://www.youtube.com/live/dQw4w9WgXcQ")
+        (LivePlatforms.forUrl "https://www.youtube.com/live/NeutralVid1")
         "live path"
 
       Expect.equal
@@ -1603,7 +1603,7 @@ let accountApiTests =
 
       let request: Me.LiveRequest = {
         KeyFile = "key-file"
-        Url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        Url = "https://www.youtube.com/watch?v=NeutralVid1"
         Hours = 3
       }
 
@@ -1619,7 +1619,7 @@ let accountApiTests =
       Expect.equal "/api/v1/me/live" sent.Target "target"
 
       Expect.equal
-        """{"url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","hours":3}"""
+        """{"url":"https://www.youtube.com/watch?v=NeutralVid1","hours":3}"""
         (bodyText sent)
         "body"
     }

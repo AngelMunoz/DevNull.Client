@@ -83,7 +83,9 @@ type TranslationView = {
 /// model holds for this commit; `Pin` offers the profile pin on the
 /// author's own top-level commits, where the host decides to show it at
 /// all; `Star`, `Vote`, and `Pastel` are the host-run actions, and a
-/// slot left absent leaves its control out of the card; `Menu` is the
+/// slot left absent leaves its control out of the card; `Stars` arms
+/// the author's own star count to open the stargazers list, and
+/// leaves it read-only when absent; `Menu` is the
 /// More actions the host offers the card; `Translation` is what the
 /// card shows about the commit's translation.
 [<Struct>]
@@ -99,6 +101,9 @@ type Props = {
   Flyout: Source voption
   Pin: PinToggle voption
   Star: ActionSlot voption
+  /// The stargazers list the author's own star count opens; an absent
+  /// slot leaves the count read-only.
+  Stars: ActionSlot voption
   Vote: ActionSlot voption
   Pastel: ActionSlot voption
   /// The More actions the host offers this card — copy link, share,
@@ -157,7 +162,8 @@ val body: args: BodyArgs * text: string * segments: Segment list -> Control
 /// go, the signed-in viewer, the live pastéis flag and clock, the poll
 /// choices, the row's density, the image cache, the hover card
 /// source, the profile pin affordance when the host shows one at all,
-/// the host-run star, vote, and pastel actions, and the translation
+/// the host-run star, vote, and pastel actions, the stargazers list
+/// the author's own star count opens, and the translation
 /// each commit shows.
 [<Struct>]
 type RowProps = {
@@ -171,6 +177,9 @@ type RowProps = {
   Flyout: Source voption
   Pin: PinToggle voption
   Star: ActionSlot voption
+  /// The stargazers list the author's own star count opens; an absent
+  /// slot leaves the count read-only.
+  Stars: ActionSlot voption
   Vote: ActionSlot voption
   Pastel: ActionSlot voption
   Menu: MenuSlot voption

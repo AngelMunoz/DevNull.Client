@@ -715,6 +715,15 @@ module Commits =
     Cursor: string option
   }
 
+  /// One commit's stargazers: the people newest first, with the
+  /// cursor of the next page. Only the commit's author may read
+  /// them, and the server hides users across a block on either side.
+  type StargazersRequest = {
+    KeyFile: string
+    CommitId: string
+    Cursor: string option
+  }
+
   /// One commit action with no body.
   type ActionRequest = { KeyFile: string; CommitId: string }
 
@@ -794,6 +803,21 @@ module Commits =
   /// Reads one commit's replies.
   val replies:
     env: 'env * request: RepliesRequest -> Async<Result<Page<CommitNode>, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and CommitIdError<'e>
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Reads one commit's stargazers, newest first, one cursor page
+  /// of people at a time.
+  val stargazers:
+    env: 'env * request: StargazersRequest -> Async<Result<Page<User>, 'e>>
       when 'env :> IProvideClock
       and 'env :> IProvideNonceSource
       and 'env :> IProvideSigner

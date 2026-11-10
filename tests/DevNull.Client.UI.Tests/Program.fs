@@ -15,6 +15,7 @@ open DevNull.Client.UI.Tests.Scheduled
 open DevNull.Client.UI.Tests.Search
 open DevNull.Client.UI.Tests.Share
 open DevNull.Client.UI.Tests.Snapshots
+open DevNull.Client.UI.Tests.Stargazers
 open DevNull.Client.UI.Tests.Translation
 open DevNull.Client.UI.Tests.WhoToFollow
 
@@ -55,6 +56,7 @@ let main argv =
       Share.tests
       Report.tests
       CommitMenu.tests
+      Stargazers.tests
       Snapshots.captureTests
     ]
 

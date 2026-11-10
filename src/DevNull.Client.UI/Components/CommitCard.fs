@@ -88,6 +88,7 @@ type Props = {
   Flyout: Source voption
   Pin: PinToggle voption
   Star: ActionSlot voption
+  Stars: ActionSlot voption
   Vote: ActionSlot voption
   Pastel: ActionSlot voption
   Menu: MenuSlot voption
@@ -1250,16 +1251,34 @@ module Parts =
       match props.Star with
       | ValueNone -> Panel()
       | ValueSome _ when Author.isOrganization commit.Author -> Panel()
+      // The author's own count: a host that offers the stargazers
+      // list arms it, and the click opens that list. Without the
+      // offer the count stays read-only, the way the site shows it.
       | ValueSome _ when (Author.id commit.Author) = props.ViewerId ->
-        (iconAction {
-          Name = "StarCount"
-          Glyph = Glyph.Star
-          Label = starLabel
-          OnClick = fun _ -> ()
-          Aria = ValueSome "Stars"
-        })
-          .IsEnabled(false)
-          .Classes(Theme.name Theme.FgMuted)
+        match props.Stars with
+        | ValueSome slot ->
+          (iconAction {
+            Name = "StarCount"
+            Glyph = Glyph.Star
+            Label = starLabel
+            OnClick = fun _ -> slot.Command commit
+            Aria = ValueSome "Stars"
+          })
+            .IsEnabled(
+              slot.Busy
+              |> Observable.map(fun busy -> inFlight(commit, busy) |> not)
+            )
+            .Classes(Theme.name Theme.FgMuted)
+        | ValueNone ->
+          (iconAction {
+            Name = "StarCount"
+            Glyph = Glyph.Star
+            Label = starLabel
+            OnClick = fun _ -> ()
+            Aria = ValueSome "Stars"
+          })
+            .IsEnabled(false)
+            .Classes(Theme.name Theme.FgMuted)
       | ValueSome slot ->
         (iconAction {
           Name = "StarButton"
@@ -1639,6 +1658,7 @@ type RowProps = {
   Flyout: Source voption
   Pin: PinToggle voption
   Star: ActionSlot voption
+  Stars: ActionSlot voption
   Vote: ActionSlot voption
   Pastel: ActionSlot voption
   Menu: MenuSlot voption
@@ -1665,6 +1685,7 @@ let feedRow (props: RowProps) (node: CommitNode) : Control =
       Flyout = props.Flyout
       Pin = props.Pin
       Star = props.Star
+      Stars = props.Stars
       Vote = props.Vote
       Pastel = props.Pastel
       Menu = props.Menu

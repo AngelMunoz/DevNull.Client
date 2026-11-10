@@ -796,6 +796,7 @@ let view
           }
         Actions = false
         OnStar = fun commit -> dispatch(State.StarToggled commit)
+        OnStars = ValueNone
         OnVote = ignore
         OnPastel = ignore
         Translation =

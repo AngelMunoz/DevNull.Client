@@ -27,6 +27,7 @@
     <Compile Include="Share.Tests.fs" />
     <Compile Include="Report.Tests.fs" />
     <Compile Include="CommitMenu.Tests.fs" />
+    <Compile Include="Stargazers.Tests.fs" />
     <Compile Include="Snapshots.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

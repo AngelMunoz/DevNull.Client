@@ -1338,6 +1338,7 @@ let captureTests =
         Flyout = ValueNone
         Pin = ValueNone
         Star = ValueNone
+        Stars = ValueNone
         Vote = ValueNone
         Pastel = ValueNone
         Menu = menu
@@ -2049,6 +2050,7 @@ let captureTests =
         Flyout = ValueNone
         Pin = ValueNone
         Star = ValueNone
+        Stars = ValueNone
         Vote = ValueNone
         Pastel = ValueNone
         Menu = menu
@@ -3136,6 +3138,39 @@ let captureTests =
       do! settleAsync()
 
       let! path = captureAsync("F26/f26-hashtag-links", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the stargazers list stands open over the thread" {
+      let api = starsThreadApi(ok starsPageOneJson, None)
+      let! window = startShell(signedInStore(), api :> IHttp)
+
+      let! shown = showsText(window, "My own commit.")
+      Expect.isTrue shown "the log never rendered"
+
+      do! clickWhenShown(window, "My own commit.")
+
+      let! thread = seesVisible(window, "Back to the log")
+      Expect.isTrue thread "the thread never rendered"
+
+      let! present =
+        waitForAsync(
+          5000,
+          (fun () -> controlByName(window, "StarCount")),
+          Option.isSome
+        )
+
+      Expect.isTrue present "the star count never showed"
+
+      do! clickNamed(window, "StarCount")
+
+      let! person = seesVisible(window, "Kai")
+      Expect.isTrue person "the stargazer never listed"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F25/f25-stargazers-dialog", window)
       let bytes = IO.File.ReadAllBytes(path)
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }

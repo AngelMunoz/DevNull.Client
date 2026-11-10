@@ -17,7 +17,13 @@ type Props = {
   /// The square shape the organization's avatar uses; persons draw
   /// the disc.
   Square: bool
+  /// Whether the avatar opens the picture full size on a click;
+  /// off — and with no URL on — the avatar renders exactly as it
+  /// did before the viewer mattered.
+  Viewable: bool
 }
 
-/// Renders the avatar.
+/// Renders the avatar. Where `Viewable` is on and a URL stands,
+/// the avatar is a viewer button (`AvatarView`) opening one full-size
+/// photo; otherwise the control is the plain avatar.
 val view: props: Props -> Control

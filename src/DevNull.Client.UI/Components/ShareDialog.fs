@@ -227,6 +227,7 @@ module Parts =
         Size = 40.0
         Cache = ctx.Props.Env.ImageCache
         Square = false
+        Viewable = false
       }
 
     let columns = Grid()

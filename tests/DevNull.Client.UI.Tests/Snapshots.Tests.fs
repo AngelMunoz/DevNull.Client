@@ -3142,6 +3142,32 @@ let captureTests =
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }
 
+    testAsync "the profile picture viewer stands open over the profile" {
+      let api = ProfilePictures.avatarApi ProfilePictures.profileWithAvatarJson
+
+      let! window = startShell(signedInStore(), api :> IHttp)
+
+      do! ProfilePictures.openProfileAsync window
+      do! ProfilePictures.openViewerAsync window
+
+      let viewer() =
+        window.OwnedWindows
+        |> Seq.tryFind(fun open_ -> open_.Name = "ImageViewer")
+
+      let! opened = waitForAsync(5000, viewer, Option.isSome)
+      Expect.isTrue opened "the picture viewer never opened"
+
+      match viewer() with
+      | Some viewed ->
+        do! settleAsync()
+
+        let! path = captureAsync("F31/f31-profile-picture-viewer", viewed)
+
+        let bytes = IO.File.ReadAllBytes(path)
+        Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+      | None -> failtest "the picture viewer never opened"
+    }
+
     testAsync "the stargazers list stands open over the thread" {
       let api = starsThreadApi(ok starsPageOneJson, None)
       let! window = startShell(signedInStore(), api :> IHttp)

@@ -921,6 +921,7 @@ module Parts =
           Size = 64.0
           Cache = images
           Square = false
+          Viewable = false
         },
         StackPanel()
           .VerticalAlignment(VerticalAlignment.Center)

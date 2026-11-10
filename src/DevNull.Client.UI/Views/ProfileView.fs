@@ -1351,6 +1351,7 @@ module Parts =
             Size = 80.0
             Cache = ctx.Images
             Square = false
+            Viewable = true
           }
         )
 
@@ -1409,6 +1410,7 @@ module Parts =
             Size = 32.0
             Cache = ctx.Images
             Square = false
+            Viewable = false
           },
           TextBlock()
             .Classes(Theme.name Theme.Subtitle)

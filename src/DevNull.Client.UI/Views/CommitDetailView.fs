@@ -1487,6 +1487,7 @@ module Parts =
         Size = 36.0
         Cache = props.Env.ImageCache
         Square = false
+        Viewable = false
       }
       |> _.Column(0)
       |> _.Margin(0.0, 0.0, 12.0, 0.0),

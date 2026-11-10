@@ -16,6 +16,8 @@ open DevNull.Client.UI.Tests.Search
 open DevNull.Client.UI.Tests.Share
 open DevNull.Client.UI.Tests.Snapshots
 open DevNull.Client.UI.Tests.Stargazers
+open DevNull.Client.UI.Tests.Formatting
+open DevNull.Client.UI.Tests.ProfilePictures
 open DevNull.Client.UI.Tests.Translation
 open DevNull.Client.UI.Tests.WhoToFollow
 
@@ -57,6 +59,8 @@ let main argv =
       Report.tests
       CommitMenu.tests
       Stargazers.tests
+      Formatting.tests
+      ProfilePictures.tests
       Snapshots.captureTests
     ]
 

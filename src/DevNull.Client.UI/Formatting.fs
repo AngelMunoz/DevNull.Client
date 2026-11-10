@@ -85,3 +85,37 @@ let plainText(html: string) : string =
 
 let blockTitle(language: string option, filename: string option) =
   filename |> Option.orElse language
+
+/// The avatar URL sized for a full-size view: only a GitHub host
+/// carries the size in its `s` query value, so only that host is
+/// rebuilt; any other address — or one that does not parse — rides
+/// through unchanged, the way the web's `:get` does.
+let sizedAvatarUrl(url: string, pixels: int) : string =
+  match Uri.TryCreate(url, UriKind.Absolute) with
+  | true, uri ->
+    match Option.ofObj uri with
+    | Some uri when
+      String.Equals(
+        uri.Host,
+        "avatars.githubusercontent.com",
+        StringComparison.OrdinalIgnoreCase
+      )
+      ->
+      let parts =
+        uri.Query.TrimStart('?')
+        |> fun query ->
+          if query = "" then [] else query.Split '&' |> Array.toList
+
+      let sized =
+        if parts |> List.exists(fun part -> part.StartsWith "s=") then
+          parts
+          |> List.map(fun part ->
+            if part.StartsWith "s=" then $"s={pixels}" else part)
+        else
+          parts @ [ $"s={pixels}" ]
+
+      let builder = UriBuilder(uri)
+      builder.Query <- String.concat "&" sized
+      builder.Uri.AbsoluteUri
+    | _ -> url
+  | _ -> url

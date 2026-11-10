@@ -529,6 +529,7 @@ let view
         Size = 36.0
         Cache = props.Env.ImageCache
         Square = false
+        Viewable = false
       }
 
     let avatarWithFlyout = UserFlyout.attach(flyout, user, avatar)

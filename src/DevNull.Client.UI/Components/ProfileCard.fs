@@ -114,6 +114,7 @@ let identityHead(cache: ImageCacheService, profile: Profile) : Control =
         Size = 48.0
         Cache = cache
         Square = false
+        Viewable = true
       },
       StackPanel()
         .VerticalAlignment(VerticalAlignment.Center)

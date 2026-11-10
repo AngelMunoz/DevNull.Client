@@ -1522,6 +1522,7 @@ let view(props: Props) : Control =
       Size = if dense then 28.0 else 40.0
       Cache = props.Images
       Square = (Author.isOrganization commit.Author)
+      Viewable = false
     }
 
   // The hover card rides the avatar when the host gave it a source.
@@ -1781,6 +1782,7 @@ let rec chainRow(ctx: ChainCtx, spot: ChainSpot, node: CommitNode) : Control =
         Size = 28.0
         Cache = ctx.Props.Images
         Square = (Author.isOrganization commit.Author)
+        Viewable = false
       }
 
     let ringged =

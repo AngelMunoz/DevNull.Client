@@ -3183,6 +3183,28 @@ let captureTests =
       | None -> failtest "the picture viewer never opened"
     }
 
+    testAsync "the search results carry the Latest tab" {
+      let rows = SearchLatest.mixedRows()
+
+      let api = SearchLatest.latestSearchApi rows
+
+      let! window =
+        SearchLatest.openResultsAsync(api, signedInStore(), "3 matches")
+
+      do! SearchLatest.clickSearchTabAsync(window, "Latest")
+
+      let! heading = seesVisible(window, "Latest commits \u00b7 past week")
+
+      Expect.isTrue heading "the Latest heading never showed"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F27/f27-search-latest-tab", window)
+
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
     testAsync "the stargazers list stands open over the thread" {
       let api = starsThreadApi(ok starsPageOneJson, None)
       let! window = startShell(signedInStore(), api :> IHttp)

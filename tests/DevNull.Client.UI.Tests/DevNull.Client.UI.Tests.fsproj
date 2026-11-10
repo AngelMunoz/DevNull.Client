@@ -30,6 +30,7 @@
     <Compile Include="Stargazers.Tests.fs" />
     <Compile Include="Formatting.Tests.fs" />
     <Compile Include="ProfilePictures.Tests.fs" />
+    <Compile Include="SearchLatest.Tests.fs" />
     <Compile Include="Snapshots.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

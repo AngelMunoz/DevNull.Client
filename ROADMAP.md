@@ -128,7 +128,7 @@ the consolidated card actions.
 ## Issue index
 
 Phase 1 is done, and the cycle's index (#16, #9, #17, #4, #2) is done
-and merged. The next index is the ordered pool below: two items, triaged
+and merged. The next index is the ordered pool below: one item, triaged
 by effort and by how each one builds on the search and organization work
 that just landed. Each issue keeps its own detail in the tracker.
 [#7](https://github.com/AngelMunoz/DevNull.Client/issues/7),
@@ -138,14 +138,12 @@ that just landed. Each issue keeps its own detail in the tracker.
 [#28](https://github.com/AngelMunoz/DevNull.Client/issues/28), and
 [#26](https://github.com/AngelMunoz/DevNull.Client/issues/26) are merged
 (PRs #45, #46, #47) and ship in 0.13.0.
-[#25](https://github.com/AngelMunoz/DevNull.Client/issues/25) is
-implemented and rides its open pull request; the pool below is re-fed
-from it.
+[#25](https://github.com/AngelMunoz/DevNull.Client/issues/25) and
+[#31](https://github.com/AngelMunoz/DevNull.Client/issues/31) are
+implemented and ride their stacked open pull requests; the pool below
+is re-fed from them.
 
-1. [#31 — profile pictures in the image viewer](https://github.com/AngelMunoz/DevNull.Client/issues/31).
-   The viewer exists. Avatars on the card, the flyout, and the profile
-   header learn to open it.
-2. [#27 — search: a Latest tab](https://github.com/AngelMunoz/DevNull.Client/issues/27).
+1. [#27 — search: a Latest tab](https://github.com/AngelMunoz/DevNull.Client/issues/27).
     Verify first: the API support is not confirmed, and the answer
     decides whether the tab is client work or waits on the server.
 

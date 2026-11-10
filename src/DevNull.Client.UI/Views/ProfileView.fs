@@ -1168,12 +1168,12 @@ module Parts =
     let chip =
       Border()
         .Classes(Theme.name Theme.Chip)
-        .Padding(6.0, 1.0, 6.0, 1.0)
-        .CornerRadius(6.0)
+        .Padding(5.0, 0.0, 5.0, 0.0)
+        .CornerRadius(5.0)
         .Child(
           TextBlock()
             .Classes(Theme.name Theme.FgAccent)
-            .FontSize(14.0)
+            .FontSize(12.0)
             .Text("@" + handle)
         )
 
@@ -1182,7 +1182,10 @@ module Parts =
         Button()
           .Name("BioMention")
           .Classes(Theme.name Theme.GhostButton)
+          .MinHeight(0.0)
           .Padding(0.0)
+          .Margin(0.0)
+          .VerticalAlignment(VerticalAlignment.Center)
           .Content(chip)
           .OnClickHandler(fun _ args ->
             args.Handled <- true

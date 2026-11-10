@@ -390,6 +390,109 @@ let captureTests =
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }
 
+    testAsync "the bio mention chips sit at text size" {
+      let! window = startShell(signedInStore(), bioMentionsApi() :> IHttp)
+
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the shell never rendered its content"
+
+      do! clickWhenShown(window, "Profile")
+
+      let! mention = showsText(window, "@DevNull")
+      Expect.isTrue mention "the mention chip never rendered"
+
+      let! folded =
+        waitForAsync(
+          5000,
+          (fun () -> window),
+          (fun root -> not(visibleText(root, "@DevNull")))
+        )
+
+      Expect.isTrue folded "the header never folded before the capture"
+
+      do! clickVisibleHeaderToggle(window)
+
+      let! devnull = seesVisible(window, "@DevNull")
+      Expect.isTrue devnull "the mention chip never rendered in the full header"
+
+      do! settleAsync()
+
+      let! measure =
+        probeUiAsync(fun () ->
+          let chips =
+            window.GetVisualDescendants()
+            |> Seq.choose(fun visual ->
+              match visual with
+              | :? Avalonia.Controls.Button as button when
+                button.Name = "BioMention"
+                ->
+                Some button
+              | _ -> None)
+            |> Seq.toArray
+
+          let bioBlock =
+            window.GetVisualDescendants()
+            |> Seq.choose(fun visual ->
+              match visual with
+              | :? Avalonia.Controls.TextBlock as block when
+                block.Inlines <> null
+                && (block.Inlines
+                    |> Seq.exists(fun inlineNode ->
+                      match inlineNode with
+                      | :? Avalonia.Controls.Documents.InlineUIContainer ->
+                        true
+                      | _ -> false))
+                ->
+                Some block
+              | _ -> None)
+            |> Seq.tryHead
+
+          let chipHeights =
+            chips |> Array.map(fun button -> button.Bounds.Height)
+
+          match bioBlock with
+          | None -> (chipHeights, nan, nan, nan)
+          | Some block ->
+            // A plain text line at the bio's own font size, the height
+            // the chips must meet without growing the line.
+            let refBlock = Avalonia.Controls.TextBlock()
+            refBlock.Text <- "Builds with DevNull and ACME, plus stranger-dev."
+            refBlock.FontSize <- block.FontSize
+            refBlock.TextWrapping <- Avalonia.Media.TextWrapping.Wrap
+
+            refBlock.Measure(
+              Avalonia.Size(700.0, System.Double.PositiveInfinity)
+            )
+
+            (chipHeights,
+             block.Bounds.Height,
+             refBlock.DesiredSize.Height,
+             block.FontSize))
+
+      let chipHeights, bioHeight, textHeight, bioFont = measure
+
+      Expect.equal
+        chipHeights.Length
+        3
+        "the profile carries three mention chips"
+
+      Expect.isTrue
+        (System.Double.IsNaN bioHeight |> not)
+        "the bio text block never rendered"
+
+      Expect.isTrue
+        (chipHeights |> Array.forall(fun height -> height <= 19.0))
+        $"a mention chip stands over 19px tall: {chipHeights}"
+
+      Expect.isTrue
+        (chipHeights |> Array.forall(fun height -> height <= textHeight))
+        $"a mention chip stands taller than the text line {textHeight:F1}px: {chipHeights}"
+
+      Expect.isTrue
+        (bioHeight <= textHeight * 1.25)
+        $"the bio line balloons past the text line: bio {bioHeight:F1}px, text {textHeight:F1}px, font {bioFont:F1}px"
+    }
+
     testAsync "the organization page carries its follow and claim header" {
       let! window =
         startShell(

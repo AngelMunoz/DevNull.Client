@@ -140,9 +140,9 @@ that just landed. Each issue keeps its own detail in the tracker.
 (PRs #45, #46, #47) and ship in 0.13.0.
 [#25](https://github.com/AngelMunoz/DevNull.Client/issues/25),
 [#31](https://github.com/AngelMunoz/DevNull.Client/issues/31), and
-[#27](https://github.com/AngelMunoz/DevNull.Client/issues/27) are
-implemented and ride their stacked open pull requests. With them the
-pool is empty; the next triage re-feeds it from the tracker.
+[#27](https://github.com/AngelMunoz/DevNull.Client/issues/27) are merged
+(PRs #49, #50, #51) and ship in 0.14.0. With them the pool is empty;
+the next triage re-feeds it from the tracker.
 
 
 ## Not in scope

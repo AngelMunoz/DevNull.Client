@@ -5240,6 +5240,73 @@ let tests =
       })
 
     testCaseAsync
+      "the search dialog stays inside a short window"
+      (async {
+        let api = searchApi(false, false)
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            window.MinHeight <- 0.0
+            window.Height <- 360.0)
+
+        do! clickWhenShown(window, "Search")
+
+        // A topic term lists commits and profiles together, the tall
+        // list a short window must scroll inside the card.
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "SearchInput")
+            |> Option.iter(fun control ->
+              (control :?> TextBox).Text <- "kai kou"))
+
+        let! settled = seesVisible(window, "@acme")
+
+        Expect.isTrue settled "the search never settled"
+
+        let! inside =
+          probeUiAsync(fun () ->
+            let bottomOf(control: Control) =
+              control.TranslatePoint(Point(0.0, control.Bounds.Height), window)
+              |> Option.ofNullable
+              |> Option.map(fun point -> point.Y)
+
+            let footer =
+              window.GetVisualDescendants()
+              |> Seq.tryPick(fun visual ->
+                match visual with
+                | :? TextBlock as block when block.Text = "to move" ->
+                  Some(block :> Control)
+                | _ -> None)
+
+            match
+              controlByName(window, "SearchDialogCard"),
+              controlByName(window, "SearchDialogScroller"),
+              footer
+            with
+            | Some card, Some scroller, Some footer ->
+              match bottomOf card, bottomOf scroller, bottomOf footer with
+              | Some cardBottom, Some scrollerBottom, Some footerBottom ->
+                let head = card.TranslatePoint(Point(0.0, 0.0), window)
+
+                match head |> Option.ofNullable with
+                | Some top ->
+                  top.Y >= 0.0
+                  && cardBottom <= (window :> TopLevel).ClientSize.Height + 0.5
+                  && scrollerBottom <= cardBottom + 0.5
+                  && footerBottom <= cardBottom + 0.5
+                | None -> false
+              | _ -> false
+            | _ -> false)
+
+        Expect.isTrue inside "the dialog content ran past the short window"
+      })
+
+    testCaseAsync
       "the keys walk into the organizations and open one"
       (async {
         let api = searchApi(false, false)

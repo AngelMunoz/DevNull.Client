@@ -690,18 +690,28 @@ module Parts =
       .Classes(Theme.name Theme.GhostButton, Theme.name Theme.Hairline)
       .BorderThickness(Thickness(1.0))
       .CornerRadius(8.0)
+      .HorizontalAlignment(HorizontalAlignment.Stretch)
       .HorizontalContentAlignment(HorizontalAlignment.Stretch)
       .Padding(12.0, 8.0, 12.0, 8.0)
       .Margin(16.0, 0.0, 16.0, 8.0)
       .Content(content)
       .OnClickHandler(fun _ _ -> Navigation.go(nav, url, ignore))
 
-  // One profile section: its rows under the mono heading the site's
-  // sections wear.
+  // One profile section: its rows under the section heading the page
+  // already wears above its commit results.
   let profileSection(headingText: string, rows: Control array) : Control =
     StackPanel()
+      .HorizontalAlignment(HorizontalAlignment.Stretch)
       .Margin(0.0, 8.0, 0.0, 8.0)
-      .Children(SearchParts.heading headingText, StackPanel().Children(rows))
+      .Children(
+        TextBlock()
+          .Classes(Theme.name Theme.Subtitle)
+          .Margin(20.0, 8.0, 20.0, 8.0)
+          .Text(headingText),
+        StackPanel()
+          .HorizontalAlignment(HorizontalAlignment.Stretch)
+          .Children(rows)
+      )
 
   // The fatal line and its hint, the site's own words.
   let fatalOf(term: string) : Control =
@@ -863,6 +873,7 @@ let view
 
           let profileRows =
             StackPanel()
+              .HorizontalAlignment(HorizontalAlignment.Stretch)
               .Children(
                 [|
                   if developers.Length > 0 then

@@ -111,7 +111,6 @@ type StyleClass =
   | MsgRow
   | HoverActions
   | FlashRing
-  | ArmedRow
   | TypingDot1
   | TypingDot2
   | TypingDot3

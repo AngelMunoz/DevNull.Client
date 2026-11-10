@@ -493,12 +493,12 @@ module Parts =
 
     let shown = armed |> Observable.map(fun on -> if on then 1.0 else 0.0)
 
-    // The armed row's wash is the site's accent, the idiom the emoji
-    // picker's active cell carries; the same stream raises the enter
-    // chip at the right edge.
+    // The armed row wears the primary-soft wash every selected or
+    // focused row in the app wears, so its text keeps its own colors;
+    // the same stream raises the enter chip at the right edge.
     let wash =
       Border()
-        .Classes(Theme.name Theme.AccentBack)
+        .Classes(Theme.name Theme.PrimarySoftBack)
         .Opacity(shown)
         .CornerRadius(8.0)
 
@@ -509,14 +509,11 @@ module Parts =
         .VerticalAlignmentCenter()
         .HorizontalAlignmentLeft()
 
-    // The armed row reads in the accent's own foreground; the class
-    // rides the same armed stream over the row content.
-    Theme.bindClass(row.Content, Theme.ArmedRow, armed) |> ignore
-
     Button()
       .Classes(Theme.name Theme.GhostButton)
       .HorizontalAlignmentStretch()
       .VerticalAlignmentCenter()
+      .Padding(0.0)
       .OnClickHandler(fun _ _ -> row.Dispatch(State.Opened row.Entry))
       .Margin(16, 8)
       .Content(
@@ -528,11 +525,12 @@ module Parts =
             DockPanel()
               .Classes(Theme.name Theme.GhostButton)
               .LastChildFill(true)
+              .Margin(12.0, 8.0, 12.0, 8.0)
               .Children(
                 chip
                   .Child(SearchParts.kbdChip(KbdTone.Outline, "↵"))
                   .DockRight(),
-                row.Content.DockLeft()
+                row.Content
               )
           )
       )
@@ -700,6 +698,12 @@ let view
 
   let listControl = Parts.list(rowCtx, model, dispatch)
 
+  // The list takes the star row, the report card's shape: in a short
+  // window the row shrinks and the list scrolls inside the card,
+  // while the input and the footer keep their height.
+  let cardGrid = Grid()
+  cardGrid.RowDefinitions <- RowDefinitions("Auto,Auto,*,Auto")
+
   let card =
     Border()
       .Name("SearchDialogCard")
@@ -709,16 +713,16 @@ let view
       .HorizontalAlignment(HorizontalAlignment.Center)
       .VerticalAlignment(VerticalAlignment.Top)
       .Child(
-        StackPanel()
-          .Children(
-            Parts.inputRow(model, dispatch),
-            Parts.status model,
-            listControl,
-            Border()
-              .Classes(Theme.name Theme.Hairline)
-              .BorderThickness(Thickness(0.0, 1.0, 0.0, 0.0))
-              .Child(Parts.footer())
-          )
+        cardGrid.Children(
+          Parts.inputRow(model, dispatch).Row(0),
+          (Parts.status model).Row(1),
+          listControl.Row(2),
+          Border()
+            .Classes(Theme.name Theme.Hairline)
+            .BorderThickness(Thickness(0.0, 1.0, 0.0, 0.0))
+            .Child(Parts.footer())
+            .Row(3)
+        )
       )
 
   card.AttachedToVisualTree.Add(fun _ ->

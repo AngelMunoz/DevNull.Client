@@ -2904,6 +2904,36 @@ let captureTests =
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }
 
+    testAsync "the search palette stays inside a short window" {
+      let! window =
+        startShell(signedInStore(), searchApi(false, false) :> IHttp)
+
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the log never rendered"
+
+      do!
+        onUiAsync(fun () ->
+          window.MinHeight <- 0.0
+          window.Height <- 480.0)
+
+      do! clickWhenShown(window, "Search")
+
+      do!
+        onUiAsync(fun () ->
+          controlByName(window, "SearchInput")
+          |> Option.iter(fun control ->
+            (control :?> TextBox).Text <- "kai kou"))
+
+      let! settled = seesVisible(window, "@acme")
+      Expect.isTrue settled "the search never settled"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F2/f2-dialog-short-window", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
     testAsync "the results page stands the profile sections above the commits" {
       let! window = openSearchPageAsync()
 

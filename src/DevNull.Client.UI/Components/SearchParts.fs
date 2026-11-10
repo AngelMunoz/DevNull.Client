@@ -124,6 +124,21 @@ let laneInline(lane: Lane option) : Inline =
 
   InlineUIContainer(Child = dot, BaselineAlignment = BaselineAlignment.Center)
 
+// The row frame the search identities share: the avatar in its own
+// left lane and the lines beside it in a bounded column, so a long
+// line ellipsizes instead of pushing past the row.
+let besideAvatar(avatar: Control, lines: Control) : Control =
+  let grid = Grid()
+  grid.ColumnDefinitions <- ColumnDefinitions("Auto,*")
+
+  grid.Children(
+    avatar.Column(0).VerticalAlignment(VerticalAlignment.Top),
+    lines
+      .Column(1)
+      .Margin(8.0, 0.0, 0.0, 0.0)
+      .VerticalAlignment(VerticalAlignment.Center)
+  )
+
 let peopleIdentity(ctx: RowCtx, user: User) : Control =
   let identity =
     let block =
@@ -160,13 +175,17 @@ let peopleIdentity(ctx: RowCtx, user: User) : Control =
         |> Option.defaultValue false
       )
 
-  StackPanel().Spacing(2.0).Children(avatarOf(ctx, user, 36.0), identity, bio)
+  besideAvatar(
+    avatarOf(ctx, user, 36.0),
+    StackPanel().Spacing(2.0).Children(identity, bio)
+  )
 
 // One small label chip, the site's "Follows you" and "Muted" marks.
 let followMark() : Control =
   Border()
     .Classes(Theme.name Theme.Chip)
     .CornerRadius(999.0)
+    .VerticalAlignment(VerticalAlignment.Center)
     .Child(
       TextBlock()
         .Classes(Theme.name Theme.Muted)
@@ -222,16 +241,23 @@ let orgIdentity(ctx: RowCtx, organization: Organization) : Control =
     })
       .HorizontalAlignment(HorizontalAlignment.Left)
 
-  StackPanel()
-    .Spacing(2.0)
-    .Children(
-      avatar,
-      identity,
-      StackPanel()
-        .Orientation(Orientation.Horizontal)
-        .Spacing(6.0)
-        .Children(followMark().IsVisible(organization.IsFollowed), bio)
-    )
+  besideAvatar(
+    avatar,
+    StackPanel()
+      .Spacing(2.0)
+      .Children(
+        identity,
+        DockPanel()
+          .LastChildFill(true)
+          .Children(
+            followMark()
+              .IsVisible(organization.IsFollowed)
+              .Margin(0.0, 0.0, 6.0, 0.0)
+              .DockLeft(),
+            bio
+          )
+      )
+  )
 
 let commitIdentity(ctx: RowCtx, commit: Commit) : Control =
   let meta =
@@ -251,17 +277,19 @@ let commitIdentity(ctx: RowCtx, commit: Commit) : Control =
     block.Inlines <- inlines
     block
 
-  StackPanel()
-    .Spacing(2.0)
-    .Children(
-      avatarOf(ctx, commit.Author, 36.0),
-      meta,
-      TextBlock()
-        .FontSize(13.0)
-        .TextWrapping(TextWrapping.Wrap)
-        .MaxLines(2)
-        .Text(commit.Body)
-    )
+  besideAvatar(
+    avatarOf(ctx, commit.Author, 36.0),
+    StackPanel()
+      .Spacing(2.0)
+      .Children(
+        meta,
+        TextBlock()
+          .FontSize(13.0)
+          .TextWrapping(TextWrapping.Wrap)
+          .MaxLines(2)
+          .Text(commit.Body)
+      )
+  )
 
 let termIdentity(term: string) : Control =
   StackPanel()

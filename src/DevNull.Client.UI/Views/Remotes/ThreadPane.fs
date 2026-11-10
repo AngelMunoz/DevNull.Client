@@ -1,9 +1,11 @@
 namespace DevNull.Client.Views
 
 open System
+open System.Reactive.Subjects
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Layout
+open Avalonia.VisualTree
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
@@ -317,17 +319,53 @@ module ThreadPane =
 
     // The landing asks: one message a ghost named, or the present
     // edge. The message's scroll rides the feed's token; the row owns
-    // both the flash class and its one beat, so a row the panel
-    // realizes after the ask still wears it. The listener ends with
-    // the feed's detach.
+    // the flash class, and its beat starts only when the row stands
+    // realized, so a slow layout cannot spend the beat before the row
+    // exists. The listener ends with the feed's detach.
     let land =
       Sub.ofId ("landing:" + ask.Key) (fun _ ->
-        landings.Subscribe(function
-          | Some State.Present ->
-            scroller.ScrollToEnd()
-            ctx.Dispatch(State.Landed State.Present)
-          | Some(State.Message _) -> ()
-          | None -> ()))
+        let current = new BehaviorSubject<State.Landing option>(None)
+        let seenBeat = new BehaviorSubject<int>(0)
+
+        let realized(id: int) : bool =
+          scroller.GetVisualDescendants()
+          |> Seq.exists(fun visual ->
+            match visual with
+            | :? Border as border -> border.Name = $"ChatMessage{id}"
+            | _ -> false)
+
+        let seen(landing: State.Landing) : unit =
+          match landing with
+          | State.Message(id, beat) when beat <> seenBeat.Value ->
+            if realized id then
+              seenBeat.OnNext beat
+              ctx.Dispatch(State.FlashSeen landing)
+          | _ -> ()
+
+        let handler =
+          EventHandler(fun _ _ -> current.Value |> Option.iter seen)
+
+        scroller.LayoutUpdated.AddHandler handler
+
+        let inner =
+          landings.Subscribe(fun landing ->
+            current.OnNext landing
+
+            match landing with
+            | Some State.Present ->
+              scroller.ScrollToEnd()
+              ctx.Dispatch(State.Landed State.Present)
+            | Some landing -> seen landing
+            | None -> ())
+
+        {
+          new IDisposable with
+            member _.Dispose() =
+              scroller.LayoutUpdated.RemoveHandler handler
+              inner.Dispose()
+              current.Dispose()
+              seenBeat.Dispose()
+        })
       |> Sub.untilDetached scroller
       |> List.exactlyOne
       |> snd

@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Profile:** the profile header now folds to a compact row — avatar, name, handle, and counts — when the window is short or the reader scrolls into the feed, so the feed keeps most of the window; a chevron beside the header pins it open or folded.
+- **Remotes:** the ring that marks a message you jumped to now starts its beat when the row appears, so on a slow machine it no longer fades before the row is shown.
 
 ## [0.11.0] - 2026-11-07
 

@@ -129,6 +129,10 @@ module State =
     | ThreadScrolled of offset: float
     | GhostWanted of messageId: int
     | Walked of messageId: int * found: bool
+    /// The landing's row stands realized, so its flash beat starts:
+    /// the beat runs from the row being seen, never from the ask, so
+    /// a slow layout cannot spend it before the row exists.
+    | FlashSeen of landing: Landing
     | Landed of landing: Landing
     | PresentWanted
     | PreviewsChecked

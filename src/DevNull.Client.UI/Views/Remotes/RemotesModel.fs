@@ -599,13 +599,15 @@ module RemotesModel =
       if found then
         let beat = model.LandingBeat + 1
 
+        // No beat starts here: the row may not stand yet, and a slow
+        // layout would spend a beat that starts at the ask before the
+        // row exists. FlashSeen starts it when the row realizes.
         {
           model with
               LandingBeat = beat
               Landing = Some(Message(messageId, beat))
         },
-        Cmd.OfAsync.perform (fun () -> Async.Sleep 1200) () (fun () ->
-          Landed(Message(messageId, beat)))
+        Cmd.none
       else
         {
           model with
@@ -616,6 +618,13 @@ module RemotesModel =
             "The walk to message {Message} found nothing.",
             messageId
           ))
+    | FlashSeen landing ->
+      if model.Landing = Some landing then
+        model,
+        Cmd.OfAsync.perform (fun () -> Async.Sleep 1200) () (fun () ->
+          Landed landing)
+      else
+        model, Cmd.none
     | Landed landing ->
       if model.Landing = Some landing then
         { model with Landing = None }, Cmd.none

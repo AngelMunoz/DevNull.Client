@@ -287,6 +287,17 @@ let private scrollThreadToEndAsync(window: Window) : Async<unit> =
         | _ -> None)
       |> Option.iter _.ScrollToEnd()))
 
+/// Scrolls the search results to its start through its own scroller.
+let private scrollSearchToTopAsync(window: Window) : Async<unit> =
+  onUiAsync(fun () ->
+    controlByName(window, "SearchTabs")
+    |> Option.bind(fun tabs ->
+      tabs.GetVisualAncestors()
+      |> Seq.tryPick(function
+        | :? ScrollViewer as scroller -> Some scroller
+        | _ -> None))
+    |> Option.iter(fun scroller -> scroller.Offset <- Vector(0.0, 0.0)))
+
 /// The proof of the pipeline itself: one signed-in shell over the canned
 /// timeline page, rendered and saved. Every feature's states ride the
 /// same captureAsync.
@@ -3196,6 +3207,10 @@ let captureTests =
       let! heading = seesVisible(window, "Latest commits \u00b7 past week")
 
       Expect.isTrue heading "the Latest heading never showed"
+
+      do! onUiAsync(fun () -> window.Height <- 2000.0)
+
+      do! scrollSearchToTopAsync window
 
       do! settleAsync()
 

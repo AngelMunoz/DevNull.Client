@@ -995,6 +995,9 @@ module Parts =
     Lane: Lane option
     Dense: bool
     Continues: bool
+    /// The square shape an organization's avatar uses; persons draw
+    /// the disc, and the ring follows the avatar's silhouette.
+    Square: bool
   }
 
   // The rail cell: the author's avatar sitting on a short lane-colored
@@ -1046,7 +1049,7 @@ module Parts =
       Border()
         .Classes(Theme.name Theme.CardBack)
         .BorderThickness(Thickness(2.0))
-        .CornerRadius(nodeSize)
+        .CornerRadius(if cell.Square then 8.0 else nodeSize)
         .Padding(1.0)
         .HorizontalAlignment(HorizontalAlignment.Center)
         .VerticalAlignment(VerticalAlignment.Top)
@@ -1069,13 +1072,13 @@ module Parts =
 
   // The ringed avatar alone: the rail node of a reply row. A reply is
   // a node, not a commit card — no tail, no dot.
-  let ringCell(avatar: Control, lane: Lane option) : Panel =
+  let ringCell(avatar: Control, lane: Lane option, square: bool) : Panel =
     let ring =
       Border()
         .Name("ReplyRing")
         .Classes(Theme.name Theme.CardBack)
         .BorderThickness(Thickness(2.0))
-        .CornerRadius(28.0)
+        .CornerRadius(if square then 8.0 else 28.0)
         .Padding(1.0)
         .HorizontalAlignment(HorizontalAlignment.Center)
         .VerticalAlignment(VerticalAlignment.Top)
@@ -1443,6 +1446,7 @@ let view(props: Props) : Control =
       Lane = (Author.lane commit.Author)
       Dense = dense
       Continues = continues
+      Square = (Author.isOrganization commit.Author)
     }
 
   let rowButton =
@@ -1695,7 +1699,11 @@ let rec chainRow(ctx: ChainCtx, spot: ChainSpot, node: CommitNode) : Control =
             .laneSpineAt((Author.lane commit.Author), 24.0)
             .Margin(23.25, 40.0, 0.0, 0.0)
 
-        Parts.ringCell(ringged, (Author.lane commit.Author))
+        Parts.ringCell(
+          ringged,
+          (Author.lane commit.Author),
+          (Author.isOrganization commit.Author)
+        )
       |]
 
       let child = { ctx with Depth = ctx.Depth + 1 }

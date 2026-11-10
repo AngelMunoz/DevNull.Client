@@ -1168,23 +1168,26 @@ module Parts =
     let chip =
       Border()
         .Classes(Theme.name Theme.Chip)
-        .CornerRadius(999.0)
+        .Padding(6.0, 1.0, 6.0, 1.0)
+        .CornerRadius(6.0)
         .Child(
           TextBlock()
             .Classes(Theme.name Theme.FgAccent)
-            .FontSize(13.0)
+            .FontSize(14.0)
             .Text("@" + handle)
         )
 
     InlineUIContainer(
-      Button()
-        .Name("BioMention")
-        .Classes(Theme.name Theme.GhostButton)
-        .Padding(0.0)
-        .Content(chip)
-        .OnClickHandler(fun _ args ->
-          args.Handled <- true
-          activate())
+      Child =
+        Button()
+          .Name("BioMention")
+          .Classes(Theme.name Theme.GhostButton)
+          .Padding(0.0)
+          .Content(chip)
+          .OnClickHandler(fun _ args ->
+            args.Handled <- true
+            activate()),
+      BaselineAlignment = BaselineAlignment.Center
     )
 
   // One text run as prose with its mention chips: plain runs and one

@@ -1584,25 +1584,6 @@ let achievementsDecoder(element: JsonElement) = decode {
   }
 }
 
-// Which bio mentions have a page here, by lowercase handle, as the
-// user read sends them. A missing or non-object map is no map.
-let bioProfilesDecoder(element: JsonElement) : Map<string, string> =
-  match element.TryGetProperty "bio_profiles" with
-  | false, _ -> Map.empty
-  | true, profiles when profiles.ValueKind = JsonValueKind.Object ->
-    [
-      for property in profiles.EnumerateObject() ->
-        match property.Value.ValueKind with
-        | JsonValueKind.String ->
-          match Option.ofObj(property.Value.GetString()) with
-          | Some handle -> Some(property.Name, handle)
-          | None -> None
-        | _ -> None
-    ]
-    |> List.choose id
-    |> Map.ofList
-  | true, _ -> Map.empty
-
 let profileDecoder(element: JsonElement) = decode {
   let! user = userDecoder element
 
@@ -1645,6 +1626,19 @@ let profileDecoder(element: JsonElement) = decode {
     Optional.Property.get ("lane", optionalDecoder laneDecoder) element
     |> Result.map Option.flatten
 
+  // Which bio mentions have a page here, by lowercase handle, as the
+  // user read sends them. A missing or malformed map is no map.
+  let! bioProfiles =
+    match Optional.Property.map ("bio_profiles", Optional.string) element with
+    | Ok(Some profiles) ->
+      profiles
+      |> Map.toList
+      |> List.choose(fun (handle, value) ->
+        value |> Option.map(fun target -> handle, target))
+      |> Map.ofList
+      |> Ok
+    | _ -> Ok Map.empty
+
   return {
     User = user
     Bio = bio
@@ -1659,7 +1653,7 @@ let profileDecoder(element: JsonElement) = decode {
     FollowersCount = followersCount
     FollowingCount = followingCount
     Lane = lane
-    BioProfiles = bioProfilesDecoder element
+    BioProfiles = bioProfiles
   }
 }
 

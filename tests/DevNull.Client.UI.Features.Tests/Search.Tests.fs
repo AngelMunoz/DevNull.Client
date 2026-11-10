@@ -1,4 +1,4 @@
-module DevNull.Client.UI.Tests.Search
+﻿module DevNull.Client.UI.Tests.Search
 
 // The search session checks: one call per pause of typing, the
 // latest-wins rule, the slow-down answer, and the server's own bounds.
@@ -50,6 +50,7 @@ let private personOf(term: string) : User = {
   FollowedByFollowingCount = None
   IsFollowed = None
   FollowsYou = None
+  Live = None
 }
 
 /// The session's answers arrive through replaying subjects, so each

@@ -92,6 +92,9 @@ type TranslationView = {
 type Props = {
   Commit: Commit
   OnEvent: Event -> unit
+  /// The host's opener for one external URL, the link preview's
+  /// outside resource; the card never reaches the browser itself.
+  OnOpenExternal: string -> unit
   ViewerId: string
   Pastels: IObservable<bool>
   Now: IObservable<DateTimeOffset>
@@ -168,6 +171,9 @@ val body: args: BodyArgs * text: string * segments: Segment list -> Control
 [<Struct>]
 type RowProps = {
   OnEvent: Event -> unit
+  /// The host's opener for one external URL, threaded to the card's
+  /// link preview; the row never reaches the browser itself.
+  OnOpenExternal: string -> unit
   ViewerId: string
   Pasteis: IObservable<bool>
   Now: IObservable<DateTimeOffset>

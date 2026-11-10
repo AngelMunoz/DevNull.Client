@@ -4,6 +4,8 @@ open System
 open System.Collections.Generic
 open System.Globalization
 open System.Runtime.CompilerServices
+open System.Text.RegularExpressions
+open Avalonia.Controls.Documents
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
@@ -11,6 +13,7 @@ open Avalonia.Media
 open Avalonia.Layout
 open NXUI.Extensions
 open FSharp.Control.Reactive
+open IcedTasks
 open MVUish.Avalonia
 open Navs
 open DevNull.Client
@@ -46,6 +49,7 @@ type Props<'env
   and 'env :> IProvideTimeline
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> = {
   Env: 'env
   Username: string
@@ -110,6 +114,8 @@ module State =
     Relations: Map<string, AuthorRelation>
     // The commit whose menu action is in flight, so its items disable.
     MenuBusy: string option
+    // Whether the go-live dialog is open, on the owner's own profile.
+    LiveOpen: bool
   }
 
   type Msg =
@@ -151,6 +157,11 @@ module State =
     | AuthorBlockDone of Commit * Result<BlockResult, AppError>
     | DeleteRequested of Commit
     | Deleted of commitId: string * Result<unit, AppError>
+    | GoLiveChosen
+    | LiveDialogClosed
+    | GoLiveDone of Result<Me, AppError>
+    | EndLiveRequested
+    | EndLiveDone of Result<Me, AppError>
 
   let replaceNode(items: CommitNode list, updated: Commit) : CommitNode list =
     items
@@ -219,6 +230,7 @@ module State =
     Translations = TranslationModel.initial
     Relations = Map.empty
     MenuBusy = None
+    LiveOpen = false
   }
 
   // The feed viewport under which the full header gives way at once:
@@ -992,6 +1004,44 @@ module State =
               Error = Some error
         },
         failed "the commit deletion" error
+    | GoLiveChosen -> { model with LiveOpen = true }, Cmd.none
+    | LiveDialogClosed -> { model with LiveOpen = false }, Cmd.none
+    | GoLiveDone result ->
+      match result with
+      | Ok _ ->
+        // The stream is live; a refetch shows the marker.
+        { model with LiveOpen = false },
+        Cmd.OfAsync.perform
+          Users.get
+          (props.Env,
+           {
+             KeyFile = props.Session.KeyFile
+             Username = username
+           })
+          Fetched
+      | Error error ->
+        { model with LiveOpen = false }, failed "going live" error
+    | EndLiveRequested ->
+      model,
+      Cmd.OfAsync.perform
+        Me.endLive
+        (props.Env, { KeyFile = props.Session.KeyFile })
+        EndLiveDone
+    | EndLiveDone result ->
+      match result with
+      | Ok _ ->
+        // The stream ended; a refetch takes the marker off.
+        model,
+        Cmd.OfAsync.perform
+          Users.get
+          (props.Env,
+           {
+             KeyFile = props.Session.KeyFile
+             Username = username
+           })
+          Fetched
+      | Error error ->
+        { model with Error = Some error }, failed "ending the stream" error
     | HeaderChosen Full -> { model with HeaderForm = Full }, Cmd.none
     | HeaderChosen Compact -> { model with HeaderForm = Compact }, Cmd.none
     | HeaderChosen Auto -> model, Cmd.none
@@ -1058,13 +1108,32 @@ module Parts =
       .Content("Block")
       .OnClickHandler(fun _ _ -> dispatch State.BlockToggled)
 
+  // The owner's live action: going live opens the dialog, and while
+  // live the button ends the stream instead.
+  let liveButton
+    (details: ProfileDetails, dispatch: Dispatch<State.Msg>)
+    : Control =
+    match details.Profile.User.Live with
+    | Some _ ->
+      Button()
+        .Name("EndStream")
+        .Classes(Theme.name Theme.DangerButton)
+        .Content("End stream")
+        .OnClickHandler(fun _ _ -> dispatch State.EndLiveRequested)
+    | None ->
+      Button()
+        .Name("GoLiveButton")
+        .Classes(Theme.name Theme.AccentButton)
+        .Content("Go live")
+        .OnClickHandler(fun _ _ -> dispatch State.GoLiveChosen)
+
   // The follow, mute, and block actions; the viewer's own header
-  // carries none.
+  // carries the live action instead.
   let actions
     (details: ProfileDetails, isSelf: bool, dispatch: Dispatch<State.Msg>)
     : Control array =
     if isSelf then
-      [||]
+      [| liveButton(details, dispatch) |]
     else
       [|
         followButton(details, dispatch)
@@ -1104,20 +1173,138 @@ module Parts =
 
     chip
 
+  // A GitHub handle after an "@" that follows no letter, digit, "_",
+  // ".", "/", "@", or "-", and runs into no path or domain, so emails
+  // and "@vue.js" stay plain. The server's own rule, in .NET form.
+  let mentionPattern =
+    Regex(
+      @"(?<![\p{L}\p{N}_./@-])@([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38})(?![A-Za-z0-9_@/-]|\.[A-Za-z0-9])"
+    )
+
+  // One piece of a bio after the mention split: plain prose, or one
+  // handle and its canonical page handle, when the map names one.
+  type BioPiece =
+    | BioPlain of string
+    | BioHandle of handle: string * canonical: string option
+
+  // Splits one bio into prose and handles at the first match every
+  // round, so a handle named twice wraps twice. A tail call never
+  // grows the stack on a bio dense with handles.
+  [<TailCall>]
+  let rec splitBio
+    (rest: string, profiles: Map<string, string>, pieces: BioPiece list)
+    : BioPiece list =
+    let matches = mentionPattern.Matches(rest)
+
+    match matches |> Seq.tryHead with
+    | None -> (if rest = "" then [] else [ BioPlain rest ]) @ pieces |> List.rev
+    | Some found ->
+      let handle = found.Groups[1].Value
+      let before = rest.Substring(0, found.Index)
+      let after = rest.Substring(found.Index + found.Length)
+
+      let canonical = Map.tryFind (handle.ToLowerInvariant()) profiles
+
+      let withHandle = BioHandle(handle, canonical) :: pieces
+
+      let next =
+        if before = "" then
+          withHandle
+        else
+          BioPlain before :: withHandle
+
+      splitBio(after, profiles, next)
+
+  // The clickable chip one bio handle wears: a mapped handle opens
+  // its page here, an unmapped one opens its GitHub page outside.
+  let bioChip
+    (
+      browser: IBrowser,
+      openMention: string -> Async<unit>,
+      handle: string,
+      canonical: string option
+    ) : Inline =
+    let activate() =
+      match canonical with
+      | Some target ->
+        asyncEx { do! openMention target } |> Async.StartImmediate
+      | None -> browser.Open($"https://github.com/{handle}") |> ignore
+
+    let chip =
+      Border()
+        .Classes(Theme.name Theme.Chip)
+        .Padding(5.0, 0.0, 5.0, 0.0)
+        .CornerRadius(5.0)
+        .Child(
+          TextBlock()
+            .Classes(Theme.name Theme.FgAccent)
+            .FontSize(12.0)
+            .Text("@" + handle)
+        )
+
+    InlineUIContainer(
+      Child =
+        Button()
+          .Name("BioMention")
+          .Classes(Theme.name Theme.GhostButton)
+          .MinHeight(0.0)
+          .Padding(0.0)
+          .Margin(0.0)
+          .VerticalAlignment(VerticalAlignment.Center)
+          .Content(chip)
+          .OnClickHandler(fun _ args ->
+            args.Handled <- true
+            activate()),
+      BaselineAlignment = BaselineAlignment.Center
+    )
+
+  // One text run as prose with its mention chips: plain runs and one
+  // chip per handle, in order.
+  let mentionInlines
+    (
+      browser: IBrowser,
+      openMention: string -> Async<unit>,
+      profiles: Map<string, string>,
+      text: string
+    ) : Inline list =
+    splitBio(text, profiles, [])
+    |> List.map(fun piece ->
+      match piece with
+      | BioPlain plain -> Run plain
+      | BioHandle(handle, canonical) ->
+        bioChip(browser, openMention, handle, canonical))
+
+  // One bio as prose with its mention chips, flowing inside a
+  // wrapping text block.
+  let bioBlock
+    (
+      browser: IBrowser,
+      openMention: string -> Async<unit>,
+      profiles: Map<string, string>,
+      text: string
+    ) : Control =
+    let block = TextBlock().TextWrapping(TextWrapping.Wrap)
+    let inlines = InlineCollection()
+    block.Inlines <- inlines
+
+    mentionInlines(browser, openMention, profiles, text)
+    |> List.iter(fun part -> inlines.Add(part) |> ignore)
+
+    block
+
   // The joined-and-links line under the bio: company, location, the
-  // website host, and the join month.
-  let metaLine(profile: Profile) : Control =
+  // website host, and the join month. The company's mentions ride
+  // the same map as the bio's.
+  let metaLine
+    (browser: IBrowser, profile: Profile, openMention: string -> Async<unit>)
+    : Control =
     let stripScheme(url: string) =
       url.Replace("https://", "").Replace("http://", "")
 
     let joined =
       profile.CreatedAt.ToString("MMMM yyyy", CultureInfo.InvariantCulture)
 
-    let parts: string list = [
-      match profile.Company with
-      | Some company -> company
-      | None -> ()
-
+    let rest: string list = [
       match profile.Location with
       | Some location -> location
       | None -> ()
@@ -1129,10 +1316,36 @@ module Parts =
       $"Joined {joined}"
     ]
 
-    TextBlock()
-      .Classes(Theme.name Theme.Mono)
-      .TextWrapping(TextWrapping.Wrap)
-      .Text(String.Join(" · ", parts))
+    let tail = String.Join(" · ", rest)
+
+    // A company with no mention renders as the plain joined line, as
+    // before; the chips only open when a mention stands.
+    match profile.Company with
+    | Some company when mentionPattern.IsMatch company ->
+      let block =
+        TextBlock()
+          .Classes(Theme.name Theme.Mono)
+          .TextWrapping(TextWrapping.Wrap)
+
+      let inlines = InlineCollection()
+      block.Inlines <- inlines
+
+      mentionInlines(browser, openMention, profile.BioProfiles, company)
+      |> List.iter(fun part -> inlines.Add(part) |> ignore)
+
+      inlines.Add(Run(" · " + tail)) |> ignore
+
+      block
+    | Some company ->
+      TextBlock()
+        .Classes(Theme.name Theme.Mono)
+        .TextWrapping(TextWrapping.Wrap)
+        .Text(String.Join(" · ", company :: rest))
+    | None ->
+      TextBlock()
+        .Classes(Theme.name Theme.Mono)
+        .TextWrapping(TextWrapping.Wrap)
+        .Text(tail)
 
   // The activity bars: one lane-colored column per bucket, bottom
   // aligned, the height following the count.
@@ -1263,8 +1476,8 @@ module Parts =
     |]
 
   // What the identity header reads: the profile, the viewer's
-  // relation to it, the dispatch, the image cache, and the nav the
-  // count buttons follow.
+  // relation to it, the dispatch, the image cache, the nav the
+  // count buttons follow, and what a bio mention opens.
   [<Struct>]
   type IdentityCtx = {
     Images: ImageCacheService
@@ -1272,6 +1485,8 @@ module Parts =
     IsSelf: bool
     Dispatch: Dispatch<State.Msg>
     Nav: INavigable
+    OpenMention: string -> Async<unit>
+    Browser: IBrowser
   }
 
   // One count-and-label pair, the stats row's piece.
@@ -1371,7 +1586,17 @@ module Parts =
             .Children(actions(details, isSelf, dispatch)),
           ring
         )
-      TextBlock().Classes(Theme.name Theme.Headline).Text(user.Name)
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Spacing(8.0)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Children(
+          TextBlock().Classes(Theme.name Theme.Headline).Text(user.Name),
+          LiveBadge.view(
+            (fun url -> ctx.Browser.Open(url) |> ignore),
+            user.Live
+          )
+        )
       StackPanel()
         .Orientation(Orientation.Horizontal)
         .Spacing(10.0)
@@ -1381,11 +1606,14 @@ module Parts =
           mark("Muted").IsVisible(details.IsMuting),
           achievementsChip(details.Achievements, profile.Lane)
         )
-      TextBlock()
-        .TextWrapping(TextWrapping.Wrap)
+      (bioBlock(
+        ctx.Browser,
+        ctx.OpenMention,
+        profile.BioProfiles,
+        profile.Bio |> Option.defaultValue ""
+      ))
         .IsVisible(profile.Bio.IsSome)
-        .Text(profile.Bio |> Option.defaultValue "")
-      metaLine profile
+      metaLine(ctx.Browser, profile, ctx.OpenMention)
       counts(profile, ctx.Nav)
     |]
 
@@ -1453,6 +1681,29 @@ module Parts =
     let formIs(wanted: State.HeaderForm) =
       form |> Observable.map(fun current -> current = wanted)
 
+    // What a bio mention opens: the profile fetch answers a person,
+    // the organization read answers an organization, and the map
+    // guarantees one of the two names a page here.
+    let openMention(handle: string) : Async<unit> = asyncEx {
+      let! details = props.Env.Profiles.Fetch handle
+
+      match details with
+      | Some _ -> Navigation.go(props.Nav, "/profile/" + handle, ignore)
+      | None ->
+        let! (organization: Result<OrganizationProfile, AppError>) =
+          Organizations.get(
+            props.Env,
+            {
+              KeyFile = props.Session.KeyFile
+              Handle = handle
+            }
+          )
+
+        match organization with
+        | Ok _ -> Navigation.go(props.Nav, "/org/" + handle, ignore)
+        | Error _ -> ()
+    }
+
     let content =
       PageChrome.rebuildOn(
         model,
@@ -1466,6 +1717,8 @@ module Parts =
               IsSelf = details.Profile.User.Id = props.Session.Session.User.Id
               Dispatch = dispatch
               Nav = props.Nav
+              OpenMention = openMention
+              Browser = props.Env.Browser
             }
 
             // The full form is the identity and the sections together,
@@ -1503,6 +1756,29 @@ module Parts =
       )
 
     ContentControl().Content(content.ToBinding())
+
+  // The go-live dialog's overlay layer: it opens from the model's
+  // open flag on the owner's own profile and closes back into it.
+  let liveLayer
+    (
+      props: Props<'env>,
+      model: IObservable<State.Model>,
+      dispatch: Dispatch<State.Msg>
+    ) : Control =
+    DialogChrome.layer {
+      Open = model |> Observable.map _.LiveOpen
+      Content =
+        fun () ->
+          GoLiveDialog.Page {
+            Env = props.Env
+            Session = props.Session
+            WentLive = fun result -> dispatch(State.GoLiveDone result)
+            Close = fun () -> dispatch State.LiveDialogClosed
+          }
+      Scrim = true
+      OnScrimClick = ValueSome(fun () -> dispatch State.LiveDialogClosed)
+      Place = DialogChrome.Center
+    }
 
 // The row inputs the page compares by reference, so a tick that left
 // them the same does not reshape the feed.
@@ -1551,6 +1827,7 @@ let view
           | CommitCard.OriginalRequested commit ->
             dispatch(State.OriginalRequested commit)
           | CommitCard.MenuOpened commit -> dispatch(State.MenuOpened commit)
+        OnOpenExternal = fun url -> props.Env.Browser.Open(url) |> ignore
         ViewerId = props.Session.Session.User.Id
         Images = props.Env.ImageCache
         Flyout =
@@ -1617,81 +1894,84 @@ let view
       })
     )
 
-  ProfileShell.view {
-    Model = model
-    Title = fun _ -> ""
-    Kind = None
-    Padding = Theme.pinnedPadding
-    ErrorOf = _.Error
-    Busy =
-      fun current ->
-        if current.Loading then
-          PageChrome.Words "Loading the profile…"
-        else
-          PageChrome.Off
-    Empty =
-      fun current ->
-        // A profile with nothing but a pinned commit shows the pinned
-        // slot, not the empty state — the server keeps the pinned
-        // commit out of the list itself.
-        let pinned =
-          match current.Tab with
-          | State.Commits ->
-            current.Details |> Option.bind _.PinnedCommit |> Option.isSome
-          | State.Replies -> false
-
-        if
-          not current.Loading
-          && current.Error.IsNone
-          && current.Commits.IsEmpty
-          && not pinned
-        then
-          PageChrome.Words(
+  let page =
+    ProfileShell.view {
+      Model = model
+      Title = fun _ -> ""
+      Kind = None
+      Padding = Theme.pinnedPadding
+      ErrorOf = _.Error
+      Busy =
+        fun current ->
+          if current.Loading then
+            PageChrome.Words "Loading the profile…"
+          else
+            PageChrome.Off
+      Empty =
+        fun current ->
+          // A profile with nothing but a pinned commit shows the pinned
+          // slot, not the empty state — the server keeps the pinned
+          // commit out of the list itself.
+          let pinned =
             match current.Tab with
-            | State.Commits -> "No commits yet."
-            | State.Replies -> "No replies yet."
-          )
-        else
-          PageChrome.Off
-    Note = _.Note
-    Header = fun () -> Parts.headerHost(props, dispatch, model)
-    Meta = ValueNone
-    FeedLabel = None
-    Tabs = [
-      {
-        Label = "Commits"
-        Active =
-          model |> Observable.map(fun current -> current.Tab = State.Commits)
-        Badge = ValueNone
-        Choose = fun () -> dispatch(State.TabChosen State.Commits)
+            | State.Commits ->
+              current.Details |> Option.bind _.PinnedCommit |> Option.isSome
+            | State.Replies -> false
+
+          if
+            not current.Loading
+            && current.Error.IsNone
+            && current.Commits.IsEmpty
+            && not pinned
+          then
+            PageChrome.Words(
+              match current.Tab with
+              | State.Commits -> "No commits yet."
+              | State.Replies -> "No replies yet."
+            )
+          else
+            PageChrome.Off
+      Note = _.Note
+      Header = fun () -> Parts.headerHost(props, dispatch, model)
+      Meta = ValueNone
+      FeedLabel = None
+      Tabs = [
+        {
+          Label = "Commits"
+          Active =
+            model |> Observable.map(fun current -> current.Tab = State.Commits)
+          Badge = ValueNone
+          Choose = fun () -> dispatch(State.TabChosen State.Commits)
+        }
+        {
+          Label = "Replies"
+          Active =
+            model |> Observable.map(fun current -> current.Tab = State.Replies)
+          Badge = ValueNone
+          Choose = fun () -> dispatch(State.TabChosen State.Replies)
+        }
+      ]
+      Feed = {
+        Items =
+          model
+          |> Observable.distinctUntilChangedKeyCompare
+            (fun current -> current.Details, current.Commits, current.Tab)
+            rowInputsComparer
+          |> Observable.map State.rowsOf
+        KeyOf = State.rowKey
+        Row =
+          function
+          | State.PinnedCaption -> FeedParts.pinnedRow()
+          | State.PinnedNode node -> ProfileShell.commitRow(ctx, node)
+          | State.FeedNode node -> ProfileShell.commitRow(ctx, node)
+        HasMore = model |> Observable.map _.NextCursor.IsSome
+        OnMore = fun () -> dispatch State.MoreCommits
+        OnRide = ValueSome(State.FeedRead >> dispatch)
+        End = System.Reactive.Linq.Observable.Return(None: string option)
       }
-      {
-        Label = "Replies"
-        Active =
-          model |> Observable.map(fun current -> current.Tab = State.Replies)
-        Badge = ValueNone
-        Choose = fun () -> dispatch(State.TabChosen State.Replies)
-      }
-    ]
-    Feed = {
-      Items =
-        model
-        |> Observable.distinctUntilChangedKeyCompare
-          (fun current -> current.Details, current.Commits, current.Tab)
-          rowInputsComparer
-        |> Observable.map State.rowsOf
-      KeyOf = State.rowKey
-      Row =
-        function
-        | State.PinnedCaption -> FeedParts.pinnedRow()
-        | State.PinnedNode node -> ProfileShell.commitRow(ctx, node)
-        | State.FeedNode node -> ProfileShell.commitRow(ctx, node)
-      HasMore = model |> Observable.map _.NextCursor.IsSome
-      OnMore = fun () -> dispatch State.MoreCommits
-      OnRide = ValueSome(State.FeedRead >> dispatch)
-      End = System.Reactive.Linq.Observable.Return(None: string option)
     }
-  }
+
+  Grid().Children(page, Parts.liveLayer(props, model, dispatch))
 
 type Page<'env
   when 'env :> IProvideClock
@@ -1706,6 +1986,7 @@ type Page<'env
   and 'env :> IProvideTimeline
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 

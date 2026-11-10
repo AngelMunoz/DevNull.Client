@@ -99,6 +99,8 @@ type StyleClass =
   | MutedEdge
   | AheadPill
   | TabBadge
+  /// The live chip beside a live user's name.
+  | LiveBadge
   | DayMarker
   | HeadRule
   | ReactionChip

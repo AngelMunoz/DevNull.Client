@@ -25,6 +25,7 @@ type Props<'env
   and 'env :> IProvideDispatcher
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> = {
   Env: 'env
   /// The user whose list the page shows.
@@ -45,6 +46,7 @@ type Page<'env
   and 'env :> IProvideDispatcher
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

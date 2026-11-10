@@ -49,6 +49,7 @@ type Shell<'env
   and 'env :> IProvideRoutes
   and 'env :> IProvideSshKeys
   and 'env :> IProvideRemotes
+  and 'env :> IProvideBrowser
   and 'env :> IProvideNatives> =
   new:
     env: 'env * callback: string option * ?undoWindow: TimeSpan -> Shell<'env>

@@ -1,4 +1,4 @@
-module DevNull.Client.Components.CommitCard
+﻿module DevNull.Client.Components.CommitCard
 
 open System
 open System.Text.RegularExpressions
@@ -79,6 +79,7 @@ type TranslationView = {
 type Props = {
   Commit: Commit
   OnEvent: Event -> unit
+  OnOpenExternal: string -> unit
   ViewerId: string
   Pastels: IObservable<bool>
   Now: IObservable<DateTimeOffset>
@@ -187,6 +188,7 @@ module Parts =
     FollowedByFollowingCount = None
     IsFollowed = None
     FollowsYou = None
+    Live = None
   }
 
   // One @handle of the body: the accent color, the hover card, and
@@ -613,7 +615,7 @@ module Parts =
   // opened, the viewer has not voted, it is not the viewer's poll, and
   // the clock has not passed the close time.
   let canVote(gate: VoteGate) : bool =
-    gate.Commit.Status = Approved
+    gate.Commit.Status = CommitStatus.Approved
     && gate.Poll.ClosesAt.IsSome
     && not gate.Poll.HasVoted
     && not(hasExpired(gate.Now, gate.Poll))
@@ -951,7 +953,9 @@ module Parts =
   // The link preview: its own surface, a click away from the card it
   // rides in. The handled click opens the outside resource and never
   // falls through to the commit's thread.
-  let linkPreviewView(preview: LinkPreview, title: string) : Control =
+  let linkPreviewView
+    (props: Props, preview: LinkPreview, title: string)
+    : Control =
     Button()
       .Name("LinkPreviewCard")
       .Classes(Theme.name Theme.GhostButton, Theme.name Theme.Hairline)
@@ -978,7 +982,7 @@ module Parts =
       )
       .OnClickHandler(fun _ args ->
         args.Handled <- true
-        DeviceAuth.startBrowser preview.Url |> ignore)
+        props.OnOpenExternal preview.Url)
 
   [<Struct>]
   type IconAction = {
@@ -1508,7 +1512,7 @@ let view(props: Props) : Control =
     // site's own card does.
     match commit.LinkPreview with
     | Some({ Title = Some title } as preview) ->
-      Parts.linkPreviewView(preview, title)
+      Parts.linkPreviewView(props, preview, title)
     | _ -> ()
   |]
 
@@ -1650,6 +1654,7 @@ let tombstone() : Control =
 [<Struct>]
 type RowProps = {
   OnEvent: Event -> unit
+  OnOpenExternal: string -> unit
   ViewerId: string
   Pasteis: IObservable<bool>
   Now: IObservable<DateTimeOffset>
@@ -1673,6 +1678,7 @@ let feedRow (props: RowProps) (node: CommitNode) : Control =
     view {
       Commit = commit
       OnEvent = props.OnEvent
+      OnOpenExternal = props.OnOpenExternal
       ViewerId = props.ViewerId
       Pastels = props.Pasteis
       Now = props.Now

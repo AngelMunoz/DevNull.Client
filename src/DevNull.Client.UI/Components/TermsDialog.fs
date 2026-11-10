@@ -25,6 +25,7 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
@@ -89,7 +90,7 @@ let view
   let openPage(path: string, args: RoutedEventArgs) =
     args.Handled <- true
 
-    match startBrowser(baseAddress + path) with
+    match props.Env.Browser.Open(baseAddress + path) with
     | Ok() -> ()
     | Error message -> log.LogWarning("The page did not open: {Error}", message)
 
@@ -163,6 +164,7 @@ type Page<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 

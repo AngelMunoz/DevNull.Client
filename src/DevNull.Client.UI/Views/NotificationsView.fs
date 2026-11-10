@@ -1,4 +1,4 @@
-module DevNull.Client.Views.NotificationsView
+﻿module DevNull.Client.Views.NotificationsView
 
 open System
 open System.Collections.Generic
@@ -420,35 +420,69 @@ module Parts =
     |]
 
   // The icon one notification type wears.
-  let glyphOf(kind: string) : Glyph =
+  let glyphOf(kind: NotificationKind) : Glyph =
     match kind with
-    | "followed" -> Glyph.UserPlus
-    | "replied" -> Glyph.Reply
-    | "quoted" -> Glyph.Quote
-    | "starred" -> Glyph.Star
-    | "mentioned" -> Glyph.At
-    | "leveled_up" -> Glyph.ChevronsUp
-    | "approved" -> Glyph.Check
-    | "rejected" -> Glyph.Close
-    | _ -> Glyph.Notifications
+    | NotificationKind.Followed -> Glyph.UserPlus
+    | NotificationKind.Replied -> Glyph.Reply
+    | NotificationKind.Quoted -> Glyph.Quote
+    | NotificationKind.Starred -> Glyph.Star
+    | NotificationKind.Mentioned -> Glyph.At
+    | NotificationKind.LeveledUp -> Glyph.ChevronsUp
+    | NotificationKind.Approved -> Glyph.Check
+    | NotificationKind.Rejected -> Glyph.Close
+    | NotificationKind.FirstCommit -> Glyph.Commit
+    | NotificationKind.UnknownKind _ -> Glyph.Notifications
 
-  // The sentence one notification type says after the actor.
-  let actionOf(kind: string) : string =
+  // The sentence one notification type says after the actor; the
+  // organization's handle replaces "your" when the notification names
+  // one, and a mention names the organization instead of "you".
+  let actionOf
+    (kind: NotificationKind, organization: OrganizationProfile option)
+    : string =
     match kind with
-    | "followed" -> "followed you"
-    | "replied" -> "replied to your commit"
-    | "quoted" -> "quoted your commit"
-    | "starred" -> "starred your commit"
-    | "mentioned" -> "mentioned you"
-    | "approved" -> "Your commit was approved"
-    | "rejected" -> "Your commit was rejected"
-    | _ -> "sent an update"
+    | NotificationKind.Followed -> "followed you"
+    | NotificationKind.Replied ->
+      let whose =
+        organization
+        |> Option.map(fun org -> $"@{org.Handle}'s")
+        |> Option.defaultValue "your"
+
+      $"replied to {whose} commit"
+    | NotificationKind.Quoted ->
+      let whose =
+        organization
+        |> Option.map(fun org -> $"@{org.Handle}'s")
+        |> Option.defaultValue "your"
+
+      $"quoted {whose} commit"
+    | NotificationKind.Starred ->
+      let whose =
+        organization
+        |> Option.map(fun org -> $"@{org.Handle}'s")
+        |> Option.defaultValue "your"
+
+      $"starred {whose} commit"
+    | NotificationKind.Mentioned ->
+      organization
+      |> Option.map(fun org -> $"mentioned @{org.Handle}")
+      |> Option.defaultValue "mentioned you"
+    | NotificationKind.FirstCommit -> "made their first commit"
+    | NotificationKind.Approved ->
+      organization
+      |> Option.map(fun org -> $"@{org.Handle}'s commit was approved")
+      |> Option.defaultValue "Your commit was approved"
+    | NotificationKind.Rejected ->
+      organization
+      |> Option.map(fun org -> $"@{org.Handle}'s commit was rejected")
+      |> Option.defaultValue "Your commit was rejected"
+    | NotificationKind.LeveledUp -> "sent an update"
+    | NotificationKind.UnknownKind _ -> "sent an update"
 
   // The noun a grouped row counts.
-  let nounOf(kind: string) : string =
+  let nounOf(kind: NotificationKind) : string =
     match kind with
-    | "followed" -> "followers"
-    | "starred" -> "stars"
+    | NotificationKind.Followed -> "followers"
+    | NotificationKind.Starred -> "stars"
     | _ -> "updates"
 
   // The commit the notification points at, when it points at one.
@@ -468,9 +502,10 @@ module Parts =
     ) : Control =
     let actorsCommit =
       match notification.Type with
-      | "replied"
-      | "quoted"
-      | "mentioned" -> true
+      | NotificationKind.Replied
+      | NotificationKind.Quoted
+      | NotificationKind.Mentioned
+      | NotificationKind.FirstCommit -> true
       | _ -> false
 
     let line =
@@ -485,19 +520,19 @@ module Parts =
       if actorsCommit then
         let plain =
           Avatar.view {
-            Name = notification.Actor.Name
-            Url = notification.Actor.AvatarUrl
-            Lane = notification.Actor.Lane
+            Name = Author.name notification.Actor
+            Url = Author.avatarUrl notification.Actor
+            Lane = Author.lane notification.Actor
             Size = 40.0
             Cache = cache
-            Square = false
+            Square = Author.isOrganization notification.Actor
             Viewable = false
           }
 
         let avatar =
           match flyout with
           | ValueSome source ->
-            UserFlyout.attach(source, notification.Actor, plain)
+            UserFlyout.attachAuthor(source, notification.Actor, plain)
           | ValueNone -> plain
 
         Border()
@@ -512,7 +547,7 @@ module Parts =
       else
         let icon = Icons.iconAt(glyphOf notification.Type, 16.0)
 
-        Theme.laneForeground(icon, notification.Actor.Lane)
+        Theme.laneForeground(icon, Author.lane notification.Actor)
 
         Border()
           .Classes(Theme.name Theme.CardBack, Theme.name Theme.RailEdge)
@@ -536,9 +571,9 @@ module Parts =
   // the viewer's own commits, inline for the actor's.
   let excerptBox(notification: Notification) : Control option =
     match notification.Type with
-    | "starred"
-    | "approved"
-    | "rejected" ->
+    | NotificationKind.Starred
+    | NotificationKind.Approved
+    | NotificationKind.Rejected ->
       commitOf notification
       |> Option.map(fun commit ->
         Border()
@@ -580,7 +615,7 @@ module Parts =
         .Children(
           TextBlock()
             .Classes(Theme.name Theme.Subtitle)
-            .Text(notification.Actor.Name),
+            .Text(Author.name notification.Actor),
           TextBlock()
             .Classes(Theme.name Theme.Mono)
             .Text(
@@ -594,7 +629,7 @@ module Parts =
       identity
       TextBlock()
         .Classes(Theme.name Theme.Muted)
-        .Text(actionOf notification.Type)
+        .Text(actionOf(notification.Type, notification.Organization))
 
       match commitOf notification with
       | Some commit ->
@@ -614,12 +649,12 @@ module Parts =
       .Margin(0.0, 4.0, 0.0, 0.0)
       .Children(
         Avatar.view {
-          Name = notification.Actor.Name
-          Url = notification.Actor.AvatarUrl
-          Lane = notification.Actor.Lane
+          Name = Author.name notification.Actor
+          Url = Author.avatarUrl notification.Actor
+          Lane = Author.lane notification.Actor
           Size = 28.0
           Cache = cache
-          Square = false
+          Square = Author.isOrganization notification.Actor
           Viewable = false
         },
         StackPanel()
@@ -709,10 +744,10 @@ module Parts =
         .Children(
           TextBlock()
             .Classes(Theme.name Theme.Subtitle)
-            .Text(notification.Actor.Name),
+            .Text(Author.name notification.Actor),
           TextBlock()
             .Classes(Theme.name Theme.Mono)
-            .Text($"@{notification.Actor.Handle}")
+            .Text($"@{Author.handle notification.Actor}")
             .TextTrimming(TextTrimming.CharacterEllipsis),
           TextBlock()
             .Classes(Theme.name Theme.Mono)
@@ -727,7 +762,7 @@ module Parts =
       TextBlock()
         .Classes(Theme.name Theme.Muted)
         .Margin(0.0, 2.0, 0.0, 0.0)
-        .Text(actionOf notification.Type)
+        .Text(actionOf(notification.Type, notification.Organization))
 
     let children: Control array = [|
       identity

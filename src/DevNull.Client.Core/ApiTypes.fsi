@@ -17,6 +17,20 @@ type Lane =
   | LaneIndex of index: int
   | LaneColor of color: string
 
+/// Which platform a stream runs on, as the wire names it.
+type LivePlatform =
+  | YouTube
+  | Twitch
+
+/// One stream a user is live on: the platform, the stream page, the
+/// poster's address while the stream runs, and when it ends.
+type LiveStream = {
+  Platform: LivePlatform
+  Url: string
+  ThumbnailUrl: string option
+  EndsAt: DateTimeOffset
+}
+
 /// A user as the signed API shows them on a commit or in a list.
 type User = {
   Id: string
@@ -31,7 +45,28 @@ type User = {
   FollowedByFollowingCount: int option
   IsFollowed: bool option
   FollowsYou: bool option
+  Live: LiveStream option
 }
+
+/// The reads and writes a stream platform shares: the wire word, the
+/// acceptance of a stream link (the server's own host and path
+/// rules), and the hours a stream may last.
+module LivePlatforms =
+  /// The wire word for a platform.
+  val wire: platform: LivePlatform -> string
+
+  /// The platform a wire word names, if it names one.
+  val parse: raw: string -> LivePlatform option
+
+  /// The platform a stream link points to, if any.
+  val forUrl: url: string -> LivePlatform option
+
+  /// The longest a stream may show as live, in hours.
+  val maxHours: int
+
+  /// The hour count a stream lasts: the dialog's slider already
+  /// cannot leave the range, and the parse refuses the rest.
+  val tryParseHours: hours: int -> int option
 
 /// One organization the wire names: the profile a mention suggestion
 /// or a search answer carries, its identity lines and counts, and the
@@ -367,6 +402,9 @@ type Profile = {
   FollowersCount: int option
   FollowingCount: int option
   Lane: Lane option
+  /// The bio and company mentions with a page here, by lowercase
+  /// handle, so their chips link internally instead of to GitHub.
+  BioProfiles: Map<string, string>
 }
 
 /// One activity bucket.
@@ -610,16 +648,41 @@ type MuteResult = { User: User; IsMuting: bool }
 /// The result of blocking or unblocking.
 type BlockResult = { User: User; IsBlocking: bool }
 
+/// What one notification says happened, as the wire names it. An
+/// unknown kind stays raw.
+type NotificationKind =
+  | Followed
+  | Replied
+  | Quoted
+  | Starred
+  | Mentioned
+  | LeveledUp
+  | Approved
+  | Rejected
+  | FirstCommit
+  | UnknownKind of raw: string
+
+/// The reads and writes a notification kind shares: the wire word
+/// the server sends and the parse back.
+module NotificationKinds =
+  /// The notification kind a wire word names; an unknown word stays
+  /// raw rather than failing the page.
+  val parse: raw: string -> NotificationKind
+
+  /// The wire word for a kind.
+  val wire: kind: NotificationKind -> string
+
 /// One notification.
 type Notification = {
   Id: string
-  Type: string
+  Type: NotificationKind
   SubjectId: string option
   Reason: string option
   ReadAt: DateTimeOffset option
   CreatedAt: DateTimeOffset
-  Actor: User
-  Actors: User list
+  Actor: Author
+  Actors: Author list
+  Organization: OrganizationProfile option
   GroupId: string
   EventCount: int
   ActorsCount: int
@@ -971,6 +1034,9 @@ type Me = {
 module Me =
   /// Reads the signed-in account envelope, from GET /api/v1/me and the sign-in responses.
   val decode: body: string -> Result<Me, DecodeFailure>
+
+  /// Reads the followed users who are live right now, from GET /api/v1/me/live-following.
+  val decodeLiveFollowing: body: string -> Result<User list, DecodeFailure>
 
 /// One device the account approved, as GET /api/v1/me/devices lists
 /// them: the app's name and the device label it chose, never the key

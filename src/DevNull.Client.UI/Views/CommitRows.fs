@@ -19,6 +19,7 @@ type RowSlices = {
 
 type Host = {
   OnEvent: Event -> unit
+  OnOpenExternal: string -> unit
   ViewerId: string
   Images: ImageCacheService
   Flyout: Source voption
@@ -57,6 +58,7 @@ let row
 
   {
     OnEvent = host.OnEvent
+    OnOpenExternal = host.OnOpenExternal
     ViewerId = host.ViewerId
     Pasteis = slices |> Observable.map _.Pasteis |> Slices.share
     Now = slices |> Observable.map _.Now |> Slices.share

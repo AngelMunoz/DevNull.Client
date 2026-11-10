@@ -35,6 +35,7 @@ type Props<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
   and 'env :> IProvideRoutes
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
@@ -463,13 +464,22 @@ let view
   }
 
   let row(user: User) : Control =
+    let openExternal(url: string) = props.Env.Browser.Open(url) |> ignore
+
     let name =
-      TextBlock()
-        .Classes(Theme.name Theme.Subtitle)
-        .FontSize(13.0)
-        .MaxLines(1)
-        .TextTrimming(TextTrimming.CharacterEllipsis)
-        .Text(user.Name)
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Spacing(6.0)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Children(
+          TextBlock()
+            .Classes(Theme.name Theme.Subtitle)
+            .FontSize(13.0)
+            .MaxLines(1)
+            .TextTrimming(TextTrimming.CharacterEllipsis)
+            .Text(user.Name),
+          LiveBadge.view(openExternal, user.Live)
+        )
 
     let handle = ProfileCard.laneHandle(user.Lane, user.Handle)
 
@@ -721,6 +731,7 @@ type Page<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
   and 'env :> IProvideRoutes
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 

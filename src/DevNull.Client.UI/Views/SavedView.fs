@@ -38,6 +38,7 @@ type Props<'env
   and 'env :> IProvideTimeline
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
@@ -694,6 +695,7 @@ let view
           | CommitCard.OriginalRequested commit ->
             dispatch(State.OriginalRequested commit)
           | CommitCard.MenuOpened commit -> dispatch(State.MenuOpened commit)
+        OnOpenExternal = fun url -> props.Env.Browser.Open(url) |> ignore
         ViewerId = props.Session.Session.User.Id
         Images = props.Env.ImageCache
         Flyout =
@@ -796,6 +798,7 @@ type Page<'env
   and 'env :> IProvideTimeline
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 

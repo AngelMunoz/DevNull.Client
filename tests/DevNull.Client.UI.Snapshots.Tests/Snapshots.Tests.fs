@@ -324,6 +324,331 @@ let captureTests =
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }
 
+    testAsync "the organization context notification renders" {
+      let! window = startShell(signedInStore(), orgContextInboxApi() :> IHttp)
+
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the shell never rendered its content"
+
+      do! clickWhenShown(window, "Notifications")
+
+      let! row = showsText(window, "replied to @acme's commit")
+      Expect.isTrue row "the org-context row never rendered"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F54/f54-org-notification", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the live profile with its badge and the live-now card renders" {
+      let! window = startShell(signedInStore(), liveBadgeApi() :> IHttp)
+
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the shell never rendered its content"
+
+      do! clickWhenShown(window, "Profile")
+
+      let! badge = showsText(window, "LIVE")
+      Expect.isTrue badge "the live badge never rendered"
+
+      // The window folds the profile header on its own layouts, and
+      // the folded bar hides the badge; pin the full header so the
+      // capture frames it beside the name.
+      let! folded =
+        waitForAsync(
+          5000,
+          (fun () -> window),
+          (fun root -> not(visibleText(root, "LIVE")))
+        )
+
+      Expect.isTrue folded "the header never folded before the capture"
+
+      do! clickVisibleHeaderToggle(window)
+
+      let! live = seesVisible(window, "LIVE")
+
+      Expect.isTrue live "the live badge never rendered in the full header"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F3/f3-live-profile", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the own profile go-live dialog stands open" {
+      let! window = startShell(signedInStore(), goLiveApi() :> IHttp)
+
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the shell never rendered its content"
+
+      do! clickWhenShown(window, "Profile")
+
+      let! feed = showsText(window, "It was DNS.")
+      Expect.isTrue feed "the profile feed never rendered"
+
+      do! ensureFullHeader(window)
+
+      do! clickWhenShown(window, "Go live")
+
+      let! input =
+        waitForAsync(
+          5000,
+          (fun () -> controlByName(window, "LiveUrl")),
+          Option.isSome
+        )
+
+      Expect.isTrue input "the go-live dialog never opened"
+
+      let! slider =
+        waitForAsync(
+          5000,
+          (fun () -> controlByName(window, "LiveHours")),
+          Option.isSome
+        )
+
+      Expect.isTrue slider "the hours slider never rendered"
+
+      let! link = seesVisible(window, "Stream link")
+      Expect.isTrue link "the stream link label never rendered"
+
+      let! hours = seesVisible(window, "For")
+      Expect.isTrue hours "the hours label never rendered"
+
+      let! go = seesVisible(window, "Go live")
+      Expect.isTrue go "the go-live button never rendered"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F3/f3-go-live-dialog", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the shell aside stands a live-now section" {
+      let! window = startShell(signedInStore(), liveBadgeApi() :> IHttp)
+
+      do!
+        onUiAsync(fun () ->
+          window.Width <- 1400.0
+          window.Height <- 900.0)
+
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the shell never rendered its content"
+
+      let! title = seesVisible(window, "Live now")
+      Expect.isTrue title "the live-now title never rendered"
+
+      let! row =
+        waitForAsync(
+          5000,
+          (fun () -> controlByName(window, "OpenLiveNow:octocat")),
+          Option.isSome
+        )
+
+      Expect.isTrue row "the live-now row never rendered"
+
+      let! badge = seesVisible(window, "LIVE")
+      Expect.isTrue badge "the live badge never rendered"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F3/f3-live-now-aside", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the first commit notification row renders" {
+      let firstCommitJson =
+        notificationJson.Replace(
+          "\"type\":\"replied\"",
+          "\"type\":\"first_commit\""
+        )
+
+      let inbox =
+        sprintf
+          "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"filters\":{\"type\":\"all\"},\"read_at\":\"2026-10-20T04:20:00Z\"}"
+          firstCommitJson
+
+      let api =
+        FakeApi(fun request ->
+          if request.Target.StartsWith "/api/v1/notifications" then
+            ok inbox
+          elif request.Target.StartsWith "/api/v1/log/" then
+            ok logPageJson
+          else
+            ok "{}")
+
+      let! window = startShell(signedInStore(), api :> IHttp)
+
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the shell never rendered its content"
+
+      do! clickWhenShown(window, "Notifications")
+
+      let! words = seesVisible(window, "made their first commit")
+      Expect.isTrue words "the first commit words never rendered"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F3/f3-first-commit-row", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the profile bio with its mention chips renders" {
+      let! window = startShell(signedInStore(), bioMentionsApi() :> IHttp)
+
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the shell never rendered its content"
+
+      do! clickWhenShown(window, "Profile")
+
+      let! mention = showsText(window, "@DevNull")
+      Expect.isTrue mention "the mention chip never rendered"
+
+      // The window folds the profile header on its own layouts, and
+      // the folded bar hides the bio the chips live in; pin the full
+      // header so the capture frames the chips.
+      let! folded =
+        waitForAsync(
+          5000,
+          (fun () -> window),
+          (fun root -> not(visibleText(root, "@DevNull")))
+        )
+
+      Expect.isTrue folded "the header never folded before the capture"
+
+      do! clickVisibleHeaderToggle(window)
+
+      let! devnull = seesVisible(window, "@DevNull")
+
+      Expect.isTrue devnull "the mention chip never rendered in the full header"
+
+      let! acme = seesVisible(window, "@ACME")
+
+      Expect.isTrue
+        acme
+        "the organization chip never rendered in the full header"
+
+      let! stranger = seesVisible(window, "@stranger-dev")
+
+      Expect.isTrue
+        stranger
+        "the unmapped chip never rendered in the full header"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F55/f55-bio-mentions", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the bio mention chips sit at text size" {
+      let! window = startShell(signedInStore(), bioMentionsApi() :> IHttp)
+
+      let! shown = showsText(window, "The Octocat")
+      Expect.isTrue shown "the shell never rendered its content"
+
+      do! clickWhenShown(window, "Profile")
+
+      let! mention = showsText(window, "@DevNull")
+      Expect.isTrue mention "the mention chip never rendered"
+
+      let! folded =
+        waitForAsync(
+          5000,
+          (fun () -> window),
+          (fun root -> not(visibleText(root, "@DevNull")))
+        )
+
+      Expect.isTrue folded "the header never folded before the capture"
+
+      do! clickVisibleHeaderToggle(window)
+
+      let! devnull = seesVisible(window, "@DevNull")
+      Expect.isTrue devnull "the mention chip never rendered in the full header"
+
+      do! settleAsync()
+
+      let! measure =
+        probeUiAsync(fun () ->
+          let chips =
+            window.GetVisualDescendants()
+            |> Seq.choose(fun visual ->
+              match visual with
+              | :? Avalonia.Controls.Button as button when
+                button.Name = "BioMention"
+                ->
+                Some button
+              | _ -> None)
+            |> Seq.toArray
+
+          let bioBlock =
+            window.GetVisualDescendants()
+            |> Seq.choose(fun visual ->
+              match visual with
+              | :? Avalonia.Controls.TextBlock as block when
+                block.Inlines <> null
+                && (block.Inlines
+                    |> Seq.exists(fun inlineNode ->
+                      match inlineNode with
+                      | :? Avalonia.Controls.Documents.InlineUIContainer ->
+                        true
+                      | _ -> false))
+                ->
+                Some block
+              | _ -> None)
+            |> Seq.tryHead
+
+          let chipHeights =
+            chips |> Array.map(fun button -> button.Bounds.Height)
+
+          match bioBlock with
+          | None -> (chipHeights, nan, nan, nan)
+          | Some block ->
+            // A plain text line at the bio's own font size, the height
+            // the chips must meet without growing the line.
+            let refBlock = Avalonia.Controls.TextBlock()
+            refBlock.Text <- "Builds with DevNull and ACME, plus stranger-dev."
+            refBlock.FontSize <- block.FontSize
+            refBlock.TextWrapping <- Avalonia.Media.TextWrapping.Wrap
+
+            refBlock.Measure(
+              Avalonia.Size(700.0, System.Double.PositiveInfinity)
+            )
+
+            (chipHeights,
+             block.Bounds.Height,
+             refBlock.DesiredSize.Height,
+             block.FontSize))
+
+      let chipHeights, bioHeight, textHeight, bioFont = measure
+
+      Expect.equal
+        chipHeights.Length
+        3
+        "the profile carries three mention chips"
+
+      Expect.isTrue
+        (System.Double.IsNaN bioHeight |> not)
+        "the bio text block never rendered"
+
+      Expect.isTrue
+        (chipHeights |> Array.forall(fun height -> height <= 19.0))
+        $"a mention chip stands over 19px tall: {chipHeights}"
+
+      Expect.isTrue
+        (chipHeights |> Array.forall(fun height -> height <= textHeight))
+        $"a mention chip stands taller than the text line {textHeight:F1}px: {chipHeights}"
+
+      Expect.isTrue
+        (bioHeight <= textHeight * 1.25)
+        $"the bio line balloons past the text line: bio {bioHeight:F1}px, text {textHeight:F1}px, font {bioFont:F1}px"
+    }
+
     testAsync "the organization page carries its follow and claim header" {
       let! window =
         startShell(
@@ -1340,6 +1665,7 @@ let captureTests =
 
       let props: CommitCard.RowProps = {
         OnEvent = ignore
+        OnOpenExternal = ignore
         ViewerId = (Author.id commit.Author)
         Pasteis = pastels
         Now = now
@@ -2052,6 +2378,7 @@ let captureTests =
 
       let props: CommitCard.RowProps = {
         OnEvent = ignore
+        OnOpenExternal = ignore
         ViewerId = viewerId
         Pasteis = pastels
         Now = now

@@ -1,4 +1,4 @@
-module DevNull.Client.Views.ScheduledView
+﻿module DevNull.Client.Views.ScheduledView
 
 open System
 open System.Collections.Generic
@@ -316,9 +316,9 @@ module Labels =
         "Waiting for submission"
       else
         "Scheduled"
-    | SubmittedAs Approved -> "Approved"
+    | SubmittedAs CommitStatus.Approved -> "Approved"
     | SubmittedAs Pending -> "Submitted for review"
-    | SubmittedAs Rejected -> "Rejected"
+    | SubmittedAs CommitStatus.Rejected -> "Rejected"
     | SubmittedAs(UnknownStatus _) -> "Submitted"
     | CommitDeleted -> "Deleted"
 

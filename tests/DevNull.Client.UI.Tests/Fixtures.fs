@@ -125,6 +125,11 @@ type FakeProfiles() =
 
   member val Details: ProfileDetails option = None with get, set
 
+  // The per-username answers, when one test needs several kinds at
+  // once; a username the map does not name takes the Details answer.
+  member val ByUsername: Map<string, ProfileDetails option> =
+    Map.empty with get, set
+
   member val Gate: TaskCompletionSource<unit> option = None with get, set
 
   member _.Asked = asked |> Seq.toList
@@ -137,7 +142,10 @@ type FakeProfiles() =
       | Some gate -> do! gate.Task |> Async.AwaitTask
       | None -> ()
 
-      return this.Details
+      return
+        match Map.tryFind username this.ByUsername with
+        | Some details -> details
+        | None -> this.Details
     }
 
 /// The one "type base64" line the fake key source offers and the fake
@@ -386,6 +394,21 @@ type FakeAudio() =
         return Ok playback
     }
 
+/// The headless browser: every opened URL is recorded and nothing
+/// opens, so a click test asserts the URL instead of launching the
+/// system browser on the developer's machine.
+type FakeBrowser() =
+  let opened = ResizeArray<string>()
+  let gate = obj()
+
+  /// Every URL asked of the opener, in order.
+  member _.Opened: string list = lock gate (fun () -> opened |> Seq.toList)
+
+  interface IBrowser with
+    member _.Open(url: string) =
+      lock gate (fun () -> opened.Add url)
+      Ok()
+
 /// The app environment over fakes: fixed workers and the given store.
 type TestEnv
   (
@@ -399,7 +422,8 @@ type TestEnv
     ?translations: TranslationCache,
     ?sshKeys: FakeSshKeys,
     ?audio: FakeAudio,
-    ?sounds: FakeSounds
+    ?sounds: FakeSounds,
+    ?browser: FakeBrowser
   ) as this =
 
   let settingsStore =
@@ -424,6 +448,8 @@ type TestEnv
   let profileWorker = profiles |> Option.defaultWith(fun () -> FakeProfiles())
 
   let keySource = sshKeys |> Option.defaultWith(fun () -> FakeSshKeys())
+
+  let browserWorker = browser |> Option.defaultWith(fun () -> FakeBrowser())
 
   // The signature answers are fixed; every signed input is recorded,
   // so a test can assert which key file a post signed with.
@@ -598,6 +624,12 @@ type TestEnv
 
   interface IProvideNatives with
     member _.Natives = natives
+
+  /// Every URL the headless browser was asked to open, in order.
+  member _.OpenedUrls: string list = browserWorker.Opened
+
+  interface IProvideBrowser with
+    member _.Browser = browserWorker :> IBrowser
 
 /// The fingerprint of the canned session's own device key, so the
 /// devices list can name its own row.
@@ -1868,6 +1900,179 @@ let groupedInboxApi() =
       ok groupPageJson
     elif request.Target.StartsWith "/api/v1/notifications" then
       ok groupedInboxJson
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+/// The acme organization as the inbox carries it: the actor shape
+/// and the organization context share the organization resource.
+let acmeOrgJson =
+  """{"type":"organization","handle":"acme","name":"Acme","avatar_url":null,"bio":"The org.","location":"Berlin","website":"https://acme.example","github_url":null,"html_url":"https://dev-null.sh/org/acme","is_followed":false,"can_claim":false,"settings_url":null,"lane":null,"followers_count":7,"admins":[]}"""
+
+/// One org-context reply: the actor is a person, the organization
+/// names the context the whose-wording carries.
+let orgContextReplyJson =
+  sprintf
+    """{"id":"01a15752-eeee-7065-b076-99e5bdad596d","type":"replied","subject_id":null,"reason":null,"read_at":null,"created_at":"2026-10-20T04:17:19Z","actor":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"organization":%s,"group_id":"01a15751-dddd-7261-a486-e524bcb4d8e8","event_count":1,"actors_count":1,"unread_count":0,"commit":%s}"""
+    acmeOrgJson
+    commitJson
+
+/// One org-context mention: the organization is mentioned instead
+/// of the viewer.
+let orgContextMentionJson =
+  sprintf
+    """{"id":"01a15752-ffff-7065-b076-99e5bdad596d","type":"mentioned","subject_id":null,"reason":null,"read_at":null,"created_at":"2026-10-20T04:17:19Z","actor":{"id":"01a151db-7fee-727b-a7ce-c911a7556242","handle":"octocat","name":"The Octocat","avatar_url":null},"organization":%s,"group_id":"01a15751-eeee-7261-a486-e524bcb4d8e8","event_count":1,"actors_count":1,"unread_count":0,"commit":%s}"""
+    acmeOrgJson
+    commitJson
+
+/// One reply whose actor is the organization itself.
+let orgActorReplyJson =
+  sprintf
+    """{"id":"01a15752-aaaa-7065-b076-99e5bdad596d","type":"replied","subject_id":null,"reason":null,"read_at":null,"created_at":"2026-10-20T04:17:19Z","actor":%s,"organization":%s,"group_id":"01a15751-ffff-7261-a486-e524bcb4d8e8","event_count":1,"actors_count":1,"unread_count":0,"commit":%s}"""
+    acmeOrgJson
+    acmeOrgJson
+    commitJson
+
+/// The org-context inbox: a reply, a mention, and an org-actor reply.
+let orgContextInboxJson =
+  sprintf
+    "{\"data\":[%s,%s,%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"filters\":{\"type\":\"all\"},\"read_at\":\"2026-10-20T04:20:00Z\"}"
+    orgContextReplyJson
+    orgContextMentionJson
+    orgActorReplyJson
+
+/// The api of the org-context inbox test: the boot log and the
+/// org-context inbox answer from cans.
+let orgContextInboxApi() =
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/notifications" then
+      ok orgContextInboxJson
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+/// The octocat profile whose bio mentions one mapped user, one
+/// mapped organization, and one unmapped handle, with the server's
+/// lowercase map of the mapped two.
+let bioMentionsProfileJson =
+  profileJson
+    .Replace(
+      "\"bio\":\"Builds things.\"",
+      "\"bio\":\"Builds with @DevNull and @ACME, plus @stranger-dev.\""
+    )
+    .Replace(
+      "\"lane\":3}",
+      "\"lane\":3,\"bio_profiles\":{\"devnull\":\"devnull\",\"acme\":\"acme\"}}"
+    )
+
+/// The devnull user, as the mention chip's profile fetch answers it.
+let devnullProfileJson =
+  profileJson
+    .Replace("\"handle\":\"octocat\"", "\"handle\":\"devnull\"")
+    .Replace("\"name\":\"The Octocat\"", "\"name\":\"Dev Null\"")
+
+/// The api of the bio mention test: the mention owner's profile
+/// carries the map; the mapped user answers as a user, the mapped
+/// organization answers only as an organization.
+let bioMentionsApi() =
+  FakeApi(fun request ->
+    if request.Target = "/api/v1/users/octocat" then
+      ok bioMentionsProfileJson
+    elif request.Target = "/api/v1/users/devnull" then
+      ok devnullProfileJson
+    elif request.Target = "/api/v1/users/acme" then
+      refused(404, "Not found.")
+    elif request.Target = "/api/v1/organizations/acme" then
+      ok searchOrgJson
+    elif request.Target.StartsWith "/api/v1/organizations/acme/mentions" then
+      ok
+        "{\"data\":[],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+/// The youtube stream as the wire carries it on a live user.
+let liveStreamJson =
+  """{"platform":"youtube","url":"https://www.youtube.com/watch?v=NeutralVid1","thumbnail_url":"https://i.ytimg.com/vi/NeutralVid1/hqdefault_live.jpg","ends_at":"2026-10-20T08:17:19Z"}"""
+
+/// The octocat profile while live on that stream.
+let liveProfileJson =
+  profileJson.Replace(
+    "\"lane\":3}",
+    "\"lane\":3,\"live\":" + liveStreamJson + "}"
+  )
+
+/// One user who is live, as the live-following collection lists it.
+let liveUserJson =
+  apiUserJson.Replace(
+    "\"lane\":3}",
+    "\"lane\":3,\"live\":" + liveStreamJson + "}"
+  )
+
+/// The live-following collection: one live user.
+let liveFollowingJson = sprintf "{\"data\":[%s]}" liveUserJson
+
+/// The api of the live tests: the octocat profile is live, the
+/// live-following collection carries one live user, and the boot
+/// log answers.
+let liveBadgeApi() =
+  FakeApi(fun request ->
+    if request.Target = "/api/v1/users/octocat" then
+      ok liveProfileJson
+    elif request.Target = "/api/v1/me/live-following" then
+      ok liveFollowingJson
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+/// The api of the go-live test: the octocat profile starts not
+/// live, and a landed PUT turns the profile fetch live.
+let goLiveApi() =
+  let wentLive = ResizeArray<bool>()
+
+  FakeApi(fun request ->
+    if request.Method = "PUT" && request.Target = "/api/v1/me/live" then
+      wentLive.Add true
+      ok meJson
+    elif request.Target = "/api/v1/users/octocat" then
+      ok(
+        if wentLive.Contains true then
+          liveProfileJson
+        else
+          profileJson
+      )
+    elif request.Target = "/api/v1/me/live-following" then
+      ok liveFollowingJson
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+/// The api of the end-stream test: the octocat profile starts live,
+/// and a landed DELETE turns the profile fetch not live.
+let endLiveApi() =
+  let ended = ResizeArray<bool>()
+
+  FakeApi(fun request ->
+    if request.Method = "DELETE" && request.Target = "/api/v1/me/live" then
+      ended.Add true
+      ok meJson
+    elif request.Target = "/api/v1/users/octocat" then
+      ok(if ended.Contains true then profileJson else liveProfileJson)
     elif request.Target.StartsWith "/api/v1/log/" then
       ok logPageJson
     else

@@ -1,4 +1,4 @@
-module DevNull.Client.UI.Tests.App
+﻿module DevNull.Client.UI.Tests.App
 
 // The shell checks: the boot route follows the session, the timeline
 // renders through the signed API with fakes, the sidebar navigates, and
@@ -223,6 +223,25 @@ let startShellWith
     return! showAsync window
   }
 
+/// Builds and shows the shell over one test env with the given fake
+/// profile worker.
+let startShellWithProfiles
+  (store: SessionStore, http: IHttp, profiles: FakeProfiles)
+  : Async<Window> =
+  let env = TestEnv(store, http, profiles = profiles)
+
+  async {
+    let! window = probeUiAsync(fun () -> Shell(env, None) :> Window)
+    return! showAsync window
+  }
+
+/// The canned profile as the page's own profile worker answers it.
+let profileDetailsOf(json: string) : ProfileDetails =
+  match ProfileDetails.decode json with
+  | Ok details -> details
+  | Error failure ->
+    failwith $"the canned profile never decoded: {failure.Message}"
+
 /// Builds and shows the shell over one test env with a pre-seeded
 /// last-visit store.
 let startShellSeeded
@@ -247,9 +266,43 @@ let startShellWithRecents
     return! showAsync window
   }
 
+/// Builds and shows the shell over one test env, handing the env
+/// back so the test asserts on the headless browser's recorder.
+let startShellWithBrowser
+  (store: SessionStore, http: IHttp)
+  : Async<Window * TestEnv> =
+  let env = TestEnv(store, http)
+
+  async {
+    let! window = probeUiAsync(fun () -> Shell(env, None) :> Window)
+
+    let! shown = showAsync window
+
+    return shown, env
+  }
+
 /// Waits until a TextBlock under the window carries the text.
 let showsText(window: Window, text: string) : Async<bool> =
   waitForAsync(5000, (fun () -> window), (fun root -> hasText(root, text)))
+
+/// Pins the profile header to its full form: the window folds the
+/// header on its own headless layouts, so an action test pins the
+/// form the actions live in before touching them.
+let ensureFullHeader(window: Window) : Async<unit> = async {
+  let! full =
+    waitForAsync(
+      2000,
+      (fun () -> window),
+      (fun root -> hasText(root, "Builds things."))
+    )
+
+  if not full then
+    do! clickVisibleHeaderToggle(window)
+
+  let! pinned = showsText(window, "Builds things.")
+
+  Expect.isTrue pinned "the full header never rendered"
+}
 
 /// True when an effectively visible TextBlock under the root carries the
 /// text, so a hidden rail mark never counts.
@@ -4400,11 +4453,12 @@ let tests =
     testCaseAsync
       "a link preview is its own surface, not the card's click"
       (async {
-        let! window = startShell(signedInStore(), mentionLogApi() :> IHttp)
+        let! window, env =
+          startShellWithBrowser(signedInStore(), mentionLogApi() :> IHttp)
 
-        // The handled click never runs here: it would launch a real
-        // browser. The card being its own button, with the site's own
-        // line on it, is the contract.
+        // The card being its own button, with the site's own line on
+        // it, is the contract. The click opens through the headless
+        // browser's recorder, never a real browser.
         let! preview =
           waitForAsync(
             5000,
@@ -4424,6 +4478,23 @@ let tests =
         let! sited = showsText(window, "example.test")
 
         Expect.isTrue sited "the preview site line never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "LinkPreviewCard")
+            |> Option.bind(function
+              | :? Button as button -> Some button
+              | _ -> None)
+            |> Option.iter click)
+
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> env.OpenedUrls),
+            (fun urls -> urls = [ "https://example.test/postmortem" ])
+          )
+
+        Expect.isTrue opened "the link preview never opened externally"
       })
 
     testCaseAsync
@@ -4552,6 +4623,31 @@ let tests =
       })
 
     testCaseAsync
+      "an organization context carries the whose wording"
+      (async {
+        let api = orgContextInboxApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Notifications")
+
+        let! replied = showsText(window, "replied to @acme's commit")
+
+        Expect.isTrue replied "the org-context reply never rendered"
+
+        let! mentioned = showsText(window, "mentioned @acme")
+
+        Expect.isTrue mentioned "the org-context mention never rendered"
+
+        let! actor = showsText(window, "Acme")
+
+        Expect.isTrue actor "the organization actor never rendered"
+      })
+
+    testCaseAsync
       "the inbox filter requests the typed list"
       (async {
         let api = groupedInboxApi()
@@ -4657,6 +4753,381 @@ let tests =
         let! follow = probeUiAsync(fun () -> buttonWithText(window, "Follow"))
 
         Expect.isNone follow "the follow button leaked"
+      })
+
+    testCaseAsync
+      "a bio mention chip opens the mapped user page"
+      (async {
+        let api = bioMentionsApi()
+
+        let profiles =
+          FakeProfiles(
+            ByUsername =
+              Map.ofList [
+                "devnull", Some(profileDetailsOf devnullProfileJson)
+              ]
+          )
+
+        let! window =
+          startShellWithProfiles(signedInStore(), api :> IHttp, profiles)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Profile")
+
+        let! mention = showsText(window, "@DevNull")
+
+        Expect.isTrue mention "the mention chip never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "@DevNull") |> Option.iter click)
+
+        let! resolved =
+          waitForAsync(
+            5000,
+            (fun () -> profiles.Asked),
+            (fun asked -> asked |> List.contains "devnull")
+          )
+
+        Expect.isTrue resolved "the profile resolution never happened"
+
+        let! opened = showsText(window, "Dev Null")
+
+        Expect.isTrue opened "the mapped user page never opened"
+      })
+
+    testCaseAsync
+      "a bio mention chip opens the mapped organization page"
+      (async {
+        let api = bioMentionsApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Profile")
+
+        let! mention = showsText(window, "@ACME")
+
+        Expect.isTrue mention "the mention chip never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "@ACME") |> Option.iter click)
+
+        let! resolved =
+          waitForAsync(
+            5000,
+            (fun () -> api.Requests),
+            (fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Method = "GET"
+                && request.Target = "/api/v1/organizations/acme"))
+          )
+
+        Expect.isTrue resolved "the organization resolution never happened"
+
+        let! opened = showsText(window, "Acme")
+
+        Expect.isTrue opened "the mapped organization page never opened"
+      })
+
+    testCaseAsync
+      "an unmapped bio mention stays on the profile"
+      (async {
+        let api = bioMentionsApi()
+
+        let! window, env = startShellWithBrowser(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Profile")
+
+        let! mention = showsText(window, "@stranger-dev")
+
+        Expect.isTrue mention "the unmapped chip never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "@stranger-dev") |> Option.iter click)
+
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> env.OpenedUrls),
+            (fun urls -> urls = [ "https://github.com/stranger-dev" ])
+          )
+
+        Expect.isTrue opened "the unmapped chip never opened externally"
+
+        let! still = showsText(window, "The Octocat")
+
+        Expect.isTrue still "the unmapped mention navigated away"
+      })
+
+    testCaseAsync
+      "a live profile wears the live badge"
+      (async {
+        let api = liveBadgeApi()
+
+        let! window, env = startShellWithBrowser(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Profile")
+
+        let! badge =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "LiveBadge")),
+            Option.isSome
+          )
+
+        Expect.isTrue badge "the live badge never rendered"
+
+        let! word = showsText(window, "LIVE")
+
+        Expect.isTrue word "the live word never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "LiveBadge")
+            |> Option.bind(function
+              | :? Button as button -> Some button
+              | _ -> None)
+            |> Option.iter click)
+
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> env.OpenedUrls),
+            (fun urls ->
+              urls = [ "https://www.youtube.com/watch?v=NeutralVid1" ])
+          )
+
+        Expect.isTrue opened "the live badge never opened externally"
+      })
+
+    testCaseAsync
+      "the go-live dialog submits and the stream ends"
+      (async {
+        let api = goLiveApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Profile")
+
+        let! feed = showsText(window, "It was DNS.")
+
+        Expect.isTrue feed "the profile feed never rendered"
+
+        do! clickWhenShown(window, "Go live")
+
+        let! input =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "LiveUrl")),
+            Option.isSome
+          )
+
+        Expect.isTrue input "the go-live dialog never opened"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "LiveUrl")
+            |> Option.iter(fun control ->
+              (control :?> TextBox).Text <-
+                "https://www.youtube.com/watch?v=NeutralVid1"))
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "GoLive")
+            |> Option.bind(function
+              | :? Button as button -> Some button
+              | _ -> None)
+            |> Option.iter click)
+
+        let! sent =
+          waitForAsync(
+            5000,
+            (fun () -> api.Requests),
+            (fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Method = "PUT" && request.Target = "/api/v1/me/live"))
+          )
+
+        Expect.isTrue sent "the go-live submit never fired"
+
+        let! refetched =
+          waitForAsync(
+            5000,
+            (fun () -> api.Requests),
+            (fun requests ->
+              let fetches =
+                requests
+                |> List.filter(fun request ->
+                  request.Method = "GET"
+                  && request.Target = "/api/v1/users/octocat")
+
+              fetches.Length >= 3)
+          )
+
+        Expect.isTrue refetched "the post-submit refetch never fired"
+
+        do! ensureFullHeader(window)
+
+        let! ended =
+          waitForAsync(
+            5000,
+            (fun () -> buttonWithText(window, "End stream")),
+            Option.isSome
+          )
+
+        Expect.isTrue ended "the profile never showed End stream"
+      })
+
+    testCaseAsync
+      "ending the stream takes the marker off"
+      (async {
+        let api = endLiveApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Profile")
+
+        let! ending = showsText(window, "End stream")
+
+        Expect.isTrue ending "the End stream button never rendered"
+
+        do! clickWhenShown(window, "End stream")
+
+        let! deleted =
+          waitForAsync(
+            5000,
+            (fun () -> api.Requests),
+            (fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Method = "DELETE"
+                && request.Target = "/api/v1/me/live"))
+          )
+
+        Expect.isTrue deleted "the end-stream call never fired"
+
+        do! ensureFullHeader(window)
+
+        let! live =
+          waitForAsync(
+            5000,
+            (fun () -> buttonWithText(window, "Go live")),
+            Option.isSome
+          )
+
+        Expect.isTrue live "the profile never showed Go live again"
+      })
+
+    testCaseAsync
+      "the aside lists who is live now"
+      (async {
+        let api = liveBadgeApi()
+
+        let! window, env = startShellWithBrowser(signedInStore(), api :> IHttp)
+
+        do!
+          onUiAsync(fun () ->
+            window.Width <- 1400.0
+            window.Height <- 900.0)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        let! title = showsText(window, "Live now")
+
+        Expect.isTrue title "the live-now section never rendered"
+
+        let! row =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "OpenLiveNow:octocat")),
+            Option.isSome
+          )
+
+        Expect.isTrue row "the live-now row never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "OpenLiveNow:octocat")
+            |> Option.bind(function
+              | :? Button as button -> Some button
+              | _ -> None)
+            |> Option.iter click)
+
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> env.OpenedUrls),
+            (fun urls ->
+              urls = [ "https://www.youtube.com/watch?v=NeutralVid1" ])
+          )
+
+        Expect.isTrue opened "the live-now row never opened externally"
+
+        let! still = showsText(window, "The Octocat")
+
+        Expect.isTrue still "the live-now row navigated away"
+      })
+
+    testCaseAsync
+      "a first commit notification says so"
+      (async {
+        let firstCommitJson =
+          notificationJson.Replace(
+            "\"type\":\"replied\"",
+            "\"type\":\"first_commit\""
+          )
+
+        let inbox =
+          sprintf
+            "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"filters\":{\"type\":\"all\"},\"read_at\":\"2026-10-20T04:20:00Z\"}"
+            firstCommitJson
+
+        let api =
+          FakeApi(fun request ->
+            if request.Target.StartsWith "/api/v1/notifications" then
+              ok inbox
+            elif request.Target.StartsWith "/api/v1/log/" then
+              ok logPageJson
+            else
+              ok "{}")
+
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Notifications")
+
+        let! words = showsText(window, "made their first commit")
+
+        Expect.isTrue words "the first commit words never rendered"
       })
 
     testCaseAsync
@@ -7310,7 +7781,7 @@ let tests =
             CreatedAt = DateTimeOffset.UtcNow
             StarsCount = None
             RepliesCount = None
-            Status = Approved
+            Status = CommitStatus.Approved
             Author =
               Person {
                 Id = "01a15638-ae71-733c-89b3-373a1a0c538a"
@@ -7324,6 +7795,7 @@ let tests =
                 FollowingCount = None
                 FollowedByFollowingCount = None
                 IsFollowed = None
+                Live = None
                 FollowsYou = None
               }
             Images = []

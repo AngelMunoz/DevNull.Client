@@ -134,6 +134,7 @@ type StyleClass =
   | MutedEdge
   | AheadPill
   | TabBadge
+  | LiveBadge
   | DayMarker
   | HeadRule
   | ReactionChip
@@ -210,6 +211,7 @@ let name class' =
   | MutedEdge -> "muted-edge"
   | AheadPill -> "ahead-pill"
   | TabBadge -> "tab-badge"
+  | LiveBadge -> "live-badge"
   | DayMarker -> "day-marker"
   | HeadRule -> "head-rule"
   | ReactionChip -> "reaction-chip"
@@ -764,6 +766,22 @@ let styleTable: (StyleClass * (unit -> Style)) list = [
         TextElement.FontFamilyProperty, box Fonts.mono
         TextElement.FontSizeProperty, box 11.0
         TextElement.ForegroundProperty, themed Keys.onAccent
+      |]
+    )
+  LiveBadge,
+  fun () ->
+    // The live chip beside a live user's name: the danger fill with
+    // the white pulsing dot the site carries, here still.
+    styleOf(
+      (fun selector -> selector.OfType<Border>().Class(name LiveBadge)),
+      [|
+        Border.BackgroundProperty, themed Keys.danger
+        Border.CornerRadiusProperty, box(CornerRadius(2.0))
+        Border.PaddingProperty, box(Thickness(6.0, 0.0, 6.0, 0.0))
+        Layoutable.VerticalAlignmentProperty, box VerticalAlignment.Center
+        TextElement.FontFamilyProperty, box Fonts.mono
+        TextElement.FontSizeProperty, box 10.0
+        TextElement.ForegroundProperty, themed Keys.text
       |]
     )
   ReactionChip,

@@ -59,6 +59,7 @@ type Props<'env
   and 'env :> IProvideRemotes
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> = {
   Env: 'env
   CommitId: string
@@ -1106,6 +1107,7 @@ module Parts =
     and 'env :> IProvideRemotes
     and 'env :> IProvideUserSettings
     and 'env :> IProvideTranslations
+    and 'env :> IProvideBrowser
     and 'env :> IProvideLogging>
     (props: Props<'env>)
     : HoverSource voption =
@@ -1683,6 +1685,7 @@ let view
     CommitRows.row(
       {
         OnEvent = State.CardEvent >> dispatch
+        OnOpenExternal = fun url -> props.Env.Browser.Open(url) |> ignore
         ViewerId = props.Session.Session.User.Id
         Images = props.Env.ImageCache
         Flyout = Parts.flyoutOf props
@@ -1898,6 +1901,7 @@ type Page<'env
   and 'env :> IProvideRemotes
   and 'env :> IProvideUserSettings
   and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 

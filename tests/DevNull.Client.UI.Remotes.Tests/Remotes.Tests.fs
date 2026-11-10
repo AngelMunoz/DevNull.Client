@@ -1,4 +1,4 @@
-module DevNull.Client.UI.Tests.Remotes
+﻿module DevNull.Client.UI.Tests.Remotes
 
 // The remotes store: the whole chat state machine over a scripted
 // api — polls merge and dedupe, refused pushes retry under their own
@@ -37,6 +37,7 @@ let userOf(id: string, username: string, name: string) : User = {
   FollowedByFollowingCount = None
   IsFollowed = None
   FollowsYou = None
+  Live = None
 }
 
 let hubot = userOf(partnerId, "hubot", "The Hubot")

@@ -1,4 +1,4 @@
-module DevNull.Client.Components.CommitMenu
+﻿module DevNull.Client.Components.CommitMenu
 
 open System
 open Avalonia
@@ -88,7 +88,7 @@ let rowsFor
 
   let shareRow: Control =
     match slot.Share with
-    | ValueSome command when commit.Status = Approved ->
+    | ValueSome command when commit.Status = CommitStatus.Approved ->
       menuPick("Send in Remotes", fun () -> command commit).IsEnabled(idle)
     | _ -> Panel()
 
@@ -148,7 +148,7 @@ let rowsFor
   let reportRow: Control =
     match slot.Report with
     | ValueSome command when
-      commit.Status = Approved
+      commit.Status = CommitStatus.Approved
       && (Author.id commit.Author) <> props.ViewerId
       && not(Author.isOrganization commit.Author)
       ->

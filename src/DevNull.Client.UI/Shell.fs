@@ -680,6 +680,7 @@ type AsideProps<'env
   and 'env :> IProvideSession
   and 'env :> IProvideImageCache
   and 'env :> IProvideProfiles
+  and 'env :> IProvideBrowser
   and 'env :> IProvideRoutes
   and 'env :> IProvideLogging> = {
   Env: 'env
@@ -698,6 +699,7 @@ let aside(props: AsideProps<'env>) : Control =
         .Spacing(24.0)
         .Children(
           ProfileCard.Page { Env = props.Env; Session = entry },
+          LiveNow.Page { Env = props.Env; Session = entry },
           WhoToFollow.Page {
             Env = props.Env
             Session = entry
@@ -806,6 +808,7 @@ type Shell<'env
   and 'env :> IProvideRoutes
   and 'env :> IProvideSshKeys
   and 'env :> IProvideRemotes
+  and 'env :> IProvideBrowser
   and 'env :> IProvideNatives>
   (env: 'env, callback: string option, ?undoWindow: TimeSpan) as this =
   inherit Window()

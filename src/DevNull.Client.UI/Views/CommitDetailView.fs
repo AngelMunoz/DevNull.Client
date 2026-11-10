@@ -80,6 +80,13 @@ module State =
     Cursor: string option
   }
 
+  [<Struct>]
+  type StarsAsk = {
+    Session: SignedInSession
+    CommitId: string
+    Cursor: string option
+  }
+
   type Model = {
     Loading: bool
     Error: AppError option
@@ -114,6 +121,14 @@ module State =
     ShareOpen: Commit voption
     // The commit whose report dialog stands open.
     ReportOpen: Commit voption
+    // The commit whose stargazers list stands open; the page model
+    // owns it, and the dialog layer reads it.
+    StarsOpen: Commit voption
+    // The stargazers read so far, newest first.
+    Stars: User list
+    StarsCursor: string option
+    StarsBusy: bool
+    StarsError: AppError option
     // The viewer's relation per author handle, as the More menu reads
     // it.
     Relations: Map<string, AuthorRelation>
@@ -153,6 +168,10 @@ module State =
     | Shared
     | ReportOpened of Commit
     | ReportClosed
+    | StarsOpened of Commit
+    | StarsClosed
+    | StarsFetched of StarsAsk * Result<Page<User>, AppError>
+    | StarsMore
     | MenuOpened of Commit
     | RelationLoaded of handle: string * AuthorRelation voption
     | AuthorFollowToggled of Commit
@@ -182,6 +201,11 @@ module State =
     Translations = TranslationModel.initial
     ShareOpen = ValueNone
     ReportOpen = ValueNone
+    StarsOpen = ValueNone
+    Stars = []
+    StarsCursor = None
+    StarsBusy = false
+    StarsError = None
     Relations = Map.empty
     MenuBusy = None
     Deleted = None
@@ -219,6 +243,16 @@ module State =
         KeyFile = ask.Session.KeyFile
         CommitId = ask.CommitId
         Newest = false
+        Cursor = ask.Cursor
+      }
+    )
+
+  let stargazers(env, ask: StarsAsk) =
+    Commits.stargazers(
+      env,
+      {
+        KeyFile = ask.Session.KeyFile
+        CommitId = ask.CommitId
         Cursor = ask.Cursor
       }
     )
@@ -957,6 +991,84 @@ module State =
       },
       Cmd.none
     | ReportClosed -> { model with ReportOpen = ValueNone }, Cmd.none
+    | StarsOpened commit ->
+      // The gate decides inside the case: only the author's own
+      // commit opens the list, and the list reads fresh on every
+      // open, so stars given in the meantime show up without a reload.
+      let own =
+        (Author.id commit.Author) = props.Session.Session.User.Id
+        && not(Author.isOrganization commit.Author)
+
+      match own with
+      | false -> model, Cmd.none
+      | true ->
+        {
+          model with
+              StarsOpen = ValueSome commit
+              Stars = []
+              StarsCursor = None
+              StarsBusy = true
+              StarsError = None
+        },
+        Cmd.OfAsync.perform
+          stargazers
+          (props.Env,
+           {
+             Session = props.Session
+             CommitId = commit.Id
+             Cursor = None
+           })
+          (fun result ->
+            StarsFetched(
+              {
+                Session = props.Session
+                CommitId = commit.Id
+                Cursor = None
+              },
+              result
+            ))
+    | StarsClosed -> { model with StarsOpen = ValueNone }, Cmd.none
+    | StarsFetched(ask, result) ->
+      match result with
+      | Ok page ->
+        {
+          model with
+              Stars =
+                match ask.Cursor with
+                | None -> page.Items
+                | Some _ -> model.Stars @ page.Items
+              StarsCursor = page.NextCursor
+              StarsBusy = false
+              StarsError = None
+        },
+        Cmd.none
+      | Error error ->
+        {
+          model with
+              StarsBusy = false
+              StarsError = Some error
+        },
+        failed "the stars fetch" error
+    | StarsMore ->
+      // One walk both the load-more word and the retry run: the
+      // cursor the list stands on, none on the first page.
+      model.StarsOpen
+      |> ValueOption.filter(fun _ -> not model.StarsBusy)
+      |> ValueOption.map(fun commit ->
+        let ask: StarsAsk = {
+          Session = props.Session
+          CommitId = commit.Id
+          Cursor = model.StarsCursor
+        }
+
+        {
+          model with
+              StarsBusy = true
+              StarsError = None
+        },
+        Cmd.OfAsync.perform stargazers (props.Env, ask) (fun result ->
+          StarsFetched(ask, result)))
+      |> ValueOption.defaultValue(model, Cmd.none)
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
@@ -1358,6 +1470,168 @@ module Parts =
         quote.IsVisible(model |> Observable.map(fun current -> current.Quoting))
       )
 
+  // One stargazer row: the avatar, the name, and the handle, opening
+  // the person's profile and closing the list on a click.
+  let stargazerRow
+    (props: Props<'env>, dispatch: Dispatch<State.Msg>, person: User)
+    : Control =
+    let columns = Grid()
+
+    columns.ColumnDefinitions <- ColumnDefinitions("Auto,*")
+
+    columns.Children(
+      Avatar.view {
+        Name = person.Name
+        Url = person.AvatarUrl
+        Lane = person.Lane
+        Size = 36.0
+        Cache = props.Env.ImageCache
+        Square = false
+        Viewable = false
+      }
+      |> _.Column(0)
+      |> _.Margin(0.0, 0.0, 12.0, 0.0),
+      StackPanel()
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Spacing(2.0)
+        .Children(
+          TextBlock()
+            .Classes(Theme.name Theme.Subtitle)
+            .Text(person.Name)
+            .TextTrimming(TextTrimming.CharacterEllipsis),
+          TextBlock()
+            .Classes(Theme.name Theme.Mono)
+            .Text("@" + person.Handle)
+            .TextTrimming(TextTrimming.CharacterEllipsis)
+        )
+        .Column(1)
+    )
+    |> ignore
+
+    Button()
+      .Name("StargazerRow")
+      .Classes(Theme.name Theme.CommitRow)
+      .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+      .Content(columns)
+      .OnClickHandler(fun _ _ ->
+        dispatch State.StarsClosed
+        Navigation.go(props.Nav, "/profile/" + person.Handle, ignore))
+
+  // The "Starred by" list: the commit's star total over the people
+  // who starred it, newest first, with the load-more word while a
+  // cursor remains. A failed read speaks in the app's error words.
+  let stargazersDialog
+    (
+      props: Props<'env>,
+      model: IObservable<State.Model>,
+      dispatch: Dispatch<State.Msg>
+    ) : Control =
+    let countLine =
+      model
+      |> Observable.map(fun current ->
+        current.StarsOpen
+        |> ValueOption.toOption
+        |> Option.bind _.StarsCount
+        |> Option.defaultValue 0)
+
+    let rows =
+      let people =
+        model
+        |> Observable.map(fun current -> current.Stars)
+        |> Observable.distinctUntilChanged
+        |> Observable.map(fun people ->
+          StackPanel().Spacing(2.0).Children [|
+            for person in people -> stargazerRow(props, dispatch, person)
+          |]
+          : Control)
+
+      ContentControl().Name("StargazersRows").Content(people.ToBinding())
+
+    let more =
+      Button()
+        .Name("StarsMore")
+        .Classes(Theme.name Theme.GhostButton)
+        .Content("Show more")
+        .HorizontalAlignment(HorizontalAlignment.Left)
+        .IsVisible(
+          model
+          |> Observable.map(fun current ->
+            current.StarsCursor.IsSome
+            && not current.StarsBusy
+            && current.StarsError.IsNone)
+        )
+        .OnClickHandler(fun _ _ -> dispatch State.StarsMore)
+
+    let loading =
+      ProgressBar()
+        .Name("StarsLoading")
+        .IsIndeterminate(true)
+        .Height(2.0)
+        .MaxHeight(2.0)
+        .IsVisible(model |> Observable.map _.StarsBusy)
+
+    let failure =
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Spacing(8.0)
+        .Children(
+          TextBlock()
+            .Name("StarsError")
+            .Classes(Theme.name Theme.FgDanger)
+            .TextWrapping(TextWrapping.Wrap)
+            .Text(
+              model
+              |> Observable.map(fun current ->
+                current.StarsError
+                |> Option.map describe
+                |> Option.defaultValue "")
+            ),
+          Button()
+            .Name("StarsRetry")
+            .Classes(Theme.name Theme.GhostButton)
+            .Content("Try again")
+            .OnClickHandler(fun _ _ -> dispatch State.StarsMore)
+        )
+        .IsVisible(model |> Observable.map _.StarsError.IsSome)
+
+    Border()
+      .Name("StargazersCard")
+      .Classes(Theme.name Theme.Card)
+      .MaxWidth(420.0)
+      .Child(
+        StackPanel()
+          .Spacing(12.0)
+          .Children(
+            TextBlock()
+              .Name("StarsTitle")
+              .Classes(Theme.name Theme.Title)
+              .Text("Starred by"),
+            TextBlock()
+              .Name("StarsCountLine")
+              .Classes(Theme.name Theme.Muted)
+              .Text(
+                countLine
+                |> Observable.map(fun count ->
+                  let word = if count = 1 then "person" else "people"
+
+                  $"{shortCount count} {word} starred this commit.")
+              ),
+            ScrollViewer()
+              .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
+              .MaxHeight(320.0)
+              .Content(rows),
+            loading,
+            failure,
+            more,
+            Button()
+              .Name("StarsClose")
+              .Classes(Theme.name Theme.GhostButton)
+              .Content("Close")
+              .HorizontalAlignment(HorizontalAlignment.Right)
+              .OnClickHandler(fun _ _ -> dispatch State.StarsClosed)
+          )
+      )
+
   // The related-commits section under the thread: the heading over
   // the commits closest in meaning to the focused one, drawn as feed
   // cards. Nothing close — or a read that failed — renders nothing at
@@ -1439,6 +1713,7 @@ let view
           }
         Actions = true
         OnStar = fun commit -> dispatch(State.StarToggled commit)
+        OnStars = ValueSome(fun commit -> dispatch(State.StarsOpened commit))
         OnVote = fun commit -> dispatch(State.PollVoteRequested commit)
         OnPastel = fun commit -> dispatch(State.PastelGiven commit)
         Translation =
@@ -1561,6 +1836,33 @@ let view
       Place = DialogChrome.Center
     }
 
+  let stargazersLayer
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : Control =
+    DialogChrome.layer {
+      Open =
+        model
+        |> Observable.map(_.StarsOpen)
+        |> Observable.map ValueOption.isSome
+      Content =
+        fun () ->
+          let isOpen =
+            model
+            |> Observable.first
+            |> Observable.toEnumerable
+            |> Seq.tryHead
+            |> function
+              | Some state -> state.StarsOpen
+              | None -> ValueNone
+
+          match isOpen with
+          | ValueSome _ -> Parts.stargazersDialog(props, model, dispatch)
+          | ValueNone -> Panel()
+      Scrim = true
+      OnScrimClick = ValueSome(fun () -> dispatch State.StarsClosed)
+      Place = DialogChrome.Center
+    }
+
   // The page scrolls one axis: a wrapped body and composer measure
   // against the column, never an unbounded extent. The rows run edge
   // to edge of the reading column, the width the feed hands its own
@@ -1573,7 +1875,12 @@ let view
 
 
   Grid()
-    .Children(page, shareLayer(model, dispatch), reportLayer(model, dispatch))
+    .Children(
+      page,
+      shareLayer(model, dispatch),
+      reportLayer(model, dispatch),
+      stargazersLayer(model, dispatch)
+    )
 
 type Page<'env
   when 'env :> IProvideClock

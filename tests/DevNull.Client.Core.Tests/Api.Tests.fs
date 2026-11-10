@@ -1740,6 +1740,60 @@ let listApiTests =
         "target"
     }
 
+    testAsync "reads one commit's stargazers newest first" {
+      let http = CapturingHttp(ok(pageOf apiUserJson))
+
+      let request: Commits.StargazersRequest = {
+        KeyFile = "key-file"
+        CommitId = "018F4C1E-6F8A-7C3A-9B2D-5E6F7A8B9C0D"
+        Cursor = None
+      }
+
+      let! (result: Result<Page<User>, TestError>) =
+        Commits.stargazers(envFor http, request)
+
+      match result with
+      | Ok page ->
+        Expect.equal 1 page.Items.Length "items"
+
+        let user = page.Items |> List.exactlyOne
+        Expect.equal "octocat" user.Handle "handle"
+        Expect.equal "The Octocat" user.Name "name"
+        Expect.equal (Some "next") page.NextCursor "next cursor"
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+
+      Expect.equal
+        "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d/stars"
+        sent.Target
+        "target"
+    }
+
+    testAsync "reads the next stargazers page through its cursor" {
+      let http = CapturingHttp(ok(pageOf apiUserJson))
+
+      let request: Commits.StargazersRequest = {
+        KeyFile = "key-file"
+        CommitId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+        Cursor = Some "next"
+      }
+
+      let! (result: Result<Page<User>, TestError>) =
+        Commits.stargazers(envFor http, request)
+
+      match result with
+      | Ok page -> Expect.equal 1 page.Items.Length "items"
+      | Error error -> failtestf "%A" error
+
+      let sent = http.Requests |> List.exactlyOne
+
+      Expect.equal
+        "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d/stars?cursor=next"
+        sent.Target
+        "target"
+    }
+
     testAsync "reads the notification inbox" {
       let http = CapturingHttp(ok notificationResponse)
 

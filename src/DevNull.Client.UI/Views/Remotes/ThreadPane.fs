@@ -477,6 +477,7 @@ module ThreadPane =
                 Size = 36.0
                 Cache = media.Cache
                 Square = false
+                Viewable = false
               },
               StackPanel()
                 .VerticalAlignment(VerticalAlignment.Center)

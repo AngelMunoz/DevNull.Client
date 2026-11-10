@@ -27,6 +27,7 @@ type Host = {
   Menu: MenuSlot voption
   Actions: bool
   OnStar: Commit -> unit
+  OnStars: (Commit -> unit) voption
   OnVote: Commit -> unit
   OnPastel: Commit -> unit
   Translation: IObservable<Commit -> TranslationView voption>
@@ -65,6 +66,10 @@ let row
     Flyout = host.Flyout
     Pin = pin
     Star = slot host.OnStar
+    Stars =
+      match host.OnStars with
+      | ValueSome command -> slot command
+      | ValueNone -> ValueNone
     Vote = offered host.OnVote
     Pastel = offered host.OnPastel
     Menu = host.Menu

@@ -38,6 +38,7 @@ module Parts =
       Size = 40.0
       Cache = images
       Square = false
+      Viewable = false
     }
 
   // An org's avatar: two of its other members, overlapping, in the
@@ -67,6 +68,7 @@ module Parts =
             Size = 26.0
             Cache = images
             Square = false
+            Viewable = false
           }
 
         let horizontal, vertical =
@@ -311,6 +313,7 @@ module Parts =
         Size = 40.0
         Cache = ctx.Images
         Square = false
+        Viewable = false
       }
 
     let columns = Grid()

@@ -514,6 +514,7 @@ module Parts =
         Size = 40.0
         Cache = ctx.Images
         Square = false
+        Viewable = false
       }
 
     match ctx.Flyout with
@@ -560,6 +561,7 @@ module Parts =
         Size = 40.0
         Cache = env.Ctx.Images
         Square = false
+        Viewable = false
       },
       content,
       ValueNone

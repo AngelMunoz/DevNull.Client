@@ -107,6 +107,7 @@ let avatarOf(ctx: RowCtx, user: User, size: float) : Control =
       Size = size
       Cache = ctx.Images
       Square = false
+      Viewable = false
     })
       .HorizontalAlignment(HorizontalAlignment.Left)
 
@@ -125,6 +126,7 @@ let authorAvatarOf(ctx: RowCtx, author: Author, size: float) : Control =
       Size = size
       Cache = ctx.Images
       Square = (Author.isOrganization author)
+      Viewable = false
     })
       .HorizontalAlignment(HorizontalAlignment.Left)
 
@@ -258,6 +260,7 @@ let orgIdentity(ctx: RowCtx, organization: Organization) : Control =
       Size = 36.0
       Cache = ctx.Images
       Square = false
+      Viewable = false
     })
       .HorizontalAlignment(HorizontalAlignment.Left)
 

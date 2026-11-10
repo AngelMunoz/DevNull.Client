@@ -839,6 +839,7 @@ let runLabel(media: Media, viewerId: string, ofRun: Run) : Control =
           Size = 16.0
           Cache = media.Cache
           Square = false
+          Viewable = false
         },
         TextBlock()
           .Classes(Theme.name Theme.Mono)

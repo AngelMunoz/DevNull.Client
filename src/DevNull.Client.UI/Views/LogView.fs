@@ -1561,6 +1561,7 @@ let view
           }
         Actions = true
         OnStar = fun commit -> dispatch(State.StarToggled commit)
+        OnStars = ValueNone
         OnVote = fun commit -> dispatch(State.PollVoteRequested commit)
         OnPastel = fun commit -> dispatch(State.PastelGiven commit)
         Translation =

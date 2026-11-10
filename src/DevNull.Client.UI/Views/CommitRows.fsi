@@ -41,6 +41,9 @@ type Host = {
   /// search row keeps its star and hides both.
   Actions: bool
   OnStar: Commit -> unit
+  /// The stargazers list the author's own star count opens; an
+  /// absent command leaves the count read-only.
+  OnStars: (Commit -> unit) voption
   OnVote: Commit -> unit
   OnPastel: Commit -> unit
   Translation: IObservable<Commit -> TranslationView voption>

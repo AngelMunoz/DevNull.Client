@@ -8,7 +8,9 @@ open Avalonia.Media
 open NXUI.Extensions
 open DevNull.Client
 open DevNull.Client.Components.AsyncImage
+open DevNull.Client.Components.ImageViewer
 open DevNull.Client.Core.ApiTypes
+open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 
 /// One user's avatar: the image over the initial disc when a URL
@@ -23,6 +25,10 @@ type Props = {
   /// The square shape the organization's avatar uses; persons draw
   /// the disc.
   Square: bool
+  /// Whether the avatar opens the picture full size on a click;
+  /// off — and with no URL on — the avatar renders exactly as it
+  /// did before the viewer mattered.
+  Viewable: bool
 }
 
 let initial(name: string) =
@@ -80,4 +86,37 @@ let view(props: Props) : Control =
         .VerticalAlignment(VerticalAlignment.Center)
   |]
 
-  Grid().Width(props.Size).Height(props.Size).Children(children)
+  let avatar = Grid().Width(props.Size).Height(props.Size).Children(children)
+
+  // The picture viewer, where the host arms it: one photo at full
+  // size, the way the web's profile picture opens. The owner comes
+  // from the tree, as the commit card's gallery does.
+  match props.Viewable, props.Url with
+  | true, Some url ->
+    Button()
+      .Name("AvatarView")
+      .Classes(Theme.name Theme.GhostButton)
+      .Padding(0.0)
+      .Content(avatar)
+      .OnClickHandler(fun _ args ->
+        // The viewer never opens the page behind the avatar.
+        args.Handled <- true
+
+        match TopLevel.GetTopLevel avatar with
+        | :? Window as owner ->
+          ImageViewer.show {
+            Owner = owner
+            Cache = props.Cache
+            Photos = [
+              {
+                Id = url
+                Width = 0
+                Height = 0
+                Description = Some($"""{props.Name}'s profile picture""")
+                Url = sizedAvatarUrl(url, 1024)
+              }
+            ]
+            Start = 0
+          }
+        | _ -> ())
+  | _ -> avatar

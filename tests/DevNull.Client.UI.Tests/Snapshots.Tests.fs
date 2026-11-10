@@ -287,6 +287,17 @@ let private scrollThreadToEndAsync(window: Window) : Async<unit> =
         | _ -> None)
       |> Option.iter _.ScrollToEnd()))
 
+/// Scrolls the search results to its start through its own scroller.
+let private scrollSearchToTopAsync(window: Window) : Async<unit> =
+  onUiAsync(fun () ->
+    controlByName(window, "SearchTabs")
+    |> Option.bind(fun tabs ->
+      tabs.GetVisualAncestors()
+      |> Seq.tryPick(function
+        | :? ScrollViewer as scroller -> Some scroller
+        | _ -> None))
+    |> Option.iter(fun scroller -> scroller.Offset <- Vector(0.0, 0.0)))
+
 /// The proof of the pipeline itself: one signed-in shell over the canned
 /// timeline page, rendered and saved. Every feature's states ride the
 /// same captureAsync.
@@ -1338,6 +1349,7 @@ let captureTests =
         Flyout = ValueNone
         Pin = ValueNone
         Star = ValueNone
+        Stars = ValueNone
         Vote = ValueNone
         Pastel = ValueNone
         Menu = menu
@@ -2049,6 +2061,7 @@ let captureTests =
         Flyout = ValueNone
         Pin = ValueNone
         Star = ValueNone
+        Stars = ValueNone
         Vote = ValueNone
         Pastel = ValueNone
         Menu = menu
@@ -3136,6 +3149,106 @@ let captureTests =
       do! settleAsync()
 
       let! path = captureAsync("F26/f26-hashtag-links", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the profile picture viewer stands open over the profile" {
+      let api = ProfilePictures.avatarApi ProfilePictures.profileWithAvatarJson
+
+      let! window = startShell(signedInStore(), api :> IHttp)
+
+      do! ProfilePictures.openProfileAsync window
+      do! ProfilePictures.openViewerAsync window
+
+      let viewer() =
+        window.OwnedWindows
+        |> Seq.tryFind(fun open_ -> open_.Name = "ImageViewer")
+
+      let! opened = waitForAsync(5000, viewer, Option.isSome)
+      Expect.isTrue opened "the picture viewer never opened"
+
+      match viewer() with
+      | Some viewed ->
+        let! rendered =
+          waitForAsync(
+            8000,
+            (fun () ->
+              controlByName(viewed, "ImageViewerStage")
+              |> Option.exists(fun stage ->
+                stage.GetVisualDescendants()
+                |> Seq.exists(fun visual ->
+                  match visual with
+                  | :? Avalonia.Controls.Image as image ->
+                    image.Source <> null
+                  | _ -> false))),
+            id
+          )
+
+        Expect.isTrue rendered "the picture never rendered"
+
+        let! path = captureAsync("F31/f31-profile-picture-viewer", viewed)
+
+        let bytes = IO.File.ReadAllBytes(path)
+        Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+      | None -> failtest "the picture viewer never opened"
+    }
+
+    testAsync "the search results carry the Latest tab" {
+      let rows = SearchLatest.mixedRows()
+
+      let api = SearchLatest.latestSearchApi rows
+
+      let! window =
+        SearchLatest.openResultsAsync(api, signedInStore(), "3 matches")
+
+      do! SearchLatest.clickSearchTabAsync(window, "Latest")
+
+      let! heading = seesVisible(window, "Latest commits \u00b7 past week")
+
+      Expect.isTrue heading "the Latest heading never showed"
+
+      do! onUiAsync(fun () -> window.Height <- 2000.0)
+
+      do! scrollSearchToTopAsync window
+
+      do! settleAsync()
+
+      let! path = captureAsync("F27/f27-search-latest-tab", window)
+
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+    }
+
+    testAsync "the stargazers list stands open over the thread" {
+      let api = starsThreadApi(ok starsPageOneJson, None)
+      let! window = startShell(signedInStore(), api :> IHttp)
+
+      let! shown = showsText(window, "My own commit.")
+      Expect.isTrue shown "the log never rendered"
+
+      do! clickWhenShown(window, "My own commit.")
+
+      let! thread = seesVisible(window, "Back to the log")
+      Expect.isTrue thread "the thread never rendered"
+
+      let! present =
+        waitForAsync(
+          5000,
+          (fun () -> controlByName(window, "StarCount")),
+          Option.isSome
+        )
+
+      Expect.isTrue present "the star count never showed"
+
+      do! clickNamed(window, "StarCount")
+
+      let! person = seesVisible(window, "Kai")
+      Expect.isTrue person "the stargazer never listed"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F25/f25-stargazers-dialog", window)
       let bytes = IO.File.ReadAllBytes(path)
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }

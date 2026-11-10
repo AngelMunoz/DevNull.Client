@@ -77,6 +77,7 @@ let personContent(images: ImageCacheService, user: User) : Control =
         Size = 28.0
         Cache = images
         Square = false
+        Viewable = false
       },
       StackPanel()
         .VerticalAlignment(VerticalAlignment.Center)
@@ -111,6 +112,7 @@ let orgContent
         Size = 28.0
         Cache = images
         Square = false
+        Viewable = false
       },
       StackPanel()
         .VerticalAlignment(VerticalAlignment.Center)

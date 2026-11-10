@@ -60,6 +60,13 @@ type Props<'env
 // The page's state logic.
 module State =
 
+  // Which order the commit results stand in: the server's meaning
+  // order, or newest first inside the past week. Both derive from
+  // the same answer, so switching the tab never refetches.
+  type ResultTab =
+    | MostRelevant
+    | Latest
+
   type Model = {
     // The box's text as typed; the results answer the term last
     // submitted, not the draft.
@@ -67,6 +74,7 @@ module State =
     Answer: CommitsFound voption
     Profiles: ProfilesFound voption
     Now: DateTimeOffset
+    Tab: ResultTab
     Recents: string list
     // Whether translations show by themselves.
     Automatic: bool
@@ -83,6 +91,7 @@ module State =
     | SearchedFor of string
     | Cleared
     | Picked of string
+    | TabChosen of ResultTab
     | ProfilesArrived of ProfilesFound
     | CommitsArrived of CommitsFound
     | CardEvent of CommitCard.Event
@@ -110,6 +119,7 @@ module State =
       Answer = ValueNone
       Profiles = ValueNone
       Now = DateTimeOffset.UtcNow
+      Tab = MostRelevant
       Recents = props.Recents.Recent(props.SignedIn.Session.User.Id)
       Automatic = props.SignedIn.Session.AutomaticTranslation
       Translations =
@@ -151,6 +161,24 @@ module State =
         Organizations = []
         Throttled = false
       }
+
+  // The answer's nodes in the tab's order: the server's meaning
+  // order, or the past week's newest first. Both derive from the
+  // same folded answer, so a star or a deletion lands on either
+  // tab.
+  let resultNodes(model: Model, answer: CommitsFound) : CommitNode list =
+    match model.Tab with
+    | MostRelevant -> answer.Commits
+    | Latest ->
+      let cutoff = model.Now.AddDays(-7.0)
+
+      answer.Commits
+      |> List.filter(function
+        | LiveCommit commit -> commit.CreatedAt >= cutoff
+        | Tombstone _ -> false)
+      |> List.sortByDescending(function
+        | LiveCommit commit -> commit.CreatedAt
+        | Tombstone _ -> DateTimeOffset.MinValue)
 
   // True while the submitted term still owes its answer.
   let searching(model: Model) : bool =
@@ -250,6 +278,7 @@ module State =
       },
       Cmd.none
     | Picked term -> model, Cmd.ofMsg(SearchedFor term)
+    | TabChosen tab -> { model with Tab = tab }, Cmd.none
     | ProfilesArrived found ->
       {
         model with
@@ -645,7 +674,7 @@ module Parts =
       )
 
   // The results header: the section's name and the match count.
-  let countHeader(count: int) : Control =
+  let countHeader(heading: string, count: int) : Control =
     let word = if count = 1 then "match" else "matches"
 
     let grid = Grid()
@@ -655,7 +684,7 @@ module Parts =
       TextBlock()
         .Classes(Theme.name Theme.Subtitle)
         .Margin(20.0, 12.0, 20.0, 8.0)
-        .Text("Most relevant commits")
+        .Text(heading)
         .Column(0),
       TextBlock()
         .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
@@ -716,8 +745,36 @@ module Parts =
           .Children(rows)
       )
 
+  // The results tab strip: the meaning order or the past week, the
+  // way the site splits the same answer.
+  let tabStrip
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : Control =
+    ContentControl()
+      .Name("SearchTabs")
+      .Content(
+        TabStrip.view [
+          {
+            Label = "Most relevant"
+            Active =
+              model
+              |> Observable.map(fun current -> current.Tab = State.MostRelevant)
+            Badge = ValueNone
+            Choose = fun () -> dispatch(State.TabChosen State.MostRelevant)
+          }
+
+          {
+            Label = "Latest"
+            Active =
+              model |> Observable.map(fun current -> current.Tab = State.Latest)
+            Badge = ValueNone
+            Choose = fun () -> dispatch(State.TabChosen State.Latest)
+          }
+        ]
+      )
+
   // The fatal line and its hint, the site's own words.
-  let fatalOf(term: string) : Control =
+  let fatalOf(hint: string, term: string) : Control =
     StackPanel()
       .Margin(0.0, 48.0, 0.0, 48.0)
       .Children(
@@ -730,9 +787,7 @@ module Parts =
           .TextAlignment(TextAlignment.Center)
           .TextWrapping(TextWrapping.Wrap)
           .Margin(24.0, 8.0, 24.0, 0.0)
-          .Text(
-            "Try describing the idea in other words, or pick one of the searches below."
-          )
+          .Text(hint)
       )
 
 let view
@@ -796,6 +851,7 @@ let view
           }
         Actions = false
         OnStar = fun commit -> dispatch(State.StarToggled commit)
+        OnStars = ValueNone
         OnVote = ignore
         OnPastel = ignore
         Translation =
@@ -833,6 +889,8 @@ let view
     current.Recents,
     answer.Term,
     answer.Commits,
+    current.Tab,
+    current.Now.Date,
     found.Term,
     found.Users,
     found.Organizations
@@ -894,11 +952,20 @@ let view
                 |]
               )
 
+          let shown = State.resultNodes(current, answer)
+
           let results =
             if State.searching current then
               Parts.placeholders()
-            elif answer.Commits.IsEmpty then
-              Parts.fatalOf term
+            elif shown.IsEmpty then
+              let hint =
+                match current.Tab with
+                | State.MostRelevant ->
+                  "Try describing the idea in other words, or pick one of the searches below."
+                | State.Latest ->
+                  "No matches from the past week. Try Most relevant for older matches, or search for another idea."
+
+              Parts.fatalOf(hint, term)
             else
               let rows =
                 ItemsControl()
@@ -911,15 +978,30 @@ let view
                   .BindItemsSource(
                     model
                     |> Observable.map(fun now ->
-                      answer.Commits
+                      shown
                       :> System.Collections.Generic.IReadOnlyList<CommitNode>),
                     FeedParts.nodeKey
                   )
 
-              StackPanel()
-                .Children(Parts.countHeader(answer.Commits.Length), rows)
+              let heading =
+                match current.Tab with
+                | State.MostRelevant -> "Most relevant commits"
+                | State.Latest -> "Latest commits \u00b7 past week"
 
-          StackPanel().Children(profileRows, results, quietRows)
+              StackPanel()
+                .Children(Parts.countHeader(heading, shown.Length), rows)
+
+          let tabs =
+            if answer.Term <> "" then
+              [| Parts.tabStrip(model, dispatch) |]
+            else
+              [||]
+
+          let ordered: Control array =
+            let head: Control array = [| profileRows |]
+            Array.append head (Array.append tabs [| results; quietRows |])
+
+          StackPanel().Children(ordered)
     )
 
   PageChrome.page {

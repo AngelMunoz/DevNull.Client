@@ -38,3 +38,9 @@ val plainText: html: string -> string
 /// block, whose box keeps no header.
 val blockTitle:
   language: string option * filename: string option -> string option
+
+/// The avatar URL sized for a full-size view: only a GitHub host
+/// carries the size in its `s` query value, so only that host is
+/// rebuilt; any other address — or one that does not parse — rides
+/// through unchanged, the way the web's `:get` does.
+val sizedAvatarUrl: url: string * pixels: int -> string

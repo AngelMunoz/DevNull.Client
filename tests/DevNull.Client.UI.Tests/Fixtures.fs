@@ -997,6 +997,65 @@ let pastelJson =
     "{\"data\":%s,\"pasteis_remaining\":6,\"pasteis_resets_at\":\"2026-10-27T00:00:00Z\",\"author_pasteis_received\":1}"
     commitJson
 
+/// One stargazer for the star-list tests: named by the handle its
+/// row carries, so the dialog's row and the profile it opens meet.
+let stargazerJson =
+  """{"id":"01a15638-aaaa-733c-89b3-373a1a0c538a","handle":"kai","name":"Kai","avatar_url":null,"bio":null,"lane":null}"""
+
+/// A second stargazer, for the cursor page of the star list.
+let stargazerTwoJson =
+  """{"id":"01a15638-bbbb-733c-89b3-373a1a0c538a","handle":"mona","name":"Mona","avatar_url":null,"bio":null,"lane":null}"""
+
+/// The star list's first page, with no next cursor.
+let starsPageOneJson =
+  sprintf
+    "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+    stargazerJson
+
+/// The star list's first page, with a next cursor.
+let starsPageNextJson =
+  sprintf
+    "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":\"next\",\"prev_cursor\":null}}"
+    stargazerJson
+
+/// The star list's second page, with no next cursor.
+let starsPageTwoJson =
+  sprintf
+    "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+    stargazerTwoJson
+
+/// The api of the stargazers tests: the log carries the viewer's own
+/// commit beside someone else's, both threads answer, and the star
+/// list answers from the test's own cans. A refusal in place of the
+/// first page proves the dialog's error words.
+let starsThreadApi(first: HttpResponse, second: string option) =
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/log/" then
+      ok ownLogJson
+    elif request.Target.Contains "/stars?cursor=next" then
+      ok(second |> Option.defaultValue starsPageTwoJson)
+    elif request.Method = "GET" && request.Target.Contains "/stars" then
+      first
+    elif request.Target.Contains "/replies" then
+      ok
+        "{\"data\":[],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+    elif request.Target.Contains "/related" then
+      ok "{\"data\":[]}"
+    elif
+      request.Target.StartsWith
+        "/api/v1/commits/018f4c1e-0aa0-7c3a-9b2d-5e6f7a8b9c0d"
+    then
+      ok ownThreadPageJson
+    elif
+      request.Target.StartsWith
+        "/api/v1/commits/018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+    then
+      ok threadPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
 /// The api of the thread tests: the log feeds the boot, the commit,
 /// its replies, the pastel, and the reply post all answer from cans.
 let threadApi() =

@@ -249,6 +249,7 @@ let footer(context: FooterContext) : Control =
             Size = 36.0
             Cache = context.Images
             Square = false
+            Viewable = false
           },
           StackPanel()
             .VerticalAlignment(VerticalAlignment.Center)
@@ -475,6 +476,7 @@ let logRailNode(session: SignedInSession, cache: ImageCacheService) : Control =
           Size = 40.0
           Cache = cache
           Square = false
+          Viewable = false
         }
       )
 

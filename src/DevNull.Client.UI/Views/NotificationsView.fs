@@ -491,6 +491,7 @@ module Parts =
             Size = 40.0
             Cache = cache
             Square = false
+            Viewable = false
           }
 
         let avatar =
@@ -619,6 +620,7 @@ module Parts =
           Size = 28.0
           Cache = cache
           Square = false
+          Viewable = false
         },
         StackPanel()
           .VerticalAlignment(VerticalAlignment.Center)

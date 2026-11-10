@@ -1129,6 +1129,12 @@ module Commits =
     Cursor: string option
   }
 
+  type StargazersRequest = {
+    KeyFile: string
+    CommitId: string
+    Cursor: string option
+  }
+
   type ActionRequest = { KeyFile: string; CommitId: string }
 
   type ReportRequest = {
@@ -1397,6 +1403,29 @@ module Commits =
           Body = ""
           Headers = []
           Decode = CommitNode.decodePage
+        }
+      )
+  }
+
+  let stargazers(env, request: StargazersRequest) = asyncResult {
+    let! path = Internal.commitPath("/stars", request.CommitId)
+
+    let target =
+      Internal.withQuery(
+        path,
+        Internal.optionalParameter("cursor", request.Cursor)
+      )
+
+    return!
+      Internal.sendSigned(
+        env,
+        {
+          KeyFile = request.KeyFile
+          Method = "GET"
+          Target = target
+          Body = ""
+          Headers = []
+          Decode = User.decodePage
         }
       )
   }

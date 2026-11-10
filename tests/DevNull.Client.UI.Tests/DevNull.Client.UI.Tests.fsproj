@@ -12,26 +12,10 @@
     <Compile Include="Fixtures.fs" />
     <Compile Include="Natives.Tests.fs" />
     <Compile Include="Unread.Tests.fs" />
-    <Compile Include="Remotes.Tests.fs" />
     <Compile Include="App.Tests.fs" />
-    <Compile Include="Composer.Tests.fs" />
-    <Compile Include="Search.Tests.fs" />
-    <Compile Include="Scheduled.Tests.fs" />
     <Compile Include="Shortcuts.Tests.fs" />
-    <Compile Include="WhoToFollow.Tests.fs" />
-    <Compile Include="Translation.Tests.fs" />
     <Compile Include="Leaks.Tests.fs" />
     <Compile Include="Feed.Tests.fs" />
-    <Compile Include="RemotesView.Tests.fs" />
-    <Compile Include="OrganizationView.Tests.fs" />
-    <Compile Include="Share.Tests.fs" />
-    <Compile Include="Report.Tests.fs" />
-    <Compile Include="CommitMenu.Tests.fs" />
-    <Compile Include="Stargazers.Tests.fs" />
-    <Compile Include="Formatting.Tests.fs" />
-    <Compile Include="ProfilePictures.Tests.fs" />
-    <Compile Include="SearchLatest.Tests.fs" />
-    <Compile Include="Snapshots.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\DevNull.Client.UI.Tests\Harness.fs" Link="Harness.fs" />
+    <Compile Include="..\DevNull.Client.UI.Tests\Fixtures.fs" Link="Fixtures.fs" />
+    <Compile Include="..\DevNull.Client.UI.Tests\App.Tests.fs" Link="App.Tests.fs" />
+    <Compile Include="..\DevNull.Client.UI.Remotes.Tests\Remotes.Tests.fs" Link="Remotes.Tests.fs" />
+    <Compile Include="Composer.Tests.fs" />
+    <Compile Include="Search.Tests.fs" />
+    <Compile Include="Scheduled.Tests.fs" />
+    <Compile Include="Translation.Tests.fs" />
+    <Compile Include="WhoToFollow.Tests.fs" />
+    <Compile Include="OrganizationView.Tests.fs" />
+    <Compile Include="Report.Tests.fs" />
+    <Compile Include="Share.Tests.fs" />
+    <Compile Include="CommitMenu.Tests.fs" />
+    <Compile Include="Stargazers.Tests.fs" />
+    <Compile Include="Formatting.Tests.fs" />
+    <Compile Include="ProfilePictures.Tests.fs" />
+    <Compile Include="SearchLatest.Tests.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Headless" />
+    <PackageReference Include="Avalonia.Skia" />
+    <PackageReference Include="Expecto" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DevNull.Client.UI\DevNull.Client.UI.fsproj" />
+  </ItemGroup>
+
+</Project>

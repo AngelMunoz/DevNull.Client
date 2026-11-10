@@ -66,14 +66,30 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.exists == 'false'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Core
+            project: tests/DevNull.Client.Core.Tests
+            scale: ""
+          - name: UI shell
+            project: tests/DevNull.Client.UI.Tests
+            scale: "3"
+          - name: UI Remotes
+            project: tests/DevNull.Client.UI.Remotes.Tests
+            scale: "3"
+          - name: UI Features
+            project: tests/DevNull.Client.UI.Features.Tests
+            scale: "3"
+          - name: UI Snapshots
+            project: tests/DevNull.Client.UI.Snapshots.Tests
+            scale: "3"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
-
-      - name: Core tests
-        run: dotnet run --project tests/DevNull.Client.Core.Tests -- --summary
 
       # The global-state and real-time tests mark themselves sequenced
       # in the test list, so the parallel default is safe: Expecto
@@ -81,10 +97,10 @@ jobs:
       # still renders the one shared headless session slower than a
       # desktop, so the wait budgets scale up instead of failing on
       # starved probes.
-      - name: UI tests
+      - name: ${{ matrix.name }} tests
         env:
-          DEVNULL_TEST_WAIT_SCALE: "3"
-        run: dotnet run --project tests/DevNull.Client.UI.Tests -- --summary
+          DEVNULL_TEST_WAIT_SCALE: ${{ matrix.scale }}
+        run: dotnet run --project ${{ matrix.project }} -- --summary
 
   build:
     needs: [prepare, test]

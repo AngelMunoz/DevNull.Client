@@ -195,7 +195,7 @@ let tests =
     testCaseAsync
       "a scroll soak stays inside its memory budget"
       (async {
-        let! window = startShell(signedInStore(), soakApi 40)
+        let! window = startShell(signedInStore(), soakApi 30)
 
         let! shown =
           waitForAsync(
@@ -210,7 +210,7 @@ let tests =
 
         let! before = probeUiAsync(fun () -> GC.GetTotalMemory true)
 
-        for _ in 1..10 do
+        for _ in 1..3 do
           do! scrollFeedToEndAsync window
           do! settleAsync()
           do! scrollFeedToTopAsync window

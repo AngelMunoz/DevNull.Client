@@ -8,5 +8,8 @@
   <Folder Name="/tests/">
     <Project Path="tests/DevNull.Client.Core.Tests/DevNull.Client.Core.Tests.fsproj" />
     <Project Path="tests/DevNull.Client.UI.Tests/DevNull.Client.UI.Tests.fsproj" />
+    <Project Path="tests/DevNull.Client.UI.Remotes.Tests/DevNull.Client.UI.Remotes.Tests.fsproj" />
+    <Project Path="tests/DevNull.Client.UI.Features.Tests/DevNull.Client.UI.Features.Tests.fsproj" />
+    <Project Path="tests/DevNull.Client.UI.Snapshots.Tests/DevNull.Client.UI.Snapshots.Tests.fsproj" />
   </Folder>
 </Solution>

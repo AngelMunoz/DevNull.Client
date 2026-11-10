@@ -353,6 +353,36 @@ let captureTests =
       let! mention = showsText(window, "@DevNull")
       Expect.isTrue mention "the mention chip never rendered"
 
+      // The window folds the profile header on its own layouts, and
+      // the folded bar hides the bio the chips live in; pin the full
+      // header so the capture frames the chips.
+      let! folded =
+        waitForAsync(
+          5000,
+          (fun () -> window),
+          (fun root -> not(visibleText(root, "@DevNull")))
+        )
+
+      Expect.isTrue folded "the header never folded before the capture"
+
+      do! clickVisibleHeaderToggle(window)
+
+      let! devnull = seesVisible(window, "@DevNull")
+
+      Expect.isTrue devnull "the mention chip never rendered in the full header"
+
+      let! acme = seesVisible(window, "@ACME")
+
+      Expect.isTrue
+        acme
+        "the organization chip never rendered in the full header"
+
+      let! stranger = seesVisible(window, "@stranger-dev")
+
+      Expect.isTrue
+        stranger
+        "the unmapped chip never rendered in the full header"
+
       do! settleAsync()
 
       let! path = captureAsync("F55/f55-bio-mentions", window)

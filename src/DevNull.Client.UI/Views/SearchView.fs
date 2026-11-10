@@ -173,10 +173,9 @@ module State =
       let cutoff = model.Now.AddDays(-7.0)
 
       answer.Commits
-      |> List.choose(function
-        | LiveCommit commit when commit.CreatedAt >= cutoff ->
-          Some(LiveCommit commit)
-        | _ -> None)
+      |> List.filter(function
+        | LiveCommit commit -> commit.CreatedAt >= cutoff
+        | Tombstone _ -> false)
       |> List.sortByDescending(function
         | LiveCommit commit -> commit.CreatedAt
         | Tombstone _ -> DateTimeOffset.MinValue)

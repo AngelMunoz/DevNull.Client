@@ -128,32 +128,32 @@ the consolidated card actions.
 ## Issue index
 
 Phase 1 is done, and the cycle's index (#16, #9, #17, #4, #2) is done
-and merged. The next index is the ordered pool below: eight items, triaged
+and merged. The next index is the ordered pool below: seven items, triaged
 by effort and by how each one builds on the search and organization work
 that just landed. Each issue keeps its own detail in the tracker.
-[#7](https://github.com/AngelMunoz/DevNull.Client/issues/7) is implemented
-and rides its open pull request; the pool below is re-fed from it.
+[#7](https://github.com/AngelMunoz/DevNull.Client/issues/7) and
+[#23](https://github.com/AngelMunoz/DevNull.Client/issues/23) are
+implemented and ride their stacked open pull requests; the pool below is
+re-fed from them.
 
-1. [#23 — organization commits tab](https://github.com/AngelMunoz/DevNull.Client/issues/23).
-   One Core read and one tab on the organization page, on top of #7.
-2. [#24 — organization mentions bell](https://github.com/AngelMunoz/DevNull.Client/issues/24).
+1. [#24 — organization mentions bell](https://github.com/AngelMunoz/DevNull.Client/issues/24).
    Two decoder fields and the bell, count and jump first: no signed API
    marks mentions read yet, so that part waits.
-3. [#30 — code blocks: line ranges and titles out of the language label](https://github.com/AngelMunoz/DevNull.Client/issues/30).
+2. [#30 — code blocks: line ranges and titles out of the language label](https://github.com/AngelMunoz/DevNull.Client/issues/30).
    A check first, then a small split in the renderer if the fault is
    shared. Its own regression test decides.
-4. [#28 — log feed catch-up and batching](https://github.com/AngelMunoz/DevNull.Client/issues/28).
+3. [#28 — log feed catch-up and batching](https://github.com/AngelMunoz/DevNull.Client/issues/28).
    The feed misses late-approved commits today. The log request learns
    the catch-up parameters, and the feed batches what arrives.
-5. [#26 — hashtag links in commit text](https://github.com/AngelMunoz/DevNull.Client/issues/26).
+4. [#26 — hashtag links in commit text](https://github.com/AngelMunoz/DevNull.Client/issues/26).
    Renderer work only: a tag becomes a link into the search that just
    shipped.
-6. [#25 — stargazers on own commits](https://github.com/AngelMunoz/DevNull.Client/issues/25).
+5. [#25 — stargazers on own commits](https://github.com/AngelMunoz/DevNull.Client/issues/25).
    One Core page read and one entry point on the author's own commits.
-7. [#31 — profile pictures in the image viewer](https://github.com/AngelMunoz/DevNull.Client/issues/31).
+6. [#31 — profile pictures in the image viewer](https://github.com/AngelMunoz/DevNull.Client/issues/31).
    The viewer exists. Avatars on the card, the flyout, and the profile
    header learn to open it.
-8. [#27 — search: a Latest tab](https://github.com/AngelMunoz/DevNull.Client/issues/27).
+7. [#27 — search: a Latest tab](https://github.com/AngelMunoz/DevNull.Client/issues/27).
     Verify first: the API support is not confirmed, and the answer
     decides whether the tab is client work or waits on the server.
 

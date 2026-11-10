@@ -10,6 +10,12 @@ the surface meant to survive.
   Avalonia headless session: real routes, real pages, every request
   answered by `FakeApi`.
 
+The UI tests run as four programs. Each program owns one headless
+session, so the four run as separate processes in parallel. Run one
+by project: `dotnet run --project tests/DevNull.Client.UI.Tests` for
+the shell, plus the Remotes, Features, and Snapshots projects. The
+memory and keyboard suites stay sequenced inside the shell program.
+
 ## Commands
 
 - `dotnet run --project tests/DevNull.Client.Core.Tests`

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Organizations:** a commit by an organization now shows the organization as its author, with a square avatar that opens the organization's page. The commit carries no star, report, poll or pastéis control, and a member of the organization can delete it.
+
 ## [0.12.0] - 2026-11-10
 
 ### Added

@@ -296,7 +296,7 @@ module Parts =
                block.MaxLines <- 3
                block.TextTrimming <- TextTrimming.CharacterEllipsis
                block :> Control
-             | other -> other :> Control)
+             | other -> other)
           )
       )
 

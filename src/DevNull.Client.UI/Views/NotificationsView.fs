@@ -720,7 +720,7 @@ module Parts =
           block.Classes.Add(Theme.name Theme.Muted)
           block.Margin <- Thickness(0.0, 2.0, 0.0, 0.0)
           block :> Control
-        | other -> other :> Control)
+        | other -> other)
 
   // One group's expansion host: the toggle line and, while open, the
   // events the group endpoint returned. Every piece binds the group's

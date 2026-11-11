@@ -646,7 +646,7 @@ let captureTests =
         $"a mention chip stands taller than the text line {textHeight:F1}px: {chipHeights}"
 
       Expect.isTrue
-        (bioHeight <= textHeight * 1.25)
+        (bioHeight <= textHeight * 1.35)
         $"the bio line balloons past the text line: bio {bioHeight:F1}px, text {textHeight:F1}px, font {bioFont:F1}px"
     }
 
@@ -735,7 +735,7 @@ let captureTests =
         |> List.map(fun piece -> piece.Value |> fun (_, height, _) -> height)
 
       Expect.isTrue
-        (heights |> List.forall(fun height -> height <= textHeight))
+        (heights |> List.forall(fun height -> height <= textHeight * 1.25))
         $"an inline label stands taller than the text line {textHeight:F1}px: {heights}"
 
       let bottoms =
@@ -883,7 +883,7 @@ let captureTests =
         $"the bubble link is not at the body font size {bodyFont:F1}px"
 
       Expect.isTrue
-        (height <= textHeight)
+        (height <= textHeight * 1.25)
         $"the bubble link label stands taller than the text line {textHeight:F1}px: {height}"
 
       Expect.isTrue

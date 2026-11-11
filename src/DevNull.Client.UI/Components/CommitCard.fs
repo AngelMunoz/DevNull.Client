@@ -214,7 +214,7 @@ module Parts =
     | UserMention, ValueSome source ->
       InlineUIContainer(
         Child = UserFlyout.attach(source, mentioned mention.Handle, handle),
-        BaselineAlignment = BaselineAlignment.Baseline
+        BaselineAlignment = BaselineAlignment.TextBottom
       )
     | OrganizationMention, ValueSome source ->
       InlineUIContainer(
@@ -231,17 +231,17 @@ module Parts =
               args.Handled <- true
 
               source.OnOpenOrg mention.Handle),
-        BaselineAlignment = BaselineAlignment.Baseline
+        BaselineAlignment = BaselineAlignment.TextBottom
       )
     | _, ValueNone ->
       InlineUIContainer(
         Child = handle,
-        BaselineAlignment = BaselineAlignment.Baseline
+        BaselineAlignment = BaselineAlignment.TextBottom
       )
     | UnknownMention _, ValueSome _ ->
       InlineUIContainer(
         Child = handle,
-        BaselineAlignment = BaselineAlignment.Baseline
+        BaselineAlignment = BaselineAlignment.TextBottom
       )
 
   // A hashtag as the web finds one: a `#` before a letter, not right
@@ -304,12 +304,12 @@ module Parts =
               args.Handled <- true
 
               source.OnOpenTag tag),
-        BaselineAlignment = BaselineAlignment.Baseline
+        BaselineAlignment = BaselineAlignment.TextBottom
       )
     | ValueNone ->
       InlineUIContainer(
         Child = label,
-        BaselineAlignment = BaselineAlignment.Baseline
+        BaselineAlignment = BaselineAlignment.TextBottom
       )
 
   // One link of the body: the accent color, and the handled click
@@ -338,12 +338,12 @@ module Parts =
               args.Handled <- true
 
               openExternal url),
-        BaselineAlignment = BaselineAlignment.Baseline
+        BaselineAlignment = BaselineAlignment.TextBottom
       )
     | ValueNone ->
       InlineUIContainer(
         Child = label,
-        BaselineAlignment = BaselineAlignment.Baseline
+        BaselineAlignment = BaselineAlignment.TextBottom
       )
 
   // One plain run with its tags wrapped: prose runs beside tag

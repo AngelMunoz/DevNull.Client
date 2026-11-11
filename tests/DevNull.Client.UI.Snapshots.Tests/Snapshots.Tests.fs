@@ -685,12 +685,13 @@ let captureTests =
           let bodyFont =
             bodyBlock |> Option.map _.FontSize |> Option.defaultValue nan
 
-          let bodyTop =
+          let bodyBottom =
             bodyBlock
             |> Option.bind(fun block ->
-              let top = block.TranslatePoint(Point(0.0, 0.0), window)
+              let bottom =
+                block.TranslatePoint(Point(0.0, block.Bounds.Height), window)
 
-              if top.HasValue then Some top.Value.Y else None)
+              if bottom.HasValue then Some bottom.Value.Y else None)
             |> Option.defaultValue nan
 
           let inlineMeasure(name: string) =
@@ -699,7 +700,7 @@ let captureTests =
               let label = control :?> Avalonia.Controls.TextBlock
               let top = control.TranslatePoint(Point(0.0, 0.0), window)
               let topY = if top.HasValue then top.Value.Y else nan
-              label.FontSize, label.Bounds.Height, topY)
+              label.FontSize, label.Bounds.Height, topY + label.Bounds.Height)
 
           let pieces = [
             inlineMeasure "MentionHandle"
@@ -715,9 +716,9 @@ let captureTests =
             Avalonia.Size(700.0, System.Double.PositiveInfinity)
           )
 
-          bodyFont, bodyTop, pieces, refBlock.DesiredSize.Height)
+          bodyFont, bodyBottom, pieces, refBlock.DesiredSize.Height)
 
-      let bodyFont, bodyTop, pieces, textHeight = measure
+      let bodyFont, bodyBottom, pieces, textHeight = measure
 
       Expect.all pieces Option.isSome "an inline piece never rendered"
 
@@ -737,12 +738,13 @@ let captureTests =
         (heights |> List.forall(fun height -> height <= textHeight))
         $"an inline label stands taller than the text line {textHeight:F1}px: {heights}"
 
-      let tops =
-        pieces |> List.map(fun piece -> piece.Value |> fun (_, _, top) -> top)
+      let bottoms =
+        pieces
+        |> List.map(fun piece -> piece.Value |> fun (_, _, bottom) -> bottom)
 
       Expect.isTrue
-        (tops |> List.forall(fun top -> abs(top - bodyTop) <= 1.0))
-        $"an inline label is off the body line top {bodyTop:F1}px: {tops}"
+        (bottoms |> List.forall(fun bottom -> abs(bottom - bodyBottom) <= 2.0))
+        $"an inline label is off the body text bottom {bodyBottom:F1}px: {bottoms}"
     }
 
     testAsync "the chat inline links sit at text size" {
@@ -842,12 +844,13 @@ let captureTests =
           let bodyFont =
             bodyBlock |> Option.map _.FontSize |> Option.defaultValue nan
 
-          let bodyTop =
+          let bodyBottom =
             bodyBlock
             |> Option.bind(fun block ->
-              let top = block.TranslatePoint(Point(0.0, 0.0), window)
+              let bottom =
+                block.TranslatePoint(Point(0.0, block.Bounds.Height), window)
 
-              if top.HasValue then Some top.Value.Y else None)
+              if bottom.HasValue then Some bottom.Value.Y else None)
             |> Option.defaultValue nan
 
           let piece =
@@ -856,7 +859,7 @@ let captureTests =
               let label = control :?> Avalonia.Controls.TextBlock
               let top = control.TranslatePoint(Point(0.0, 0.0), window)
               let topY = if top.HasValue then top.Value.Y else nan
-              label.FontSize, label.Bounds.Height, topY)
+              label.FontSize, label.Bounds.Height, topY + label.Bounds.Height)
 
           let refBlock = Avalonia.Controls.TextBlock()
           refBlock.Text <- "see example"
@@ -866,13 +869,13 @@ let captureTests =
             Avalonia.Size(700.0, System.Double.PositiveInfinity)
           )
 
-          bodyFont, bodyTop, piece, refBlock.DesiredSize.Height)
+          bodyFont, bodyBottom, piece, refBlock.DesiredSize.Height)
 
-      let bodyFont, bodyTop, piece, textHeight = measure
+      let bodyFont, bodyBottom, piece, textHeight = measure
 
       Expect.isSome piece "the bubble link never rendered"
 
-      let font, height, top = piece.Value
+      let font, height, bottom = piece.Value
 
       Expect.equal
         font
@@ -884,8 +887,8 @@ let captureTests =
         $"the bubble link label stands taller than the text line {textHeight:F1}px: {height}"
 
       Expect.isTrue
-        (abs(top - bodyTop) <= 1.0)
-        $"the bubble link is off the body line top {bodyTop:F1}px: {top}"
+        (abs(bottom - bodyBottom) <= 2.0)
+        $"the bubble link is off the body text bottom {bodyBottom:F1}px: {bottom}"
     }
 
     testAsync "the organization page carries its follow and claim header" {

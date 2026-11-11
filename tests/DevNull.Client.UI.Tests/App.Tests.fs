@@ -40,6 +40,7 @@ open DevNull.Client.Views
 // qualified names short without opening the whole Components set.
 module CommitCard = DevNull.Client.Components.CommitCard
 module UserFlyout = DevNull.Client.Components.UserFlyout
+module ThreadMessage = DevNull.Client.Components.ThreadMessage
 
 let buttons(root: Control) : Button list =
   root.GetVisualDescendants()
@@ -2739,6 +2740,178 @@ let tests =
       })
 
     testCaseAsync
+      "the author name and handle open the author's profile"
+      (async {
+        let api = logApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        let! identity =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "AuthorIdentity")),
+            (fun control ->
+              control
+              |> Option.map(fun found -> found :? Button)
+              |> Option.defaultValue false)
+          )
+
+        Expect.isTrue identity "the author identity trigger never appeared"
+
+        do! clickNamed(window, "AuthorIdentity")
+
+        let! profile = showsText(window, "Builds things.")
+
+        Expect.isTrue profile "the author's profile never opened"
+      })
+
+    testCaseAsync
+      "the card body still opens the commit beside the identity"
+      (async {
+        let api = logApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "It was DNS.") |> Option.iter click)
+
+        let! thread = showsText(window, "Back to the log")
+
+        Expect.isTrue thread "the thread never rendered"
+      })
+
+    testCaseAsync
+      "an organization author's identity opens the organization page"
+      (async {
+        let api =
+          FakeApi(fun request ->
+            if request.Target.StartsWith "/api/v1/log/" then
+              ok orgAuthorLogPageJson
+            elif request.Target = "/api/v1/organizations/devnull" then
+              ok organizationProfileJson
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "It was DNS.")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickNamed(window, "AuthorIdentity")
+
+        let! org = showsText(window, "A quiet place for loud commits.")
+
+        Expect.isTrue org "the organization page never opened"
+      })
+
+    testCaseAsync
+      "the inbox identity opens the profile, not the commit"
+      (async {
+        let api = accountApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Notifications")
+
+        let! replied = showsText(window, "replied to your commit")
+
+        Expect.isTrue replied "the notification never rendered"
+
+        do! clickNamed(window, "AuthorIdentity")
+
+        let! profile = showsText(window, "Builds things.")
+
+        Expect.isTrue profile "the author's profile never opened"
+      })
+
+    testCaseAsync
+      "the inbox identity opens the profile with no commit behind it"
+      (async {
+        let inbox =
+          sprintf
+            """{"data":[%s],"links":{},"meta":{"per_page":20,"next_cursor":null,"prev_cursor":null},"filters":{"type":"all"},"read_at":"2026-10-20T04:20:00Z"}"""
+            (notificationJson.Replace(commitJson, "null"))
+
+        let api =
+          FakeApi(fun request ->
+            if request.Target.StartsWith "/api/v1/notifications" then
+              ok inbox
+            elif request.Target.StartsWith "/api/v1/log/" then
+              ok logPageJson
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Notifications")
+
+        let! replied = showsText(window, "replied to your commit")
+
+        Expect.isTrue replied "the notification never rendered"
+
+        do! clickNamed(window, "AuthorIdentity")
+
+        let! profile = showsText(window, "Builds things.")
+
+        Expect.isTrue profile "the author's profile never opened"
+      })
+
+    testCaseAsync
+      "an expanded group event identity opens the profile"
+      (async {
+        let api = groupedInboxApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Notifications")
+
+        do! clickWhenShown(window, "3 stars")
+
+        let! expanded = showsText(window, "Starred once.")
+
+        Expect.isTrue expanded "the group events never rendered"
+
+        // The last identity trigger is an event row's: the group row
+        // and its events share the actor, and each opens the profile.
+        do!
+          onUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.filter(fun visual -> visual.Name = "AuthorIdentity")
+            |> Seq.choose(fun visual ->
+              match visual with
+              | :? Button as button -> Some button
+              | _ -> None)
+            |> Seq.last
+            |> click)
+
+        let! profile = showsText(window, "Builds things.")
+
+        Expect.isTrue profile "the author's profile never opened"
+      })
+
+    testCaseAsync
       "the quote composer hides the attach button"
       (async {
         let api = threadApi()
@@ -4175,6 +4348,76 @@ let tests =
       })
 
     testCaseAsync
+      "a mention keeps its place in the body text"
+      (async {
+        let mentions: Mention list = [
+          {
+            Handle = "octocat"
+            Offset = 7
+            Length = 8
+            Kind = UserMention
+          }
+        ]
+
+        let! window =
+          probeUiAsync(fun () ->
+            let body =
+              CommitCard.body(
+                {
+                  Flyout = ValueNone
+                  Tone = CommitCard.Accent
+                  Mentions = mentions
+                  OnOpenExternal = ValueNone
+                },
+                "Thanks @octocat, #fsharp https://example.com/x",
+                [
+                  TextSegment "Thanks @octocat, #fsharp https://example.com/x"
+                ]
+              )
+
+            let window = Window(Content = body)
+            window.Show()
+            window)
+
+        let! shown = showsText(window, "#fsharp")
+        Expect.isTrue shown "the inline body never rendered"
+
+        let! pieces =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryPick(fun visual ->
+              match visual with
+              | :? TextBlock as block when block.Inlines <> null ->
+                Some(
+                  block.Inlines
+                  |> Seq.map(fun piece ->
+                    match piece with
+                    | :? Run as run ->
+                      run.Text |> Option.ofObj |> Option.defaultValue ""
+                    | :? InlineUIContainer as holder ->
+                      match holder.Child with
+                      | :? TextBlock as inner ->
+                        inner.Text |> Option.ofObj |> Option.defaultValue ""
+                      | _ -> ""
+                    | _ -> "")
+                  |> List.ofSeq
+                )
+              | _ -> None))
+
+        Expect.equal
+          pieces
+          (Some [
+            "Thanks "
+            "@octocat"
+            ", "
+            "#fsharp"
+            " "
+            "https://example.com/x"
+          ])
+          "the mention did not keep its place in the body text"
+      })
+
+    testCaseAsync
       "an organization mention opens the organization page, not the hover card"
       (async {
         let page =
@@ -4208,6 +4451,7 @@ let tests =
                   Flyout = ValueSome source
                   Tone = CommitCard.Accent
                   Mentions = commit.Mentions
+                  OnOpenExternal = ValueNone
                 },
                 commit.Body,
                 commit.BodySegments
@@ -4294,6 +4538,7 @@ let tests =
                   Flyout = ValueSome source
                   Tone = CommitCard.Accent
                   Mentions = []
+                  OnOpenExternal = ValueNone
                 },
                 "",
                 [
@@ -4365,6 +4610,198 @@ let tests =
           "/search/%23fsharp"
           ("/search/" + Uri.EscapeDataString opened[0])
           "the search url never escaped the tag"
+      })
+
+    testCaseAsync
+      "a body link opens through the browser and not the commit"
+      (async {
+        let commit =
+          commitJson.Replace("It was DNS.", "see https://example.com/x. now")
+
+        let! window, env =
+          startShellWithBrowser(signedInStore(), pollLogApiWith commit :> IHttp)
+
+        let! link =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "BodyLink")),
+            Option.isSome
+          )
+
+        Expect.isTrue link "the body link never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "BodyLink")
+            |> Option.bind(fun link ->
+              link.GetVisualAncestors()
+              |> Seq.tryPick(function
+                | :? Button as button -> Some button
+                | _ -> None))
+            |> Option.iter click)
+
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> env.OpenedUrls),
+            (fun urls -> urls = [ "https://example.com/x" ])
+          )
+
+        Expect.isTrue opened "the link never opened through the browser"
+
+        let! fellThrough =
+          probeUiAsync(fun () -> hasText(window, "Back to the log"))
+
+        Expect.isFalse fellThrough "the link click fell through to the commit"
+      })
+
+    testCaseAsync
+      "a link in a code segment stays literal"
+      (async {
+        let opened = ResizeArray<string>()
+
+        let! window =
+          probeUiAsync(fun () ->
+            let body =
+              CommitCard.body(
+                {
+                  Flyout = ValueNone
+                  Tone = CommitCard.Accent
+                  Mentions = []
+                  OnOpenExternal = ValueSome opened.Add
+                },
+                "",
+                [ CodeSegment "https://example.com" ]
+              )
+
+            let window = Window(Content = body)
+            window.Show()
+            window)
+
+        let! shown = showsText(window, "https://example.com")
+
+        Expect.isTrue shown "the code segment never rendered"
+
+        let! count =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.filter(fun visual -> visual.Name = "BodyLink")
+            |> Seq.length)
+
+        Expect.equal count 0 "the code link became clickable"
+      })
+
+    testCaseAsync
+      "a chat bubble links its body and its link card"
+      (async {
+        let opened = ResizeArray<string>()
+        let env = TestEnv(signedInStore(), logApi() :> IHttp)
+
+        let message: Message = {
+          Id = 7
+          UserId = "someone"
+          ClientId = "c-7"
+          Body = "see https://example.com/body"
+          BodySegments = [ TextSegment "see https://example.com/body" ]
+          Mentions = []
+          ReplyToId = None
+          ReplyTo = None
+          LinkPreview = None
+          Images = []
+          Voice = None
+          Reactions = []
+          Event = None
+          SubjectId = None
+          User = None
+          Subject = None
+          PinnedAt = None
+          CreatedAt = DateTimeOffset(2026, 10, 20, 4, 17, 19, TimeSpan.Zero)
+        }
+
+        let preview: LinkPreview = {
+          Url = "https://example.com/card"
+          Title = Some "The card"
+          Description = None
+          ImageUrl = None
+          SiteName = None
+          IsPending = false
+          Embed = None
+        }
+
+        let! window =
+          probeUiAsync(fun () ->
+            let bubble =
+              ThreadMessage.bubble {
+                Message = message
+                Mine = false
+                OnOpenExternal = ValueSome opened.Add
+                ViewerId = "viewer"
+                Author = None
+                Media = {
+                  Cache = (env :> IProvideImageCache).ImageCache
+                  Audio = ValueNone
+                  Http = logApi() :> IHttp
+                  Settings = AppSettingsStore.create(None, ignore)
+                  Solo = DevNull.Client.Components.ThreadVoice.Solo()
+                  Log = NullLogger.Instance
+                  PaneWidth = System.Reactive.Linq.Observable.Return 800.0
+                }
+                ShowsStatus = System.Reactive.Linq.Observable.Return false
+                Receipt = System.Reactive.Linq.Observable.Return None
+                Preview = System.Reactive.Linq.Observable.Return(Some preview)
+                Reactions = System.Reactive.Linq.Observable.Return []
+                ReactionChoices =
+                  System.Reactive.Linq.Observable.Return(
+                    { Quick = []; Rest = [] }: ThreadMessage.ReactionChoices
+                  )
+                Pin = ValueNone
+                Flash = System.Reactive.Linq.Observable.Return ValueNone
+                Actions = {
+                  Reply = ignore
+                  React = ignore
+                  Pin = ignore
+                  OpenImage = ignore
+                  Walk = ignore
+                }
+              }
+
+            let window = Window(Content = bubble)
+            window.Show()
+            window)
+
+        let! link =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "BodyLink")),
+            Option.isSome
+          )
+
+        Expect.isTrue link "the bubble link never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "BodyLink")
+            |> Option.bind(fun link ->
+              link.GetVisualAncestors()
+              |> Seq.tryPick(function
+                | :? Button as button -> Some button
+                | _ -> None))
+            |> Option.iter click)
+
+        do! clickNamed(window, "ChatLinkCard")
+
+        let! openedBoth =
+          waitForAsync(
+            5000,
+            (fun () -> opened),
+            (fun urls ->
+              urls |> Seq.toList = [
+                "https://example.com/body"
+                "https://example.com/card"
+              ])
+          )
+
+        Expect.isTrue openedBoth "the bubble links never opened"
       })
 
     testCaseAsync

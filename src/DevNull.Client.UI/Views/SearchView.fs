@@ -879,7 +879,23 @@ let view
 
   let rowCtx: SearchParts.RowCtx = {
     Images = props.Env.ImageCache
-    Flyout = ValueNone
+    Flyout =
+      ValueSome {
+        Fetch = props.Env.Profiles.Fetch
+        OnOpen =
+          fun username ->
+            Navigation.go(props.Nav, "/profile/" + username, ignore)
+        OnOpenOrg =
+          fun handle -> Navigation.go(props.Nav, "/org/" + handle, ignore)
+        OnOpenTag =
+          fun tag ->
+            Navigation.go(
+              props.Nav,
+              "/search/" + Uri.EscapeDataString tag,
+              ignore
+            )
+        Cache = props.Env.ImageCache
+      }
     Now = DateTimeOffset.UtcNow
   }
 

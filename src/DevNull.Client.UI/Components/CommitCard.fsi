@@ -146,12 +146,15 @@ type MentionTone =
   | OnFill
 
 /// The mention context one body shares: where a handle's hover card
-/// attaches, how its accent reads, and the mentions the text confirms.
+/// attaches, how its accent reads, the mentions the text confirms,
+/// and the host's opener for a link in the text, when the host has
+/// one. Without an opener a link stays accent text.
 [<Struct>]
 type BodyArgs = {
   Flyout: Source voption
   Tone: MentionTone
   Mentions: Mention list
+  OnOpenExternal: (string -> unit) voption
 }
 
 /// One body from its segments — the text with its mentions wrapped,

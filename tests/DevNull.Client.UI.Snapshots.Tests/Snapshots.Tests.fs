@@ -32,6 +32,7 @@ open DevNull.Client.UI.Tests.Report
 open DevNull.Client.UI.Tests.Share
 
 module CommitCard = DevNull.Client.Components.CommitCard
+module ThreadMessage = DevNull.Client.Components.ThreadMessage
 module CommitMenu = DevNull.Client.Components.CommitMenu
 
 /// A thread with enough replies to scroll one page, so the capture
@@ -647,6 +648,247 @@ let captureTests =
       Expect.isTrue
         (bioHeight <= textHeight * 1.25)
         $"the bio line balloons past the text line: bio {bioHeight:F1}px, text {textHeight:F1}px, font {bioFont:F1}px"
+    }
+
+    testAsync "the inline links sit at text size" {
+      let commit =
+        mentionCommitJson.Replace(
+          "Thanks @octocat, it was DNS.",
+          "Thanks @octocat, #fsharp https://example.com/x"
+        )
+
+      let! window = startShell(signedInStore(), pollLogApiWith commit :> IHttp)
+
+      let! shown = showsText(window, "#fsharp")
+      Expect.isTrue shown "the inline body never rendered"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F56/f56-inline-links", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      let! measure =
+        probeUiAsync(fun () ->
+          let named(name: string) =
+            window.GetVisualDescendants()
+            |> Seq.tryFind(fun visual -> visual.Name = name)
+
+          let bodyBlock =
+            named "MentionHandle"
+            |> Option.bind(fun control ->
+              control.GetVisualAncestors()
+              |> Seq.tryPick(function
+                | :? Avalonia.Controls.TextBlock as block -> Some block
+                | _ -> None))
+
+          let bodyFont =
+            bodyBlock |> Option.map _.FontSize |> Option.defaultValue nan
+
+          let bodyBottom =
+            bodyBlock
+            |> Option.bind(fun block ->
+              let bottom =
+                block.TranslatePoint(Point(0.0, block.Bounds.Height), window)
+
+              if bottom.HasValue then Some bottom.Value.Y else None)
+            |> Option.defaultValue nan
+
+          let inlineMeasure(name: string) =
+            named name
+            |> Option.map(fun control ->
+              let label = control :?> Avalonia.Controls.TextBlock
+              let top = control.TranslatePoint(Point(0.0, 0.0), window)
+              let topY = if top.HasValue then top.Value.Y else nan
+              label.FontSize, label.Bounds.Height, topY + label.Bounds.Height)
+
+          let pieces = [
+            inlineMeasure "MentionHandle"
+            inlineMeasure "HashtagTag"
+            inlineMeasure "BodyLink"
+          ]
+
+          let refBlock = Avalonia.Controls.TextBlock()
+          refBlock.Text <- "Thanks octocat, fsharp example"
+          refBlock.FontSize <- bodyFont
+
+          refBlock.Measure(
+            Avalonia.Size(700.0, System.Double.PositiveInfinity)
+          )
+
+          bodyFont, bodyBottom, pieces, refBlock.DesiredSize.Height)
+
+      let bodyFont, bodyBottom, pieces, textHeight = measure
+
+      Expect.all pieces Option.isSome "an inline piece never rendered"
+
+      let fonts =
+        pieces |> List.map(fun piece -> piece.Value |> fun (font, _, _) -> font)
+
+      Expect.all
+        fonts
+        (fun font -> font = bodyFont)
+        $"an inline label is not at the body font size {bodyFont:F1}px: {fonts}"
+
+      let heights =
+        pieces
+        |> List.map(fun piece -> piece.Value |> fun (_, height, _) -> height)
+
+      Expect.isTrue
+        (heights |> List.forall(fun height -> height <= textHeight))
+        $"an inline label stands taller than the text line {textHeight:F1}px: {heights}"
+
+      let bottoms =
+        pieces
+        |> List.map(fun piece -> piece.Value |> fun (_, _, bottom) -> bottom)
+
+      Expect.isTrue
+        (bottoms |> List.forall(fun bottom -> abs(bottom - bodyBottom) <= 2.0))
+        $"an inline label is off the body text bottom {bodyBottom:F1}px: {bottoms}"
+    }
+
+    testAsync "the chat inline links sit at text size" {
+      let opened = ResizeArray<string>()
+      let env = TestEnv(signedInStore(), logApi() :> IHttp)
+
+      let message: Message = {
+        Id = 7
+        UserId = "someone"
+        ClientId = "c-7"
+        Body = "see https://example.com/body"
+        BodySegments = [ TextSegment "see https://example.com/body" ]
+        Mentions = []
+        ReplyToId = None
+        ReplyTo = None
+        LinkPreview = None
+        Images = []
+        Voice = None
+        Reactions = []
+        Event = None
+        SubjectId = None
+        User = None
+        Subject = None
+        PinnedAt = None
+        CreatedAt = DateTimeOffset(2026, 10, 20, 4, 17, 19, TimeSpan.Zero)
+      }
+
+      let! window =
+        probeUiAsync(fun () ->
+          let bubble =
+            ThreadMessage.bubble {
+              Message = message
+              Mine = false
+              OnOpenExternal = ValueSome opened.Add
+              ViewerId = "viewer"
+              Author = None
+              Media = {
+                Cache = (env :> IProvideImageCache).ImageCache
+                Audio = ValueNone
+                Http = logApi() :> IHttp
+                Settings =
+                  DevNull.Client.SettingsStore.AppSettingsStore.create(
+                    None,
+                    ignore
+                  )
+                Solo = DevNull.Client.Components.ThreadVoice.Solo()
+                Log =
+                  Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance
+                PaneWidth = System.Reactive.Linq.Observable.Return 800.0
+              }
+              ShowsStatus = System.Reactive.Linq.Observable.Return false
+              Receipt = System.Reactive.Linq.Observable.Return None
+              Preview = System.Reactive.Linq.Observable.Return None
+              Reactions = System.Reactive.Linq.Observable.Return []
+              ReactionChoices =
+                System.Reactive.Linq.Observable.Return(
+                  { Quick = []; Rest = [] }: ThreadMessage.ReactionChoices
+                )
+              Pin = ValueNone
+              Flash = System.Reactive.Linq.Observable.Return ValueNone
+              Actions = {
+                Reply = ignore
+                React = ignore
+                Pin = ignore
+                OpenImage = ignore
+                Walk = ignore
+              }
+            }
+
+          let window = Window(Content = bubble, Width = 700.0, Height = 300.0)
+          window.Show()
+          window)
+
+      let! shown = showsText(window, "https://example.com/body")
+      Expect.isTrue shown "the bubble never rendered"
+
+      do! settleAsync()
+
+      let! path = captureAsync("F56/f56-chat-inline-links", window)
+      let bytes = IO.File.ReadAllBytes(path)
+      Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
+
+      let! measure =
+        probeUiAsync(fun () ->
+          let link =
+            window.GetVisualDescendants()
+            |> Seq.tryFind(fun visual -> visual.Name = "BodyLink")
+
+          let bodyBlock =
+            link
+            |> Option.bind(fun control ->
+              control.GetVisualAncestors()
+              |> Seq.tryPick(function
+                | :? Avalonia.Controls.TextBlock as block -> Some block
+                | _ -> None))
+
+          let bodyFont =
+            bodyBlock |> Option.map _.FontSize |> Option.defaultValue nan
+
+          let bodyBottom =
+            bodyBlock
+            |> Option.bind(fun block ->
+              let bottom =
+                block.TranslatePoint(Point(0.0, block.Bounds.Height), window)
+
+              if bottom.HasValue then Some bottom.Value.Y else None)
+            |> Option.defaultValue nan
+
+          let piece =
+            link
+            |> Option.map(fun control ->
+              let label = control :?> Avalonia.Controls.TextBlock
+              let top = control.TranslatePoint(Point(0.0, 0.0), window)
+              let topY = if top.HasValue then top.Value.Y else nan
+              label.FontSize, label.Bounds.Height, topY + label.Bounds.Height)
+
+          let refBlock = Avalonia.Controls.TextBlock()
+          refBlock.Text <- "see example"
+          refBlock.FontSize <- bodyFont
+
+          refBlock.Measure(
+            Avalonia.Size(700.0, System.Double.PositiveInfinity)
+          )
+
+          bodyFont, bodyBottom, piece, refBlock.DesiredSize.Height)
+
+      let bodyFont, bodyBottom, piece, textHeight = measure
+
+      Expect.isSome piece "the bubble link never rendered"
+
+      let font, height, bottom = piece.Value
+
+      Expect.equal
+        font
+        bodyFont
+        $"the bubble link is not at the body font size {bodyFont:F1}px"
+
+      Expect.isTrue
+        (height <= textHeight)
+        $"the bubble link label stands taller than the text line {textHeight:F1}px: {height}"
+
+      Expect.isTrue
+        (abs(bottom - bodyBottom) <= 2.0)
+        $"the bubble link is off the body text bottom {bodyBottom:F1}px: {bottom}"
     }
 
     testAsync "the organization page carries its follow and claim header" {

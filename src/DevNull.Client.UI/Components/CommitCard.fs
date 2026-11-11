@@ -36,6 +36,7 @@ type BodyArgs = {
   Flyout: Source voption
   Tone: MentionTone
   Mentions: Mention list
+  OnOpenExternal: (string -> unit) voption
 }
 
 [<Struct>]
@@ -128,6 +129,8 @@ module Parts =
   let inline inFlight(commit: Commit, busy: string option) : bool =
     Option.contains commit.Id busy
 
+  let bodyFontSize = 15.0
+
   // One piece of a text run after the mentions split: plain prose,
   // or one interactive handle carrying the mention that names it.
   type Piece =
@@ -157,15 +160,11 @@ module Parts =
       let before = rest.Substring(0, at)
       let after = rest.Substring(at + token.Length)
 
-      let withHandle = Handle mention :: pieces
-
       split(
         after,
         mentions,
-        if before = "" then
-          withHandle
-        else
-          Plain before :: withHandle
+        Handle mention
+        :: (if before = "" then pieces else Plain before :: pieces)
       )
 
   // Splits one text run at its mentioned handles: plain prose between
@@ -201,7 +200,11 @@ module Parts =
   let handleInline
     (flyout: Source voption, tone: MentionTone, mention: Mention)
     : Inline =
-    let handle = TextBlock().Name("MentionHandle").Text("@" + mention.Handle)
+    let handle =
+      TextBlock()
+        .Name("MentionHandle")
+        .FontSize(bodyFontSize)
+        .Text("@" + mention.Handle)
 
     match tone with
     | Accent -> handle.Classes(Theme.name Theme.FgAccent) |> ignore
@@ -210,22 +213,36 @@ module Parts =
     match mention.Kind, flyout with
     | UserMention, ValueSome source ->
       InlineUIContainer(
-        UserFlyout.attach(source, mentioned mention.Handle, handle)
+        Child = UserFlyout.attach(source, mentioned mention.Handle, handle),
+        BaselineAlignment = BaselineAlignment.TextBottom
       )
     | OrganizationMention, ValueSome source ->
       InlineUIContainer(
-        Button()
-          .Classes(Theme.name Theme.GhostButton)
-          .Padding(0.0)
-          .Content(handle)
-          .OnClickHandler(fun _ args ->
-            // A handled click never opens the thread behind the handle.
-            args.Handled <- true
+        Child =
+          Button()
+            .Classes(Theme.name Theme.GhostButton)
+            .MinHeight(0.0)
+            .Padding(0.0)
+            .Margin(0.0)
+            .BorderThickness(Thickness(0.0))
+            .Content(handle)
+            .OnClickHandler(fun _ args ->
+              // A handled click never opens the thread behind the handle.
+              args.Handled <- true
 
-            source.OnOpenOrg mention.Handle)
+              source.OnOpenOrg mention.Handle),
+        BaselineAlignment = BaselineAlignment.TextBottom
       )
-    | _, ValueNone -> InlineUIContainer(handle)
-    | UnknownMention _, ValueSome _ -> InlineUIContainer(handle)
+    | _, ValueNone ->
+      InlineUIContainer(
+        Child = handle,
+        BaselineAlignment = BaselineAlignment.TextBottom
+      )
+    | UnknownMention _, ValueSome _ ->
+      InlineUIContainer(
+        Child = handle,
+        BaselineAlignment = BaselineAlignment.TextBottom
+      )
 
   // A hashtag as the web finds one: a `#` before a letter, not right
   // after a letter, a mark, a number, `_`, `&`, `/`, `#`, `>`, or `-`,
@@ -267,24 +284,67 @@ module Parts =
   // searches it. Without a flyout source the tag stays accent text
   // alone.
   let tagInline(flyout: Source voption, tag: string) : Inline =
-    let label = TextBlock().Name("HashtagTag").Text(tag)
+    let label = TextBlock().Name("HashtagTag").FontSize(bodyFontSize).Text(tag)
 
     label.Classes(Theme.name Theme.FgAccent) |> ignore
 
     match flyout with
     | ValueSome source ->
       InlineUIContainer(
-        Button()
-          .Classes(Theme.name Theme.GhostButton)
-          .Padding(0.0)
-          .Content(label)
-          .OnClickHandler(fun _ args ->
-            // A handled click never opens the thread behind the tag.
-            args.Handled <- true
+        Child =
+          Button()
+            .Classes(Theme.name Theme.GhostButton)
+            .MinHeight(0.0)
+            .Padding(0.0)
+            .Margin(0.0)
+            .BorderThickness(Thickness(0.0))
+            .Content(label)
+            .OnClickHandler(fun _ args ->
+              // A handled click never opens the thread behind the tag.
+              args.Handled <- true
 
-            source.OnOpenTag tag)
+              source.OnOpenTag tag),
+        BaselineAlignment = BaselineAlignment.TextBottom
       )
-    | ValueNone -> InlineUIContainer(label)
+    | ValueNone ->
+      InlineUIContainer(
+        Child = label,
+        BaselineAlignment = BaselineAlignment.TextBottom
+      )
+
+  // One link of the body: the accent color, and the handled click
+  // that opens it through the host. Without an opener the link
+  // stays accent text alone.
+  let urlInline(args: BodyArgs, url: string) : Inline =
+    let label = TextBlock().Name("BodyLink").FontSize(bodyFontSize).Text(url)
+
+    match args.Tone with
+    | Accent -> label.Classes(Theme.name Theme.FgAccent) |> ignore
+    | OnFill -> ()
+
+    match args.OnOpenExternal with
+    | ValueSome openExternal ->
+      InlineUIContainer(
+        Child =
+          Button()
+            .Classes(Theme.name Theme.GhostButton)
+            .MinHeight(0.0)
+            .Padding(0.0)
+            .Margin(0.0)
+            .BorderThickness(Thickness(0.0))
+            .Content(label)
+            .OnClickHandler(fun _ args ->
+              // A handled click never opens the thread behind the link.
+              args.Handled <- true
+
+              openExternal url),
+        BaselineAlignment = BaselineAlignment.TextBottom
+      )
+    | ValueNone ->
+      InlineUIContainer(
+        Child = label,
+        BaselineAlignment = BaselineAlignment.TextBottom
+      )
 
   // One plain run with its tags wrapped: prose runs beside tag
   // inlines.
@@ -295,35 +355,58 @@ module Parts =
       | Prose prose -> inlines.Add(Run prose) |> ignore
       | Tag tag -> inlines.Add(tagInline(args.Flyout, tag)) |> ignore)
 
+  // One plain run with its links wrapped: prose runs beside link
+  // inlines, and hashtags ride inside the prose.
+  let withLinks(args: BodyArgs, plain: string, inlines: InlineCollection) =
+    DevNull.Client.Core.RemotesText.splitLinks plain
+    |> List.iter(fun piece ->
+      match piece with
+      | DevNull.Client.Core.RemotesText.Prose prose ->
+        withTags(args, prose, inlines)
+      | DevNull.Client.Core.RemotesText.Link url ->
+        inlines.Add(urlInline(args, url)) |> ignore)
+
   // The body text with its mentions wrapped, flowing the way the
-  // site's inline links do. Hashtags ride inside the plain pieces.
+  // site's inline links do. Links split before hashtags, so a
+  // fragment or a handle inside an address never tokenizes.
   let textWithMentions(args: BodyArgs, text: string) : Control =
     match args.Mentions with
     | [] ->
-      match splitTags text with
-      | [ Prose plain ] ->
-        TextBlock().Text(plain).TextWrapping(TextWrapping.Wrap)
-      | pieces ->
-        let block = TextBlock().TextWrapping(TextWrapping.Wrap)
+      match DevNull.Client.Core.RemotesText.splitLinks text with
+      | [ DevNull.Client.Core.RemotesText.Prose plain ] ->
+        match splitTags plain with
+        | [ Prose _ ] ->
+          TextBlock()
+            .FontSize(bodyFontSize)
+            .Text(plain)
+            .TextWrapping(TextWrapping.Wrap)
+        | _ ->
+          let block =
+            TextBlock().FontSize(bodyFontSize).TextWrapping(TextWrapping.Wrap)
+
+          let inlines = InlineCollection()
+          block.Inlines <- inlines
+          withTags(args, plain, inlines)
+          block
+      | _ ->
+        let block =
+          TextBlock().FontSize(bodyFontSize).TextWrapping(TextWrapping.Wrap)
+
         let inlines = InlineCollection()
         block.Inlines <- inlines
-
-        pieces
-        |> List.iter(fun piece ->
-          match piece with
-          | Prose prose -> inlines.Add(Run prose) |> ignore
-          | Tag tag -> inlines.Add(tagInline(args.Flyout, tag)) |> ignore)
-
+        withLinks(args, text, inlines)
         block
     | mentions ->
-      let block = TextBlock().TextWrapping(TextWrapping.Wrap)
+      let block =
+        TextBlock().FontSize(bodyFontSize).TextWrapping(TextWrapping.Wrap)
+
       let inlines = InlineCollection()
       block.Inlines <- inlines
 
       splitMentions(text, mentions)
       |> List.iter(fun piece ->
         match piece with
-        | Plain plain -> withTags(args, plain, inlines)
+        | Plain plain -> withLinks(args, plain, inlines)
         | Handle mention ->
           inlines.Add(handleInline(args.Flyout, args.Tone, mention)) |> ignore)
 
@@ -385,22 +468,37 @@ module Parts =
 
   // The body over any source: the segments with their mentions, the
   // plain text when the payload carries no segments.
-  let bodyOf(flyout: Source voption, commit: Commit) : Control =
+  let bodyOf
+    (flyout: Source voption, opener: (string -> unit) voption, commit: Commit)
+    : Control =
     bodyGen(
       {
         Flyout = flyout
         Tone = Accent
         Mentions = commit.Mentions
+        OnOpenExternal = opener
       },
       commit.Body,
       commit.BodySegments
     )
 
+  // One body capped to a line count when it renders as one text
+  // block: the excerpt surfaces keep their trimming this way.
+  let cappedBody(args: BodyArgs, commit: Commit, maxLines: int) : Control =
+    let rendered = bodyGen(args, commit.Body, commit.BodySegments)
+
+    match rendered with
+    | :? TextBlock as block ->
+      block.MaxLines <- maxLines
+      block.TextTrimming <- TextTrimming.CharacterEllipsis
+      block
+    | other -> other
+
   // The body a card shows: the translated segments while a translation
   // shows, the commit's own otherwise. Translated segments carry no
   // mention positions, so their handles stay plain text.
   let bodyView(props: Props, commit: Commit) : Control =
-    let original = bodyOf(props.Flyout, commit)
+    let original = bodyOf(props.Flyout, ValueSome props.OnOpenExternal, commit)
 
     ContentControl()
       .Content(
@@ -415,6 +513,7 @@ module Parts =
                   Flyout = props.Flyout
                   Tone = Accent
                   Mentions = []
+                  OnOpenExternal = ValueSome props.OnOpenExternal
                 },
                 commit.Body,
                 translated.BodySegments
@@ -543,7 +642,7 @@ module Parts =
   // The quoted commit: its own surface, a click away from the card it
   // rides in. The handled click opens the quoted thread and never
   // falls through to this commit's.
-  let quotedView(onEvent: Event -> unit, quoted: CommitNode) : Control =
+  let quotedView(props: Props, quoted: CommitNode) : Control =
     match quoted with
     | LiveCommit commit ->
       Button()
@@ -561,18 +660,21 @@ module Parts =
               TextBlock()
                 .Classes(Theme.name Theme.Mono)
                 .Text($"@{(Author.handle commit.Author)}"),
-              TextBlock()
-                .Text(commit.Body)
-                .TextWrapping(TextWrapping.Wrap)
-                // The right margin keeps shaped lines inside the box.
-                .Margin(0.0, 0.0, 4.0, 0.0)
-                .MaxLines(4)
-                .TextTrimming(TextTrimming.CharacterEllipsis)
+              cappedBody(
+                {
+                  Flyout = props.Flyout
+                  Tone = Accent
+                  Mentions = commit.Mentions
+                  OnOpenExternal = ValueSome props.OnOpenExternal
+                },
+                commit,
+                4
+              )
             )
         )
         .OnClickHandler(fun _ args ->
           args.Handled <- true
-          onEvent(Opened commit))
+          props.OnEvent(Opened commit))
     | Tombstone _ ->
       TextBlock()
         .Classes(Theme.name Theme.Muted)
@@ -663,7 +765,9 @@ module Parts =
     if not spec.Marked && spec.Mentions.IsEmpty then
       TextBlock().Text(spec.Text).TextWrapping(TextWrapping.Wrap)
     else
-      let block = TextBlock().TextWrapping(TextWrapping.Wrap)
+      let block =
+        TextBlock().FontSize(bodyFontSize).TextWrapping(TextWrapping.Wrap)
+
       let inlines = InlineCollection()
       block.Inlines <- inlines
 
@@ -1042,14 +1146,11 @@ module Parts =
 
         asyncEx { do! clipboard.SetDataAsync data } |> Async.StartImmediate
 
-  // The identity line: name, handle, and time in the site's rhythm,
-  // the short hash docked to the right edge.
-  let header
-    (commit: Commit, now: IObservable<DateTimeOffset>, zone: Zone)
-    : Control =
-    let hash = TextBlock().Classes(Theme.name Theme.Mono).Text(commit.ShortHash)
-
-    let identity =
+  // The name and handle as one piece: with a flyout source the
+  // piece carries the hover card and the handled profile click;
+  // without one it stays plain text.
+  let authorIdentity(commit: Commit, flyout: Source voption) : Control =
+    let piece =
       StackPanel()
         .Orientation(Orientation.Horizontal)
         .Spacing(6.0)
@@ -1061,17 +1162,40 @@ module Parts =
           TextBlock()
             .Classes(Theme.name Theme.Mono)
             .Text($"@{(Author.handle commit.Author)}")
-            .TextTrimming(TextTrimming.CharacterEllipsis),
+            .TextTrimming(TextTrimming.CharacterEllipsis)
+        )
+
+    match flyout with
+    | ValueSome source ->
+      UserFlyout.attachAuthorNamed {
+        Source = source
+        Author = commit.Author
+        Name = "AuthorIdentity"
+        Child = piece
+      }
+    | ValueNone -> piece
+
+  // The identity line: name, handle, and time in the site's rhythm,
+  // the short hash docked to the right edge.
+  let header(props: Props, commit: Commit) : Control =
+    let hash = TextBlock().Classes(Theme.name Theme.Mono).Text(commit.ShortHash)
+
+    let identity =
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Spacing(6.0)
+        .Children(
+          authorIdentity(commit, props.Flyout),
           TextBlock().Classes(Theme.name Theme.Muted).Text("·"),
           TextBlock()
             .Classes(Theme.name Theme.Mono)
             .Text(
-              now
+              props.Now
               |> Observable.map(fun moment -> timeAgo(moment, commit.CreatedAt))
             )
         )
 
-    ToolTip.SetTip(identity, absolute(zone, commit.CreatedAt))
+    ToolTip.SetTip(identity, absolute(props.Zone, commit.CreatedAt))
 
     DockPanel().Children(hash.DockRight(), identity)
 
@@ -1198,20 +1322,13 @@ module Parts =
   // The identity line of a reply row: name, handle, time. The hash
   // stays off; the site keeps replies light this way.
   let replyIdentity
-    (commit: Commit, now: IObservable<DateTimeOffset>)
+    (flyout: Source voption, commit: Commit, now: IObservable<DateTimeOffset>)
     : Control =
     StackPanel()
       .Orientation(Orientation.Horizontal)
       .Spacing(6.0)
       .Children(
-        TextBlock()
-          .Classes(Theme.name Theme.Subtitle)
-          .Text((Author.name commit.Author)),
-        TextBlock().Classes(Theme.name Theme.Muted).Text("·"),
-        TextBlock()
-          .Classes(Theme.name Theme.Mono)
-          .Text($"@{(Author.handle commit.Author)}")
-          .TextTrimming(TextTrimming.CharacterEllipsis),
+        authorIdentity(commit, flyout),
         TextBlock().Classes(Theme.name Theme.Muted).Text("·"),
         TextBlock()
           .Classes(Theme.name Theme.Mono)
@@ -1505,7 +1622,7 @@ let view(props: Props) : Control =
     | None -> ()
 
     match commit.QuotedCommit with
-    | Some quoted -> Parts.quotedView(props.OnEvent, quoted)
+    | Some quoted -> Parts.quotedView(props, quoted)
     | None -> ()
 
     // A preview the page behind never titled stays absent, the way the
@@ -1540,11 +1657,7 @@ let view(props: Props) : Control =
   let content =
     StackPanel()
       .Margin(0.0, pad, 16.0, pad)
-      .Children(
-        Parts.header(commit, props.Now, props.Zone),
-        body,
-        Parts.actions props
-      )
+      .Children(Parts.header(props, commit), body, Parts.actions props)
 
   // The hairline stops at the rail column: the rail runs unbroken.
   let contentColumn =
@@ -1727,8 +1840,8 @@ type ChainSpot = {
 // body, the images. A click opens the reply's own thread.
 let slimContent(props: RowProps, commit: Commit) : Control =
   let children: Control array = [|
-    Parts.replyIdentity(commit, props.Now)
-    Parts.bodyOf(props.Flyout, commit)
+    Parts.replyIdentity(props.Flyout, commit, props.Now)
+    Parts.bodyOf(props.Flyout, ValueSome props.OnOpenExternal, commit)
 
     match commit.Images with
     | [] -> ()

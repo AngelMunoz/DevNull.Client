@@ -13,6 +13,7 @@ open FSharp.Control.Reactive
 open MVUish.Avalonia
 open DevNull.Client
 open DevNull.Client.AttachmentSources
+open DevNull.Client.Components.CommitCard
 open DevNull.Client.Components.ImageChip
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
@@ -278,11 +279,24 @@ module Parts =
             TextBlock()
               .Classes(Theme.name Theme.Mono)
               .Text("@" + (Author.handle commit.Author)),
-            TextBlock()
-              .Text(commit.Body)
-              .TextWrapping(TextWrapping.Wrap)
-              .MaxLines(3)
-              .TextTrimming(TextTrimming.CharacterEllipsis)
+            (let body =
+              CommitCard.body(
+                {
+                  Flyout = ValueNone
+                  Tone = CommitCard.Accent
+                  Mentions = commit.Mentions
+                  OnOpenExternal = ValueNone
+                },
+                commit.Body,
+                commit.BodySegments
+              )
+
+             match body with
+             | :? TextBlock as block ->
+               block.MaxLines <- 3
+               block.TextTrimming <- TextTrimming.CharacterEllipsis
+               block :> Control
+             | other -> other)
           )
       )
 

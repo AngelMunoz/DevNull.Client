@@ -13,6 +13,80 @@ let linksOf(text: string) : string list =
   |> Array.distinct
   |> List.ofArray
 
+type TextPiece =
+  | Prose of string
+  | Link of string
+
+let inline isTrailingPunct(c: char) =
+  c = '.' || c = ',' || c = ';' || c = ':' || c = '!' || c = '?'
+
+let countChar(c: char, text: string) : int =
+  text |> Seq.filter(fun held -> held = c) |> Seq.length
+
+// The address without the prose punctuation that rides its end.
+let stripLinkTail(candidate: string) : string =
+  let rec strip(text: string) : string =
+    if text = "" then
+      text
+    else
+      let last = text[text.Length - 1]
+
+      if isTrailingPunct last then
+        strip(text.Substring(0, text.Length - 1))
+      elif last = ')' && countChar(')', text) > countChar('(', text) then
+        strip(text.Substring(0, text.Length - 1))
+      else
+        text
+
+  strip candidate
+
+// The link walk: every round takes the first scheme and recurses
+// on what is left, a tail call.
+[<TailCall>]
+let rec splitLinksFrom(rest: string, pieces: TextPiece list) : TextPiece list =
+  let httpsAt = rest.IndexOf("https://", StringComparison.OrdinalIgnoreCase)
+  let httpAt = rest.IndexOf("http://", StringComparison.OrdinalIgnoreCase)
+
+  let at =
+    match httpsAt, httpAt with
+    | -1, other -> other
+    | other, -1 -> other
+    | first, second -> min first second
+
+  if at < 0 then
+    (if rest = "" then pieces else Prose rest :: pieces)
+  else
+    let candidateEnd = rest.IndexOfAny([| ' '; '\n'; '\r'; '\t' |], at)
+
+    let candidateEnd = if candidateEnd < 0 then rest.Length else candidateEnd
+    let candidate = rest.Substring(at, candidateEnd - at)
+    let link = stripLinkTail candidate
+
+    let valid =
+      match Uri.TryCreate(link, UriKind.Absolute) with
+      | true, NonNull uri -> uri.Scheme = "http" || uri.Scheme = "https"
+      | _ -> false
+
+    if valid then
+      let before = rest.Substring(0, at)
+
+      let after =
+        candidate.Substring(link.Length) + rest.Substring(candidateEnd)
+
+      splitLinksFrom(
+        after,
+        Link link :: (if before = "" then pieces else Prose before :: pieces)
+      )
+    else
+      splitLinksFrom(
+        rest.Substring(at + 1),
+        Prose(rest.Substring(0, at + 1)) :: pieces
+      )
+
+/// Splits one body into prose and links.
+let splitLinks(text: string) : TextPiece list =
+  splitLinksFrom(text, []) |> List.rev
+
 let inline isWordChar(c: char) = Char.IsLetterOrDigit c || c = '_'
 
 /// Where the word characters around the caret begin: the first index

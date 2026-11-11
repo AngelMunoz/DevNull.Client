@@ -4,6 +4,19 @@ module DevNull.Client.Core.RemotesText
 /// http or https address a word spells, each once.
 val linksOf: text: string -> string list
 
+/// One piece of a body after the link split: plain prose, or one
+/// absolute http or https address.
+type TextPiece =
+  | Prose of string
+  | Link of string
+
+/// Splits one body into prose and links. Only `http://` and
+/// `https://` addresses link; a trailing `.`, `,`, `;`, `:`, `!`,
+/// or `?` stays prose, and a trailing `)` stays prose unless the
+/// address itself holds a balanced pair. An address with no
+/// scheme, and an email address, stay prose.
+val splitLinks: text: string -> TextPiece list
+
 /// The `@token` the caret stands in, when one does: the letters after
 /// an `@` that opens a word, up to the caret. None once the token
 /// closed or the caret sits elsewhere.

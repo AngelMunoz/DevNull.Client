@@ -28,6 +28,7 @@ type Page<'env
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideNatives
   and 'env :> IProvideRemotes
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl

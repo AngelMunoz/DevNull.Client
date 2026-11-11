@@ -291,9 +291,24 @@ let commitIdentity(ctx: RowCtx, commit: Commit) : Control =
         .VerticalAlignment(VerticalAlignment.Center)
         .TextTrimming(TextTrimming.CharacterEllipsis)
 
+    let handleInline: Inline =
+      match ctx.Flyout with
+      | ValueSome source ->
+        InlineUIContainer(
+          Child =
+            UserFlyout.attachAuthorNamed {
+              Source = source
+              Author = commit.Author
+              Name = "AuthorIdentity"
+              Child = TextBlock().Text("@" + (Author.handle commit.Author))
+            },
+          BaselineAlignment = BaselineAlignment.Center
+        )
+      | ValueNone -> Run("@" + (Author.handle commit.Author))
+
     let inlines = InlineCollection()
     inlines.Add(laneInline(Author.lane commit.Author))
-    inlines.Add(Run("@" + (Author.handle commit.Author)))
+    inlines.Add(handleInline)
     inlines.Add(Run " · ")
     inlines.Add(Run(Formatting.timeAgo(ctx.Now, commit.CreatedAt)))
 

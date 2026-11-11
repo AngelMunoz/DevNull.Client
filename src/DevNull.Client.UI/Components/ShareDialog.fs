@@ -14,6 +14,7 @@ open IcedTasks
 open MVUish.Avalonia
 open DevNull.Client
 open DevNull.Client.Components.Avatar
+open DevNull.Client.Components.CommitCard
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
@@ -362,12 +363,25 @@ module Parts =
               TextBlock()
                 .Classes(Theme.name Theme.Mono)
                 .Text("@" + (Author.handle props.Commit.Author)),
-              TextBlock()
-                .Text(props.Commit.Body)
-                .TextWrapping(TextWrapping.Wrap)
-                .Margin(0.0, 0.0, 4.0, 0.0)
-                .MaxLines(4)
-                .TextTrimming(TextTrimming.CharacterEllipsis)
+              (let body =
+                CommitCard.body(
+                  {
+                    Flyout = ValueNone
+                    Tone = CommitCard.Accent
+                    Mentions = props.Commit.Mentions
+                    OnOpenExternal = ValueNone
+                  },
+                  props.Commit.Body,
+                  props.Commit.BodySegments
+                )
+
+               match body with
+               | :? TextBlock as block ->
+                 block.Margin <- Thickness(0.0, 0.0, 4.0, 0.0)
+                 block.MaxLines <- 4
+                 block.TextTrimming <- TextTrimming.CharacterEllipsis
+                 block :> Control
+               | other -> other)
             )
         )
 

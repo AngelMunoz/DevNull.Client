@@ -60,12 +60,14 @@ type BubbleActions = {
 }
 
 /// One message bubble's inputs: the message, its side, the author
-/// payload the reply ghost names, the media services, and the live
+/// payload the reply ghost names, the media services, the host's
+/// opener for a link in the body or on the link card, and the live
 /// slices the row follows, the landing flash among them.
 [<Struct>]
 type BubbleProps = {
   Message: Message
   Mine: bool
+  OnOpenExternal: (string -> unit) voption
   ViewerId: string
   Author: User option
   Media: Media

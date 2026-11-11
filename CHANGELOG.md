@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Commits:** a web address in commit text is a link now — it opens in your browser, in commit cards and in chat, and a chat link preview card opens its address too.
+
+### Fixed
+
+- **Commits:** mentions and hashtags in commit text now sit on the text line at text size, instead of standing taller than the words around them.
+- **Commits:** an author's name, handle, and avatar open their profile — a person's profile or an organization's page — in commit cards, replies, notifications, and search, instead of opening the commit behind them.
+
 ## [0.14.0] - 2026-11-10
 
 ### Added

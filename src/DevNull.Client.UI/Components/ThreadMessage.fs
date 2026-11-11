@@ -65,6 +65,7 @@ type BubbleActions = {
 type BubbleProps = {
   Message: Message
   Mine: bool
+  OnOpenExternal: (string -> unit) voption
   ViewerId: string
   Author: User option
   Media: Media
@@ -227,8 +228,11 @@ let images
 // One message's link card, live from the thread: the card once the
 // server read it, the quiet word while it reads.
 let linkCard
-  (preview: IObservable<LinkPreview option>, mine: bool)
-  : Control voption =
+  (
+    preview: IObservable<LinkPreview option>,
+    mine: bool,
+    opener: (string -> unit) voption
+  ) : Control voption =
   let cardOf(preview: LinkPreview) : Control =
     if preview.IsPending then
       TextBlock()
@@ -237,38 +241,51 @@ let linkCard
         .Margin(0.0, 4.0, 0.0, 0.0)
         .Text("reading the link…")
     else
-      Border()
-        .CornerRadius(10.0)
-        .BorderThickness(1.0)
-        .Classes(Theme.name Theme.Hairline)
-        .Padding(10.0, 8.0, 10.0, 8.0)
-        .Margin(0.0, 6.0, 0.0, 0.0)
-        .MaxWidth(280.0)
-        .Child(
-          StackPanel()
-            .Spacing(2.0)
-            .Children(
-              TextBlock()
-                .Classes(
-                  if mine then
-                    Theme.name Theme.FgOnAccent
-                  else
-                    Theme.name Theme.Subtitle
-                )
-                .Text(preview.Title |> Option.defaultValue preview.Url)
-                .TextWrapping(TextWrapping.Wrap),
-              TextBlock()
-                .Classes(
-                  if mine then
-                    Theme.name Theme.FgOnAccent
-                  else
-                    Theme.name Theme.Mono
-                )
-                .FontSize(11.0)
-                .Text(preview.Url)
-                .TextTrimming(TextTrimming.CharacterEllipsis)
-            )
-        )
+      let card =
+        Border()
+          .CornerRadius(10.0)
+          .BorderThickness(1.0)
+          .Classes(Theme.name Theme.Hairline)
+          .Padding(10.0, 8.0, 10.0, 8.0)
+          .Margin(0.0, 6.0, 0.0, 0.0)
+          .MaxWidth(280.0)
+          .Child(
+            StackPanel()
+              .Spacing(2.0)
+              .Children(
+                TextBlock()
+                  .Classes(
+                    if mine then
+                      Theme.name Theme.FgOnAccent
+                    else
+                      Theme.name Theme.Subtitle
+                  )
+                  .Text(preview.Title |> Option.defaultValue preview.Url)
+                  .TextWrapping(TextWrapping.Wrap),
+                TextBlock()
+                  .Classes(
+                    if mine then
+                      Theme.name Theme.FgOnAccent
+                    else
+                      Theme.name Theme.Mono
+                  )
+                  .FontSize(11.0)
+                  .Text(preview.Url)
+                  .TextTrimming(TextTrimming.CharacterEllipsis)
+              )
+          )
+
+      match opener with
+      | ValueSome openExternal ->
+        Button()
+          .Name("ChatLinkCard")
+          .Classes(Theme.name Theme.GhostButton)
+          .Padding(0.0)
+          .Content(card)
+          .OnClickHandler(fun _ args ->
+            args.Handled <- true
+            openExternal preview.Url)
+      | ValueNone -> card
 
   let card = preview |> Observable.distinctUntilChanged
 
@@ -581,6 +598,7 @@ let bubble(props: BubbleProps) : Control =
         Flyout = ValueNone
         Tone = if mine then CommitCard.OnFill else CommitCard.Accent
         Mentions = who.Mentions
+        OnOpenExternal = props.OnOpenExternal
       },
       who.Body,
       who.BodySegments
@@ -589,7 +607,7 @@ let bubble(props: BubbleProps) : Control =
   let tray = reactionTray(choices, actions.React)
 
   let shown = images(media.Cache, who, actions.OpenImage)
-  let card = linkCard(preview, mine)
+  let card = linkCard(preview, mine, props.OnOpenExternal)
 
   // The card host binds to the thread and is always built, so the
   // body box's gate reads the message itself: a voice-only note
@@ -768,6 +786,7 @@ let stagedBubble(onRetry: PendingSend -> unit, pending: PendingSend) : Control =
           Flyout = ValueNone
           Tone = CommitCard.Accent
           Mentions = []
+          OnOpenExternal = ValueNone
         },
         text,
         []

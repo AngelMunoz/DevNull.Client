@@ -60,10 +60,10 @@ own.
   2026-11-01 pull and is tracked in
   [#11](https://github.com/AngelMunoz/DevNull.Client/issues/11), implemented
   and riding its open PR; the pool below is re-fed from it.
-- Author profile clicks and inline body links ride an open PR stack:
+- Author profile clicks and inline body links are merged:
   [#61](https://github.com/AngelMunoz/DevNull.Client/issues/61) and
-  [#56](https://github.com/AngelMunoz/DevNull.Client/issues/56),
-  implemented and riding its open PR stack; review pending.
+  [#56](https://github.com/AngelMunoz/DevNull.Client/issues/56)
+  ship in 0.15.0.
 - Media needs no endpoint work: every image and voice note arrives with a URL
   signed for the user, so the players download bytes directly and Core never
   calls the media routes.

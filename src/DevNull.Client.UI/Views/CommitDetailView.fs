@@ -1246,11 +1246,27 @@ module Parts =
             .Spacing(6.0)
             .Children(
               TextBlock().Text($"@{(Author.handle commit.Author)}"),
-              TextBlock()
-                .Classes(Theme.name Theme.Muted)
-                .Text(commit.Body)
-                .MaxLines(1)
-                .TextTrimming(TextTrimming.CharacterEllipsis)
+              (let body =
+                CommitCard.body(
+                  {
+                    Flyout = flyoutOf props
+                    Tone = CommitCard.Accent
+                    Mentions = commit.Mentions
+                    OnOpenExternal =
+                      ValueSome(fun url ->
+                        props.Env.Browser.Open(url) |> ignore)
+                  },
+                  commit.Body,
+                  commit.BodySegments
+                )
+
+               match body with
+               | :? TextBlock as block ->
+                 block.Classes.Add(Theme.name Theme.Muted)
+                 block.MaxLines <- 1
+                 block.TextTrimming <- TextTrimming.CharacterEllipsis
+                 block :> Control
+               | other -> other :> Control)
             )
         )
         .OnClickHandler(fun _ _ ->

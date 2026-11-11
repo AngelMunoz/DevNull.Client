@@ -962,11 +962,19 @@ module Parts =
       .TextWrapping(TextWrapping.Wrap)
       .Text(location)
 
-  let bioLine(profile: OrganizationProfile) : Control =
-    TextBlock()
-      .TextWrapping(TextWrapping.Wrap)
+  let bioLine(browser: IBrowser, profile: OrganizationProfile) : Control =
+    CommitCard
+      .body(
+        {
+          Flyout = ValueNone
+          Tone = CommitCard.Accent
+          Mentions = []
+          OnOpenExternal = ValueSome(fun url -> browser.Open(url) |> ignore)
+        },
+        profile.Bio |> Option.defaultValue "",
+        []
+      )
       .IsVisible(profile.Bio.IsSome)
-      .Text(profile.Bio |> Option.defaultValue "")
 
   let metaLine
     (browser: IBrowser, log: ILogger, profile: OrganizationProfile)
@@ -995,7 +1003,7 @@ module Parts =
     : Control =
     StackPanel()
       .Spacing(8.0)
-      .Children(bioLine profile, metaLine(browser, log, profile))
+      .Children(bioLine(browser, profile), metaLine(browser, log, profile))
 
   let headerHost
     (images: ImageCacheService, model: IObservable<State.Model>)

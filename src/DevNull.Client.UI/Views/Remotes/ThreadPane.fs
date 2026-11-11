@@ -29,6 +29,7 @@ module ThreadPane =
     ViewerId: string
     IsOrg: bool
     Media: ThreadMessage.Media
+    OnOpenExternal: (string -> unit) voption
   }
 
   // One bubble's page-side ask: the row context, the live thread,
@@ -140,6 +141,7 @@ module ThreadPane =
     {
       ThreadMessage.Message = message
       Mine = ask.Mine
+      ThreadMessage.OnOpenExternal = ctx.OnOpenExternal
       ViewerId = ctx.ViewerId
       Author = ask.Author
       Media = ctx.Media
@@ -450,6 +452,8 @@ module ThreadPane =
       ViewerId = props.Session.Session.User.Id
       IsOrg = isOrg
       Media = media
+      OnOpenExternal =
+        ValueSome(fun url -> props.Env.Browser.Open(url) |> ignore)
     }
 
     let thread =

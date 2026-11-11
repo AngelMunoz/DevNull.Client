@@ -174,7 +174,10 @@ let attachNamed(args: AttachArgs) : Control =
     Button()
       .Name(args.Name)
       .Classes(Theme.name Theme.GhostButton)
+      .MinHeight(0.0)
       .Padding(0.0)
+      .Margin(0.0)
+      .VerticalAlignment(VerticalAlignment.Center)
       .Content(child)
       .OnClickHandler(fun _ args ->
         // A handled click never opens the thread behind the avatar.
@@ -225,7 +228,10 @@ let attachAuthorNamed(args: AuthorAttach) : Control =
     (Button()
       .Name(args.Name)
       .Classes(Theme.name Theme.GhostButton)
+      .MinHeight(0.0)
       .Padding(0.0)
+      .Margin(0.0)
+      .VerticalAlignment(VerticalAlignment.Center)
       .Content(args.Child)
       .OnClickHandler(fun _ args ->
         args.Handled <- true

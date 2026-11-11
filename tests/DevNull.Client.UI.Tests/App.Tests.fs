@@ -40,6 +40,7 @@ open DevNull.Client.Views
 // qualified names short without opening the whole Components set.
 module CommitCard = DevNull.Client.Components.CommitCard
 module UserFlyout = DevNull.Client.Components.UserFlyout
+module ThreadMessage = DevNull.Client.Components.ThreadMessage
 
 let buttons(root: Control) : Button list =
   root.GetVisualDescendants()
@@ -4380,6 +4381,7 @@ let tests =
                   Flyout = ValueSome source
                   Tone = CommitCard.Accent
                   Mentions = commit.Mentions
+                  OnOpenExternal = ValueNone
                 },
                 commit.Body,
                 commit.BodySegments
@@ -4466,6 +4468,7 @@ let tests =
                   Flyout = ValueSome source
                   Tone = CommitCard.Accent
                   Mentions = []
+                  OnOpenExternal = ValueNone
                 },
                 "",
                 [
@@ -4537,6 +4540,198 @@ let tests =
           "/search/%23fsharp"
           ("/search/" + Uri.EscapeDataString opened[0])
           "the search url never escaped the tag"
+      })
+
+    testCaseAsync
+      "a body link opens through the browser and not the commit"
+      (async {
+        let commit =
+          commitJson.Replace("It was DNS.", "see https://example.com/x. now")
+
+        let! window, env =
+          startShellWithBrowser(signedInStore(), pollLogApiWith commit :> IHttp)
+
+        let! link =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "BodyLink")),
+            Option.isSome
+          )
+
+        Expect.isTrue link "the body link never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "BodyLink")
+            |> Option.bind(fun link ->
+              link.GetVisualAncestors()
+              |> Seq.tryPick(function
+                | :? Button as button -> Some button
+                | _ -> None))
+            |> Option.iter click)
+
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> env.OpenedUrls),
+            (fun urls -> urls = [ "https://example.com/x" ])
+          )
+
+        Expect.isTrue opened "the link never opened through the browser"
+
+        let! fellThrough =
+          probeUiAsync(fun () -> hasText(window, "Back to the log"))
+
+        Expect.isFalse fellThrough "the link click fell through to the commit"
+      })
+
+    testCaseAsync
+      "a link in a code segment stays literal"
+      (async {
+        let opened = ResizeArray<string>()
+
+        let! window =
+          probeUiAsync(fun () ->
+            let body =
+              CommitCard.body(
+                {
+                  Flyout = ValueNone
+                  Tone = CommitCard.Accent
+                  Mentions = []
+                  OnOpenExternal = ValueSome opened.Add
+                },
+                "",
+                [ CodeSegment "https://example.com" ]
+              )
+
+            let window = Window(Content = body)
+            window.Show()
+            window)
+
+        let! shown = showsText(window, "https://example.com")
+
+        Expect.isTrue shown "the code segment never rendered"
+
+        let! count =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.filter(fun visual -> visual.Name = "BodyLink")
+            |> Seq.length)
+
+        Expect.equal count 0 "the code link became clickable"
+      })
+
+    testCaseAsync
+      "a chat bubble links its body and its link card"
+      (async {
+        let opened = ResizeArray<string>()
+        let env = TestEnv(signedInStore(), logApi() :> IHttp)
+
+        let message: Message = {
+          Id = 7
+          UserId = "someone"
+          ClientId = "c-7"
+          Body = "see https://example.com/body"
+          BodySegments = [ TextSegment "see https://example.com/body" ]
+          Mentions = []
+          ReplyToId = None
+          ReplyTo = None
+          LinkPreview = None
+          Images = []
+          Voice = None
+          Reactions = []
+          Event = None
+          SubjectId = None
+          User = None
+          Subject = None
+          PinnedAt = None
+          CreatedAt = DateTimeOffset(2026, 10, 20, 4, 17, 19, TimeSpan.Zero)
+        }
+
+        let preview: LinkPreview = {
+          Url = "https://example.com/card"
+          Title = Some "The card"
+          Description = None
+          ImageUrl = None
+          SiteName = None
+          IsPending = false
+          Embed = None
+        }
+
+        let! window =
+          probeUiAsync(fun () ->
+            let bubble =
+              ThreadMessage.bubble {
+                Message = message
+                Mine = false
+                OnOpenExternal = ValueSome opened.Add
+                ViewerId = "viewer"
+                Author = None
+                Media = {
+                  Cache = (env :> IProvideImageCache).ImageCache
+                  Audio = ValueNone
+                  Http = logApi() :> IHttp
+                  Settings = AppSettingsStore.create(None, ignore)
+                  Solo = DevNull.Client.Components.ThreadVoice.Solo()
+                  Log = NullLogger.Instance
+                  PaneWidth = System.Reactive.Linq.Observable.Return 800.0
+                }
+                ShowsStatus = System.Reactive.Linq.Observable.Return false
+                Receipt = System.Reactive.Linq.Observable.Return None
+                Preview = System.Reactive.Linq.Observable.Return(Some preview)
+                Reactions = System.Reactive.Linq.Observable.Return []
+                ReactionChoices =
+                  System.Reactive.Linq.Observable.Return(
+                    { Quick = []; Rest = [] }: ThreadMessage.ReactionChoices
+                  )
+                Pin = ValueNone
+                Flash = System.Reactive.Linq.Observable.Return ValueNone
+                Actions = {
+                  Reply = ignore
+                  React = ignore
+                  Pin = ignore
+                  OpenImage = ignore
+                  Walk = ignore
+                }
+              }
+
+            let window = Window(Content = bubble)
+            window.Show()
+            window)
+
+        let! link =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "BodyLink")),
+            Option.isSome
+          )
+
+        Expect.isTrue link "the bubble link never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "BodyLink")
+            |> Option.bind(fun link ->
+              link.GetVisualAncestors()
+              |> Seq.tryPick(function
+                | :? Button as button -> Some button
+                | _ -> None))
+            |> Option.iter click)
+
+        do! clickNamed(window, "ChatLinkCard")
+
+        let! openedBoth =
+          waitForAsync(
+            5000,
+            (fun () -> opened),
+            (fun urls ->
+              urls |> Seq.toList = [
+                "https://example.com/body"
+                "https://example.com/card"
+              ])
+          )
+
+        Expect.isTrue openedBoth "the bubble links never opened"
       })
 
     testCaseAsync

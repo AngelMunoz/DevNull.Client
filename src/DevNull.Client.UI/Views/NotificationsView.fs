@@ -567,39 +567,6 @@ module Parts =
 
     rail.Children(line, node)
 
-  // The excerpt of the commit the notification points at: boxed for
-  // the viewer's own commits, inline for the actor's.
-  let excerptBox(notification: Notification) : Control option =
-    match notification.Type with
-    | NotificationKind.Starred
-    | NotificationKind.Approved
-    | NotificationKind.Rejected ->
-      commitOf notification
-      |> Option.map(fun commit ->
-        Border()
-          .Classes(Theme.name Theme.Hairline)
-          .BorderThickness(Thickness(1.0))
-          .CornerRadius(8.0)
-          .Padding(10.0)
-          .Margin(0.0, 6.0, 0.0, 0.0)
-          .Child(
-            TextBlock()
-              .Text(commit.Body)
-              .TextWrapping(TextWrapping.Wrap)
-              .MaxLines(3)
-              .TextTrimming(TextTrimming.CharacterEllipsis)
-          ))
-    | _ ->
-      commitOf notification
-      |> Option.map(fun commit ->
-        TextBlock()
-          .Classes(Theme.name Theme.Muted)
-          .Margin(0.0, 2.0, 0.0, 0.0)
-          .Text(commit.Body)
-          .TextWrapping(TextWrapping.Wrap)
-          .MaxLines(2)
-          .TextTrimming(TextTrimming.CharacterEllipsis))
-
   // What one row's parts read: the router, the dispatch, the model.
   type RowCtx = {
     Nav: INavigable
@@ -641,6 +608,28 @@ module Parts =
       }
     | ValueNone -> piece
 
+  // The excerpt of the commit the notification points at: boxed for
+  // the viewer's own commits, inline for the actor's.
+  let excerptBody(ctx: RowCtx, commit: Commit, maxLines: int) : Control =
+    let body =
+      CommitCard.body(
+        {
+          Flyout = ctx.Flyout
+          Tone = CommitCard.Accent
+          Mentions = commit.Mentions
+          OnOpenExternal = ValueNone
+        },
+        commit.Body,
+        commit.BodySegments
+      )
+
+    match body with
+    | :? TextBlock as block ->
+      block.MaxLines <- maxLines
+      block.TextTrimming <- TextTrimming.CharacterEllipsis
+      block :> Control
+    | other -> other
+
   // One expanded event inside a group: the actor, the action, and the
   // excerpt, off a short spine.
   let eventRow(ctx: RowCtx, notification: Notification) : Control =
@@ -670,13 +659,14 @@ module Parts =
 
       match commitOf notification with
       | Some commit ->
-        TextBlock()
-          .Classes(Theme.name Theme.Muted)
-          .Margin(0.0, 2.0, 0.0, 0.0)
-          .Text(commit.Body)
-          .TextWrapping(TextWrapping.Wrap)
-          .MaxLines(2)
-          .TextTrimming(TextTrimming.CharacterEllipsis)
+        let body = excerptBody(ctx, commit, 2)
+
+        match body with
+        | :? TextBlock as block ->
+          block.Classes.Add(Theme.name Theme.Muted)
+          block.Margin <- Thickness(0.0, 2.0, 0.0, 0.0)
+          block :> Control
+        | other -> other
       | None -> ()
     |]
 
@@ -705,6 +695,32 @@ module Parts =
           .Spacing(4.0)
           .Children(children)
       )
+
+  let excerptBox(ctx: RowCtx, notification: Notification) : Control option =
+    match notification.Type with
+    | NotificationKind.Starred
+    | NotificationKind.Approved
+    | NotificationKind.Rejected ->
+      commitOf notification
+      |> Option.map(fun commit ->
+        Border()
+          .Classes(Theme.name Theme.Hairline)
+          .BorderThickness(Thickness(1.0))
+          .CornerRadius(8.0)
+          .Padding(10.0)
+          .Margin(0.0, 6.0, 0.0, 0.0)
+          .Child(excerptBody(ctx, commit, 3)))
+    | _ ->
+      commitOf notification
+      |> Option.map(fun commit ->
+        let body = excerptBody(ctx, commit, 2)
+
+        match body with
+        | :? TextBlock as block ->
+          block.Classes.Add(Theme.name Theme.Muted)
+          block.Margin <- Thickness(0.0, 2.0, 0.0, 0.0)
+          block :> Control
+        | other -> other :> Control)
 
   // One group's expansion host: the toggle line and, while open, the
   // events the group endpoint returned. Every piece binds the group's
@@ -796,7 +812,7 @@ module Parts =
       identity
       action
 
-      match excerptBox notification with
+      match excerptBox(ctx, notification) with
       | Some excerpt -> excerpt
       | None -> ()
 

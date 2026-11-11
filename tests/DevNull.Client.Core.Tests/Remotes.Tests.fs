@@ -1070,6 +1070,74 @@ let previewTests =
     }
   ]
 
+
+let linkTests =
+  testList "RemotesText.splitLinks" [
+    test "a plain address links" {
+      Expect.equal
+        (RemotesText.splitLinks "see https://example.com now")
+        [
+          RemotesText.Prose "see "
+          RemotesText.Link "https://example.com"
+          RemotesText.Prose " now"
+        ]
+        "the address never split out"
+    }
+
+    test "a path and query stay in the address" {
+      Expect.equal
+        (RemotesText.splitLinks "https://example.com/a/b?x=1&y=2")
+        [ RemotesText.Link "https://example.com/a/b?x=1&y=2" ]
+        "the address lost its tail"
+    }
+
+    test "a trailing full stop stays prose" {
+      Expect.equal
+        (RemotesText.splitLinks "https://example.com.")
+        [ RemotesText.Link "https://example.com"; RemotesText.Prose "." ]
+        "the full stop rode the address"
+    }
+
+    test "a closing parenthesis around the address stays prose" {
+      Expect.equal
+        (RemotesText.splitLinks "(https://example.com)")
+        [
+          RemotesText.Prose "("
+          RemotesText.Link "https://example.com"
+          RemotesText.Prose ")"
+        ]
+        "the parenthesis rode the address"
+    }
+
+    test "a balanced parenthesis pair stays in the address" {
+      Expect.equal
+        (RemotesText.splitLinks "https://en.wikipedia.org/wiki/X_(y)")
+        [ RemotesText.Link "https://en.wikipedia.org/wiki/X_(y)" ]
+        "the balanced pair was cut"
+    }
+
+    test "an email address stays prose" {
+      Expect.equal
+        (RemotesText.splitLinks "mail me@example.com please")
+        [ RemotesText.Prose "mail me@example.com please" ]
+        "the email became a link"
+    }
+
+    test "a fragment stays in the address" {
+      Expect.equal
+        (RemotesText.splitLinks "https://example.com/page#section")
+        [ RemotesText.Link "https://example.com/page#section" ]
+        "the fragment split off"
+    }
+
+    test "an address with no scheme stays prose" {
+      Expect.equal
+        (RemotesText.splitLinks "www.example.com")
+        [ RemotesText.Prose "www.example.com" ]
+        "the bare host became a link"
+    }
+  ]
+
 let tests =
   testList "Api.remotes" [
     voiceTests

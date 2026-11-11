@@ -178,7 +178,7 @@ let notificationsPage
 let remotesPage
   (
     env:
-      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideImageCache & #IProvideProfiles & #IProvideRemotes,
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideImageCache & #IProvideProfiles & #IProvideRemotes & #IProvideBrowser,
     nav: INavigable,
     context: RouteContext
   ) : Control =

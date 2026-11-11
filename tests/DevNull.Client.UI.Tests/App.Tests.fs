@@ -4348,6 +4348,76 @@ let tests =
       })
 
     testCaseAsync
+      "a mention keeps its place in the body text"
+      (async {
+        let mentions: Mention list = [
+          {
+            Handle = "octocat"
+            Offset = 7
+            Length = 8
+            Kind = UserMention
+          }
+        ]
+
+        let! window =
+          probeUiAsync(fun () ->
+            let body =
+              CommitCard.body(
+                {
+                  Flyout = ValueNone
+                  Tone = CommitCard.Accent
+                  Mentions = mentions
+                  OnOpenExternal = ValueNone
+                },
+                "Thanks @octocat, #fsharp https://example.com/x",
+                [
+                  TextSegment "Thanks @octocat, #fsharp https://example.com/x"
+                ]
+              )
+
+            let window = Window(Content = body)
+            window.Show()
+            window)
+
+        let! shown = showsText(window, "#fsharp")
+        Expect.isTrue shown "the inline body never rendered"
+
+        let! pieces =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryPick(fun visual ->
+              match visual with
+              | :? TextBlock as block when block.Inlines <> null ->
+                Some(
+                  block.Inlines
+                  |> Seq.map(fun piece ->
+                    match piece with
+                    | :? Run as run ->
+                      run.Text |> Option.ofObj |> Option.defaultValue ""
+                    | :? InlineUIContainer as holder ->
+                      match holder.Child with
+                      | :? TextBlock as inner ->
+                        inner.Text |> Option.ofObj |> Option.defaultValue ""
+                      | _ -> ""
+                    | _ -> "")
+                  |> List.ofSeq
+                )
+              | _ -> None))
+
+        Expect.equal
+          pieces
+          (Some [
+            "Thanks "
+            "@octocat"
+            ", "
+            "#fsharp"
+            " "
+            "https://example.com/x"
+          ])
+          "the mention did not keep its place in the body text"
+      })
+
+    testCaseAsync
       "an organization mention opens the organization page, not the hover card"
       (async {
         let page =

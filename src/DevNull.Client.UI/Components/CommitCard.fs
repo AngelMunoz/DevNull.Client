@@ -158,15 +158,11 @@ module Parts =
       let before = rest.Substring(0, at)
       let after = rest.Substring(at + token.Length)
 
-      let withHandle = Handle mention :: pieces
-
       split(
         after,
         mentions,
-        if before = "" then
-          withHandle
-        else
-          Plain before :: withHandle
+        Handle mention
+        :: (if before = "" then pieces else Plain before :: pieces)
       )
 
   // Splits one text run at its mentioned handles: plain prose between

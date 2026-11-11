@@ -177,6 +177,7 @@ let attachNamed(args: AttachArgs) : Control =
       .MinHeight(0.0)
       .Padding(0.0)
       .Margin(0.0)
+      .BorderThickness(Thickness(0.0))
       .VerticalAlignment(VerticalAlignment.Center)
       .Content(child)
       .OnClickHandler(fun _ args ->
@@ -231,6 +232,7 @@ let attachAuthorNamed(args: AuthorAttach) : Control =
       .MinHeight(0.0)
       .Padding(0.0)
       .Margin(0.0)
+      .BorderThickness(Thickness(0.0))
       .VerticalAlignment(VerticalAlignment.Center)
       .Content(args.Child)
       .OnClickHandler(fun _ args ->

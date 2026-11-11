@@ -674,38 +674,75 @@ let captureTests =
             window.GetVisualDescendants()
             |> Seq.tryFind(fun visual -> visual.Name = name)
 
-          let inlineHeight(name: string) =
-            named name
+          let bodyBlock =
+            named "MentionHandle"
             |> Option.bind(fun control ->
               control.GetVisualAncestors()
               |> Seq.tryPick(function
-                | :? Avalonia.Controls.Button as button ->
-                  Some button.Bounds.Height
+                | :? Avalonia.Controls.TextBlock as block -> Some block
                 | _ -> None))
 
-          let heights = [
-            inlineHeight "MentionHandle"
-            inlineHeight "HashtagTag"
-            inlineHeight "BodyLink"
+          let bodyFont =
+            bodyBlock |> Option.map _.FontSize |> Option.defaultValue nan
+
+          let bodyTop =
+            bodyBlock
+            |> Option.bind(fun block ->
+              let top = block.TranslatePoint(Point(0.0, 0.0), window)
+
+              if top.HasValue then Some top.Value.Y else None)
+            |> Option.defaultValue nan
+
+          let inlineMeasure(name: string) =
+            named name
+            |> Option.map(fun control ->
+              let label = control :?> Avalonia.Controls.TextBlock
+              let top = control.TranslatePoint(Point(0.0, 0.0), window)
+              let topY = if top.HasValue then top.Value.Y else nan
+              label.FontSize, label.Bounds.Height, topY)
+
+          let pieces = [
+            inlineMeasure "MentionHandle"
+            inlineMeasure "HashtagTag"
+            inlineMeasure "BodyLink"
           ]
 
           let refBlock = Avalonia.Controls.TextBlock()
           refBlock.Text <- "Thanks octocat, fsharp example"
-          refBlock.FontSize <- 14.0
+          refBlock.FontSize <- bodyFont
 
           refBlock.Measure(
             Avalonia.Size(700.0, System.Double.PositiveInfinity)
           )
 
-          heights, refBlock.DesiredSize.Height)
+          bodyFont, bodyTop, pieces, refBlock.DesiredSize.Height)
 
-      let heights, textHeight = measure
+      let bodyFont, bodyTop, pieces, textHeight = measure
 
-      Expect.all heights Option.isSome "an inline piece never rendered"
+      Expect.all pieces Option.isSome "an inline piece never rendered"
+
+      let fonts =
+        pieces |> List.map(fun piece -> piece.Value |> fun (font, _, _) -> font)
+
+      Expect.all
+        fonts
+        (fun font -> font = bodyFont)
+        $"an inline label is not at the body font size {bodyFont:F1}px: {fonts}"
+
+      let heights =
+        pieces
+        |> List.map(fun piece -> piece.Value |> fun (_, height, _) -> height)
 
       Expect.isTrue
-        (heights |> List.forall(fun height -> height.Value <= textHeight * 1.25))
-        $"an inline piece stands taller than the text line {textHeight:F1}px: {heights}"
+        (heights |> List.forall(fun height -> height <= textHeight))
+        $"an inline label stands taller than the text line {textHeight:F1}px: {heights}"
+
+      let tops =
+        pieces |> List.map(fun piece -> piece.Value |> fun (_, _, top) -> top)
+
+      Expect.isTrue
+        (tops |> List.forall(fun top -> abs(top - bodyTop) <= 1.0))
+        $"an inline label is off the body line top {bodyTop:F1}px: {tops}"
     }
 
     testAsync "the chat inline links sit at text size" {
@@ -790,33 +827,65 @@ let captureTests =
 
       let! measure =
         probeUiAsync(fun () ->
-          let height =
+          let link =
             window.GetVisualDescendants()
             |> Seq.tryFind(fun visual -> visual.Name = "BodyLink")
+
+          let bodyBlock =
+            link
             |> Option.bind(fun control ->
               control.GetVisualAncestors()
               |> Seq.tryPick(function
-                | :? Avalonia.Controls.Button as button ->
-                  Some button.Bounds.Height
+                | :? Avalonia.Controls.TextBlock as block -> Some block
                 | _ -> None))
+
+          let bodyFont =
+            bodyBlock |> Option.map _.FontSize |> Option.defaultValue nan
+
+          let bodyTop =
+            bodyBlock
+            |> Option.bind(fun block ->
+              let top = block.TranslatePoint(Point(0.0, 0.0), window)
+
+              if top.HasValue then Some top.Value.Y else None)
+            |> Option.defaultValue nan
+
+          let piece =
+            link
+            |> Option.map(fun control ->
+              let label = control :?> Avalonia.Controls.TextBlock
+              let top = control.TranslatePoint(Point(0.0, 0.0), window)
+              let topY = if top.HasValue then top.Value.Y else nan
+              label.FontSize, label.Bounds.Height, topY)
 
           let refBlock = Avalonia.Controls.TextBlock()
           refBlock.Text <- "see example"
-          refBlock.FontSize <- 14.0
+          refBlock.FontSize <- bodyFont
 
           refBlock.Measure(
             Avalonia.Size(700.0, System.Double.PositiveInfinity)
           )
 
-          height, refBlock.DesiredSize.Height)
+          bodyFont, bodyTop, piece, refBlock.DesiredSize.Height)
 
-      let height, textHeight = measure
+      let bodyFont, bodyTop, piece, textHeight = measure
 
-      Expect.isSome height "the bubble link never rendered"
+      Expect.isSome piece "the bubble link never rendered"
+
+      let font, height, top = piece.Value
+
+      Expect.equal
+        font
+        bodyFont
+        $"the bubble link is not at the body font size {bodyFont:F1}px"
 
       Expect.isTrue
-        (height.Value <= textHeight * 1.25)
-        $"the bubble link stands taller than the text line {textHeight:F1}px: {height}"
+        (height <= textHeight)
+        $"the bubble link label stands taller than the text line {textHeight:F1}px: {height}"
+
+      Expect.isTrue
+        (abs(top - bodyTop) <= 1.0)
+        $"the bubble link is off the body line top {bodyTop:F1}px: {top}"
     }
 
     testAsync "the organization page carries its follow and claim header" {

@@ -129,6 +129,8 @@ module Parts =
   let inline inFlight(commit: Commit, busy: string option) : bool =
     Option.contains commit.Id busy
 
+  let bodyFontSize = 15.0
+
   // One piece of a text run after the mentions split: plain prose,
   // or one interactive handle carrying the mention that names it.
   type Piece =
@@ -198,7 +200,11 @@ module Parts =
   let handleInline
     (flyout: Source voption, tone: MentionTone, mention: Mention)
     : Inline =
-    let handle = TextBlock().Name("MentionHandle").Text("@" + mention.Handle)
+    let handle =
+      TextBlock()
+        .Name("MentionHandle")
+        .FontSize(bodyFontSize)
+        .Text("@" + mention.Handle)
 
     match tone with
     | Accent -> handle.Classes(Theme.name Theme.FgAccent) |> ignore
@@ -208,7 +214,7 @@ module Parts =
     | UserMention, ValueSome source ->
       InlineUIContainer(
         Child = UserFlyout.attach(source, mentioned mention.Handle, handle),
-        BaselineAlignment = BaselineAlignment.Center
+        BaselineAlignment = BaselineAlignment.Baseline
       )
     | OrganizationMention, ValueSome source ->
       InlineUIContainer(
@@ -218,24 +224,24 @@ module Parts =
             .MinHeight(0.0)
             .Padding(0.0)
             .Margin(0.0)
-            .VerticalAlignment(VerticalAlignment.Center)
+            .BorderThickness(Thickness(0.0))
             .Content(handle)
             .OnClickHandler(fun _ args ->
               // A handled click never opens the thread behind the handle.
               args.Handled <- true
 
               source.OnOpenOrg mention.Handle),
-        BaselineAlignment = BaselineAlignment.Center
+        BaselineAlignment = BaselineAlignment.Baseline
       )
     | _, ValueNone ->
       InlineUIContainer(
         Child = handle,
-        BaselineAlignment = BaselineAlignment.Center
+        BaselineAlignment = BaselineAlignment.Baseline
       )
     | UnknownMention _, ValueSome _ ->
       InlineUIContainer(
         Child = handle,
-        BaselineAlignment = BaselineAlignment.Center
+        BaselineAlignment = BaselineAlignment.Baseline
       )
 
   // A hashtag as the web finds one: a `#` before a letter, not right
@@ -278,7 +284,7 @@ module Parts =
   // searches it. Without a flyout source the tag stays accent text
   // alone.
   let tagInline(flyout: Source voption, tag: string) : Inline =
-    let label = TextBlock().Name("HashtagTag").Text(tag)
+    let label = TextBlock().Name("HashtagTag").FontSize(bodyFontSize).Text(tag)
 
     label.Classes(Theme.name Theme.FgAccent) |> ignore
 
@@ -291,26 +297,26 @@ module Parts =
             .MinHeight(0.0)
             .Padding(0.0)
             .Margin(0.0)
-            .VerticalAlignment(VerticalAlignment.Center)
+            .BorderThickness(Thickness(0.0))
             .Content(label)
             .OnClickHandler(fun _ args ->
               // A handled click never opens the thread behind the tag.
               args.Handled <- true
 
               source.OnOpenTag tag),
-        BaselineAlignment = BaselineAlignment.Center
+        BaselineAlignment = BaselineAlignment.Baseline
       )
     | ValueNone ->
       InlineUIContainer(
         Child = label,
-        BaselineAlignment = BaselineAlignment.Center
+        BaselineAlignment = BaselineAlignment.Baseline
       )
 
   // One link of the body: the accent color, and the handled click
   // that opens it through the host. Without an opener the link
   // stays accent text alone.
   let urlInline(args: BodyArgs, url: string) : Inline =
-    let label = TextBlock().Name("BodyLink").Text(url)
+    let label = TextBlock().Name("BodyLink").FontSize(bodyFontSize).Text(url)
 
     match args.Tone with
     | Accent -> label.Classes(Theme.name Theme.FgAccent) |> ignore
@@ -325,19 +331,19 @@ module Parts =
             .MinHeight(0.0)
             .Padding(0.0)
             .Margin(0.0)
-            .VerticalAlignment(VerticalAlignment.Center)
+            .BorderThickness(Thickness(0.0))
             .Content(label)
             .OnClickHandler(fun _ args ->
               // A handled click never opens the thread behind the link.
               args.Handled <- true
 
               openExternal url),
-        BaselineAlignment = BaselineAlignment.Center
+        BaselineAlignment = BaselineAlignment.Baseline
       )
     | ValueNone ->
       InlineUIContainer(
         Child = label,
-        BaselineAlignment = BaselineAlignment.Center
+        BaselineAlignment = BaselineAlignment.Baseline
       )
 
   // One plain run with its tags wrapped: prose runs beside tag
@@ -369,21 +375,31 @@ module Parts =
       match DevNull.Client.Core.RemotesText.splitLinks text with
       | [ DevNull.Client.Core.RemotesText.Prose plain ] ->
         match splitTags plain with
-        | [ Prose _ ] -> TextBlock().Text(plain).TextWrapping(TextWrapping.Wrap)
+        | [ Prose _ ] ->
+          TextBlock()
+            .FontSize(bodyFontSize)
+            .Text(plain)
+            .TextWrapping(TextWrapping.Wrap)
         | _ ->
-          let block = TextBlock().TextWrapping(TextWrapping.Wrap)
+          let block =
+            TextBlock().FontSize(bodyFontSize).TextWrapping(TextWrapping.Wrap)
+
           let inlines = InlineCollection()
           block.Inlines <- inlines
           withTags(args, plain, inlines)
           block
       | _ ->
-        let block = TextBlock().TextWrapping(TextWrapping.Wrap)
+        let block =
+          TextBlock().FontSize(bodyFontSize).TextWrapping(TextWrapping.Wrap)
+
         let inlines = InlineCollection()
         block.Inlines <- inlines
         withLinks(args, text, inlines)
         block
     | mentions ->
-      let block = TextBlock().TextWrapping(TextWrapping.Wrap)
+      let block =
+        TextBlock().FontSize(bodyFontSize).TextWrapping(TextWrapping.Wrap)
+
       let inlines = InlineCollection()
       block.Inlines <- inlines
 
@@ -749,7 +765,9 @@ module Parts =
     if not spec.Marked && spec.Mentions.IsEmpty then
       TextBlock().Text(spec.Text).TextWrapping(TextWrapping.Wrap)
     else
-      let block = TextBlock().TextWrapping(TextWrapping.Wrap)
+      let block =
+        TextBlock().FontSize(bodyFontSize).TextWrapping(TextWrapping.Wrap)
+
       let inlines = InlineCollection()
       block.Inlines <- inlines
 

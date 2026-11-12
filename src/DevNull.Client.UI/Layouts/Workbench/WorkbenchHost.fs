@@ -1,9 +1,11 @@
 module DevNull.Client.Layouts.Workbench.WorkbenchHost
 
 open System
+open System.Reactive.Subjects
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
+open Avalonia.Threading
 open Avalonia.Layout
 open NXUI.Extensions
 open FSharp.Control.Reactive
@@ -88,6 +90,88 @@ type Props<'env
   OnStateChanged: WorkbenchState -> unit
 }
 
+[<Sealed>]
+type TrackedHandle(raw: IDisposable) =
+
+  member val Disposed = false with get, set
+
+  member this.Dispose() =
+    if not this.Disposed then
+      this.Disposed <- true
+      raw.Dispose()
+
+  interface IDisposable with
+    member this.Dispose() = this.Dispose()
+
+[<Sealed>]
+type MountedHost() =
+
+  let subject = new System.Reactive.Subjects.Subject<Msg>()
+  let created = ResizeArray<TrackedHandle>()
+
+  member val CurrentHistory: TrackedHandle option = None with get, set
+
+  member val CurrentInspector: TrackedHandle option = None with get, set
+
+  member val HostHandle: IDisposable option = None with get, set
+
+  member val Disposed = false with get, set
+
+  member val LiveHistory = 0 with get, set
+
+  member val LiveInspector = 0 with get, set
+
+  member val HostDisposed = false with get, set
+
+  member _.Subject = subject
+
+  member _.Created = created |> Seq.toList
+
+  member this.Record(model: Model) =
+    let track(handle: IDisposable) =
+      match handle with
+      | :? TrackedHandle as tracked ->
+        if
+          created
+          |> Seq.exists(fun item -> obj.ReferenceEquals(item, tracked))
+          |> not
+        then
+          created.Add tracked
+
+        Some tracked
+      | _ -> None
+
+    this.LiveHistory <- model.LiveHistory
+    this.LiveInspector <- model.LiveInspector
+
+    this.CurrentHistory <-
+      model.History |> Option.bind(fun child -> track child.Handle)
+
+    this.CurrentInspector <-
+      model.Inspector |> Option.bind(fun child -> track child.Handle)
+
+  member this.Attach(hostHandle: IDisposable) =
+    this.HostHandle <- Some hostHandle
+
+  member this.Send(msg: Msg) =
+    if not this.Disposed then
+      subject.OnNext msg
+
+  member this.DisposeCore() =
+    if not this.Disposed then
+      this.Disposed <- true
+      this.CurrentHistory |> Option.iter _.Dispose()
+      this.CurrentInspector |> Option.iter _.Dispose()
+      this.HostHandle |> Option.iter _.Dispose()
+      this.LiveHistory <- 0
+      this.LiveInspector <- 0
+      this.HostDisposed <- true
+      subject.OnCompleted()
+      subject.Dispose()
+
+  interface IDisposable with
+    member this.Dispose() = this.DisposeCore()
+
 [<Struct>]
 type SessionData = {
   KeyFile: string
@@ -114,23 +198,6 @@ type InspectorStart = {
   Pasteis: bool
 }
 
-let sessionData(props: Props<'env>) : SessionData =
-  match props.Env.Session.Current with
-  | SignedIn session -> {
-      KeyFile = session.KeyFile
-      ViewerId = session.Session.User.Id
-      Pasteis = session.Session.PasteisMode
-      Handle = session.Session.User.Handle
-      Unread = session.Session.UnreadNotificationsCount
-    }
-  | SignedOut -> {
-      KeyFile = ""
-      ViewerId = ""
-      Pasteis = false
-      Handle = ""
-      Unread = 0
-    }
-
 let sessionOfState(state: SessionState) : SessionData =
   match state with
   | SignedIn session -> {
@@ -147,6 +214,9 @@ let sessionOfState(state: SessionState) : SessionData =
       Handle = ""
       Unread = 0
     }
+
+let sessionData(props: Props<'env>) : SessionData =
+  sessionOfState props.Env.Session.Current
 
 let startHistory
   (props: Props<'env>, dispatch: Msg -> unit, start: HistoryStart)
@@ -170,8 +240,10 @@ let startHistory
       OnReport = fun report -> dispatch(HistoryReported(start.Ref, report))
     }
 
-    let view, handle =
+    let view, rawHandle =
       Programs.runPage(props.Env.Dispatcher, HistoryColumn.program childProps)
+
+    let handle = TrackedHandle(rawHandle) :> IDisposable
 
     Some {
       Ref = start.Ref
@@ -198,8 +270,10 @@ let startInspector
     OnQuote = fun commit -> dispatch(Quote commit)
   }
 
-  let view, handle =
+  let view, rawHandle =
     Programs.runPage(props.Env.Dispatcher, Inspector.program childProps)
+
+  let handle = TrackedHandle(rawHandle) :> IDisposable
 
   {
     CommitId = start.CommitId
@@ -595,3 +669,29 @@ let program(props: Props<'env>) =
     (fun msg model -> update(props, msg, model))
     (view props)
   |> Program.withSubscription(subscribe props)
+
+let mount(dispatcher: IDispatcher, props: Props<'env>) : Control * IDisposable =
+  let mounted = MountedHost()
+
+  let wrappedInit() =
+    let model, cmd = init props
+    mounted.Record model
+    model, cmd
+
+  let wrappedUpdate msg model =
+    let next, cmd = update(props, msg, model)
+    mounted.Record next
+    next, cmd
+
+  let mountedProgram =
+    Program.mkProgram wrappedInit wrappedUpdate (view props)
+    |> Program.withSubscription(fun model ->
+      Sub.batch [
+        subscribe props model
+        Sub.fromObservable "mount" (mounted.Subject :> IObservable<Msg>)
+      ])
+
+  let view, hostHandle = Programs.runPage(dispatcher, mountedProgram)
+
+  mounted.Attach hostHandle
+  view, (mounted :> IDisposable)

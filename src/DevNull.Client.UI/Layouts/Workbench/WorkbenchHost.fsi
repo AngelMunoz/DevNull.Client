@@ -2,6 +2,7 @@ module DevNull.Client.Layouts.Workbench.WorkbenchHost
 
 open System
 open Avalonia.Controls
+open Avalonia.Threading
 open MVUish.Avalonia
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
@@ -95,6 +96,25 @@ type Props<'env
   OnStateChanged: WorkbenchState -> unit
 }
 
+/// One child program handle the mount wrapper tracks. The wrapper
+/// marks it when it ends, so a test can prove every seen handle is
+/// disposed.
+[<Sealed>]
+type internal TrackedHandle =
+  member Disposed: bool
+  interface IDisposable
+
+/// One mounted host: the child handles it has seen, the live counts,
+/// and the send path the tests use to drive the host.
+[<Sealed>]
+type internal MountedHost =
+  member Send: msg: Msg -> unit
+  member Created: TrackedHandle list
+  member LiveHistory: int
+  member LiveInspector: int
+  member HostDisposed: bool
+  interface IDisposable
+
 /// The host's first state, its first history program, and its first
 /// inspector program when the stored checkout holds an id.
 val init: props: Props<'env> -> Model * Cmd<Msg>
@@ -117,3 +137,8 @@ val view:
 /// The host program. The integrator starts it with `Programs.runPage`
 /// and keeps the returned handle.
 val program: props: Props<'env> -> Program<unit, Model, Msg, Control>
+
+/// Starts the host and returns the one handle the integrator disposes.
+/// Disposing it ends the host program and every live child program it
+/// recorded, exactly once.
+val mount: dispatcher: IDispatcher * props: Props<'env> -> Control * IDisposable

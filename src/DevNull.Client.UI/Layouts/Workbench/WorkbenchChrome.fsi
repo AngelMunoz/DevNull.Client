@@ -31,9 +31,5 @@ val refs: model: RefsModel * onSelect: (Ref -> unit) -> Control
 /// then Saved and Notifications with their counts.
 val rows: saved: int * unread: int -> RefRow list
 
-/// Renders the status bar from its model: the ref, the handle, and the
-/// last fetch time.
-val status: model: StatusModel -> Control
-
 /// The status bar's one line: the ref, the handle, and the fetch time.
 val statusText: model: StatusModel -> string

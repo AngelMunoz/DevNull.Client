@@ -283,6 +283,102 @@ let tests =
           "the state changes did not ride the sink"
       })
 
+    testCaseAsync
+      "the mount handle ends every child it recorded"
+      (async {
+        let! _view, mounted =
+          probeUiAsync(fun () ->
+            let env = TestEnv(signedInStore(), api :> IHttp)
+            let props = hostProps(env, WorkbenchSettings.initial)
+            let view, handle = WorkbenchHost.mount(Harness.ui, props)
+            view, handle :?> WorkbenchHost.MountedHost)
+
+        let! first =
+          waitForAsync(
+            5000,
+            (fun () -> mounted.LiveHistory),
+            fun live -> live = 1
+          )
+
+        Expect.isTrue first "the first history program never landed"
+
+        Expect.isTrue
+          (mounted.Created.Length >= 1)
+          "no child handle was recorded"
+
+        let sendAsync(msg: WorkbenchHost.Msg, expectedCreated: int) = async {
+          do! onUiAsync(fun () -> mounted.Send msg)
+
+          let! grown =
+            waitForAsync(
+              5000,
+              (fun () -> mounted.Created.Length),
+              fun count -> count >= expectedCreated
+            )
+
+          Expect.isTrue
+            grown
+            $"the child handle count stopped at {mounted.Created.Length}"
+        }
+
+        do! sendAsync(WorkbenchHost.RefSelected latest, 2)
+
+        let! historyOne =
+          waitForAsync(
+            5000,
+            (fun () -> mounted.LiveHistory),
+            fun live -> live = 1
+          )
+
+        Expect.isTrue
+          historyOne
+          "the second history program did not stay single"
+
+        do! sendAsync(WorkbenchHost.CheckoutSet(Some checkoutA), 3)
+
+        let! inspectorOne =
+          waitForAsync(
+            5000,
+            (fun () -> mounted.LiveInspector),
+            fun live -> live = 1
+          )
+
+        Expect.isTrue inspectorOne "the first inspector program never landed"
+
+        do! sendAsync(WorkbenchHost.RefSelected trending, 4)
+
+        do! sendAsync(WorkbenchHost.CheckoutSet(Some checkoutB), 5)
+        do! sendAsync(WorkbenchHost.RefSelected following, 6)
+
+        do! onUiAsync(fun () -> mounted.Send(WorkbenchHost.CheckoutSet None))
+
+        let! inspectorGone =
+          waitForAsync(
+            5000,
+            (fun () -> mounted.LiveInspector),
+            fun live -> live = 0
+          )
+
+        Expect.isTrue inspectorGone "the inspector did not stop on no id"
+
+        do! sendAsync(WorkbenchHost.CheckoutSet(Some checkoutA), 7)
+
+        let created = mounted.Created
+
+        do!
+          onUiAsync(fun () ->
+            (mounted :> IDisposable).Dispose()
+            (mounted :> IDisposable).Dispose())
+
+        Expect.isTrue
+          (created |> List.forall(fun handle -> handle.Disposed))
+          "a child handle the mount saw stayed live"
+
+        Expect.equal mounted.LiveHistory 0 "the history count stayed up"
+        Expect.equal mounted.LiveInspector 0 "the inspector count stayed up"
+        Expect.isTrue mounted.HostDisposed "the host handle stayed live"
+      })
+
     testCase "the fold and counts are model data"
     <| fun () ->
       let env = TestEnv(signedInStore(), api :> IHttp)

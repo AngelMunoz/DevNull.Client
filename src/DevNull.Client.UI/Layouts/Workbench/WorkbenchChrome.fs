@@ -1,11 +1,9 @@
 module DevNull.Client.Layouts.Workbench.WorkbenchChrome
 
 open System
-open Avalonia
 open Avalonia.Controls
 open Avalonia.Layout
 open NXUI.Extensions
-open FSharp.Control.Reactive
 open DevNull.Client
 open DevNull.Client.Formatting
 open DevNull.Client.Theme
@@ -83,33 +81,6 @@ let refs(model: RefsModel, onSelect: Ref -> unit) : Control =
     .Spacing(2.0)
     .Children(
       [| for row in model.Rows -> refButton(model.Selected, row, onSelect) |]
-    )
-
-let status(model: StatusModel) : Control =
-  let fetched =
-    match model.FetchedAt with
-    | Some at -> "fetched " + timeAgo(model.Now, at)
-    | None -> "not fetched yet"
-
-  let divider = TextBlock().Classes(Theme.name Theme.Muted).Text("·")
-
-  Border()
-    .Classes(Theme.name Theme.Hairline)
-    .BorderThickness(Thickness(0.0, 1.0, 0.0, 0.0))
-    .Padding(Thickness(16.0, 8.0, 16.0, 8.0))
-    .Child(
-      StackPanel()
-        .Orientation(Orientation.Horizontal)
-        .Spacing(8.0)
-        .Children(
-          TextBlock()
-            .Classes(Theme.name Theme.Mono)
-            .Text("HEAD -> " + Ref.label model.Ref),
-          divider,
-          TextBlock().Classes(Theme.name Theme.Mono).Text("@" + model.Handle),
-          divider,
-          TextBlock().Classes(Theme.name Theme.Mono).Text(fetched)
-        )
     )
 
 let statusText(model: StatusModel) =

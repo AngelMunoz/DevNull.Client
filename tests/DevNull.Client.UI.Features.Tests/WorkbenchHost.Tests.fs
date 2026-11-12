@@ -63,6 +63,9 @@ let private trending =
 let private repository =
   WorkbenchSettings.parse "repository:octocat" |> WorkbenchState.refOf
 
+let private notifications =
+  WorkbenchSettings.parse "notifications" |> WorkbenchState.refOf
+
 let private followingCommit =
   match LogPage.decode logPageJson with
   | Ok page ->
@@ -722,6 +725,140 @@ let tests =
         Expect.equal liveHistory 1 "the history program did not return"
         Expect.equal liveRepository 0 "the repository program stayed live"
         Expect.isTrue repositoryGone "the repository home stayed selected"
+      })
+
+    testCaseAsync
+      "a notifications ref opens the inbox and leaves it"
+      (async {
+        let! opened, left, liveNotifications, liveHistory =
+          probeUiAsync(fun () ->
+            let env = TestEnv(signedInStore(), groupedInboxApi() :> IHttp)
+            let props = hostProps(env, WorkbenchSettings.initial)
+            let model, cmd = WorkbenchHost.init props
+            let model = runEngine(props, model, cmd)
+
+            let model, cmd =
+              WorkbenchHost.update(
+                props,
+                WorkbenchHost.RefSelected notifications,
+                model
+              )
+
+            let model = runEngine(props, model, cmd)
+
+            let opened =
+              model.Notifications.IsSome
+              && model.History.IsNone
+              && model.LiveNotifications = 1
+              && model.LiveHistory = 0
+
+            let model, cmd =
+              WorkbenchHost.update(
+                props,
+                WorkbenchHost.RefSelected following,
+                model
+              )
+
+            let model = runEngine(props, model, cmd)
+
+            let left = model.Notifications.IsNone
+
+            model.History |> Option.iter(fun child -> child.Handle.Dispose())
+
+            model.Inspector |> Option.iter(fun child -> child.Handle.Dispose())
+
+            model.Notifications
+            |> Option.iter(fun child -> child.Handle.Dispose())
+
+            opened, left, model.LiveNotifications, model.LiveHistory)
+
+        Expect.isTrue opened "the inbox did not replace the history"
+        Expect.isTrue left "the inbox stayed after the ref left"
+        Expect.equal liveNotifications 0 "the inbox program stayed live"
+        Expect.equal liveHistory 1 "the history program did not return"
+      })
+
+    testCaseAsync
+      "the search palette and center are one program each"
+      (async {
+        let! (paletteOpened,
+              paletteLive,
+              searchOpened,
+              historyStopped,
+              searchLive,
+              closed,
+              historyBack) =
+          probeUiAsync(fun () ->
+            let env =
+              TestEnv(signedInStore(), searchApi(false, false) :> IHttp)
+
+            let props = hostProps(env, WorkbenchSettings.initial)
+            let model, cmd = WorkbenchHost.init props
+            let model = runEngine(props, model, cmd)
+
+            let model, cmd =
+              WorkbenchHost.update(
+                props,
+                WorkbenchHost.SearchPaletteToggled,
+                model
+              )
+
+            let model = runEngine(props, model, cmd)
+
+            let paletteOpened = model.SearchPalette.IsSome
+            let paletteLive = model.LiveSearchPalette
+
+            let model, cmd =
+              WorkbenchHost.update(
+                props,
+                WorkbenchHost.SearchCommitted "dns",
+                model
+              )
+
+            let model = runEngine(props, model, cmd)
+
+            let searchOpened =
+              model.Search |> Option.map _.Term = Some "dns"
+              && model.SearchPalette.IsNone
+              && model.LiveSearchPalette = 0
+              && model.LiveSearch = 1
+
+            let historyStopped = model.History.IsNone
+            let searchLive = model.LiveSearch
+
+            let model, cmd =
+              WorkbenchHost.update(props, WorkbenchHost.SearchClosed, model)
+
+            let model = runEngine(props, model, cmd)
+
+            let closed = model.Search.IsNone && model.LiveSearch = 0
+            let historyBack = model.History.IsSome && model.LiveHistory = 1
+
+            model.History |> Option.iter(fun child -> child.Handle.Dispose())
+
+            model.Inspector |> Option.iter(fun child -> child.Handle.Dispose())
+
+            model.Search |> Option.iter(fun child -> child.Handle.Dispose())
+
+            model.SearchPalette
+            |> Option.iter(fun child -> child.Handle.Dispose())
+
+            paletteOpened,
+            paletteLive,
+            searchOpened,
+            historyStopped,
+            searchLive,
+            closed,
+            historyBack)
+
+        Expect.isTrue paletteOpened "the search palette did not open"
+        Expect.equal paletteLive 1 "the search palette program count"
+        Expect.isTrue searchOpened "the search center did not open"
+
+        Expect.isTrue historyStopped "the history stayed live behind the search"
+        Expect.equal searchLive 1 "the search program count"
+        Expect.isTrue closed "the search center stayed after close"
+        Expect.isTrue historyBack "the history did not return after close"
       })
 
     testCase "the fold and counts are model data"

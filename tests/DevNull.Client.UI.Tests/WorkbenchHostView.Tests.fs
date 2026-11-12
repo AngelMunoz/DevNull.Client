@@ -211,6 +211,95 @@ let private repositoryViewOf(env: TestEnv) : RepositoryHome.View =
 let private repositoryRef =
   WorkbenchSettings.parse "repository:octocat" |> WorkbenchState.refOf
 
+let private notificationsRef =
+  WorkbenchSettings.parse "notifications" |> WorkbenchState.refOf
+
+let private notificationsPage =
+  match NotificationPage.decode groupedInboxJson with
+  | Ok page -> page
+  | Error failure ->
+    failwith $"the canned notifications never decoded: {failure.Message}"
+
+let private unreadNotifications = {
+  notificationsPage with
+      Page = {
+        notificationsPage.Page with
+            Items =
+              notificationsPage.Page.Items
+              |> List.mapi(fun index notification ->
+                if index = 0 then
+                  { notification with UnreadCount = 2 }
+                else
+                  notification)
+            NextCursor = Some "next"
+      }
+}
+
+let private notificationsViewOf(env: TestEnv) : Control =
+  let model: NotificationsCenter.Model = {
+    Loading = false
+    More = false
+    Error = None
+    Items = unreadNotifications.Page.Items
+    Cursor = Some "next"
+    Now = now
+  }
+
+  let props: NotificationsCenter.Props<TestEnv> = {
+    Env = env
+    KeyFile = "/tmp/devnull-test-id_ed25519"
+    Images = images
+    Now = Observable.single now
+    OnCheckout = ignore
+  }
+
+  let subject = new BehaviorSubject<NotificationsCenter.Model>(model)
+
+  NotificationsCenter.view
+    props
+    (subject :> IObservable<NotificationsCenter.Model>)
+    (fun (_: NotificationsCenter.Msg) -> ())
+
+let private searchResults =
+  match SearchCommits.decode(sprintf "{\"data\":[%s]}" commitJson) with
+  | Ok results -> results
+  | Error failure ->
+    failwith $"the canned search never decoded: {failure.Message}"
+
+let private searchViewOf(env: TestEnv) : Control =
+  let model: SearchResults.Model = {
+    Term = "dns"
+    Loading = false
+    Error = None
+    Results = searchResults
+    Now = now
+  }
+
+  let props: SearchResults.Props<TestEnv> = {
+    Env = env
+    KeyFile = "/tmp/devnull-test-id_ed25519"
+    ViewerId = "01a151db-0000-0000-0000-000000000000"
+    Pasteis = true
+    Images = images
+    Now = Observable.single now
+    Zone = {
+      Info = TimeZoneInfo.Utc
+      Label = "UTC"
+    }
+    Term = "dns"
+    OnOpenThread = ignore
+    OnQuote = ignore
+    OnOpenExternal = ignore
+    OnClose = ignore
+  }
+
+  let subject = new BehaviorSubject<SearchResults.Model>(model)
+
+  SearchResults.view
+    props
+    (subject :> IObservable<SearchResults.Model>)
+    (fun (_: SearchResults.Msg) -> ())
+
 let private controlByName(root: Control, name: string) : Control option =
   root.GetVisualDescendants()
   |> Seq.choose(function
@@ -245,6 +334,10 @@ let private modelOf(folded: bool, stagingOpen: bool) : WorkbenchHost.Model =
     Thread = None
     Repository = None
     RepositoryListOpen = false
+    Notifications = None
+    SearchPalette = None
+    Search = None
+    SearchTerm = None
     Handle = "octocat"
     FetchedAt = Some(now.AddMinutes -12.0)
     SavedCount = 4
@@ -270,6 +363,9 @@ let private modelOf(folded: bool, stagingOpen: bool) : WorkbenchHost.Model =
     LiveInspector = 1
     LiveThread = 0
     LiveRepository = 0
+    LiveNotifications = 0
+    LiveSearchPalette = 0
+    LiveSearch = 0
   }
 
 let private buildAsync
@@ -355,6 +451,83 @@ let private buildRepositoryAsync
             LiveHistory = 0
             LiveInspector = 0
             LiveRepository = 1
+      }
+
+      let subject = new BehaviorSubject<WorkbenchHost.Model>(model)
+
+      let view =
+        WorkbenchHost.view
+          props
+          (subject :> IObservable<WorkbenchHost.Model>)
+          (fun (_: WorkbenchHost.Msg) -> ())
+
+      let window = Window(Width = 1600.0, Height = 900.0, Content = view)
+
+      window.Show()
+      window, subject)
+}
+
+let private buildNotificationsAsync
+  ()
+  : Async<Window * BehaviorSubject<WorkbenchHost.Model>> = async {
+  return!
+    probeUiAsync(fun () ->
+      let env = TestEnv(signedInStore(), FakeApi("{}") :> IHttp)
+      let props = hostProps env
+      let notificationsView = notificationsViewOf env
+
+      let model = {
+        modelOf(false, false) with
+            Selected = notificationsRef
+            CheckoutId = None
+            History = None
+            Inspector = None
+            Notifications =
+              Some {
+                View = notificationsView
+                Handle = fakeHandle
+              }
+            LiveHistory = 0
+            LiveInspector = 0
+            LiveNotifications = 1
+      }
+
+      let subject = new BehaviorSubject<WorkbenchHost.Model>(model)
+
+      let view =
+        WorkbenchHost.view
+          props
+          (subject :> IObservable<WorkbenchHost.Model>)
+          (fun (_: WorkbenchHost.Msg) -> ())
+
+      let window = Window(Width = 1600.0, Height = 900.0, Content = view)
+
+      window.Show()
+      window, subject)
+}
+
+let private buildSearchAsync
+  ()
+  : Async<Window * BehaviorSubject<WorkbenchHost.Model>> = async {
+  return!
+    probeUiAsync(fun () ->
+      let env = TestEnv(signedInStore(), FakeApi("{}") :> IHttp)
+      let props = hostProps env
+      let searchView = searchViewOf env
+
+      let model = {
+        modelOf(false, false) with
+            CheckoutId = None
+            Inspector = None
+            SearchTerm = Some "dns"
+            Search =
+              Some {
+                Term = "dns"
+                View = searchView
+                Handle = fakeHandle
+              }
+            LiveInspector = 0
+            LiveSearch = 1
       }
 
       let subject = new BehaviorSubject<WorkbenchHost.Model>(model)
@@ -721,6 +894,112 @@ let tests =
         Expect.isTrue
           (firstTip.Contains "3")
           "the contribution bar lost its count tooltip"
+
+        do! closeAsync(window, subject)
+      })
+
+    testCaseAsync
+      "the notifications center at 1600 px lists the API's rows"
+      (async {
+        let! window, subject = buildNotificationsAsync()
+
+        let! shown =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              hasText(root, "NOTIFICATIONS")
+              && hasText(root, "replied to your commit")
+              && hasText(root, "starred your commit")
+              && hasText(root, "3 stars")
+              && hasText(root, "It was DNS.")
+              && hasText(root, "Read state stays with the server.")
+              && (controlByName(root, "SearchEntry") |> Option.isSome)
+          )
+
+        Expect.isTrue shown "the notifications center never rendered its rows"
+
+        do! pumpAsync()
+
+        let! (centerWidth, historyVisible, notificationsVisible, unreadVisible) =
+          probeUiAsync(fun () ->
+            let unread =
+              window.GetVisualDescendants()
+              |> Seq.choose(function
+                | :? Border as border when
+                  border.Name = "NotificationUnreadDot"
+                  ->
+                  Some border
+                | _ -> None)
+              |> Seq.exists(fun border -> border.IsVisible)
+
+            widthOf(window, "NotificationsCenter"),
+            controlByName(window, "HistoryRegion")
+            |> Option.map _.IsVisible
+            |> Option.defaultValue false,
+            controlByName(window, "NotificationsRegion")
+            |> Option.map _.IsVisible
+            |> Option.defaultValue false,
+            unread)
+
+        Expect.isTrue
+          (centerWidth > 1300.0 && centerWidth < 1400.0)
+          $"the notifications center lost the free width: {centerWidth}"
+
+        Expect.isFalse
+          historyVisible
+          "the history stayed visible over the inbox"
+
+        Expect.isTrue
+          notificationsVisible
+          "the notifications region is not visible"
+
+        Expect.isTrue unreadVisible "no unread dot rendered"
+
+        do! closeAsync(window, subject)
+      })
+
+    testCaseAsync
+      "the search center at 1600 px reads as a manual list"
+      (async {
+        let! window, subject = buildSearchAsync()
+
+        let! shown =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              hasText(root, "Search · manual refresh")
+              && hasText(root, "term: dns")
+              && hasText(root, "It was DNS.")
+              && (controlByName(root, "SearchRefresh") |> Option.isSome)
+              && (controlByName(root, "SearchClose") |> Option.isSome)
+              && (controlByName(root, "SearchEntry") |> Option.isSome)
+          )
+
+        Expect.isTrue shown "the search center never rendered its results"
+
+        do! pumpAsync()
+
+        let! centerWidth, historyVisible, searchVisible =
+          probeUiAsync(fun () ->
+            widthOf(window, "SearchCenter"),
+            controlByName(window, "HistoryRegion")
+            |> Option.map _.IsVisible
+            |> Option.defaultValue false,
+            controlByName(window, "SearchRegion")
+            |> Option.map _.IsVisible
+            |> Option.defaultValue false)
+
+        Expect.isTrue
+          (centerWidth > 1300.0 && centerWidth < 1400.0)
+          $"the search center lost the free width: {centerWidth}"
+
+        Expect.isFalse
+          historyVisible
+          "the history stayed visible over the search"
+
+        Expect.isTrue searchVisible "the search region is not visible"
 
         do! closeAsync(window, subject)
       })

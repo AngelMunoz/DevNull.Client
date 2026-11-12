@@ -240,6 +240,12 @@
     <Compile Include="Layouts\Workbench\ThreadMode.fs" />
     <Compile Include="Layouts\Workbench\RepositoryHome.fsi" />
     <Compile Include="Layouts\Workbench\RepositoryHome.fs" />
+    <Compile Include="Layouts\Workbench\NotificationsCenter.fsi" />
+    <Compile Include="Layouts\Workbench\NotificationsCenter.fs" />
+    <Compile Include="Layouts\Workbench\SearchPalette.fsi" />
+    <Compile Include="Layouts\Workbench\SearchPalette.fs" />
+    <Compile Include="Layouts\Workbench\SearchResults.fsi" />
+    <Compile Include="Layouts\Workbench\SearchResults.fs" />
     <Compile Include="Layouts\Workbench\WorkbenchHost.fsi" />
     <Compile Include="Layouts\Workbench\WorkbenchHost.fs" />
     <Compile Include="Views\Routes.fsi" />

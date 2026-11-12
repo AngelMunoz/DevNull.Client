@@ -50,6 +50,11 @@ module Ref =
     | RepositoryRef handle -> Some handle
     | _ -> None
 
+  let notifications(ref: Ref) =
+    match ref with
+    | NotificationsRef -> true
+    | _ -> false
+
 module Checkout =
 
   let inline commitId(checkout: Checkout) = checkout.CommitId

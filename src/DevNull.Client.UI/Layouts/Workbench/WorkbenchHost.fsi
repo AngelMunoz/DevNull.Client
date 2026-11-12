@@ -49,11 +49,26 @@ type RepositoryChild = {
   Handle: IDisposable
 }
 
+/// One live notifications center: its root view and the handle that
+/// ends it.
+type NotificationsChild = { View: Control; Handle: IDisposable }
+
+/// One live search palette: its root view and the handle that ends it.
+type SearchPaletteChild = { View: Control; Handle: IDisposable }
+
+/// One live search center: its normalized term, its root view, and the
+/// handle that ends it.
+type SearchChild = {
+  Term: string
+  View: Control
+  Handle: IDisposable
+}
+
 /// The host's state: the selected ref and checkout, the per-ref
 /// places, the staging flag and state, the open thread, the open
-/// repository home and its people list, the status bar's handle and
-/// fetch time, the counts, the fold, the clock, and the live child
-/// programs.
+/// repository home and its people list, the notifications center, the
+/// search surfaces, the status bar's handle and fetch time, the
+/// counts, the fold, the clock, and the live child programs.
 type Model = {
   Selected: Ref
   CheckoutId: string option
@@ -64,6 +79,10 @@ type Model = {
   Thread: ThreadChild option
   Repository: RepositoryChild option
   RepositoryListOpen: bool
+  Notifications: NotificationsChild option
+  SearchPalette: SearchPaletteChild option
+  Search: SearchChild option
+  SearchTerm: string option
   Handle: string
   FetchedAt: DateTimeOffset option
   SavedCount: int
@@ -77,13 +96,17 @@ type Model = {
   LiveInspector: int
   LiveThread: int
   LiveRepository: int
+  LiveNotifications: int
+  LiveSearchPalette: int
+  LiveSearch: int
 }
 
 /// The host's messages: ref and checkout selections, the staging flag
 /// and its draft, post, schedule, and queue messages, the open thread
 /// and its back request, the repository home and its people-list
-/// report, the fold, the clock and session, the history place report,
-/// and the host's open, external, and quote requests.
+/// report, the notifications and search surfaces, the fold, the clock
+/// and session, the history place report, and the host's open,
+/// external, and quote requests.
 [<NoComparison>]
 type Msg =
   | RefSelected of ref: Ref
@@ -108,6 +131,16 @@ type Msg =
   | ThreadStopped
   | RepositoryStopped
   | RepositoryListChanged of open': bool
+  | NotificationsReady of view: Control * handle: IDisposable
+  | NotificationsStopped
+  | SearchPaletteToggled
+  | SearchPaletteClosed
+  | SearchPaletteReady of view: Control * handle: IDisposable
+  | SearchPaletteStopped
+  | SearchCommitted of term: string
+  | SearchClosed
+  | SearchReady of term: string * view: Control * handle: IDisposable
+  | SearchStopped
   | HistoryReady of
     ref: Ref *
     restore: HistoryColumn.Place option *
@@ -167,6 +200,9 @@ type internal MountedHost =
   member LiveInspector: int
   member LiveThread: int
   member LiveRepository: int
+  member LiveNotifications: int
+  member LiveSearchPalette: int
+  member LiveSearch: int
   member HostDisposed: bool
   interface IDisposable
 
@@ -187,7 +223,9 @@ val subscribe: props: Props<'env> -> model: Model -> Sub<Msg>
 /// An open thread replaces the history center and adds its PARENTS
 /// chain above the inspector checkout. A selected repository ref
 /// replaces the history center with its home; an open people list
-/// takes the inspector's place.
+/// takes the inspector's place. The notifications ref fills the
+/// center with its rows, and the search palette and center are
+/// workbench overlays over the selected ref.
 val view:
   props: Props<'env> ->
   model: IObservable<Model> ->

@@ -43,6 +43,9 @@ module Ref =
   /// The handle behind a repository ref, when the ref is one.
   val repository: ref: Ref -> string option
 
+  /// True for the notifications ref.
+  val notifications: ref: Ref -> bool
+
 module Checkout =
 
   /// The checked-out commit's id.

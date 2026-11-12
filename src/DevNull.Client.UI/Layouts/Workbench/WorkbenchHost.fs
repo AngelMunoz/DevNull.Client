@@ -49,6 +49,16 @@ type RepositoryChild = {
   Handle: IDisposable
 }
 
+type NotificationsChild = { View: Control; Handle: IDisposable }
+
+type SearchPaletteChild = { View: Control; Handle: IDisposable }
+
+type SearchChild = {
+  Term: string
+  View: Control
+  Handle: IDisposable
+}
+
 type Model = {
   Selected: Ref
   CheckoutId: string option
@@ -59,6 +69,10 @@ type Model = {
   Thread: ThreadChild option
   Repository: RepositoryChild option
   RepositoryListOpen: bool
+  Notifications: NotificationsChild option
+  SearchPalette: SearchPaletteChild option
+  Search: SearchChild option
+  SearchTerm: string option
   Handle: string
   FetchedAt: DateTimeOffset option
   SavedCount: int
@@ -72,6 +86,9 @@ type Model = {
   LiveInspector: int
   LiveThread: int
   LiveRepository: int
+  LiveNotifications: int
+  LiveSearchPalette: int
+  LiveSearch: int
 }
 
 [<NoComparison>]
@@ -98,6 +115,16 @@ type Msg =
   | ThreadStopped
   | RepositoryStopped
   | RepositoryListChanged of open': bool
+  | NotificationsReady of view: Control * handle: IDisposable
+  | NotificationsStopped
+  | SearchPaletteToggled
+  | SearchPaletteClosed
+  | SearchPaletteReady of view: Control * handle: IDisposable
+  | SearchPaletteStopped
+  | SearchCommitted of term: string
+  | SearchClosed
+  | SearchReady of term: string * view: Control * handle: IDisposable
+  | SearchStopped
   | HistoryReady of
     ref: Ref *
     restore: HistoryColumn.Place option *
@@ -161,6 +188,12 @@ type MountedHost() =
 
   member val CurrentRepository: TrackedHandle option = None with get, set
 
+  member val CurrentNotifications: TrackedHandle option = None with get, set
+
+  member val CurrentSearchPalette: TrackedHandle option = None with get, set
+
+  member val CurrentSearch: TrackedHandle option = None with get, set
+
   member val HostHandle: IDisposable option = None with get, set
 
   member val Disposed = false with get, set
@@ -172,6 +205,12 @@ type MountedHost() =
   member val LiveThread = 0 with get, set
 
   member val LiveRepository = 0 with get, set
+
+  member val LiveNotifications = 0 with get, set
+
+  member val LiveSearchPalette = 0 with get, set
+
+  member val LiveSearch = 0 with get, set
 
   member val HostDisposed = false with get, set
 
@@ -197,6 +236,9 @@ type MountedHost() =
     this.LiveInspector <- model.LiveInspector
     this.LiveThread <- model.LiveThread
     this.LiveRepository <- model.LiveRepository
+    this.LiveNotifications <- model.LiveNotifications
+    this.LiveSearchPalette <- model.LiveSearchPalette
+    this.LiveSearch <- model.LiveSearch
 
     this.CurrentHistory <-
       model.History |> Option.bind(fun child -> track child.Handle)
@@ -209,6 +251,15 @@ type MountedHost() =
 
     this.CurrentRepository <-
       model.Repository |> Option.bind(fun child -> track child.Handle)
+
+    this.CurrentNotifications <-
+      model.Notifications |> Option.bind(fun child -> track child.Handle)
+
+    this.CurrentSearchPalette <-
+      model.SearchPalette |> Option.bind(fun child -> track child.Handle)
+
+    this.CurrentSearch <-
+      model.Search |> Option.bind(fun child -> track child.Handle)
 
   member this.Attach(hostHandle: IDisposable) =
     this.HostHandle <- Some hostHandle
@@ -224,11 +275,17 @@ type MountedHost() =
       this.CurrentInspector |> Option.iter _.Dispose()
       this.CurrentThread |> Option.iter _.Dispose()
       this.CurrentRepository |> Option.iter _.Dispose()
+      this.CurrentNotifications |> Option.iter _.Dispose()
+      this.CurrentSearchPalette |> Option.iter _.Dispose()
+      this.CurrentSearch |> Option.iter _.Dispose()
       this.HostHandle |> Option.iter _.Dispose()
       this.LiveHistory <- 0
       this.LiveInspector <- 0
       this.LiveThread <- 0
       this.LiveRepository <- 0
+      this.LiveNotifications <- 0
+      this.LiveSearchPalette <- 0
+      this.LiveSearch <- 0
       this.HostDisposed <- true
       subject.OnCompleted()
       subject.Dispose()
@@ -277,6 +334,20 @@ type RepositoryStart = {
   KeyFile: string
   ViewerId: string
   Pasteis: bool
+}
+
+[<Struct>]
+type NotificationsStart = { KeyFile: string }
+
+[<Struct>]
+type SearchPaletteStart = { KeyFile: string }
+
+[<Struct>]
+type SearchStart = {
+  KeyFile: string
+  ViewerId: string
+  Pasteis: bool
+  Term: string
 }
 
 let sessionOfState(state: SessionState) : SessionData =
@@ -449,6 +520,76 @@ let startRepository
     Handle = handle
   }
 
+let startNotifications
+  (props: Props<'env>, dispatch: Msg -> unit, start: NotificationsStart)
+  : NotificationsChild =
+  let childProps: NotificationsCenter.Props<'env> = {
+    Env = props.Env
+    KeyFile = start.KeyFile
+    Images = props.Images
+    Now = props.Now
+    OnCheckout = fun commitId -> dispatch(CheckoutSet(Some commitId))
+  }
+
+  let view, rawHandle =
+    Programs.runPage(
+      props.Env.Dispatcher,
+      NotificationsCenter.program childProps
+    )
+
+  {
+    View = view
+    Handle = TrackedHandle(rawHandle) :> IDisposable
+  }
+
+let startSearchPalette
+  (props: Props<'env>, dispatch: Msg -> unit, start: SearchPaletteStart)
+  : SearchPaletteChild =
+  let childProps: SearchPalette.Props<'env> = {
+    Env = props.Env
+    KeyFile = start.KeyFile
+    Images = props.Images
+    OnOpenRepository =
+      fun handle -> dispatch(RefSelected(Build.repository handle))
+    OnSearchCommits = fun term -> dispatch(SearchCommitted term)
+    OnClose = fun () -> dispatch SearchPaletteClosed
+  }
+
+  let view, rawHandle =
+    Programs.runPage(props.Env.Dispatcher, SearchPalette.program childProps)
+
+  {
+    View = view
+    Handle = TrackedHandle(rawHandle) :> IDisposable
+  }
+
+let startSearch
+  (props: Props<'env>, dispatch: Msg -> unit, start: SearchStart)
+  : SearchChild =
+  let childProps: SearchResults.Props<'env> = {
+    Env = props.Env
+    KeyFile = start.KeyFile
+    ViewerId = start.ViewerId
+    Pasteis = start.Pasteis
+    Images = props.Images
+    Now = props.Now
+    Zone = props.Zone
+    Term = start.Term
+    OnOpenThread = fun commit -> dispatch(OpenThread commit.Id)
+    OnQuote = fun commit -> dispatch(Quote commit)
+    OnOpenExternal = fun url -> dispatch(OpenExternal url)
+    OnClose = fun () -> dispatch SearchClosed
+  }
+
+  let view, rawHandle =
+    Programs.runPage(props.Env.Dispatcher, SearchResults.program childProps)
+
+  {
+    Term = start.Term
+    View = view
+    Handle = TrackedHandle(rawHandle) :> IDisposable
+  }
+
 let startHistoryCmd
   (props: Props<'env>, old: IDisposable option, start: HistoryStart)
   : Cmd<Msg> =
@@ -528,6 +669,58 @@ let stopHistoryCmd(old: IDisposable option) : Cmd<Msg> =
       dispatch HistoryStopped
     | None -> ())
 
+let startNotificationsCmd
+  (props: Props<'env>, old: IDisposable option, start: NotificationsStart option) : Cmd<
+                                                                                      Msg
+                                                                                     >
+  =
+  Cmd.ofEffect(fun dispatch ->
+    match old with
+    | Some handle ->
+      handle.Dispose()
+      dispatch NotificationsStopped
+    | None -> ()
+
+    match start with
+    | Some start ->
+      let child = startNotifications(props, dispatch, start)
+      dispatch(NotificationsReady(child.View, child.Handle))
+    | None -> ())
+
+let startSearchPaletteCmd
+  (props: Props<'env>, old: IDisposable option, start: SearchPaletteStart option) : Cmd<
+                                                                                      Msg
+                                                                                     >
+  =
+  Cmd.ofEffect(fun dispatch ->
+    match old with
+    | Some handle ->
+      handle.Dispose()
+      dispatch SearchPaletteStopped
+    | None -> ()
+
+    match start with
+    | Some start ->
+      let child = startSearchPalette(props, dispatch, start)
+      dispatch(SearchPaletteReady(child.View, child.Handle))
+    | None -> ())
+
+let startSearchCmd
+  (props: Props<'env>, old: IDisposable option, start: SearchStart option)
+  : Cmd<Msg> =
+  Cmd.ofEffect(fun dispatch ->
+    match old with
+    | Some handle ->
+      handle.Dispose()
+      dispatch SearchStopped
+    | None -> ()
+
+    match start with
+    | Some start ->
+      let child = startSearch(props, dispatch, start)
+      dispatch(SearchReady(start.Term, child.View, child.Handle))
+    | None -> ())
+
 let stateCmd
   (props: Props<'env>, ref: Ref, checkoutId: string option)
   : Cmd<Msg> =
@@ -557,6 +750,10 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     Thread = None
     Repository = None
     RepositoryListOpen = false
+    Notifications = None
+    SearchPalette = None
+    Search = None
+    SearchTerm = None
     Handle = data.Handle
     FetchedAt = None
     SavedCount = 0
@@ -570,6 +767,9 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     LiveInspector = 0
     LiveThread = 0
     LiveRepository = 0
+    LiveNotifications = 0
+    LiveSearchPalette = 0
+    LiveSearch = 0
   }
 
   let historyStart: HistoryStart = {
@@ -593,6 +793,8 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
           Pasteis = data.Pasteis
         }
       )
+    | None when Ref.notifications selected ->
+      startNotificationsCmd(props, None, Some { KeyFile = data.KeyFile })
     | None -> startHistoryCmd(props, None, historyStart)
 
   model,
@@ -607,21 +809,45 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | RefSelected ref ->
     let data = sessionData props
 
+    let cleared = {
+      model with
+          Selected = ref
+          History = None
+          FetchedAt = None
+          ThreadId = None
+          Thread = None
+          Repository = None
+          RepositoryListOpen = false
+          Notifications = None
+          SearchPalette = None
+          Search = None
+          SearchTerm = None
+    }
+
+    let common = [
+      startThreadCmd(props, model.Thread |> Option.map _.Handle, None)
+
+      startSearchPaletteCmd(
+        props,
+        model.SearchPalette |> Option.map _.Handle,
+        None
+      )
+
+      startSearchCmd(props, model.Search |> Option.map _.Handle, None)
+      stateCmd(props, ref, model.CheckoutId)
+    ]
+
     match Ref.repository ref with
     | Some handle ->
-      {
-        model with
-            Selected = ref
-            History = None
-            FetchedAt = None
-            ThreadId = None
-            Thread = None
-            Repository = None
-            RepositoryListOpen = false
-      },
+      cleared,
       Cmd.batch [
+        yield! common
         stopHistoryCmd(model.History |> Option.map _.Handle)
-        startThreadCmd(props, model.Thread |> Option.map _.Handle, None)
+        startNotificationsCmd(
+          props,
+          model.Notifications |> Option.map _.Handle,
+          None
+        )
 
         startRepositoryCmd(
           props,
@@ -633,8 +859,18 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             Pasteis = data.Pasteis
           }
         )
-
-        stateCmd(props, ref, model.CheckoutId)
+      ]
+    | None when Ref.notifications ref ->
+      cleared,
+      Cmd.batch [
+        yield! common
+        stopHistoryCmd(model.History |> Option.map _.Handle)
+        startRepositoryCmd(props, model.Repository |> Option.map _.Handle, None)
+        startNotificationsCmd(
+          props,
+          model.Notifications |> Option.map _.Handle,
+          Some { KeyFile = data.KeyFile }
+        )
       ]
     | None ->
       let start: HistoryStart = {
@@ -645,23 +881,16 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         Pasteis = data.Pasteis
       }
 
-      {
-        model with
-            Selected = ref
-            History = None
-            FetchedAt = None
-            ThreadId = None
-            Thread = None
-            Repository = None
-            RepositoryListOpen = false
-      },
+      cleared,
       Cmd.batch [
+        yield! common
         startHistoryCmd(props, model.History |> Option.map _.Handle, start)
-        startThreadCmd(props, model.Thread |> Option.map _.Handle, None)
-
         startRepositoryCmd(props, model.Repository |> Option.map _.Handle, None)
-
-        stateCmd(props, ref, model.CheckoutId)
+        startNotificationsCmd(
+          props,
+          model.Notifications |> Option.map _.Handle,
+          None
+        )
       ]
   | CheckoutSet commitId ->
     let data = sessionData props
@@ -869,6 +1098,166 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
           RepositoryListOpen = open' && model.Repository.IsSome
      },
      Cmd.none)
+  | NotificationsStopped ->
+    ({
+      model with
+          LiveNotifications = max 0 (model.LiveNotifications - 1)
+     },
+     Cmd.none)
+  | NotificationsReady(view, childHandle) ->
+    if Ref.notifications model.Selected then
+      model.Notifications
+      |> Option.iter(fun current -> current.Handle.Dispose())
+
+      let live =
+        if model.Notifications.IsSome then
+          model.LiveNotifications
+        else
+          model.LiveNotifications + 1
+
+      ({
+        model with
+            Notifications = Some { View = view; Handle = childHandle }
+            LiveNotifications = live
+       },
+       Cmd.none)
+    else
+      childHandle.Dispose()
+      model, Cmd.none
+  | SearchPaletteToggled ->
+    let data = sessionData props
+
+    match model.SearchPalette with
+    | Some _ ->
+      ({ model with SearchPalette = None },
+       startSearchPaletteCmd(
+         props,
+         model.SearchPalette |> Option.map _.Handle,
+         None
+       ))
+    | None ->
+      ({ model with SearchPalette = None },
+       startSearchPaletteCmd(props, None, Some { KeyFile = data.KeyFile }))
+  | SearchPaletteClosed ->
+    ({ model with SearchPalette = None },
+     startSearchPaletteCmd(
+       props,
+       model.SearchPalette |> Option.map _.Handle,
+       None
+     ))
+  | SearchPaletteStopped ->
+    ({
+      model with
+          LiveSearchPalette = max 0 (model.LiveSearchPalette - 1)
+     },
+     Cmd.none)
+  | SearchPaletteReady(view, childHandle) ->
+    model.SearchPalette |> Option.iter(fun current -> current.Handle.Dispose())
+
+    let live =
+      if model.SearchPalette.IsSome then
+        model.LiveSearchPalette
+      else
+        model.LiveSearchPalette + 1
+
+    ({
+      model with
+          SearchPalette = Some { View = view; Handle = childHandle }
+          LiveSearchPalette = live
+     },
+     Cmd.none)
+  | SearchCommitted term ->
+    let data = sessionData props
+
+    ({
+      model with
+          History = None
+          ThreadId = None
+          Thread = None
+          SearchPalette = None
+          Search = None
+          SearchTerm = Some term
+     },
+     Cmd.batch [
+       startThreadCmd(props, model.Thread |> Option.map _.Handle, None)
+
+       startSearchPaletteCmd(
+         props,
+         model.SearchPalette |> Option.map _.Handle,
+         None
+       )
+
+       stopHistoryCmd(model.History |> Option.map _.Handle)
+
+       startSearchCmd(
+         props,
+         model.Search |> Option.map _.Handle,
+         Some {
+           KeyFile = data.KeyFile
+           ViewerId = data.ViewerId
+           Pasteis = data.Pasteis
+           Term = term
+         }
+       )
+     ])
+  | SearchStopped ->
+    ({
+      model with
+          LiveSearch = max 0 (model.LiveSearch - 1)
+     },
+     Cmd.none)
+  | SearchReady(term, view, childHandle) ->
+    if model.SearchTerm = Some term then
+      model.Search |> Option.iter(fun current -> current.Handle.Dispose())
+
+      let live =
+        if model.Search.IsSome then
+          model.LiveSearch
+        else
+          model.LiveSearch + 1
+
+      ({
+        model with
+            Search =
+              Some {
+                Term = term
+                View = view
+                Handle = childHandle
+              }
+            LiveSearch = live
+       },
+       Cmd.none)
+    else
+      childHandle.Dispose()
+      model, Cmd.none
+  | SearchClosed ->
+    let data = sessionData props
+
+    let restart =
+      match Ref.log model.Selected with
+      | Some _ when model.History.IsNone ->
+        startHistoryCmd(
+          props,
+          None,
+          {
+            Ref = model.Selected
+            Place = model.Places |> Map.tryFind model.Selected
+            KeyFile = data.KeyFile
+            ViewerId = data.ViewerId
+            Pasteis = data.Pasteis
+          }
+        )
+      | _ -> Cmd.none
+
+    ({
+      model with
+          Search = None
+          SearchTerm = None
+     },
+     Cmd.batch [
+       startSearchCmd(props, model.Search |> Option.map _.Handle, None)
+       restart
+     ])
   | HistoryReady(ref, restore, view, handle, refresh) ->
     if ref = model.Selected then
       model.History |> Option.iter(fun current -> current.Handle.Dispose())
@@ -1013,17 +1402,35 @@ let view
 
   let refsHost = ContentControl().Content(refsSlice |> _.ToBinding())
 
+  let searchEntry =
+    Button()
+      .Name("SearchEntry")
+      .Classes(Theme.name Theme.GhostButton)
+      .Content("SEARCH")
+      .HorizontalAlignment(HorizontalAlignment.Stretch)
+      .Margin(Thickness(12.0, 12.0, 12.0, 6.0))
+      .OnClickHandler(fun _ _ -> dispatch SearchPaletteToggled)
+
+  let refsColumn = Grid()
+
+  refsColumn.RowDefinitions <- RowDefinitions("Auto,*")
+
+  refsColumn.Children(
+    searchEntry.Row(0),
+    ScrollViewer()
+      .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
+      .Content(refsHost)
+      .Row(1)
+  )
+  |> ignore
+
   let refsRegion =
     Border()
       .Name("RefsRegion")
       .Width(240.0)
       .Classes(Theme.name Theme.Hairline)
       .BorderThickness(Thickness(0.0, 0.0, 1.0, 0.0))
-      .Child(
-        ScrollViewer()
-          .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
-          .Content(refsHost)
-      )
+      .Child(refsColumn)
 
   let folded =
     model |> Observable.map _.Folded |> Observable.distinctUntilChanged
@@ -1056,9 +1463,30 @@ let view
     |> Observable.map _.Repository.IsSome
     |> Observable.distinctUntilChanged
 
-  let centerCovered =
+  let notificationsOpen =
+    model
+    |> Observable.map _.Notifications.IsSome
+    |> Observable.distinctUntilChanged
+
+  let searchOpen =
+    model |> Observable.map _.Search.IsSome |> Observable.distinctUntilChanged
+
+  let paletteOpen =
+    model
+    |> Observable.map _.SearchPalette.IsSome
+    |> Observable.distinctUntilChanged
+
+  let coveredThreadRepo =
     Observable.combineLatest threadOpen repositoryOpen
     |> Observable.map(fun (thread, repository) -> thread || repository)
+
+  let coveredThreadRepoNotifications =
+    Observable.combineLatest coveredThreadRepo notificationsOpen
+    |> Observable.map(fun (covered, notifications) -> covered || notifications)
+
+  let centerCovered =
+    Observable.combineLatest coveredThreadRepoNotifications searchOpen
+    |> Observable.map(fun (covered, search) -> covered || search)
     |> Observable.distinctUntilChanged
 
   let historySlice =
@@ -1089,9 +1517,13 @@ let view
     |> Observable.distinctUntilChanged
     |> Observable.map(Option.defaultValue repositoryPlaceholder)
 
+  let repositoryBusy =
+    Observable.combineLatest threadOpen searchOpen
+    |> Observable.map(fun (thread, search) -> thread || search)
+
   let repositoryVisible =
-    Observable.combineLatest repositoryOpen threadOpen
-    |> Observable.map(fun (repository, thread) -> repository && not thread)
+    Observable.combineLatest repositoryBusy repositoryOpen
+    |> Observable.map(fun (busy, repository) -> repository && not busy)
     |> Observable.distinctUntilChanged
 
   let repositoryHost =
@@ -1101,6 +1533,58 @@ let view
       .VerticalContentAlignment(VerticalAlignment.Stretch)
       .Content(repositorySlice |> _.ToBinding())
       .IsVisible(repositoryVisible)
+      .Margin(
+        reserved |> Observable.map(fun right -> Thickness(0.0, 0.0, right, 0.0))
+      )
+
+  let notificationsPlaceholder = Panel()
+
+  let notificationsSlice =
+    model
+    |> Observable.map(fun current -> current.Notifications |> Option.map _.View)
+    |> Observable.distinctUntilChanged
+    |> Observable.map(Option.defaultValue notificationsPlaceholder)
+
+  let notificationsBusy =
+    Observable.combineLatest threadOpen searchOpen
+    |> Observable.map(fun (thread, search) -> thread || search)
+
+  let notificationsVisible =
+    Observable.combineLatest notificationsBusy notificationsOpen
+    |> Observable.map(fun (busy, notifications) -> notifications && not busy)
+    |> Observable.distinctUntilChanged
+
+  let notificationsHost =
+    ContentControl()
+      .Name("NotificationsRegion")
+      .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+      .VerticalContentAlignment(VerticalAlignment.Stretch)
+      .Content(notificationsSlice |> _.ToBinding())
+      .IsVisible(notificationsVisible)
+      .Margin(
+        reserved |> Observable.map(fun right -> Thickness(0.0, 0.0, right, 0.0))
+      )
+
+  let searchPlaceholder = Panel()
+
+  let searchSlice =
+    model
+    |> Observable.map(fun current -> current.Search |> Option.map _.View)
+    |> Observable.distinctUntilChanged
+    |> Observable.map(Option.defaultValue searchPlaceholder)
+
+  let searchVisible =
+    Observable.combineLatest searchOpen threadOpen
+    |> Observable.map(fun (search, thread) -> search && not thread)
+    |> Observable.distinctUntilChanged
+
+  let searchHost =
+    ContentControl()
+      .Name("SearchRegion")
+      .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+      .VerticalContentAlignment(VerticalAlignment.Stretch)
+      .Content(searchSlice |> _.ToBinding())
+      .IsVisible(searchVisible)
       .Margin(
         reserved |> Observable.map(fun right -> Thickness(0.0, 0.0, right, 0.0))
       )
@@ -1198,9 +1682,34 @@ let view
       .Child(inspectorSlot)
       .IsVisible(hasRight)
 
+  let palettePlaceholder = Panel()
+
+  let paletteSlice =
+    model
+    |> Observable.map(fun current -> current.SearchPalette |> Option.map _.View)
+    |> Observable.distinctUntilChanged
+    |> Observable.map(Option.defaultValue palettePlaceholder)
+
+  let paletteHost =
+    ContentControl()
+      .Name("SearchPaletteRegion")
+      .HorizontalAlignment(HorizontalAlignment.Left)
+      .VerticalAlignment(VerticalAlignment.Top)
+      .Margin(Thickness(16.0))
+      .Content(paletteSlice |> _.ToBinding())
+      .IsVisible(paletteOpen)
+
   let main = Grid()
 
-  main.Children(historyHost, repositoryHost, threadHost, inspectorRegion)
+  main.Children(
+    historyHost,
+    notificationsHost,
+    repositoryHost,
+    searchHost,
+    threadHost,
+    inspectorRegion,
+    paletteHost
+  )
   |> ignore
 
   let stagingProps: Staging.Props<'env> = {

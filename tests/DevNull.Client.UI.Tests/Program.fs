@@ -4,6 +4,16 @@ open Expecto
 
 open DevNull.Client.UI.Tests
 open DevNull.Client.UI.Tests.FeedTests
+open DevNull.Client.UI.Tests.EditorSettings
+open DevNull.Client.UI.Tests.EditorTypes
+open DevNull.Client.UI.Tests.EditorFrame
+open DevNull.Client.UI.Tests.EditorChurn
+open DevNull.Client.UI.Tests.EditorPanel
+open DevNull.Client.UI.Tests.RepoFrame
+open DevNull.Client.UI.Tests.EditorFlyout
+open DevNull.Client.UI.Tests.PaletteFrame
+open DevNull.Client.UI.Tests.EditorHardening
+open DevNull.Client.UI.Tests.EditorGates
 open DevNull.Client.UI.Tests.Natives
 open DevNull.Client.UI.Tests.WorkbenchGateTests
 open DevNull.Client.UI.Tests.WorkbenchHardening
@@ -24,6 +34,10 @@ let main argv =
       // for the retained roots, focus and keys for the rebind.
       testSequenced LayoutHost.tests
       FeedTests.tests
+      EditorSettings.tests
+      EditorTypes.tests
+      EditorFrame.tests
+      EditorGates.tests
       WorkbenchSettingsTests.tests
       WorkbenchGateTests.tests
       WorkbenchGateTests.columnTests
@@ -35,6 +49,12 @@ let main argv =
       // Focus and key routing are process-global too; the suite runs
       // alone like the memory budgets.
       testSequenced Shortcuts.tests
+      testSequenced EditorChurn.tests
+      testSequenced EditorPanel.tests
+      testSequenced RepoFrame.tests
+      testSequenced EditorFlyout.tests
+      testSequenced PaletteFrame.tests
+      testSequenced EditorHardening.tests
       Unread.tests
     ]
 

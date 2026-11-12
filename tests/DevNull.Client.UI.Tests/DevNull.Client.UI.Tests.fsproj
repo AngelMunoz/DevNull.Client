@@ -17,6 +17,16 @@
     <Compile Include="Leaks.Tests.fs" />
     <Compile Include="Layouts.Tests.fs" />
     <Compile Include="Feed.Tests.fs" />
+    <Compile Include="EditorSettings.Tests.fs" />
+    <Compile Include="EditorTypes.Tests.fs" />
+    <Compile Include="EditorFrame.Tests.fs" />
+    <Compile Include="EditorChurn.Tests.fs" />
+    <Compile Include="EditorPanel.Tests.fs" />
+    <Compile Include="RepoFrame.Tests.fs" />
+    <Compile Include="EditorFlyout.Tests.fs" />
+    <Compile Include="PaletteFrame.Tests.fs" />
+    <Compile Include="EditorHardening.Tests.fs" />
+    <Compile Include="EditorGates.Tests.fs" />
     <Compile Include="WorkbenchSettings.Tests.fs" />
     <Compile Include="WorkbenchGate.Tests.fs" />
     <Compile Include="WorkbenchHostView.Tests.fs" />

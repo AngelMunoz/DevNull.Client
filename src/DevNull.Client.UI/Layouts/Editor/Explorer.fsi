@@ -1,0 +1,22 @@
+module DevNull.Client.Layouts.Editor.Explorer
+
+open Avalonia.Controls
+open DevNull.Client.Core.ApiTypes
+
+/// What the explorer renders: the selected ref, the two counts, the
+/// viewer's handle, and the host's answers.
+type Props = {
+  Selected: LogKind
+  Saved: int
+  Queue: int
+  /// The fallback line when the frame has no queue link.
+  QueueHint: string option
+  Viewer: string
+  OnSelectRef: LogKind -> unit
+  OnOpenViewer: unit -> unit
+}
+
+/// The side bar: the three refs with HEAD on the selected one, the
+/// saved and queue counts, and the signed-in user's repository row,
+/// which opens that account's repository tab.
+val view: props: Props -> Control

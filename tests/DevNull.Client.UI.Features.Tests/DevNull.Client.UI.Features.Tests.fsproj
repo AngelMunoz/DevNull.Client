@@ -33,6 +33,11 @@
     <Compile Include="Formatting.Tests.fs" />
     <Compile Include="ProfilePictures.Tests.fs" />
     <Compile Include="SearchLatest.Tests.fs" />
+    <Compile Include="HistoryTab.Tests.fs" />
+    <Compile Include="ThreadTab.Tests.fs" />
+    <Compile Include="RepoTab.Tests.fs" />
+    <Compile Include="Palette.Tests.fs" />
+    <Compile Include="Panel.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

@@ -200,35 +200,40 @@ let builtIn
     | SignedIn _ ->
       let settings = (env :> IProvideSettings).Settings
 
-      // The mount and its sinks meet only after both exist: the lazy
-      // cell breaks the circle without a mutable slot.
-      let rec mount =
-        lazy
-          WorkbenchHost.mountFor(
-            (env :> IProvideDispatcher).Dispatcher,
-            {
-              Env = env
-              Initial = WorkbenchSettings.parse settings.Current.WorkbenchState
-              Images = (env :> IProvideImageCache).ImageCache
-              Now = (env :> IProvideUiClock).UiClock.Minute
-              Zone =
-                workbenchZone(
-                  (env :> IProvideUserSettings).UserSettings.Current
-                )
-              OnOpenAuthor =
-                fun handle ->
-                  mount
-                    .Force()
-                    .Send(WorkbenchHost.RefSelected(Build.repository handle))
-              OnOpenExternal =
-                fun url -> (env :> IProvideBrowser).Browser.Open url |> ignore
-              OnStateChanged =
-                fun state ->
-                  settings.SetWorkbenchState(WorkbenchSettings.store state)
-            }
-          )
+      // The sinks can reach the host's message path only after the
+      // mount exists; the slot is filled once, right after the call
+      // returns, before any message can run.
+      let mutable mounted: WorkbenchMount option = None
 
-      let mounted = mount.Force()
+      let sendToWorkbench(msg: WorkbenchHost.Msg) : unit =
+        mounted |> Option.iter(fun host -> host.Send msg)
+
+      let mountedWorkbench =
+        WorkbenchHost.mountFor(
+          (env :> IProvideDispatcher).Dispatcher,
+          {
+            Env = env
+            Initial = WorkbenchSettings.parse settings.Current.WorkbenchState
+            Images = (env :> IProvideImageCache).ImageCache
+            Now = (env :> IProvideUiClock).UiClock.Minute
+            Zone =
+              workbenchZone(
+                (env :> IProvideUserSettings).UserSettings.Current
+              )
+            OnOpenAuthor =
+              fun handle ->
+                sendToWorkbench(
+                  WorkbenchHost.RefSelected(Build.repository handle)
+                )
+            OnOpenExternal =
+              fun url -> (env :> IProvideBrowser).Browser.Open url |> ignore
+            OnStateChanged =
+              fun state ->
+                settings.SetWorkbenchState(WorkbenchSettings.store state)
+          }
+        )
+
+      mounted <- Some mountedWorkbench
 
       {
         new ILayout with

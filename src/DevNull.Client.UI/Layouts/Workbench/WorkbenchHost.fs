@@ -423,7 +423,7 @@ let startHistory
     let view, rawHandle =
       Programs.runPage(props.Env.Dispatcher, HistoryColumn.program childProps)
 
-    let handle = TrackedHandle(rawHandle) :> IDisposable
+    let handle = new TrackedHandle(rawHandle) :> IDisposable
 
     Some {
       Ref = start.Ref
@@ -455,7 +455,7 @@ let startInspector
   let view, rawHandle =
     Programs.runPage(props.Env.Dispatcher, Inspector.program childProps)
 
-  let handle = TrackedHandle(rawHandle) :> IDisposable
+  let handle = new TrackedHandle(rawHandle) :> IDisposable
 
   {
     CommitId = start.CommitId
@@ -485,7 +485,7 @@ let startThread
   let view, rawHandle =
     Programs.runPage(props.Env.Dispatcher, ThreadMode.program childProps)
 
-  let handle = TrackedHandle(rawHandle) :> IDisposable
+  let handle = new TrackedHandle(rawHandle) :> IDisposable
 
   {
     CommitId = start.CommitId
@@ -516,7 +516,7 @@ let startRepository
   let view, rawHandle =
     Programs.runPage(props.Env.Dispatcher, RepositoryHome.program childProps)
 
-  let handle = TrackedHandle(rawHandle) :> IDisposable
+  let handle = new TrackedHandle(rawHandle) :> IDisposable
 
   {
     RepositoryHandle = start.Handle
@@ -543,7 +543,7 @@ let startNotifications
 
   {
     View = view
-    Handle = TrackedHandle(rawHandle) :> IDisposable
+    Handle = new TrackedHandle(rawHandle) :> IDisposable
   }
 
 let startSearchPalette
@@ -564,7 +564,7 @@ let startSearchPalette
 
   {
     View = view
-    Handle = TrackedHandle(rawHandle) :> IDisposable
+    Handle = new TrackedHandle(rawHandle) :> IDisposable
   }
 
 let startSearch
@@ -591,7 +591,7 @@ let startSearch
   {
     Term = start.Term
     View = view
-    Handle = TrackedHandle(rawHandle) :> IDisposable
+    Handle = new TrackedHandle(rawHandle) :> IDisposable
   }
 
 let startHistoryCmd
@@ -1815,7 +1815,7 @@ type WorkbenchMount(mounted: MountedHost, root: Control) =
     member _.Dispose() = (mounted :> IDisposable).Dispose()
 
 let mountFor(dispatcher: IDispatcher, props: Props<'env>) : WorkbenchMount =
-  let mounted = MountedHost()
+  let mounted = new MountedHost()
 
   let wrappedInit() =
     let model, cmd = init props
@@ -1838,7 +1838,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : WorkbenchMount =
   let view, hostHandle = Programs.runPage(dispatcher, mountedProgram)
 
   mounted.Attach hostHandle
-  WorkbenchMount(mounted, view)
+  new WorkbenchMount(mounted, view)
 
 let mount(dispatcher: IDispatcher, props: Props<'env>) : Control * IDisposable =
   let mounted = mountFor(dispatcher, props)

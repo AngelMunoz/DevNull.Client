@@ -358,6 +358,7 @@ let view
       |> _.Margin(0.0, 0.0, 12.0, 0.0),
       identity.Column(1)
     )
+    |> ignore
 
     Button()
       .Classes(Theme.name Theme.GhostButton)

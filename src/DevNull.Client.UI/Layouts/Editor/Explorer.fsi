@@ -9,6 +9,8 @@ type Props = {
   Selected: LogKind
   Saved: int
   Queue: int
+  /// The fallback line when the frame has no queue link.
+  QueueHint: string option
   Viewer: string
   OnSelectRef: LogKind -> unit
   OnOpenViewer: unit -> unit

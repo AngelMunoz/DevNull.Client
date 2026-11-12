@@ -15,14 +15,17 @@ open Avalonia.Headless
 open Avalonia.Input
 open Avalonia.VisualTree
 open Expecto
+open FSharp.Control.Reactive
 
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Http
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.Layouts.Editor
 open DevNull.Client.Remotes
 open DevNull.Client.RemotesState
 open DevNull.Client.Shell
+open DevNull.Client.Stores
 open DevNull.Client.UI.Tests.App
 open DevNull.Client.UI.Tests.Composer
 open DevNull.Client.UI.Tests.Fixtures
@@ -37,6 +40,41 @@ module CommitMenu = DevNull.Client.Components.CommitMenu
 
 /// A thread with enough replies to scroll one page, so the capture
 /// shows content under the band after a scroll.
+let private editorProps(env: TestEnv) : EditorRoot.Props<TestEnv> =
+  let session =
+    match (env :> IProvideSession).Session.SignedIn with
+    | ValueSome session -> session
+    | ValueNone -> failwith "the test env is signed out"
+
+  {
+    Env = env
+    Session = session
+    Stored = EditorSettings.initial()
+    Lane = Some(LaneIndex 2)
+    Zone = {
+      Info = TimeZoneInfo.Utc
+      Label = "UTC"
+    }
+    Saved = Observable.single 4
+    Active = Observable.single false
+    Now = fun () -> DateTimeOffset.UtcNow
+    OnUseDefaultLayout = ignore
+  }
+
+let private mountEditorAsync(api: IHttp) : Async<Window * IDisposable> = async {
+  let env = TestEnv(signedInStore(), api)
+  let props = editorProps env
+
+  return!
+    probeUiAsync(fun () ->
+      let control, handle = EditorRoot.mount(ui, props)
+
+      let window = Window(Width = 1600.0, Height = 900.0, Content = control)
+
+      window.Show()
+      window, handle)
+}
+
 let private longThreadApi() : FakeApi =
   let replies =
     let rows = [
@@ -3821,4 +3859,49 @@ let captureTests =
       let bytes = IO.File.ReadAllBytes(path)
       Expect.isTrue (bytes.Length > 1000) "the frame saved real pixels"
     }
+
+    testAsync "the editor frame clears the band at 1600, 1100, and 380" {
+      let! window, handle = mountEditorAsync(threadApi() :> IHttp)
+
+      let! shown =
+        waitForAsync(
+          8000,
+          (fun () -> window),
+          fun root -> hasText(root, "It was DNS.")
+        )
+
+      Expect.isTrue shown "the editor history never rendered"
+
+      do! settleAsync()
+
+      let! wide = captureAsync("E7/e7-frame-1600", window)
+      let wideBytes = IO.File.ReadAllBytes(wide)
+      Expect.isTrue (wideBytes.Length > 1000) "the wide frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Width <- 1100.0)
+      do! settleAsync()
+
+      let! folded = captureAsync("E7/e7-frame-1100", window)
+      let foldedBytes = IO.File.ReadAllBytes(folded)
+
+      Expect.isTrue
+        (foldedBytes.Length > 1000)
+        "the folded frame saved real pixels"
+
+      do! onUiAsync(fun () -> window.Width <- 380.0)
+      do! settleAsync()
+
+      let! floor = captureAsync("E7/e7-frame-380", window)
+      let floorBytes = IO.File.ReadAllBytes(floor)
+
+      Expect.isTrue
+        (floorBytes.Length > 1000)
+        "the floor frame saved real pixels"
+
+      do!
+        onUiAsync(fun () ->
+          window.Close()
+          handle.Dispose())
+    }
+
   ]

@@ -111,7 +111,7 @@ module State =
 
   /// The tab's inlets from outside: the host's active stream, the
   /// refresh nudge, and the shared clock, plus the poll while the
-  /// model carries it.
+  /// host's active stream holds true.
   val subscribe: props: Props<'env> * model: Model -> Sub<Msg>
 
 /// The tab's view: one virtualized feed over the loaded commits, the

@@ -317,7 +317,7 @@ module State =
 
         next, Cmd.none
 
-  let subscribe(props: Props<'env>, model: Model) : Sub<Msg> =
+  let subscribe(props: Props<'env>, _model: Model) : Sub<Msg> =
     [
       Sub.fromObservable "active" (props.Active |> Observable.map ActiveChanged)
 
@@ -329,9 +329,11 @@ module State =
         "clock"
         (props.Env.UiClock.Minute |> Observable.map ClockTicked)
 
-      if polling model then
-        Sub.interval "since-poll" (TimeSpan.FromMinutes 1.0) (fun () ->
-          CheckNew)
+      Sub.fromObservable
+        "since-poll"
+        (Observable.combineLatest props.Active props.Env.UiClock.Minute
+         |> Observable.filter fst
+         |> Observable.map(fun _ -> CheckNew))
     ]
     |> Sub.batch
 

@@ -24,6 +24,7 @@
     <Compile Include="RepoFrame.Tests.fs" />
     <Compile Include="EditorFlyout.Tests.fs" />
     <Compile Include="PaletteFrame.Tests.fs" />
+    <Compile Include="EditorHardening.Tests.fs" />
     <Compile Include="EditorGates.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

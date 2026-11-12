@@ -5,7 +5,9 @@ open System.Reactive.Disposables
 open System.Reactive.Subjects
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.Primitives
 open Avalonia.Layout
+open Avalonia.Media
 open Avalonia.Threading
 open NXUI.Extensions
 open FSharp.Control.Reactive
@@ -810,6 +812,7 @@ let view(args: ViewArgs<'env>) : Control =
           Selected = EditorState.selectedRef current.Frame
           Saved = current.Saved
           Queue = current.Queue
+          QueueHint = Some "The queue opens in the default layout."
           Viewer = props.Session.Session.User.Handle
           OnSelectRef = fun log -> dispatch(RefSelected log)
           OnOpenViewer =
@@ -985,6 +988,68 @@ let view(args: ViewArgs<'env>) : Control =
 
   let statusBar = ContentControl().Content(status |> _.ToBinding())
 
+  let helpOpen = new System.Reactive.Subjects.BehaviorSubject<bool>(false)
+
+  let helpText =
+    TextBlock()
+      .Name("EditorHelpText")
+      .Text(
+        "The remotes pane is in the default layout. The More menu is in the default layout. Translations are in the default layout. The scheduled queue's link is in the default layout."
+      )
+      .TextWrapping(TextWrapping.Wrap)
+      .MaxWidth(420.0)
+      .Classes(Theme.name Theme.Muted)
+
+  let helpButton =
+    Button()
+      .Name("EditorHelp")
+      .Classes(Theme.name Theme.GhostButton)
+      .Padding(Thickness(8.0, 2.0))
+      .Content("?")
+
+  helpButton.Click.Add(fun _ -> helpOpen.OnNext(not helpOpen.Value))
+
+  ToolTip.SetTip(helpButton, "Help")
+
+  let helpOverlay =
+    Border()
+      .Name("EditorHelpOverlay")
+      .Classes(Theme.name Theme.ScrimBack)
+      .IsVisible(helpOpen)
+      .Child(
+        Border()
+          .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
+          .BorderThickness(Thickness(1.0))
+          .CornerRadius(8.0)
+          .Padding(16.0)
+          .Width(480.0)
+          .MaxWidth(520.0)
+          .HorizontalAlignment(HorizontalAlignment.Center)
+          .VerticalAlignment(VerticalAlignment.Top)
+          .Margin(Thickness(0.0, 80.0, 0.0, 0.0))
+          .Child(
+            StackPanel()
+              .Spacing(8.0)
+              .Children(
+                TextBlock()
+                  .Text("HELP")
+                  .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted),
+                helpText,
+                Button()
+                  .Name("EditorHelpClose")
+                  .Classes(Theme.name Theme.GhostButton)
+                  .Content("Close")
+                  .OnClickHandler(fun _ _ -> helpOpen.OnNext false)
+              )
+          )
+      )
+
+  let statusRow = Grid()
+  statusRow.ColumnDefinitions <- ColumnDefinitions("*,Auto")
+  statusRow.Children(statusBar.Column(0), helpButton.Column(1)) |> ignore
+
+  editor.Children(helpOverlay.Row(0).RowSpan(2)) |> ignore
+
   let root = Grid()
 
   root.Name <- "EditorRoot"
@@ -995,7 +1060,7 @@ let view(args: ViewArgs<'env>) : Control =
     activityControl.Column(0),
     sidebar.Column(1),
     editor.Column(2),
-    statusBar.Row(1).ColumnSpan(3)
+    statusRow.Row(1).ColumnSpan(3)
   )
   |> ignore
 

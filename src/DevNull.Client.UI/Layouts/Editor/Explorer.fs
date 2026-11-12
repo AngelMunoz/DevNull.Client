@@ -3,6 +3,7 @@ module DevNull.Client.Layouts.Editor.Explorer
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Layout
+open Avalonia.Media
 open NXUI.Extensions
 open DevNull.Client
 open DevNull.Client.Core.ApiTypes
@@ -11,6 +12,7 @@ type Props = {
   Selected: LogKind
   Saved: int
   Queue: int
+  QueueHint: string option
   Viewer: string
   OnSelectRef: LogKind -> unit
   OnOpenViewer: unit -> unit
@@ -105,9 +107,23 @@ let view(props: Props) : Control =
 
     divider()
 
-    countRow { Title = "SAVED"; Count = props.Saved }
+    yield countRow { Title = "SAVED"; Count = props.Saved }
 
-    countRow { Title = "QUEUE"; Count = props.Queue }
+    yield countRow { Title = "QUEUE"; Count = props.Queue }
+
+    match props.QueueHint with
+    | Some hint ->
+      yield
+        Border()
+          .Padding(Thickness(6.0, 0.0, 6.0, 2.0))
+          .Child(
+            TextBlock()
+              .Name("ExplorerQueueNotice")
+              .Text(hint)
+              .Classes(Theme.name Theme.Muted)
+              .TextWrapping(TextWrapping.Wrap)
+          )
+    | None -> ()
 
     divider()
 

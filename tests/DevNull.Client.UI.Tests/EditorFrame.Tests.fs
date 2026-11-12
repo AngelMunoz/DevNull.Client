@@ -31,7 +31,7 @@ let props(env: TestEnv) : EditorRoot.Props<TestEnv> =
       Label = "UTC"
     }
     Saved = Observable.single 4
-    Active = Observable.single true
+    Active = Observable.single false
     Now = fun () -> DateTimeOffset.UtcNow
     OnUseDefaultLayout = ignore
   }

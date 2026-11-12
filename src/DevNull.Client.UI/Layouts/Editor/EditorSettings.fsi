@@ -3,8 +3,8 @@ namespace DevNull.Client.Layouts.Editor
 open DevNull.Client.Core.ApiTypes
 
 /// The editor's stored state: the selected ref, read from the one
-/// string the settings file keeps. The representation stays hidden;
-/// the parse leaf is the only way to build one.
+/// string the settings keep. The representation stays hidden; the
+/// parse leaf is the only way to build one.
 type StoredState
 
 module StoredState =

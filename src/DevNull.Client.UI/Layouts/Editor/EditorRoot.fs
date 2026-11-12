@@ -22,6 +22,7 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.Formatting
+open DevNull.Client.Icons
 open DevNull.Client.ImageCache
 open DevNull.Client.Profiles
 open DevNull.Client.Remotes
@@ -49,6 +50,8 @@ type Props<'env
   Saved: IObservable<int>
   Active: IObservable<bool>
   Now: unit -> DateTimeOffset
+  /// The host's switch back to the default layout.
+  OnUseDefaultLayout: unit -> unit
 }
 
 type ThreadEntry = { View: Control; Lifetime: IDisposable }
@@ -74,6 +77,9 @@ type Runtime = {
   RefreshHistory: unit -> unit
   OpenRepo: string -> unit
   Repos: IObservable<Map<string, Control>>
+  PaletteHost: Control
+  OpenPalette: unit -> unit
+  ClosePalette: unit -> unit
 }
 
 type Model = {
@@ -92,6 +98,7 @@ type Model = {
   Problems: EditorPanel.ProblemsState
   Output: EditorPanel.OutputLine list
   ThreadParticipants: Map<string, ParticipantRow list>
+  PaletteOpen: bool
 }
 
 type Msg =
@@ -118,6 +125,8 @@ type Msg =
   | ReplyRequested of Commit
   | ComposerChanged of ComposerEvent
   | OpenRepo of string
+  | PaletteToggled
+  | PaletteClosed
 
 [<Struct>]
 type HistorySinks = {
@@ -151,6 +160,9 @@ type ProgramArgs<'env
   ComposerEvents: IObservable<ComposerEvent>
   Fetches: IObservable<string * Result<unit, string>>
   RepoOpens: IObservable<string>
+  PaletteClose: IObservable<unit>
+  PaletteRefs: IObservable<LogKind>
+  PalettePanels: IObservable<EditorPanel.Tab>
 }
 
 type ViewArgs<'env
@@ -280,6 +292,7 @@ let initial(props: Props<'env>, history: HistoryTab.Snapshot) = {
   Problems = EditorPanel.emptyProblems
   Output = []
   ThreadParticipants = Map.empty
+  PaletteOpen = false
 }
 
 let unreadOf(state: SessionState) =
@@ -555,6 +568,20 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
 
       next, Cmd.none
   | OpenRepo handle -> openRepo(args, handle, model)
+  | PaletteToggled ->
+    if model.PaletteOpen then
+      { model with PaletteOpen = false },
+      Cmd.ofAction(fun () -> args.Runtime.ClosePalette())
+    else
+      {
+        model with
+            PaletteOpen = true
+            FlyoutOpen = false
+      },
+      Cmd.ofAction(fun () -> args.Runtime.OpenPalette())
+  | PaletteClosed ->
+    { model with PaletteOpen = false },
+    Cmd.ofAction(fun () -> args.Runtime.ClosePalette())
   | PanelToggled tab ->
     let panel = EditorPanel.toggle(tab, model.Panel)
     let openProblems = panel.Open && panel.Tab = EditorPanel.Problems
@@ -709,6 +736,18 @@ let subscribe(args: ProgramArgs<'env>, _model: Model) : Sub<Msg> =
 
     Sub.fromObservable "repos" (args.RepoOpens |> Observable.map OpenRepo)
 
+    Sub.fromObservable
+      "palette-close"
+      (args.PaletteClose |> Observable.map(fun () -> PaletteClosed))
+
+    Sub.fromObservable
+      "palette-refs"
+      (args.PaletteRefs |> Observable.map RefSelected)
+
+    Sub.fromObservable
+      "palette-panels"
+      (args.PalettePanels |> Observable.map PanelSelected)
+
     Sub.fromObservable "quotes" (args.Quotes |> Observable.map QuoteRequested)
 
     Sub.fromObservable "replies" (args.Replies |> Observable.map ReplyRequested)
@@ -803,7 +842,25 @@ let view(args: ViewArgs<'env>) : Control =
         })
     )
 
-  let tabArea = ContentControl().Content(tabStrip |> _.ToBinding())
+  let search =
+    Button()
+      .Name("EditorSearch")
+      .Classes(Theme.name Theme.NavItem)
+      .Width(36.0)
+      .Height(32.0)
+      .Padding(Thickness(6.0))
+      .Content(iconAt(Glyph.Search, 16.0))
+      .OnClickHandler(fun _ _ -> dispatch PaletteToggled)
+
+  ToolTip.SetTip(search, "Search")
+
+  let tabStripHost = ContentControl().Content(tabStrip |> _.ToBinding())
+
+  let header = Grid()
+  header.ColumnDefinitions <- ColumnDefinitions("*,Auto")
+  header.Children(tabStripHost.Column(0), search.Column(1)) |> ignore
+
+  let tabArea = ContentControl().Content(header)
 
   let loading =
     TextBlock()
@@ -879,6 +936,13 @@ let view(args: ViewArgs<'env>) : Control =
       )
       .Child(flyoutExplorer)
 
+  let paletteOverlay =
+    Border()
+      .Name("PaletteOverlay")
+      .Classes(Theme.name Theme.ScrimBack)
+      .IsVisible(model |> Observable.map(fun current -> current.PaletteOpen))
+      .Child(args.Runtime.PaletteHost)
+
   let contentArea = Grid()
 
   contentArea.RowDefinitions <- RowDefinitions("*,Auto")
@@ -892,7 +956,12 @@ let view(args: ViewArgs<'env>) : Control =
 
   editor.RowDefinitions <- RowDefinitions("Auto,*")
 
-  editor.Children(tabArea.Row(0), contentArea.Row(1)) |> ignore
+  editor.Children(
+    tabArea.Row(0),
+    contentArea.Row(1),
+    paletteOverlay.Row(0).RowSpan(2)
+  )
+  |> ignore
 
   let status =
     rebuildOn(
@@ -997,6 +1066,9 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
 
   let opens = new System.Reactive.Subjects.Subject<Commit>()
   let repoOpens = new System.Reactive.Subjects.Subject<string>()
+  let paletteClose = new System.Reactive.Subjects.Subject<unit>()
+  let paletteRefs = new System.Reactive.Subjects.Subject<LogKind>()
+  let palettePanels = new System.Reactive.Subjects.Subject<EditorPanel.Tab>()
   let historyRefresh = new System.Reactive.Subjects.Subject<unit>()
   let quotes = new System.Reactive.Subjects.Subject<Commit>()
   let replies = new System.Reactive.Subjects.Subject<Commit>()
@@ -1015,6 +1087,15 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
   let content = ContentControl()
   let term = ContentControl()
   let historyLifetime = new SerialDisposable()
+
+  let paletteHost =
+    ContentControl()
+      .Name("PaletteHost")
+      .HorizontalAlignment(HorizontalAlignment.Center)
+      .VerticalAlignment(VerticalAlignment.Top)
+      .Margin(Thickness(0.0, 48.0, 0.0, 0.0))
+
+  let paletteLifetime = new SerialDisposable()
 
   let showTerminal(request: TerminalRequest) =
     let target, quoted, participants =
@@ -1089,6 +1170,30 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
   show(StoredState.selectedRef props.Stored, EditorPlace.empty)
   showTerminal FreshTerm
 
+  let openPalette() =
+    if isNull paletteHost.Content then
+      let view, handle =
+        Palette.mount(
+          dispatcher,
+          {
+            Env = props.Env
+            Session = props.Session
+            OnOpenRepo = fun handle -> repoOpens.OnNext handle
+            OnOpenThread = fun commit -> opens.OnNext commit
+            OnSelectRef = fun log -> paletteRefs.OnNext log
+            OnOpenPanel = fun tab -> palettePanels.OnNext tab
+            OnUseDefaultLayout = props.OnUseDefaultLayout
+            OnClose = fun () -> paletteClose.OnNext()
+          }
+        )
+
+      paletteHost.Content <- view
+      paletteLifetime.Disposable <- handle
+
+  let closePalette() =
+    paletteLifetime.Disposable <- Disposable.Empty
+    paletteHost.Content <- null
+
   let threads =
     entries
     |> Observable.map(fun map -> map |> Map.map(fun _ entry -> entry.View))
@@ -1161,6 +1266,9 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
     RefreshHistory = fun () -> historyRefresh.OnNext()
     OpenRepo = openRepo
     Repos = repos
+    PaletteHost = paletteHost
+    OpenPalette = openPalette
+    ClosePalette = closePalette
   }
 
   let args: ProgramArgs<'env> = {
@@ -1175,6 +1283,9 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
     ComposerEvents = composerEvents
     Fetches = fetches
     RepoOpens = repoOpens
+    PaletteClose = paletteClose
+    PaletteRefs = paletteRefs
+    PalettePanels = palettePanels
   }
 
   let root, frameHandle =
@@ -1210,6 +1321,12 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
       opens.Dispose()
       repoOpens.OnCompleted()
       repoOpens.Dispose()
+      paletteClose.OnCompleted()
+      paletteClose.Dispose()
+      paletteRefs.OnCompleted()
+      paletteRefs.Dispose()
+      palettePanels.OnCompleted()
+      palettePanels.Dispose()
       historyRefresh.OnCompleted()
       historyRefresh.Dispose()
       quotes.OnCompleted()
@@ -1227,6 +1344,7 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
   handles.Add historyLifetime
   handles.Add threadsCleanup
   handles.Add reposCleanup
+  handles.Add paletteLifetime
   handles.Add subjectCleanup
 
   root, (handles :> IDisposable)

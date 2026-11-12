@@ -16,6 +16,7 @@ open DevNull.Client.UI.Tests.SearchLatest
 open DevNull.Client.UI.Tests.HistoryTab
 open DevNull.Client.UI.Tests.ThreadTab
 open DevNull.Client.UI.Tests.RepoTab
+open DevNull.Client.UI.Tests.Palette
 open DevNull.Client.UI.Tests.EditorPanel
 open DevNull.Client.UI.Tests.Translation
 open DevNull.Client.UI.Tests.WhoToFollow
@@ -41,6 +42,7 @@ let main argv =
       HistoryTab.tests
       ThreadTab.tests
       RepoTab.tests
+      Palette.tests
       EditorPanel.tests
     ]
 

@@ -11,6 +11,7 @@ open DevNull.Client.UI.Tests.EditorChurn
 open DevNull.Client.UI.Tests.EditorPanel
 open DevNull.Client.UI.Tests.RepoFrame
 open DevNull.Client.UI.Tests.EditorFlyout
+open DevNull.Client.UI.Tests.PaletteFrame
 open DevNull.Client.UI.Tests.EditorGates
 open DevNull.Client.UI.Tests.Natives
 
@@ -36,8 +37,9 @@ let main argv =
       testSequenced Shortcuts.tests
       testSequenced EditorChurn.tests
       testSequenced EditorPanel.tests
-      RepoFrame.tests
-      EditorFlyout.tests
+      testSequenced RepoFrame.tests
+      testSequenced EditorFlyout.tests
+      testSequenced PaletteFrame.tests
       Unread.tests
     ]
 

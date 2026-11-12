@@ -33,6 +33,7 @@ let props(env: TestEnv) : EditorRoot.Props<TestEnv> =
     Saved = Observable.single 4
     Active = Observable.single true
     Now = fun () -> DateTimeOffset.UtcNow
+    OnUseDefaultLayout = ignore
   }
 
 let statusText(window: Window) =

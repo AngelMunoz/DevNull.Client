@@ -40,6 +40,8 @@ type Props<'env
   Saved: IObservable<int>
   Active: IObservable<bool>
   Now: unit -> DateTimeOffset
+  /// The host's switch back to the default layout.
+  OnUseDefaultLayout: unit -> unit
 }
 
 /// Mounts the editor frame: the activity bar, the explorer, the tab

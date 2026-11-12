@@ -16,6 +16,9 @@ let main argv =
       // testSequenced drains the parallel pool, then runs the suite one
       // test at a time.
       testSequenced Leaks.tests
+      // The switch checks read the same process-global state: the heap
+      // for the retained roots, focus and keys for the rebind.
+      testSequenced LayoutHost.tests
       FeedTests.tests
       App.tests
       App.notificationDayTests

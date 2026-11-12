@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Internals:** the app's window (its band, tray, gates, and loops) and the arrangement it shows (the site's sidebar, feed column, and routes) are separate modules now, so future layouts can mount inside the same window without a restart. Nothing you can see or click changed.
+
 ## [0.15.0] - 2026-11-11
 
 ### Added

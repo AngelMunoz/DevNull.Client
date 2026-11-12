@@ -29,6 +29,20 @@ type Model = {
   PollChoices: Map<string, string>
   Pasteis: bool
   HeardIds: string list
+  Offset: float
+}
+
+/// One history column's place on its ref: the scroll offset and the
+/// newest commit id it had loaded.
+[<Struct>]
+type Place = { Offset: float; Head: string option }
+
+/// What a history column reports to its host: the place it holds and
+/// the last page fetch time.
+[<Struct>]
+type Report = {
+  Place: Place
+  FetchedAt: DateTimeOffset option
 }
 
 /// One history column's messages: the first page, the cursor, the
@@ -44,6 +58,7 @@ type Msg =
   | NewFetched of Result<LogPage, AppError>
   | ClockTicked of moment: DateTimeOffset
   | PollingChanged of active: bool
+  | Scrolled of offset: float
   | Opened of Commit
   | QuoteRequested of Commit
   | StarToggled of Commit
@@ -74,6 +89,8 @@ type Props<'env
   OnOpenExternal: string -> unit
   OnOpened: Commit -> unit
   OnQuote: Commit -> unit
+  Restore: Place option
+  OnReport: Report -> unit
 }
 
 /// The column's first state and its first page fetch.

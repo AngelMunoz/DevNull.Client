@@ -1,0 +1,335 @@
+module DevNull.Client.UI.Tests.WorkbenchHostTests
+
+open System
+open System.Collections.Generic
+open Expecto
+open FSharp.Control.Reactive
+open MVUish.Avalonia
+
+open DevNull.Client.Core.ApiTypes
+open DevNull.Client.Core.Http
+open DevNull.Client.Formatting
+open DevNull.Client.ImageCache
+open DevNull.Client.Layouts.Workbench
+open DevNull.Client.Stores
+open DevNull.Client.UI.Tests.Fixtures
+open DevNull.Client.UI.Tests.Harness
+
+let private now = DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero)
+
+let private checkoutA = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+let private checkoutB = "018f4c1e-9999-7c3a-9b2d-5e6f7a8b9c0d"
+
+let private api =
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    elif request.Target.Contains "/replies" then
+      ok repliesPageJson
+    elif request.Target.StartsWith "/api/v1/commits/" then
+      ok threadPageJson
+    else
+      ok "{}")
+
+let private images = {
+  new ImageCacheService with
+    member _.Get(_url: string) = async { return None }
+}
+
+let private hostProps
+  (env: TestEnv, initial: WorkbenchState)
+  : WorkbenchHost.Props<TestEnv> = {
+  Env = env
+  Initial = initial
+  Images = images
+  Now = Observable.single now
+  Zone = {
+    Info = TimeZoneInfo.Utc
+    Label = "UTC"
+  }
+  OnOpenAuthor = ignore
+  OnQuote = ignore
+  OnOpenExternal = ignore
+  OnStateChanged = ignore
+}
+
+let private following =
+  WorkbenchSettings.parse "following" |> WorkbenchState.refOf
+
+let private latest = WorkbenchSettings.parse "latest" |> WorkbenchState.refOf
+
+let private trending =
+  WorkbenchSettings.parse "trending" |> WorkbenchState.refOf
+
+let private runEngine
+  (
+    props: WorkbenchHost.Props<TestEnv>,
+    model: WorkbenchHost.Model,
+    cmd: Cmd<WorkbenchHost.Msg>
+  ) =
+  let queue = Queue<WorkbenchHost.Msg>()
+
+  let dispatch(msg: WorkbenchHost.Msg) = queue.Enqueue msg
+
+  let fail(_: string, ex: exn) = failwith ex.Message
+
+  cmd dispatch fail
+
+  let rec loop(model: WorkbenchHost.Model) =
+    if queue.Count = 0 then
+      model
+    else
+      let msg = queue.Dequeue()
+      let next, nextCmd = WorkbenchHost.update(props, msg, model)
+      nextCmd dispatch fail
+      loop next
+
+  loop model
+
+let tests =
+  testList "workbench host" [
+    testCaseAsync
+      "the host keeps one history program and restores each place"
+      (async {
+        let! observations, finalLive =
+          probeUiAsync(fun () ->
+            let env = TestEnv(signedInStore(), api :> IHttp)
+            let props = hostProps(env, WorkbenchSettings.initial)
+            let model, cmd = WorkbenchHost.init props
+            let model = runEngine(props, model, cmd)
+
+            Expect.equal model.LiveHistory 1 "the first history program"
+
+            let place: HistoryColumn.Place = {
+              Offset = 120.0
+              Head = Some "head-a"
+            }
+
+            let model, _ =
+              WorkbenchHost.update(
+                props,
+                WorkbenchHost.HistoryReported(
+                  following,
+                  { Place = place; FetchedAt = Some now }
+                ),
+                model
+              )
+
+            let switches = [
+              latest
+              following
+              trending
+              latest
+              following
+              trending
+              latest
+              following
+              trending
+              following
+            ]
+
+            let observations =
+              switches
+              |> List.map(fun entry ->
+                let model, cmd =
+                  WorkbenchHost.update(
+                    props,
+                    WorkbenchHost.RefSelected entry,
+                    model
+                  )
+
+                let model = runEngine(props, model, cmd)
+
+                let restore = model.History |> Option.bind _.Restore
+
+                let live = model.LiveHistory
+                let checkout = model.CheckoutId
+                (entry, live, restore, checkout))
+
+            model.History |> Option.iter(fun child -> child.Handle.Dispose())
+
+            model.Inspector |> Option.iter(fun child -> child.Handle.Dispose())
+
+            observations, model.LiveHistory)
+
+        Expect.isTrue
+          (observations |> List.forall(fun (_, live, _, _) -> live <= 1))
+          "a second history program stayed live"
+
+        Expect.equal finalLive 1 "the last history program"
+
+        Expect.isTrue
+          (observations
+           |> List.exists(fun (entry, _, restore, _) ->
+             entry = following
+             && restore = Some { Offset = 120.0; Head = Some "head-a" }))
+          "the saved place never came back"
+
+        Expect.isTrue
+          (observations
+           |> List.forall(fun (_, _, _, checkout) -> checkout.IsNone))
+          "a ref switch changed the checkout"
+      })
+
+    testCaseAsync
+      "the host disposes and restarts the inspector on a checkout change"
+      (async {
+        let! state =
+          probeUiAsync(fun () ->
+            let initial = WorkbenchSettings.parse("following|" + checkoutA)
+
+            let env = TestEnv(signedInStore(), api :> IHttp)
+            let props = hostProps(env, initial)
+            let model, cmd = WorkbenchHost.init props
+            let model = runEngine(props, model, cmd)
+
+            let first = model.Inspector
+
+            let model, cmd =
+              WorkbenchHost.update(
+                props,
+                WorkbenchHost.CheckoutSet(Some checkoutB),
+                model
+              )
+
+            let model = runEngine(props, model, cmd)
+            let second = model.Inspector
+
+            let changed =
+              match first, second with
+              | Some left, Some right ->
+                left.CommitId = checkoutA
+                && right.CommitId = checkoutB
+                && not(obj.ReferenceEquals(left.View, right.View))
+              | _ -> false
+
+            let model, cmd =
+              WorkbenchHost.update(
+                props,
+                WorkbenchHost.CheckoutSet None,
+                model
+              )
+
+            let model = runEngine(props, model, cmd)
+            let cleared = model.Inspector.IsNone && model.LiveInspector = 0
+
+            let model, cmd =
+              WorkbenchHost.update(
+                props,
+                WorkbenchHost.CheckoutSet(Some checkoutA),
+                model
+              )
+
+            let model = runEngine(props, model, cmd)
+
+            model.Inspector |> Option.iter(fun child -> child.Handle.Dispose())
+
+            changed,
+            cleared,
+            model.Inspector |> Option.map _.CommitId,
+            model.LiveInspector)
+
+        let changed, cleared, finalCheckout, finalLive = state
+
+        Expect.isTrue changed "the inspector did not restart on the new id"
+        Expect.isTrue cleared "the inspector did not stop on no id"
+        Expect.equal finalCheckout (Some checkoutA) "the last checkout"
+        Expect.equal finalLive 1 "the last inspector program"
+      })
+
+    testCaseAsync
+      "the host emits ref and checkout changes as plain state"
+      (async {
+        let! states =
+          probeUiAsync(fun () ->
+            let env = TestEnv(signedInStore(), api :> IHttp)
+            let states = ResizeArray<WorkbenchState>()
+
+            let props = {
+              hostProps(env, WorkbenchSettings.initial) with
+                  OnStateChanged = states.Add
+            }
+
+            let model, cmd = WorkbenchHost.init props
+            let model = runEngine(props, model, cmd)
+
+            let model, cmd =
+              WorkbenchHost.update(
+                props,
+                WorkbenchHost.RefSelected latest,
+                model
+              )
+
+            let model = runEngine(props, model, cmd)
+
+            let model, cmd =
+              WorkbenchHost.update(
+                props,
+                WorkbenchHost.CheckoutSet(Some checkoutA),
+                model
+              )
+
+            let model = runEngine(props, model, cmd)
+
+            model.History |> Option.iter(fun child -> child.Handle.Dispose())
+
+            model.Inspector |> Option.iter(fun child -> child.Handle.Dispose())
+
+            states |> Seq.map WorkbenchSettings.store |> Seq.toList)
+
+        Expect.equal
+          states
+          [ "latest"; "latest|" + checkoutA ]
+          "the state changes did not ride the sink"
+      })
+
+    testCase "the fold and counts are model data"
+    <| fun () ->
+      let env = TestEnv(signedInStore(), api :> IHttp)
+      let props = hostProps(env, WorkbenchSettings.initial)
+      let model, _ = WorkbenchHost.init props
+
+      Expect.equal model.SavedCount 0 "the saved count is zero"
+
+      let expectedUnread =
+        match (env :> IProvideSession).Session.Current with
+        | SignedIn session -> session.Session.UnreadNotificationsCount
+        | SignedOut -> 0
+
+      Expect.equal
+        model.UnreadCount
+        expectedUnread
+        "the unread count comes from the session"
+
+      let wide, _ =
+        WorkbenchHost.update(props, WorkbenchHost.WidthChanged 1600.0, model)
+
+      Expect.isFalse wide.Folded "the wide host folded"
+
+      let narrow, _ =
+        WorkbenchHost.update(props, WorkbenchHost.WidthChanged 1000.0, wide)
+
+      Expect.isTrue narrow.Folded "the narrow host did not fold"
+
+      let edge, _ =
+        WorkbenchHost.update(props, WorkbenchHost.WidthChanged 1100.0, narrow)
+
+      Expect.isFalse edge.Folded "the 1100-px host folded"
+
+      let changed =
+        match (env :> IProvideSession).Session.Current with
+        | SignedIn session ->
+          SignedIn {
+            session with
+                Session = {
+                  session.Session with
+                      UnreadNotificationsCount = 7
+                }
+          }
+        | SignedOut -> SignedOut
+
+      let model, _ =
+        WorkbenchHost.update(props, WorkbenchHost.SessionChanged changed, model)
+
+      Expect.equal model.UnreadCount 7 "the session count did not land"
+  ]

@@ -18,6 +18,7 @@
     <Compile Include="Feed.Tests.fs" />
     <Compile Include="WorkbenchSettings.Tests.fs" />
     <Compile Include="WorkbenchGate.Tests.fs" />
+    <Compile Include="WorkbenchHostView.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

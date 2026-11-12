@@ -13,6 +13,7 @@ open DevNull.Client.UI.Tests.Stargazers
 open DevNull.Client.UI.Tests.Formatting
 open DevNull.Client.UI.Tests.HistoryColumnTests
 open DevNull.Client.UI.Tests.InspectorTests
+open DevNull.Client.UI.Tests.WorkbenchHostTests
 open DevNull.Client.UI.Tests.ProfilePictures
 open DevNull.Client.UI.Tests.SearchLatest
 open DevNull.Client.UI.Tests.Translation
@@ -27,6 +28,7 @@ let main argv =
       Composer.tests
       HistoryColumnTests.tests
       InspectorTests.tests
+      WorkbenchHostTests.tests
       Scheduled.tests
       WhoToFollow.tests
       Translation.tests

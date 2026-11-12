@@ -98,6 +98,8 @@ let private historyProps(env: TestEnv) : HistoryColumn.Props<TestEnv> = {
   OnOpenExternal = ignore
   OnOpened = ignore
   OnQuote = ignore
+  Restore = None
+  OnReport = ignore
 }
 
 let private inspectorProps(env: TestEnv) : Inspector.Props<TestEnv> = {
@@ -354,6 +356,7 @@ let columnTests =
               PollChoices = Map.empty
               Pasteis = false
               HeardIds = []
+              Offset = 0.0
             }
           )
 

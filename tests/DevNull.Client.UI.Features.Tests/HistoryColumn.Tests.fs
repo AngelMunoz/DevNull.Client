@@ -71,6 +71,8 @@ let props(log: LogKind) : HistoryColumn.Props<WorkbenchEnv> = {
   OnOpenExternal = ignore
   OnOpened = ignore
   OnQuote = ignore
+  Restore = None
+  OnReport = ignore
 }
 
 let pageOf(json: string) =

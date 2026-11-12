@@ -34,6 +34,16 @@ type Model = {
   PollChoices: Map<string, string>
   Pasteis: bool
   HeardIds: string list
+  Offset: float
+}
+
+[<Struct>]
+type Place = { Offset: float; Head: string option }
+
+[<Struct>]
+type Report = {
+  Place: Place
+  FetchedAt: DateTimeOffset option
 }
 
 type Msg =
@@ -46,6 +56,7 @@ type Msg =
   | NewFetched of Result<LogPage, AppError>
   | ClockTicked of moment: DateTimeOffset
   | PollingChanged of active: bool
+  | Scrolled of offset: float
   | Opened of Commit
   | QuoteRequested of Commit
   | StarToggled of Commit
@@ -72,6 +83,8 @@ type Props<'env
   OnOpenExternal: string -> unit
   OnOpened: Commit -> unit
   OnQuote: Commit -> unit
+  Restore: Place option
+  OnReport: Report -> unit
 }
 
 let headOf(items: CommitNode list) =
@@ -173,13 +186,23 @@ let vote
     }
   )
 
+let report(props: Props<'env>, model: Model) : Cmd<Msg> =
+  Cmd.ofAction(fun () ->
+    props.OnReport {
+      Place = {
+        Offset = model.Offset
+        Head = model.Head
+      }
+      FetchedAt = model.FetchedAt
+    })
+
 let init(props: Props<'env>) : Model * Cmd<Msg> =
   ({
     Loading = true
     Error = None
     Items = []
     NextCursor = None
-    Head = None
+    Head = props.Restore |> Option.bind _.Head
     NewCount = None
     Ranked = false
     Polling = true
@@ -189,6 +212,7 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     PollChoices = Map.empty
     Pasteis = props.Pasteis
     HeardIds = []
+    Offset = props.Restore |> Option.map _.Offset |> Option.defaultValue 0.0
    },
    Cmd.OfAsync.perform fetch (props, None) Fetched)
 
@@ -197,7 +221,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | Fetched result ->
     match result with
     | Ok page ->
-      ({
+      let next = {
         model with
             Loading = false
             Error = None
@@ -208,8 +232,9 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             Ranked = page.IsRanked
             FetchedAt = Some model.Now
             HeardIds = []
-       },
-       Cmd.none)
+      }
+
+      next, report(props, next)
     | Error error ->
       ({
         model with
@@ -314,7 +339,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | NewFetched result ->
     match result with
     | Ok page ->
-      ({
+      let next = {
         model with
             Error = None
             Items = page.Page.Items
@@ -323,11 +348,15 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             Ranked = page.IsRanked
             FetchedAt = Some model.Now
             HeardIds = []
-       },
-       Cmd.none)
+      }
+
+      next, report(props, next)
     | Error error -> ({ model with Error = Some error }, Cmd.none)
   | ClockTicked moment -> ({ model with Now = moment }, Cmd.none)
   | PollingChanged active -> ({ model with Polling = active }, Cmd.none)
+  | Scrolled offset ->
+    let next = { model with Offset = offset }
+    next, report(props, next)
   | Opened commit -> model, Cmd.ofAction(fun () -> props.OnOpened commit)
   | QuoteRequested commit -> model, Cmd.ofAction(fun () -> props.OnQuote commit)
   | StarToggled commit ->
@@ -534,8 +563,8 @@ let view
       HasMore = hasMore
       ScrollTo = ValueNone
       Ride = false
-      Restore = ValueNone
-      OnScroll = ValueNone
+      Restore = props.Restore |> Option.map _.Offset |> ValueOption.ofOption
+      OnScroll = ValueSome(fun offset -> dispatch(Scrolled offset))
       OnRide = ValueNone
       OnNeedMore = ValueSome(fun () -> dispatch MoreRequested)
     }

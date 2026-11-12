@@ -6,6 +6,7 @@ open DevNull.Client.UI.Tests
 open DevNull.Client.UI.Tests.FeedTests
 open DevNull.Client.UI.Tests.Natives
 open DevNull.Client.UI.Tests.WorkbenchGateTests
+open DevNull.Client.UI.Tests.WorkbenchHardening
 open DevNull.Client.UI.Tests.WorkbenchHostViewTests
 open DevNull.Client.UI.Tests.WorkbenchSettingsTests
 
@@ -28,6 +29,7 @@ let main argv =
       WorkbenchGateTests.columnTests
       WorkbenchGateTests.inspectorViewTests
       WorkbenchHostViewTests.tests
+      WorkbenchHardening.tests
       App.tests
       App.notificationDayTests
       // Focus and key routing are process-global too; the suite runs

@@ -20,6 +20,7 @@
     <Compile Include="WorkbenchSettings.Tests.fs" />
     <Compile Include="WorkbenchGate.Tests.fs" />
     <Compile Include="WorkbenchHostView.Tests.fs" />
+    <Compile Include="WorkbenchHardening.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

@@ -19,6 +19,7 @@
     <Compile Include="..\DevNull.Client.UI.Features.Tests\SearchLatest.Tests.fs" Link="SearchLatest.Tests.fs" />
     <Compile Include="..\DevNull.Client.UI.Features.Tests\Stargazers.Tests.fs" Link="Stargazers.Tests.fs" />
     <Compile Include="Snapshots.Tests.fs" />
+    <Compile Include="WorkbenchSnapshots.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

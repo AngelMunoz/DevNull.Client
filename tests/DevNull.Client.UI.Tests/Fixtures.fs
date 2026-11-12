@@ -1907,6 +1907,33 @@ let groupedInboxApi() =
        | ValueSome answer -> answer
        | ValueNone -> ok "{}"))
 
+/// The scheduled queue's empty page.
+let emptyQueueJson =
+  """{"data":[],"links":{"first":null,"last":null,"prev":null,"next":null},"meta":{"current_page":1,"from":0,"last_page":1,"path":"","per_page":20,"to":0,"total":0}}"""
+
+/// The workbench host's fake layer: every surface the frame starts reads
+/// from a canned answer, so a request count sees the workbench alone.
+let workbenchApi() =
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/scheduled-commits" then
+      ok emptyQueueJson
+    elif request.Target.StartsWith "/api/v1/notifications" then
+      ok groupedInboxJson
+    elif request.Target.StartsWith "/api/v1/search/commits" then
+      ok(sprintf "{\"data\":[%s]}" commitJson)
+    elif request.Target.StartsWith "/api/v1/search/profiles" then
+      ok """{"users":[],"organizations":[]}"""
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    elif request.Target.Contains "/replies" then
+      ok repliesPageJson
+    elif request.Target.StartsWith "/api/v1/commits/" then
+      ok threadPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
 /// The acme organization as the inbox carries it: the actor shape
 /// and the organization context share the organization resource.
 let acmeOrgJson =

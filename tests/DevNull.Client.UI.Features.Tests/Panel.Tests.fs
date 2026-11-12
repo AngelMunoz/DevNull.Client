@@ -3,7 +3,7 @@ module DevNull.Client.UI.Tests.EditorPanel
 open System
 open Expecto
 open DevNull.Client.Core.ApiTypes
-open DevNull.Client.Layouts.Editor
+open DevNull.Client.Editor
 open DevNull.Client.UI.Tests.Fixtures
 
 let inbox =

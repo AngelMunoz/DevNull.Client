@@ -57,15 +57,15 @@ module Ref =
 
 module Checkout =
 
-  let inline commitId(checkout: Checkout) = checkout.CommitId
+  let commitId(checkout: Checkout) = checkout.CommitId
 
-  let inline page(checkout: Checkout) = checkout.Page
+  let page(checkout: Checkout) = checkout.Page
 
 module WorkbenchState =
 
-  let inline refOf(state: WorkbenchState) = state.Ref
+  let refOf(state: WorkbenchState) = state.Ref
 
-  let inline checkoutId(state: WorkbenchState) = state.CheckoutId
+  let checkoutId(state: WorkbenchState) = state.CheckoutId
 
 module Build =
 

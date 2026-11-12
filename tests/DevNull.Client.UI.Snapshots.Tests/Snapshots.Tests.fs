@@ -21,7 +21,7 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Http
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
-open DevNull.Client.Layouts.Editor
+open DevNull.Client.Editor
 open DevNull.Client.Remotes
 open DevNull.Client.RemotesState
 open DevNull.Client.Shell

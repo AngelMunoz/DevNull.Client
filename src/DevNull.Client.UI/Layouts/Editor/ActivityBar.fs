@@ -1,4 +1,4 @@
-module DevNull.Client.Layouts.Editor.ActivityBar
+module DevNull.Client.Editor.ActivityBar
 
 open Avalonia
 open Avalonia.Automation

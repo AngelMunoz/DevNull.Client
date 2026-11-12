@@ -70,44 +70,44 @@ let fetch(props: Props<'env>) : Async<Result<CommitNode list, AppError>> =
   )
 
 let init(props: Props<'env>) : Model * Cmd<Msg> =
-  ({
+  {
     Term = props.Term
     Loading = true
     Error = None
     Results = []
     Now = DateTimeOffset.UtcNow
-   },
-   Cmd.OfAsync.perform fetch props Fetched)
+  },
+  Cmd.OfAsync.perform fetch props Fetched
 
 let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   match msg with
   | Fetched result ->
     match result with
     | Ok results ->
-      ({
+      {
         model with
             Loading = false
             Error = None
             Results = results
-       },
-       Cmd.none)
+      },
+      Cmd.none
     | Error error ->
-      ({
+      {
         model with
             Loading = false
             Error = Some error
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | RefreshRequested ->
     if model.Loading then
       model, Cmd.none
     else
-      ({
+      {
         model with
             Loading = true
             Error = None
-       },
-       Cmd.OfAsync.perform fetch props Fetched)
+      },
+      Cmd.OfAsync.perform fetch props Fetched
   | ClockTicked moment -> ({ model with Now = moment }, Cmd.none)
   | Opened commit -> model, Cmd.ofAction(fun () -> props.OnOpenThread commit)
   | QuoteRequested commit -> model, Cmd.ofAction(fun () -> props.OnQuote commit)

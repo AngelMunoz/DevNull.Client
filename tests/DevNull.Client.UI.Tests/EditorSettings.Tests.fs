@@ -2,7 +2,7 @@ module DevNull.Client.UI.Tests.EditorSettings
 
 open Expecto
 open DevNull.Client.Core.ApiTypes
-open DevNull.Client.Layouts.Editor
+open DevNull.Client.Editor
 
 let tests =
   testList "editor settings" [

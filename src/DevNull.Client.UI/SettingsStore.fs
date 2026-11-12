@@ -29,23 +29,27 @@ let themeString(choice: ThemeChoice) : string =
 type LayoutChoice =
   | CurrentLayout
   | WorkbenchLayout
+  | EditorLayout
 
 let parseLayout(name: string) : LayoutChoice option =
   match name.Trim().ToLowerInvariant() with
   | "current" -> Some CurrentLayout
   | "workbench" -> Some WorkbenchLayout
+  | "editor" -> Some EditorLayout
   | _ -> None
 
 let layoutString(choice: LayoutChoice) : string =
   match choice with
   | CurrentLayout -> "current"
   | WorkbenchLayout -> "workbench"
+  | EditorLayout -> "editor"
 
 type AppSettings = {
   CloseToTray: bool
   Theme: ThemeChoice
   Layout: LayoutChoice
   WorkbenchState: string
+  EditorState: string
   SidebarExpanded: bool
   ChatDrafts: Map<string, string>
   VoiceVolume: float
@@ -59,6 +63,7 @@ type AppSettingsStore =
   abstract SetTheme: choice: ThemeChoice -> unit
   abstract SetLayout: choice: LayoutChoice -> unit
   abstract SetWorkbenchState: state: string -> unit
+  abstract SetEditorState: state: string -> unit
   abstract SetSidebarExpanded: expanded: bool -> unit
   abstract SetChatDraft: key: string * text: string -> unit
   abstract SetVoiceVolume: volume: float -> unit
@@ -80,6 +85,7 @@ module AppSettingsStore =
     Theme = System
     Layout = CurrentLayout
     WorkbenchState = ""
+    EditorState = ""
     SidebarExpanded = true
     ChatDrafts = Map.empty
     VoiceVolume = 1.0
@@ -131,6 +137,15 @@ module AppSettingsStore =
       {
         state.Settings.Value with
             WorkbenchState = value
+      }
+    )
+
+  let setEditorState(state: State, value: string) =
+    change(
+      state,
+      {
+        state.Settings.Value with
+            EditorState = value
       }
     )
 
@@ -219,6 +234,8 @@ module AppSettingsStore =
 
         member _.SetWorkbenchState(state) = setWorkbenchState(context, state)
 
+        member _.SetEditorState(state) = setEditorState(context, state)
+
         member _.SetSidebarExpanded(expanded) =
           setSidebarExpanded(context, expanded)
 
@@ -245,6 +262,7 @@ let save(settings: AppSettings) : Result<unit, string> =
     json["theme"] <- JsonValue.Create(themeString settings.Theme)
     json["layout"] <- JsonValue.Create(layoutString settings.Layout)
     json["workbench_state"] <- JsonValue.Create settings.WorkbenchState
+    json["editor_state"] <- JsonValue.Create settings.EditorState
     json["sidebar_expanded"] <- JsonValue.Create settings.SidebarExpanded
 
     let drafts = JsonObject()
@@ -290,6 +308,12 @@ let load() : Result<AppSettings option, string> =
         value.GetString() |> Option.ofObj |> Option.defaultValue ""
       | _ -> ""
 
+    let editorState =
+      match root.TryGetProperty "editor_state" with
+      | true, value when value.ValueKind = JsonValueKind.String ->
+        value.GetString() |> Option.ofObj |> Option.defaultValue ""
+      | _ -> ""
+
     let sidebarExpanded =
       match root.TryGetProperty "sidebar_expanded" with
       | true, value when value.ValueKind = JsonValueKind.False -> false
@@ -331,6 +355,7 @@ let load() : Result<AppSettings option, string> =
         Theme = theme
         Layout = layout
         WorkbenchState = workbenchState
+        EditorState = editorState
         SidebarExpanded = sidebarExpanded
         ChatDrafts = chatDrafts
         VoiceVolume = voiceVolume

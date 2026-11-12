@@ -103,6 +103,7 @@ module State =
       Theme = System
       Layout = CurrentLayout
       WorkbenchState = ""
+      EditorState = ""
       SidebarExpanded = true
       ChatDrafts = Map.empty
       VoiceVolume = 1.0
@@ -653,6 +654,7 @@ module Parts =
           let row: Control array = [|
             choiceButton("Default (site)", CurrentLayout)
             choiceButton("Workbench", WorkbenchLayout)
+            choiceButton("Editor", EditorLayout)
           |]
 
           StackPanel()

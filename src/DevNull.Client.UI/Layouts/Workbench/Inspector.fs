@@ -115,7 +115,7 @@ let givePastel
   )
 
 let init(props: Props<'env>) : Model * Cmd<Msg> =
-  ({
+  {
     CommitId = props.CommitId
     Loading = true
     Error = None
@@ -128,15 +128,15 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     RepliesError = None
     Busy = None
     Now = DateTimeOffset.UtcNow
-   },
-   Cmd.OfAsync.perform show props Shown)
+  },
+  Cmd.OfAsync.perform show props Shown
 
 let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   match msg with
   | Shown result ->
     match result with
     | Ok page ->
-      ({
+      {
         model with
             Loading = false
             Error = None
@@ -145,113 +145,113 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             ReplyParticipants = page.ReplyParticipants
             RepliesLoading = true
             RepliesError = None
-       },
-       Cmd.OfAsync.perform fetchReplies (props, None) RepliesFetched)
+      },
+      Cmd.OfAsync.perform fetchReplies (props, None) RepliesFetched
     | Error error ->
-      ({
+      {
         model with
             Loading = false
             Error = Some error
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | RepliesFetched result ->
     match result with
     | Ok page ->
-      ({
+      {
         model with
             Replies = page.Items
             RepliesCursor = page.NextCursor
             RepliesLoading = false
             RepliesError = None
-       },
-       Cmd.none)
+      },
+      Cmd.none
     | Error error ->
-      ({
+      {
         model with
             RepliesLoading = false
             RepliesError = Some error
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | MoreRepliesRequested ->
     match model.RepliesCursor with
     | Some _ ->
-      ({
+      {
         model with
             RepliesLoading = true
             RepliesError = None
-       },
-       Cmd.OfAsync.perform
-         fetchReplies
-         (props, model.RepliesCursor)
-         RepliesAppended)
+      },
+      Cmd.OfAsync.perform
+        fetchReplies
+        (props, model.RepliesCursor)
+        RepliesAppended
     | None -> model, Cmd.none
   | RepliesAppended result ->
     match result with
     | Ok page ->
-      ({
+      {
         model with
             Replies = model.Replies @ page.Items
             RepliesCursor = page.NextCursor
             RepliesLoading = false
             RepliesError = None
-       },
-       Cmd.none)
+      },
+      Cmd.none
     | Error error ->
-      ({
+      {
         model with
             RepliesLoading = false
             RepliesError = Some error
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | ClockTicked moment -> ({ model with Now = moment }, Cmd.none)
   | StarToggled commit ->
-    ({
+    {
       model with
           Error = None
           Busy = Some commit.Id
-     },
-     Cmd.OfAsync.perform star (props, commit) StarDone)
+    },
+    Cmd.OfAsync.perform star (props, commit) StarDone
   | StarDone result ->
     match result with
     | Ok updated when updated.Id = model.CommitId ->
-      ({
+      {
         model with
             Commit = Some updated
             Busy = None
-       },
-       Cmd.none)
+      },
+      Cmd.none
     | Ok _ -> ({ model with Busy = None }, Cmd.none)
     | Error error ->
-      ({
+      {
         model with
             Error = Some error
             Busy = None
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | PastelGiven commit ->
-    ({
+    {
       model with
           Error = None
           Busy = Some commit.Id
-     },
-     Cmd.OfAsync.perform givePastel (props, commit) PastelDone)
+    },
+    Cmd.OfAsync.perform givePastel (props, commit) PastelDone
   | PastelDone result ->
     match result with
     | Ok pastel when pastel.Commit.Id = model.CommitId ->
-      ({
+      {
         model with
             Commit = Some pastel.Commit
             Busy = None
-       },
-       Cmd.none)
+      },
+      Cmd.none
     | Ok _ -> ({ model with Busy = None }, Cmd.none)
     | Error error ->
-      ({
+      {
         model with
             Error = Some error
             Busy = None
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | ParentWalked commitId ->
     model, Cmd.ofAction(fun () -> props.OnCheckoutParent commitId)
   | ChildOpened commitId ->

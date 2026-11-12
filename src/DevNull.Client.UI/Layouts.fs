@@ -15,6 +15,7 @@ open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
 open DevNull.Client.WebsiteLayout
 open DevNull.Client.Workbench
+open DevNull.Client.Editor
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Formatting
 open DevNull.Client.Natives
@@ -148,10 +149,10 @@ let builtIn
         surface.Window.WindowState <- WindowState.Normal
       | _ -> surface.Window.WindowState <- WindowState.FullScreen
 
-  // The workbench signs in through the site layout: signed out, the
-  // arrangement holds one line and the switch back. The host's own
-  // sign-in surface stays the site's (gap H-0d).
-  let signedOutWorkbench(surface: IHostSurface) : ILayout =
+  // A layout without its own sign-in surface holds one line and the
+  // switch back; the host's sign-in surface stays the site's (gap
+  // H-0d).
+  let signedOutLine(name: string, surface: IHostSurface) : ILayout =
     let root =
       StackPanel()
         .Spacing(12.0)
@@ -160,7 +161,7 @@ let builtIn
         .Children(
           TextBlock()
             .Classes(Theme.name Theme.Subtitle)
-            .Text("The workbench signs in through the site layout."),
+            .Text($"The {name} signs in through the site layout."),
           Button()
             .Classes(Theme.name Theme.AccentButton)
             .Content(TextBlock().Text("Use default layout"))
@@ -169,7 +170,7 @@ let builtIn
 
     {
       new ILayout with
-        member _.Name = "workbench"
+        member _.Name = name
         member _.Root = root
 
         member _.Actions = {
@@ -196,14 +197,14 @@ let builtIn
     let session = (env :> IProvideSession).Session
 
     match session.Current with
-    | SignedOut -> signedOutWorkbench surface
+    | SignedOut -> signedOutLine("workbench", surface)
     | SignedIn _ ->
       let settings = (env :> IProvideSettings).Settings
 
       // The sinks can reach the host's message path only after the
       // mount exists; the slot is filled once, right after the call
       // returns, before any message can run.
-      let mutable mounted: WorkbenchMount option = None
+      let mutable mounted: WorkbenchHost.WorkbenchMount option = None
 
       let sendToWorkbench(msg: WorkbenchHost.Msg) : unit =
         mounted |> Option.iter(fun host -> host.Send msg)
@@ -217,9 +218,7 @@ let builtIn
             Images = (env :> IProvideImageCache).ImageCache
             Now = (env :> IProvideUiClock).UiClock.Minute
             Zone =
-              workbenchZone(
-                (env :> IProvideUserSettings).UserSettings.Current
-              )
+              workbenchZone((env :> IProvideUserSettings).UserSettings.Current)
             OnOpenAuthor =
               fun handle ->
                 sendToWorkbench(
@@ -238,13 +237,85 @@ let builtIn
       {
         new ILayout with
           member _.Name = "workbench"
+          member _.Root = mountedWorkbench.Root
+
+          member _.Actions = {
+            Compose =
+              fun () -> mountedWorkbench.Send WorkbenchHost.StagingToggled
+            Search =
+              fun () -> mountedWorkbench.Send WorkbenchHost.SearchPaletteToggled
+            Help = ignore
+            Escape = fun () -> mountedWorkbench.Escape()
+            Navigate = ignore
+            ToggleFullScreen = fullscreenOf surface
+            WalkCards = ignore
+          }
+
+          member _.OverlayOpen() = mountedWorkbench.OverlayOpen()
+          member _.Navigate _ = ()
+          member _.Narrow = Observable.single false
+          member _.ToggleDrawer() = ()
+
+          member _.Handle(intent) =
+            match intent with
+            | LayoutIntent.OpenHome ->
+              mountedWorkbench.Send(
+                WorkbenchHost.RefSelected(Build.history Latest)
+              )
+            | LayoutIntent.OpenNotifications ->
+              mountedWorkbench.Send(
+                WorkbenchHost.RefSelected(Build.notifications)
+              )
+            | LayoutIntent.OpenSaved ->
+              mountedWorkbench.Send(WorkbenchHost.RefSelected(Build.saved))
+            | LayoutIntent.ComposeNow ->
+              mountedWorkbench.Send WorkbenchHost.StagingToggled
+            | LayoutIntent.SearchNow ->
+              mountedWorkbench.Send WorkbenchHost.SearchPaletteToggled
+
+        interface IDisposable with
+          member _.Dispose() =
+            (mountedWorkbench :> IDisposable).Dispose()
+      }
+
+  // The editor arrangement: the frame mounts as content, and the
+  // window's key verbs ride its own surfaces once its command seam
+  // lands; the palette's own switch-back already reaches the host.
+  let editor(surface: IHostSurface) : ILayout =
+    let session = (env :> IProvideSession).Session
+
+    match session.Current with
+    | SignedOut -> signedOutLine("editor", surface)
+    | SignedIn signed ->
+      let settings = (env :> IProvideSettings).Settings
+
+      let mounted =
+        EditorRoot.mountFor(
+          (env :> IProvideDispatcher).Dispatcher,
+          {
+            Env = env
+            Session = signed
+            Stored = EditorSettings.parse settings.Current.EditorState
+            Lane = None
+            Zone =
+              workbenchZone((env :> IProvideUserSettings).UserSettings.Current)
+            Saved = Observable.single 0
+            Active = surface.Active
+            Now = fun () -> DateTimeOffset.Now
+            OnUseDefaultLayout = fun () -> surface.Switch "current"
+          }
+        )
+
+      {
+        new ILayout with
+          member _.Name = "editor"
           member _.Root = mounted.Root
 
           member _.Actions = {
-            Compose = fun () -> mounted.Send WorkbenchHost.StagingToggled
-            Search = fun () -> mounted.Send WorkbenchHost.SearchPaletteToggled
+            Compose = fun () -> mounted.Send EditorRoot.OpenTerminal
+            Search = fun () -> mounted.Send EditorRoot.OpenPalette
             Help = ignore
-            Escape = fun () -> mounted.Escape()
+            Escape = fun () -> mounted.Send EditorRoot.Escape
             Navigate = ignore
             ToggleFullScreen = fullscreenOf surface
             WalkCards = ignore
@@ -254,19 +325,13 @@ let builtIn
           member _.Navigate _ = ()
           member _.Narrow = Observable.single false
           member _.ToggleDrawer() = ()
-
           member _.Handle(intent) =
             match intent with
-            | LayoutIntent.OpenHome ->
-              mounted.Send(WorkbenchHost.RefSelected(Build.history Latest))
-            | LayoutIntent.OpenNotifications ->
-              mounted.Send(WorkbenchHost.RefSelected(Build.notifications))
-            | LayoutIntent.OpenSaved ->
-              mounted.Send(WorkbenchHost.RefSelected(Build.saved))
-            | LayoutIntent.ComposeNow ->
-              mounted.Send WorkbenchHost.StagingToggled
-            | LayoutIntent.SearchNow ->
-              mounted.Send WorkbenchHost.SearchPaletteToggled
+            | LayoutIntent.ComposeNow -> mounted.Send EditorRoot.OpenTerminal
+            | LayoutIntent.SearchNow -> mounted.Send EditorRoot.OpenPalette
+            | LayoutIntent.OpenHome
+            | LayoutIntent.OpenNotifications
+            | LayoutIntent.OpenSaved -> ()
 
         interface IDisposable with
           member _.Dispose() = (mounted :> IDisposable).Dispose()
@@ -278,4 +343,5 @@ let builtIn
       Name = "workbench"
       Mount = workbench
     }
+    { Name = "editor"; Mount = editor }
   ]

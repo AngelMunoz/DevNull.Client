@@ -440,20 +440,20 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | PollVotedDone result ->
     match result with
     | Ok updated ->
-      ({
+      {
         model with
             Items = replaceNode(model.Items, updated)
             Busy = None
             PollChoices = model.PollChoices |> Map.remove updated.Id
-       },
-       Cmd.none)
+      },
+      Cmd.none
     | Error error ->
-      ({
+      {
         model with
             Error = Some error
             Busy = None
-       },
-       Cmd.none)
+      },
+      Cmd.none
 
 let subscribe (props: Props<'env>) (model: Model) : Sub<Msg> =
   [

@@ -6,7 +6,7 @@ open Avalonia.VisualTree
 open Expecto
 open DevNull.Client
 open DevNull.Client.Core.Http
-open DevNull.Client.Layouts.Editor
+open DevNull.Client.Editor
 open DevNull.Client.UI.Tests.EditorFrame
 open DevNull.Client.UI.Tests.Fixtures
 open DevNull.Client.UI.Tests.Harness

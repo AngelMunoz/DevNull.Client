@@ -1,4 +1,4 @@
-module DevNull.Client.Layouts.Editor.ThreadTab
+module DevNull.Client.Editor.ThreadTab
 
 open System
 open System.Reactive.Disposables

@@ -125,29 +125,29 @@ let commitOf(notification: Notification) : Commit option =
   | _ -> None
 
 let init(props: Props<'env>) : Model * Cmd<Msg> =
-  ({
+  {
     Loading = true
     More = false
     Error = None
     Items = []
     Cursor = None
     Now = DateTimeOffset.UtcNow
-   },
-   Cmd.OfAsync.perform fetch (props, None) Fetched)
+  },
+  Cmd.OfAsync.perform fetch (props, None) Fetched
 
 let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   match msg with
   | Fetched result ->
     match result with
     | Ok page ->
-      ({
+      {
         model with
             Loading = false
             Error = None
             Items = page.Page.Items
             Cursor = page.Page.NextCursor
-       },
-       Cmd.none)
+      },
+      Cmd.none
     | Error error ->
       ({
         model with
@@ -158,37 +158,37 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | MoreRequested ->
     match model.Cursor with
     | Some cursor when not model.More && not model.Loading ->
-      ({ model with More = true; Error = None },
-       Cmd.OfAsync.perform fetch (props, Some cursor) Appended)
+      { model with More = true; Error = None },
+      Cmd.OfAsync.perform fetch (props, Some cursor) Appended
     | _ -> model, Cmd.none
   | Appended result ->
     match result with
     | Ok page ->
-      ({
+      {
         model with
             More = false
             Error = None
             Items = model.Items @ page.Page.Items
             Cursor = page.Page.NextCursor
-       },
-       Cmd.none)
+      },
+      Cmd.none
     | Error error ->
-      ({
+      {
         model with
             More = false
             Error = Some error
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | RefreshRequested ->
     if model.Loading || model.More then
       model, Cmd.none
     else
-      ({
+      {
         model with
             Loading = true
             Error = None
-       },
-       Cmd.OfAsync.perform fetch (props, None) Fetched)
+      },
+      Cmd.OfAsync.perform fetch (props, None) Fetched
   | ClockTicked moment -> ({ model with Now = moment }, Cmd.none)
   | Opened notification ->
     match commitOf notification with

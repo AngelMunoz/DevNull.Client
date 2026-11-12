@@ -1,4 +1,4 @@
-module DevNull.Client.Layouts.Editor.Explorer
+module DevNull.Client.Editor.Explorer
 
 open Avalonia.Controls
 open DevNull.Client.Core.ApiTypes

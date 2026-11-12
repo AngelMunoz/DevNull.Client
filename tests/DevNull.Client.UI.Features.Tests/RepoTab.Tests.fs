@@ -3,7 +3,7 @@ module DevNull.Client.UI.Tests.RepoTab
 open Expecto
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Errors
-open DevNull.Client.Layouts.Editor
+open DevNull.Client.Editor
 open DevNull.Client.Stores
 open DevNull.Client.UI.Tests.Fixtures
 open DevNull.Client.UI.Tests.ThreadTab

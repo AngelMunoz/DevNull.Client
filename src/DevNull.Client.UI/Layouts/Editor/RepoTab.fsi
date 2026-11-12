@@ -1,4 +1,4 @@
-module DevNull.Client.Layouts.Editor.RepoTab
+module DevNull.Client.Editor.RepoTab
 
 open System
 open Avalonia.Controls

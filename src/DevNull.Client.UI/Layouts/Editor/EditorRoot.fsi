@@ -1,4 +1,4 @@
-module DevNull.Client.Layouts.Editor.EditorRoot
+module DevNull.Client.Editor.EditorRoot
 
 open System
 open Avalonia.Controls

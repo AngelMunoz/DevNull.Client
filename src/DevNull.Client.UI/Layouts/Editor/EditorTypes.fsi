@@ -1,4 +1,4 @@
-namespace DevNull.Client.Layouts.Editor
+namespace DevNull.Client.Editor
 
 open DevNull.Client.Core.ApiTypes
 

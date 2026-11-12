@@ -1,4 +1,4 @@
-module DevNull.Client.Layouts.Editor.TabStrip
+module DevNull.Client.Editor.TabStrip
 
 open System
 open Avalonia

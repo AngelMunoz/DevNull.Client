@@ -1,4 +1,4 @@
-module DevNull.Client.Layouts.Editor.StatusBar
+module DevNull.Client.Editor.StatusBar
 
 open System
 open Avalonia.Controls

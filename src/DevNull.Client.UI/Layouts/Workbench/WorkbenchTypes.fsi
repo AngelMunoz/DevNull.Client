@@ -49,18 +49,18 @@ module Ref =
 module Checkout =
 
   /// The checked-out commit's id.
-  val inline commitId: checkout: Checkout -> string
+  val commitId: checkout: Checkout -> string
 
   /// The commit page once the inspector has read it, or none.
-  val inline page: checkout: Checkout -> CommitPage option
+  val page: checkout: Checkout -> CommitPage option
 
 module WorkbenchState =
 
   /// The selected ref.
-  val inline refOf: state: WorkbenchState -> Ref
+  val refOf: state: WorkbenchState -> Ref
 
   /// The checked-out commit id, or none.
-  val inline checkoutId: state: WorkbenchState -> string option
+  val checkoutId: state: WorkbenchState -> string option
 
 module internal Build =
 

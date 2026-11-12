@@ -10,7 +10,7 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.ImageCache
-open DevNull.Client.Layouts.Editor
+open DevNull.Client.Editor
 open DevNull.Client.Profiles
 open DevNull.Client.Stores
 open DevNull.Client.UiClock

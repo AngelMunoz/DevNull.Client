@@ -100,7 +100,7 @@ let fetchReplies
   )
 
 let init(props: Props<'env>) : Model * Cmd<Msg> =
-  ({
+  {
     CommitId = props.CommitId
     Loading = true
     Error = None
@@ -112,8 +112,8 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     RepliesLoading = false
     RepliesError = None
     Now = DateTimeOffset.UtcNow
-   },
-   Cmd.OfAsync.perform show props Shown)
+  },
+  Cmd.OfAsync.perform show props Shown
 
 let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   match msg with

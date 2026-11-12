@@ -1,4 +1,4 @@
-module DevNull.Client.Layouts.Editor.HistoryTab
+module DevNull.Client.Editor.HistoryTab
 
 open System
 open Avalonia.Controls

@@ -63,64 +63,64 @@ let fetchPeople
   Search.profiles(props.Env, { KeyFile = props.KeyFile; Term = term })
 
 let init(_: Props<'env>) : Model * Cmd<Msg> =
-  ({
+  {
     Term = ""
     Loading = false
     Error = None
     People = []
     Searched = false
     Notice = None
-   },
-   Cmd.none)
+  },
+  Cmd.none
 
 let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   match msg with
   | TermChanged text ->
-    ({
+    {
       model with
           Term = text
           Notice = None
-     },
-     Cmd.none)
+    },
+    Cmd.none
   | PeopleRequested ->
     if model.Loading then
       model, Cmd.none
     else
       match peopleTermOf model.Term with
       | ValueSome term ->
-        ({
+        {
           model with
               Loading = true
               Error = None
               Notice = None
-         },
-         Cmd.OfAsync.perform fetchPeople (props, term) PeopleFetched)
+        },
+        Cmd.OfAsync.perform fetchPeople (props, term) PeopleFetched
       | ValueNone ->
-        ({
+        {
           model with
               Notice = Some "Type a name or handle first."
               Searched = false
-         },
-         Cmd.none)
+        },
+        Cmd.none
   | PeopleFetched result ->
     match result with
     | Ok matches ->
-      ({
+      {
         model with
             Loading = false
             Error = None
             People = matches.Users
             Searched = true
-       },
-       Cmd.none)
+      },
+      Cmd.none
     | Error error ->
-      ({
+      {
         model with
             Loading = false
             Error = Some error
             Searched = true
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | PersonPicked user ->
     model, Cmd.ofAction(fun () -> props.OnOpenRepository user.Handle)
   | CommitsRequested ->
@@ -128,11 +128,11 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
     | ValueSome term ->
       model, Cmd.ofAction(fun () -> props.OnSearchCommits term)
     | ValueNone ->
-      ({
+      {
         model with
             Notice = Some "A commit search needs 3 to 100 characters."
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | CloseRequested -> model, Cmd.ofAction props.OnClose
 
 let view

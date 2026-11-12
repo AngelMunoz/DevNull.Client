@@ -26,6 +26,7 @@ open DevNull.Client.TranslationCache
 /// What the active layout can be asked to do from window-level
 /// surfaces: the tray menu, the key tunnel, the host itself.
 type LayoutIntent =
+  | OpenHome
   | OpenNotifications
   | OpenSaved
   | ComposeNow

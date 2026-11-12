@@ -27,6 +27,7 @@ open DevNull.Client.TranslationCache
 /// What the active layout can be asked to do from window-level
 /// surfaces: the tray menu, the key tunnel, the host itself.
 type LayoutIntent =
+  | OpenHome
   | OpenNotifications
   | OpenSaved
   | ComposeNow
@@ -77,8 +78,9 @@ let builtIn
     undoWindow: TimeSpan
   ) : RegisteredLayout list =
   // The default layout's intents are the identity mapping to routes:
-  // the tray's Notifications and Saved land on the pages they name,
-  // and the two compose intents open the arrangement's own dialogs.
+  // the tray's home, Notifications, and Saved land on the pages they
+  // name, and the two compose intents open the arrangement's own
+  // dialogs.
   let current(host: IHostSurface) : ILayout =
     let site =
       WebsiteLayout.mount {
@@ -99,6 +101,7 @@ let builtIn
 
         member _.Handle(intent) =
           match intent with
+          | LayoutIntent.OpenHome -> site.Navigate "/log/latest"
           | LayoutIntent.OpenNotifications -> site.Navigate "/notifications"
           | LayoutIntent.OpenSaved -> site.Navigate "/saved"
           | LayoutIntent.ComposeNow -> site.Actions.Compose()

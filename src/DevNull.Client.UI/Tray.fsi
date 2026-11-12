@@ -22,9 +22,9 @@ type TrayProps = {
 /// Saved, Quit), a left-click that raises the window, and a tooltip
 /// that follows the unread count. The icon attaches to the running
 /// Application and is removed at shutdown. Updates through `unread`
-/// arrive on the UI thread, the way the session store emits. The
-/// Notifications and Saved items raise the window and hand their
-/// intent to the active layout; Open raises the window alone. `Quit`
-/// runs instead of a plain window close, so the close-to-tray guard
-/// never hides it.
+/// arrive on the UI thread, the way the session store emits. Every
+/// item raises the window and hands its intent to the active layout:
+/// Open asks for the home page, Notifications and Saved for theirs.
+/// `Quit` runs instead of a plain window close, so the close-to-tray
+/// guard never hides it.
 val install: props: TrayProps -> unit

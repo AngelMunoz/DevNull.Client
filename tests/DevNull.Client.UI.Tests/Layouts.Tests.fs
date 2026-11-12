@@ -148,6 +148,14 @@ let tests =
 
         Expect.isTrue saved "the saved intent never landed"
 
+        // The home intent returns to the log — a real move after the
+        // two pages above, so the row reads the mapping.
+        do! onUiAsync(fun () -> layout.Handle LayoutIntent.OpenHome)
+
+        let! home = landed "/log/latest"
+
+        Expect.isTrue home "the home intent never landed"
+
         do! onUiAsync(fun () -> (layout :> IDisposable).Dispose())
       })
 

@@ -58,9 +58,7 @@ let install(props: TrayProps) : unit =
   menu.Add(
     Helpers.menuItem(
       "Open /dev/null",
-      fun () ->
-        props.Log.LogDebug("The tray raised the window.")
-        Helpers.raiseWindow window
+      fun () -> Helpers.ask(props, LayoutIntent.OpenHome)
     )
   )
 

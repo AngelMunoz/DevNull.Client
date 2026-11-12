@@ -7,6 +7,7 @@ open DevNull.Client.UI.Tests.FeedTests
 open DevNull.Client.UI.Tests.EditorSettings
 open DevNull.Client.UI.Tests.EditorTypes
 open DevNull.Client.UI.Tests.EditorFrame
+open DevNull.Client.UI.Tests.EditorGates
 open DevNull.Client.UI.Tests.Natives
 
 [<EntryPoint>]
@@ -23,6 +24,7 @@ let main argv =
       EditorSettings.tests
       EditorTypes.tests
       EditorFrame.tests
+      EditorGates.tests
       App.tests
       App.notificationDayTests
       // Focus and key routing are process-global too; the suite runs

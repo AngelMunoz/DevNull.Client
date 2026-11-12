@@ -19,6 +19,7 @@
     <Compile Include="EditorSettings.Tests.fs" />
     <Compile Include="EditorTypes.Tests.fs" />
     <Compile Include="EditorFrame.Tests.fs" />
+    <Compile Include="EditorGates.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

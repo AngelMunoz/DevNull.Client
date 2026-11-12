@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Settings:** an Appearance row names the layout the window shows; a pick changes it at once, with no restart. The site's own layout is the choice today.
+
 ### Changed
 
 - **Internals:** the app's window (its band, tray, gates, and loops) and the arrangement it shows (the site's sidebar, feed column, and routes) are separate modules now, so future layouts can mount inside the same window without a restart. Nothing you can see or click changed.
+- **Tray:** the Open item raises the window and leaves the page where it stands, instead of always jumping to the log.
 
 ## [0.15.0] - 2026-11-11
 

@@ -13,6 +13,7 @@ type Props = {
   Queue: int
   Viewer: string
   OnSelectRef: LogKind -> unit
+  OnOpenViewer: unit -> unit
 }
 
 let divider() : Control =
@@ -110,11 +111,15 @@ let view(props: Props) : Control =
 
     divider()
 
-    Border()
+    Button()
+      .Name("EditorExplorerViewer")
+      .Classes(Theme.name Theme.NavItem)
+      .HorizontalAlignment(HorizontalAlignment.Stretch)
       .Padding(Thickness(6.0, 4.0))
-      .Child(
+      .Content(
         TextBlock().Text($"@{props.Viewer}").Classes(Theme.name Theme.Mono)
       )
+      .OnClickHandler(fun _ _ -> props.OnOpenViewer())
   |]
 
   let header =

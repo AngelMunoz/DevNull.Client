@@ -18,11 +18,17 @@ module TabId =
   /// The identity of one thread tab: the checked-out commit's id.
   val thread: commitId: string -> TabId
 
+  /// The identity of one repository tab: its handle.
+  val repo: handle: string -> TabId
+
   /// The key this identity carries.
   val key: id: TabId -> string
 
   /// Whether this is the pinned history tab's identity.
   val isHistory: id: TabId -> bool
+
+  /// Whether this is a repository tab's identity.
+  val isRepo: id: TabId -> bool
 
 /// The title one ref carries in the strip and the explorer.
 module LogLabel =
@@ -46,6 +52,10 @@ module EditorTab =
   /// One thread tab at its first read: the replies count is the one
   /// the card showed, and the tab starts seen.
   val thread: id: TabId * title: string * repliesCount: int -> EditorTab
+
+  /// One repository tab: pinned, titled from its handle, and closed
+  /// only through the host's own disposal.
+  val repo: id: TabId * handle: string -> EditorTab
 
   /// The tab's identity.
   val id: tab: EditorTab -> TabId

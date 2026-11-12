@@ -70,6 +70,8 @@ type Runtime = {
   Terminal: Control
   ShowTerminal: TerminalRequest -> unit
   RefreshHistory: unit -> unit
+  OpenRepo: string -> unit
+  Repos: IObservable<Map<string, Control>>
 }
 
 type Model = {
@@ -113,6 +115,7 @@ type Msg =
   | QuoteRequested of Commit
   | ReplyRequested of Commit
   | ComposerChanged of ComposerEvent
+  | OpenRepo of string
 
 [<Struct>]
 type HistorySinks = {
@@ -144,6 +147,7 @@ type ProgramArgs<'env
   Replies: IObservable<Commit>
   ComposerEvents: IObservable<ComposerEvent>
   Fetches: IObservable<string * Result<unit, string>>
+  RepoOpens: IObservable<string>
 }
 
 type ViewArgs<'env
@@ -234,6 +238,24 @@ let threadProps
   OnReplyRequested = hooks.Reply
 }
 
+[<Struct>]
+type RepoHooks = {
+  OpenCommit: Commit -> unit
+  OpenRepo: string -> unit
+}
+
+let repoProps
+  (props: Props<'env>, handle: string, hooks: RepoHooks)
+  : RepoTab.Props<'env> = {
+  Env = props.Env
+  Session = props.Session
+  Handle = handle
+  Zone = props.Zone
+  Now = props.Now
+  OnOpenCommit = hooks.OpenCommit
+  OnOpenRepo = hooks.OpenRepo
+}
+
 let initial(props: Props<'env>, history: HistoryTab.Snapshot) = {
   Frame = EditorState.initial(StoredState.selectedRef props.Stored)
   Band = Full
@@ -294,6 +316,18 @@ let addOutput(refName: string, result: Result<unit, string>, model: Model) = {
           model.Output
         )
 }
+
+let openRepo(args: UpdateArgs<'env>, handle: string, model: Model) =
+  let tab = EditorTab.repo(TabId.repo handle, handle)
+
+  let next = {
+    model with
+        Frame = EditorState.openTab(tab, model.Frame)
+        Activity = ActivityBar.Account
+        FlyoutOpen = false
+  }
+
+  next, Cmd.ofAction(fun () -> args.Runtime.OpenRepo handle)
 
 let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
   match msg with
@@ -502,6 +536,8 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
       }
 
       next, Cmd.none
+    | ActivityBar.Account ->
+      openRepo(args, args.Props.Session.Session.User.Handle, model)
     | _ ->
       let next = {
         model with
@@ -510,6 +546,7 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
       }
 
       next, Cmd.none
+  | OpenRepo handle -> openRepo(args, handle, model)
   | PanelToggled tab ->
     let panel = EditorPanel.toggle(tab, model.Panel)
     let openProblems = panel.Open && panel.Tab = EditorPanel.Problems
@@ -662,6 +699,8 @@ let subscribe(args: ProgramArgs<'env>, _model: Model) : Sub<Msg> =
 
     Sub.fromObservable "opens" (args.Opens |> Observable.map OpenThread)
 
+    Sub.fromObservable "repos" (args.RepoOpens |> Observable.map OpenRepo)
+
     Sub.fromObservable "quotes" (args.Quotes |> Observable.map QuoteRequested)
 
     Sub.fromObservable "replies" (args.Replies |> Observable.map ReplyRequested)
@@ -726,6 +765,8 @@ let view(args: ViewArgs<'env>) : Control =
           Queue = current.Queue
           Viewer = props.Session.Session.User.Handle
           OnSelectRef = fun log -> dispatch(RefSelected log)
+          OnOpenViewer =
+            fun () -> dispatch(OpenRepo props.Session.Session.User.Handle)
         })
     )
 
@@ -765,13 +806,17 @@ let view(args: ViewArgs<'env>) : Control =
 
   let activeContent =
     Observable.combineLatest
-      (model |> Observable.map(fun current -> current.Frame))
-      args.Runtime.Threads
-    |> Observable.map(fun (frame, threads) ->
+      (Observable.combineLatest
+        (model |> Observable.map(fun current -> current.Frame))
+        args.Runtime.Threads)
+      args.Runtime.Repos
+    |> Observable.map(fun ((frame, threads), repos) ->
       let id = EditorState.activeTab frame
 
       if id = TabId.history then
         args.Runtime.History
+      elif TabId.isRepo id then
+        repos |> Map.tryFind(TabId.key id) |> Option.defaultValue loading
       else
         threads |> Map.tryFind(TabId.key id) |> Option.defaultValue loading)
     |> Observable.distinctUntilChanged
@@ -943,6 +988,7 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
     new System.Reactive.Subjects.Subject<string * ThreadTab.Snapshot>()
 
   let opens = new System.Reactive.Subjects.Subject<Commit>()
+  let repoOpens = new System.Reactive.Subjects.Subject<string>()
   let historyRefresh = new System.Reactive.Subjects.Subject<unit>()
   let quotes = new System.Reactive.Subjects.Subject<Commit>()
   let replies = new System.Reactive.Subjects.Subject<Commit>()
@@ -955,6 +1001,9 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
     )
 
   let entries = new BehaviorSubject<Map<string, ThreadEntry>>(Map.empty)
+
+  let repoEntries = new BehaviorSubject<Map<string, ThreadEntry>>(Map.empty)
+
   let content = ContentControl()
   let term = ContentControl()
   let historyLifetime = new SerialDisposable()
@@ -1037,6 +1086,11 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
     |> Observable.map(fun map -> map |> Map.map(fun _ entry -> entry.View))
     |> Slices.share
 
+  let repos =
+    repoEntries
+    |> Observable.map(fun map -> map |> Map.map(fun _ entry -> entry.View))
+    |> Slices.share
+
   let openThread(commitId: string) =
     if not(Map.containsKey commitId entries.Value) then
       let view, lifetime =
@@ -1066,6 +1120,27 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
       entry.Lifetime.Dispose()
     | None -> ()
 
+  let openRepo(handle: string) =
+    let key = TabId.key(TabId.repo handle)
+
+    if not(Map.containsKey key repoEntries.Value) then
+      let view, lifetime =
+        RepoTab.mount(
+          dispatcher,
+          repoProps(
+            props,
+            handle,
+            {
+              OpenCommit = fun commit -> opens.OnNext commit
+              OpenRepo = fun next -> repoOpens.OnNext next
+            }
+          )
+        )
+
+      repoEntries.OnNext(
+        repoEntries.Value.Add(key, { View = view; Lifetime = lifetime })
+      )
+
   let runtime = {
     History = content
     SwitchRef = show
@@ -1075,6 +1150,8 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
     Terminal = term
     ShowTerminal = showTerminal
     RefreshHistory = fun () -> historyRefresh.OnNext()
+    OpenRepo = openRepo
+    Repos = repos
   }
 
   let args: ProgramArgs<'env> = {
@@ -1088,6 +1165,7 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
     Replies = replies
     ComposerEvents = composerEvents
     Fetches = fetches
+    RepoOpens = repoOpens
   }
 
   let root, frameHandle =
@@ -1101,6 +1179,14 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
       entries.OnCompleted()
       entries.Dispose())
 
+  let reposCleanup =
+    Disposable.Create(fun () ->
+      for KeyValue(_, entry) in repoEntries.Value do
+        entry.Lifetime.Dispose()
+
+      repoEntries.OnCompleted()
+      repoEntries.Dispose())
+
   let subjectCleanup =
     Disposable.Create(fun () ->
       snapshots.OnCompleted()
@@ -1113,6 +1199,8 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
       threadSnapshots.Dispose()
       opens.OnCompleted()
       opens.Dispose()
+      repoOpens.OnCompleted()
+      repoOpens.Dispose()
       historyRefresh.OnCompleted()
       historyRefresh.Dispose()
       quotes.OnCompleted()
@@ -1129,6 +1217,7 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
   handles.Add frameHandle
   handles.Add historyLifetime
   handles.Add threadsCleanup
+  handles.Add reposCleanup
   handles.Add subjectCleanup
 
   root, (handles :> IDisposable)

@@ -11,8 +11,10 @@ type Props = {
   Queue: int
   Viewer: string
   OnSelectRef: LogKind -> unit
+  OnOpenViewer: unit -> unit
 }
 
 /// The side bar: the three refs with HEAD on the selected one, the
-/// saved and queue counts, and the signed-in user's repository row.
+/// saved and queue counts, and the signed-in user's repository row,
+/// which opens that account's repository tab.
 val view: props: Props -> Control

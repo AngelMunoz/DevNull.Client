@@ -12,9 +12,13 @@ module TabId =
 
   let thread(commitId: string) = TabId commitId
 
+  let repo(handle: string) = TabId("repo:" + handle)
+
   let key(TabId key) = key
 
   let isHistory id = id = history
+
+  let isRepo id = key id |> _.StartsWith("repo:")
 
 type EditorTab = {
   Id: TabId
@@ -64,6 +68,15 @@ module EditorTab =
       RepliesCount = count
       SeenReplies = count
     }
+
+  let repo(id: TabId, handle: string) = {
+    Id = id
+    Title = $"@{handle} (repo)"
+    IsPinned = true
+    Dirty = 0
+    RepliesCount = 0
+    SeenReplies = 0
+  }
 
   let id(tab: EditorTab) = tab.Id
 

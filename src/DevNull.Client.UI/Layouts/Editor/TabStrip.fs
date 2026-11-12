@@ -54,7 +54,12 @@ let closeButton(props: Props, tab: EditorTab) : Control =
 let tabContent(props: Props, tab: EditorTab) : Control =
   let mark: Control array =
     if EditorTab.isPinned tab then
-      [| iconAt(Log, 14.0) |]
+      [|
+        if TabId.isRepo(EditorTab.id tab) then
+          iconAt(Pin, 14.0)
+        else
+          iconAt(Log, 14.0)
+      |]
     else
       [||]
 

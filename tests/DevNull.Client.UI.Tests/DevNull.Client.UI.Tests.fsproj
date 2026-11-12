@@ -21,6 +21,7 @@
     <Compile Include="EditorFrame.Tests.fs" />
     <Compile Include="EditorChurn.Tests.fs" />
     <Compile Include="EditorPanel.Tests.fs" />
+    <Compile Include="RepoFrame.Tests.fs" />
     <Compile Include="EditorGates.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

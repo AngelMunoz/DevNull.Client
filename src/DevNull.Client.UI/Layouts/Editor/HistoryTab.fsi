@@ -3,6 +3,7 @@ module DevNull.Client.Layouts.Editor.HistoryTab
 open System
 open Avalonia.Controls
 open Avalonia.Threading
+open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
@@ -55,6 +56,9 @@ module State =
     NextCursor: string option
     Head: string option
     NewCount: int option
+    /// The newer commits a poll heard but did not merge; the next
+    /// poll reports them as arrived.
+    HeardIds: string list
     Ranked: bool
     /// Whether the one-minute poll runs.
     Polling: bool
@@ -82,6 +86,12 @@ module State =
 
   /// What the frame reads from this model.
   val snapshot: model: Model -> Snapshot
+
+  /// The request one poll sends: the since head, the heard ids as
+  /// arrived, the live ids as pending, and the last 20 live ids
+  /// reversed as the loaded range.
+  val pollRequest:
+    props: Props<'env> * model: Model * head: string -> Logs.Request
 
   /// Applies one message.
   val update: props: Props<'env> * msg: Msg * model: Model -> Model * Cmd<Msg>

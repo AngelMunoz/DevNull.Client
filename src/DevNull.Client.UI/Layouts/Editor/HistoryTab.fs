@@ -52,6 +52,9 @@ module State =
     NextCursor: string option
     Head: string option
     NewCount: int option
+    /// The newer commits a poll heard but did not merge; the next
+    /// poll reports them as arrived.
+    HeardIds: string list
     Ranked: bool
     Polling: bool
     FetchedAt: DateTimeOffset option
@@ -74,6 +77,7 @@ module State =
     NextCursor = None
     Head = None
     NewCount = None
+    HeardIds = []
     Ranked = false
     Polling = false
     FetchedAt = None
@@ -100,6 +104,17 @@ module State =
       | LiveCommit commit -> Some commit.Id
       | Tombstone _ -> None)
 
+  let insertLate(late: Commit, items: CommitNode list) : CommitNode list =
+    let at =
+      items
+      |> List.tryFindIndex(function
+        | Tombstone _ -> false
+        | LiveCommit commit -> commit.CreatedAt < late.CreatedAt)
+
+    match at with
+    | Some index -> items |> List.insertAt index (LiveCommit late)
+    | None -> items @ [ LiveCommit late ]
+
   let fetch(props: Props<'env>, cursor: string option) =
     Logs.get(
       props.Env,
@@ -115,20 +130,21 @@ module State =
       }
     )
 
+  let pollRequest
+    (props: Props<'env>, model: Model, head: string)
+    : Logs.Request = {
+    KeyFile = props.Session.KeyFile
+    Log = props.Log
+    Since = Some head
+    Cursor = None
+    Arrived = if model.Ranked then [] else model.HeardIds
+    Pending = liveIds model.Items |> List.truncate 100
+    Everything = false
+    Through = liveIds model.Items |> List.rev |> List.truncate 20
+  }
+
   let checkNew(props: Props<'env>, model: Model, head: string) =
-    Logs.get(
-      props.Env,
-      {
-        KeyFile = props.Session.KeyFile
-        Log = props.Log
-        Since = Some head
-        Cursor = None
-        Arrived = []
-        Pending = liveIds model.Items |> List.truncate 100
-        Everything = false
-        Through = []
-      }
-    )
+    Logs.get(props.Env, pollRequest(props, model, head))
 
   let announce(props: Props<'env>, model: Model) =
     Cmd.ofAction(fun () -> props.OnSnapshot(snapshot model))
@@ -155,6 +171,7 @@ module State =
               NextCursor = page.Page.NextCursor
               Head = headOf page.Page.Items
               NewCount = None
+              HeardIds = []
               Ranked = page.IsRanked
               FetchedAt = Some(props.Now())
         }
@@ -207,13 +224,62 @@ module State =
         let count =
           page.NewCommitsCount |> Option.filter(fun count -> count > 0)
 
-        let next = {
-          model with
-              NewCount = count
-              Error = None
-        }
+        if model.Ranked then
+          let next = { model with NewCount = count }
 
-        next, announce(props, next)
+          next, announce(props, next)
+        else
+          let loaded = liveIds model.Items |> Set.ofList
+
+          let headAt =
+            model.Items
+            |> List.tryPick(function
+              | LiveCommit commit when Some commit.Id = model.Head ->
+                Some commit.CreatedAt
+              | _ -> None)
+
+          let isNewer(commit: Commit) =
+            match headAt with
+            | Some at -> commit.CreatedAt > at
+            | None -> true
+
+          let unloaded =
+            page.Page.Items
+            |> List.choose(function
+              | LiveCommit commit when not(Set.contains commit.Id loaded) ->
+                Some commit
+              | _ -> None)
+
+          let late =
+            unloaded
+            |> List.filter(fun commit -> not(isNewer commit))
+            |> List.sortByDescending(fun commit -> commit.CreatedAt)
+
+          let merged =
+            late
+            |> List.fold
+              (fun items arrival -> insertLate(arrival, items))
+              model.Items
+
+          let mergedLoaded = merged |> liveIds |> Set.ofList
+
+          let heard =
+            (model.HeardIds
+             @ (unloaded
+                |> List.filter isNewer
+                |> List.map(fun commit -> commit.Id)))
+            |> List.distinct
+            |> List.filter(fun id -> not(Set.contains id mergedLoaded))
+            |> List.truncate 100
+
+          let next = {
+            model with
+                Items = merged
+                NewCount = count
+                HeardIds = heard
+          }
+
+          next, announce(props, next)
       | Error error ->
         let next = { model with Error = Some error }
 

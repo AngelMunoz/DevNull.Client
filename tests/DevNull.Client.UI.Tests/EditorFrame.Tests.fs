@@ -5,6 +5,7 @@ open Avalonia.Controls
 open Avalonia.VisualTree
 open Expecto
 open FSharp.Control.Reactive
+open DevNull.Client
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Http
 open DevNull.Client.Formatting
@@ -118,6 +119,47 @@ let tests =
 
         Expect.isTrue shown "the explorer's header never rendered"
 
+        let tabCount() =
+          window.GetVisualDescendants()
+          |> Seq.filter(fun visual ->
+            match visual with
+            | :? Button as button ->
+              button.Classes.Contains(Theme.name Theme.TabButton)
+            | _ -> false)
+          |> Seq.length
+
+        let! tabsBefore = probeUiAsync(fun () -> tabCount())
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "Latest") |> Option.iter click)
+
+        let! switched =
+          waitForAsync(
+            8000,
+            (fun () -> api.Requests),
+            fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Method = "GET"
+                && request.Target.StartsWith "/api/v1/log/latest")
+          )
+
+        Expect.isTrue switched "the Latest ref never read its log"
+
+        do! settleAsync()
+
+        let! tabsAfter, switchedStatus =
+          probeUiAsync(fun () -> tabCount(), statusText window)
+
+        Expect.equal tabsAfter tabsBefore "the ref switch churned the tab strip"
+
+        Expect.isTrue
+          (switchedStatus
+           |> Option.bind(fun text -> Option.ofObj text)
+           |> Option.exists(fun text -> text.Contains "Latest"))
+          "the status strip kept the old ref"
+
         do! onUiAsync(fun () -> window.Width <- 380.0)
         do! settleAsync()
 
@@ -125,8 +167,7 @@ let tests =
           waitForAsync(
             5000,
             (fun () -> statusText window),
-            fun text ->
-              text |> Option.exists(fun value -> value = "⎇ Following")
+            fun text -> text |> Option.exists(fun value -> value = "⎇ Latest")
           )
 
         Expect.isTrue trimmed "the status strip never trimmed at 380 px"

@@ -100,6 +100,27 @@ let private historyProps(env: TestEnv) : HistoryColumn.Props<TestEnv> = {
   OnQuote = ignore
 }
 
+let private inspectorProps(env: TestEnv) : Inspector.Props<TestEnv> = {
+  Env = env
+  CommitId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+  KeyFile = "/tmp/devnull-test-id_ed25519"
+  ViewerId = "01a151db-0000-0000-0000-000000000000"
+  Pasteis = true
+  Images = {
+    new ImageCacheService with
+      member _.Get(_url: string) = async { return None }
+  }
+  Now = Observable.single(DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero))
+  Zone = {
+    Info = TimeZoneInfo.Utc
+    Label = "UTC"
+  }
+  OnCheckoutParent = ignore
+  OnOpenAuthor = ignore
+  OnOpenExternal = ignore
+  OnQuote = ignore
+}
+
 let tests =
   testList "workbench reuse gates" [
     testCaseAsync
@@ -387,6 +408,93 @@ let columnTests =
           )
 
         Expect.isTrue body "the fetched commit never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            subject.OnCompleted()
+            subject.Dispose())
+      })
+  ]
+
+let inspectorViewTests =
+  testList "workbench inspector view" [
+    testCaseAsync
+      "the inspector renders the checkout, parents, and replies"
+      (async {
+        let thread =
+          match CommitPage.decode threadPageJson with
+          | Ok page -> page
+          | Error failure ->
+            failwith $"the canned thread never decoded: {failure.Message}"
+
+        let replies =
+          match CommitNode.decodePage repliesPageJson with
+          | Ok page -> page
+          | Error failure ->
+            failwith $"the canned replies never decoded: {failure.Message}"
+
+        let parent = pageOf secondLogPageJson |> commitOf
+        let now = DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero)
+
+        let subject =
+          new BehaviorSubject<Inspector.Model>(
+            {
+              CommitId = thread.Commit.Id
+              Loading = false
+              Error = None
+              Commit = Some thread.Commit
+              Ancestors = [ LiveCommit parent ]
+              ReplyParticipants = thread.ReplyParticipants
+              Replies = replies.Items
+              RepliesCursor = Some "next"
+              RepliesLoading = false
+              RepliesError = None
+              Busy = None
+              Now = now
+            }
+          )
+
+        let env = TestEnv(signedInStore(), FakeApi("{}") :> IHttp)
+        let props = inspectorProps env
+
+        let! window =
+          probeUiAsync(fun () ->
+            let view =
+              Inspector.view
+                props
+                (subject :> IObservable<Inspector.Model>)
+                (fun (_: Inspector.Msg) -> ())
+
+            let window = Window(Width = 380.0, Height = 800.0, Content = view)
+
+            window.Show()
+            window)
+
+        let! shown =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              hasText(root, "CHECKOUT b8b9c0d")
+              && hasText(root, "no lane")
+              && hasText(root, "It was DNS.")
+              && hasText(root, "PARENTS")
+              && hasText(root, "Second commit.")
+              && hasText(root, "REPLIES")
+              && hasText(root, "A reply.")
+              && hasText(root, "Load more")
+          )
+
+        Expect.isTrue shown "the inspector never rendered its regions"
+
+        let! actions =
+          probeUiAsync(fun () ->
+            (controlByName(window, "StarButton") |> Option.isSome,
+             controlByName(window, "PastelButton") |> Option.isSome))
+
+        Expect.isTrue (fst actions) "the star action never rendered"
+        Expect.isTrue (snd actions) "the pastel action never rendered"
 
         do!
           onUiAsync(fun () ->

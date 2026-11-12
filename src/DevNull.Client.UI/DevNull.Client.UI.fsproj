@@ -230,6 +230,8 @@
     <Compile Include="Layouts\Workbench\WorkbenchSettings.fs" />
     <Compile Include="Layouts\Workbench\HistoryColumn.fsi" />
     <Compile Include="Layouts\Workbench\HistoryColumn.fs" />
+    <Compile Include="Layouts\Workbench\Inspector.fsi" />
+    <Compile Include="Layouts\Workbench\Inspector.fs" />
     <Compile Include="Layouts\Workbench\WorkbenchChrome.fsi" />
     <Compile Include="Layouts\Workbench\WorkbenchChrome.fs" />
     <Compile Include="Views\Routes.fsi" />

@@ -226,6 +226,10 @@
     <Compile Include="Views\SearchView.fs" />
     <Compile Include="Views\Routes.fsi" />
     <Compile Include="Views\Routes.fs" />
+    <Compile Include="Layouts\Website\WebsiteLayout.fsi" />
+    <Compile Include="Layouts\Website\WebsiteLayout.fs" />
+    <Compile Include="Layouts.fsi" />
+    <Compile Include="Layouts.fs" />
     <Compile Include="Shell.fsi" />
     <Compile Include="Shell.fs" />
     <Compile Include="Startup.fsi" />

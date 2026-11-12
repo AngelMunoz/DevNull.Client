@@ -90,7 +90,7 @@ module EditorState =
     Tabs =
       state.Tabs
       |> List.map(fun tab ->
-        if tab.IsPinned then
+        if TabId.isHistory tab.Id then
           EditorTab.withTitle(LogLabel.ofKind log, tab)
         else
           tab)
@@ -107,13 +107,13 @@ module EditorState =
     else
       state
 
-  let historyTab (tabs: EditorTab list) (selected: LogKind) =
+  let historyTab(tabs: EditorTab list, selected: LogKind) =
     tabs
     |> List.tryFind(fun tab -> TabId.isHistory tab.Id)
     |> Option.defaultValue(EditorTab.pinned selected)
 
   let withTabs(tabs: EditorTab list, state: EditorState) =
-    let history = historyTab tabs state.SelectedRef
+    let history = historyTab(tabs, state.SelectedRef)
 
     let rest = tabs |> List.filter(fun tab -> not(TabId.isHistory tab.Id))
 
@@ -132,9 +132,11 @@ module EditorState =
     }
 
   let closeTab(id: TabId, state: EditorState) =
-    if TabId.isHistory id then
-      state
-    else
+    let target = state.Tabs |> List.tryFind(fun tab -> tab.Id = id)
+
+    match target with
+    | Some tab when tab.IsPinned -> state
+    | Some _ ->
       let tabs = state.Tabs |> List.filter(fun tab -> tab.Id <> id)
 
       let active =
@@ -148,6 +150,7 @@ module EditorState =
         Tabs = tabs
         ActiveTab = active
       }
+    | None -> state
 
   let setDirty(id: TabId, count: int, state: EditorState) = {
     state with

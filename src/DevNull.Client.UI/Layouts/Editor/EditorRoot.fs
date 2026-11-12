@@ -414,16 +414,22 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
       HistoryTab.State.snapshot HistoryTab.State.initial
     )
 
+  let selected =
+    new BehaviorSubject<LogKind>(StoredState.selectedRef props.Stored)
+
   let content = ContentControl()
   let historyLifetime = new SerialDisposable()
 
   let show(log: LogKind) =
+    selected.OnNext log
     historyLifetime.Disposable <- Disposable.Empty
 
     let history, handle =
       HistoryTab.mount(
         dispatcher,
-        historyProps props log (fun snapshot -> snapshots.OnNext snapshot)
+        historyProps props log (fun snapshot ->
+          if selected.Value = log then
+            snapshots.OnNext snapshot)
       )
 
     content.Content <- history
@@ -449,5 +455,11 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
   handles.Add frameHandle
   handles.Add historyLifetime
   handles.Add snapshotsCleanup
+
+  handles.Add(
+    Disposable.Create(fun () ->
+      selected.OnCompleted()
+      selected.Dispose())
+  )
 
   root, (handles :> IDisposable)

@@ -99,8 +99,8 @@ module EditorState =
   /// history tab gains it back at the head.
   val withTabs: tabs: EditorTab list * state: EditorState -> EditorState
 
-  /// The same state without one ordinary tab. The pinned history tab
-  /// never closes; closing the active tab selects the history tab.
+  /// The same state without one ordinary tab. A pinned tab never
+  /// closes; closing the active ordinary tab selects the history tab.
   val closeTab: id: TabId * state: EditorState -> EditorState
 
   /// The same state with one tab's dirty count set.

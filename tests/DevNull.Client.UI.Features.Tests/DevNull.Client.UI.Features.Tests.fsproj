@@ -16,6 +16,7 @@
     <Compile Include="HistoryColumn.Tests.fs" />
     <Compile Include="Inspector.Tests.fs" />
     <Compile Include="ThreadMode.Tests.fs" />
+    <Compile Include="RepositoryHome.Tests.fs" />
     <Compile Include="WorkbenchHost.Tests.fs" />
     <Compile Include="Search.Tests.fs" />
     <Compile Include="Scheduled.Tests.fs" />

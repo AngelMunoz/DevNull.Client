@@ -135,6 +135,82 @@ let private hostProps(env: TestEnv) : WorkbenchHost.Props<TestEnv> = {
   OnStateChanged = ignore
 }
 
+let private repositoryProfile =
+  let json =
+    profileWithStatsJson.Replace(
+      "\"pinned_commit\":null",
+      "\"pinned_commit\":" + pinnedOwnCommitJson
+    )
+
+  match ProfileDetails.decode json with
+  | Ok details -> details
+  | Error failure ->
+    failwith $"the canned repository profile never decoded: {failure.Message}"
+
+let private repositoryCommits =
+  match CommitNode.decodePage logPageJson with
+  | Ok page -> page
+  | Error failure ->
+    failwith $"the canned repository commits never decoded: {failure.Message}"
+
+let private repositoryFollowers =
+  match User.decodePage followersPageJson with
+  | Ok page -> page
+  | Error failure ->
+    failwith $"the canned repository followers never decoded: {failure.Message}"
+
+let private repositoryViewOf(env: TestEnv) : RepositoryHome.View =
+  let model: RepositoryHome.Model = {
+    Handle = "octocat"
+    Loading = false
+    Error = None
+    Details = Some repositoryProfile
+    Commits = repositoryCommits.Items
+    CommitsCursor = Some "next"
+    CommitsLoading = false
+    CommitsError = None
+    FollowBusy = false
+    FollowError = None
+    People =
+      Some {
+        Kind = RepositoryHome.Followers
+        Loading = false
+        Error = None
+        Items = repositoryFollowers.Items
+        Cursor = Some "next"
+      }
+    Now = now
+  }
+
+  let props: RepositoryHome.Props<TestEnv> = {
+    Env = env
+    Handle = "octocat"
+    KeyFile = "/tmp/devnull-test-id_ed25519"
+    ViewerId = "01a151db-0000-0000-0000-000000000000"
+    Pasteis = true
+    Images = images
+    Now = Observable.single now
+    Zone = {
+      Info = TimeZoneInfo.Utc
+      Label = "UTC"
+    }
+    OnOpenThread = ignore
+    OnQuote = ignore
+    OnOpenExternal = ignore
+    OnOpenRepository = ignore
+    OnListChanged = ignore
+  }
+
+  let subject = new BehaviorSubject<RepositoryHome.Model>(model)
+
+  RepositoryHome.view
+    props
+    (subject :> IObservable<RepositoryHome.Model>)
+    (fun (_: RepositoryHome.Msg) -> ())
+
+let private repositoryRef =
+  WorkbenchSettings.parse "repository:octocat" |> WorkbenchState.refOf
+
 let private controlByName(root: Control, name: string) : Control option =
   root.GetVisualDescendants()
   |> Seq.choose(function
@@ -167,6 +243,8 @@ let private modelOf(folded: bool, stagingOpen: bool) : WorkbenchHost.Model =
     Staging = stagingOf stagingOpen
     ThreadId = None
     Thread = None
+    Repository = None
+    RepositoryListOpen = false
     Handle = "octocat"
     FetchedAt = Some(now.AddMinutes -12.0)
     SavedCount = 4
@@ -191,6 +269,7 @@ let private modelOf(folded: bool, stagingOpen: bool) : WorkbenchHost.Model =
     LiveHistory = 1
     LiveInspector = 1
     LiveThread = 0
+    LiveRepository = 0
   }
 
 let private buildAsync
@@ -235,6 +314,47 @@ let private buildThreadAsync
                 Handle = fakeHandle
               }
             LiveThread = 1
+      }
+
+      let subject = new BehaviorSubject<WorkbenchHost.Model>(model)
+
+      let view =
+        WorkbenchHost.view
+          props
+          (subject :> IObservable<WorkbenchHost.Model>)
+          (fun (_: WorkbenchHost.Msg) -> ())
+
+      let window = Window(Width = 1600.0, Height = 900.0, Content = view)
+
+      window.Show()
+      window, subject)
+}
+
+let private buildRepositoryAsync
+  ()
+  : Async<Window * BehaviorSubject<WorkbenchHost.Model>> = async {
+  return!
+    probeUiAsync(fun () ->
+      let env = TestEnv(signedInStore(), FakeApi("{}") :> IHttp)
+      let props = hostProps env
+      let repositoryView = repositoryViewOf env
+
+      let model = {
+        modelOf(false, false) with
+            Selected = repositoryRef
+            CheckoutId = None
+            History = None
+            Inspector = None
+            Repository =
+              Some {
+                RepositoryHandle = "octocat"
+                View = repositoryView
+                Handle = fakeHandle
+              }
+            RepositoryListOpen = true
+            LiveHistory = 0
+            LiveInspector = 0
+            LiveRepository = 1
       }
 
       let subject = new BehaviorSubject<WorkbenchHost.Model>(model)
@@ -497,6 +617,110 @@ let tests =
         Expect.isTrue threadVisible "the thread region is not visible"
         Expect.isTrue parentsVisible "the PARENTS chain is not visible"
         Expect.isTrue inspectorVisible "the inspector checkout is not visible"
+
+        do! closeAsync(window, subject)
+      })
+
+    testCaseAsync
+      "the W4 frame at 1600 px shows the repository home and its people list"
+      (async {
+        let! window, subject = buildRepositoryAsync()
+
+        let! shown =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              hasTextFragment(root, "README (pinned)")
+              && hasText(root, "CONTRIBUTIONS · week")
+              && hasText(root, "HISTORY @octocat")
+              && hasText(root, "My own commit.")
+              && hasText(root, "Dora Default")
+              && hasText(root, "FOLLOWERS · @octocat")
+              && hasTextFragment(root, "streak 3 · longest 12")
+              && hasTextFragment(root, "level 3 · Wizard")
+          )
+
+        Expect.isTrue shown "the W4 frame never rendered its repository home"
+
+        let! follow =
+          waitForAsync(5000, (fun () -> hasText(window, "Follow")), id)
+
+        Expect.isTrue follow "the repository header lost its follow control"
+
+        let contributionBars(root: Control) =
+          root.GetVisualDescendants()
+          |> Seq.choose(function
+            | :? Border as border when border.Name = "ContributionBar" ->
+              Some border
+            | _ -> None)
+          |> Seq.toList
+
+        let! bars =
+          waitForAsync(
+            5000,
+            (fun () -> contributionBars(window).Length),
+            fun count -> count = 3
+          )
+
+        Expect.isTrue bars "the contribution graph invented or lost its buckets"
+
+        do! pumpAsync()
+
+        let! (centerWidth,
+              historyVisible,
+              repositoryVisible,
+              listVisible,
+              inspectorVisible,
+              firstLane,
+              firstTip) =
+          probeUiAsync(fun () ->
+            let bars = contributionBars(window)
+
+            let tip =
+              bars
+              |> List.tryHead
+              |> Option.map(fun bar -> string(ToolTip.GetTip(bar)))
+              |> Option.defaultValue ""
+
+            let lane =
+              bars
+              |> List.tryHead
+              |> Option.exists(fun bar -> bar.Classes.Contains "lane-back-3")
+
+            widthOf(window, "RepositoryCenter"),
+            controlByName(window, "HistoryRegion")
+            |> Option.map _.IsVisible
+            |> Option.defaultValue false,
+            controlByName(window, "RepositoryRegion")
+            |> Option.map _.IsVisible
+            |> Option.defaultValue false,
+            controlByName(window, "RepositoryPeople")
+            |> Option.map _.IsVisible
+            |> Option.defaultValue false,
+            controlByName(window, "InspectorRegion")
+            |> Option.map _.IsVisible
+            |> Option.defaultValue false,
+            lane,
+            tip)
+
+        Expect.isTrue
+          (centerWidth > 900.0 && centerWidth < 1050.0)
+          $"the repository home lost the free center width: {centerWidth}"
+
+        Expect.isFalse historyVisible "the history stayed visible over the home"
+        Expect.isTrue repositoryVisible "the repository region is not visible"
+
+        Expect.isTrue
+          listVisible
+          "the people list did not take the inspector place"
+
+        Expect.isTrue inspectorVisible "the inspector region is not visible"
+        Expect.isTrue firstLane "the contribution bars lost their lane color"
+
+        Expect.isTrue
+          (firstTip.Contains "3")
+          "the contribution bar lost its count tooltip"
 
         do! closeAsync(window, subject)
       })

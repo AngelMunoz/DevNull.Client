@@ -238,6 +238,8 @@
     <Compile Include="Layouts\Workbench\Staging.fs" />
     <Compile Include="Layouts\Workbench\ThreadMode.fsi" />
     <Compile Include="Layouts\Workbench\ThreadMode.fs" />
+    <Compile Include="Layouts\Workbench\RepositoryHome.fsi" />
+    <Compile Include="Layouts\Workbench\RepositoryHome.fs" />
     <Compile Include="Layouts\Workbench\WorkbenchHost.fsi" />
     <Compile Include="Layouts\Workbench\WorkbenchHost.fs" />
     <Compile Include="Views\Routes.fsi" />

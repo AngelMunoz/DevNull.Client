@@ -43,6 +43,12 @@ type ThreadChild = {
   Handle: IDisposable
 }
 
+type RepositoryChild = {
+  RepositoryHandle: string
+  View: RepositoryHome.View
+  Handle: IDisposable
+}
+
 type Model = {
   Selected: Ref
   CheckoutId: string option
@@ -51,6 +57,8 @@ type Model = {
   Staging: Staging.Model
   ThreadId: string option
   Thread: ThreadChild option
+  Repository: RepositoryChild option
+  RepositoryListOpen: bool
   Handle: string
   FetchedAt: DateTimeOffset option
   SavedCount: int
@@ -63,6 +71,7 @@ type Model = {
   LiveHistory: int
   LiveInspector: int
   LiveThread: int
+  LiveRepository: int
 }
 
 [<NoComparison>]
@@ -87,6 +96,8 @@ type Msg =
   | HistoryStopped
   | InspectorStopped
   | ThreadStopped
+  | RepositoryStopped
+  | RepositoryListChanged of open': bool
   | HistoryReady of
     ref: Ref *
     restore: HistoryColumn.Place option *
@@ -98,6 +109,10 @@ type Msg =
     commitId: string *
     view: ThreadMode.View *
     handle: IDisposable
+  | RepositoryReady of
+    handle: string *
+    view: RepositoryHome.View *
+    lifetime: IDisposable
 
 type Props<'env
   when 'env :> IProvideClock
@@ -144,6 +159,8 @@ type MountedHost() =
 
   member val CurrentThread: TrackedHandle option = None with get, set
 
+  member val CurrentRepository: TrackedHandle option = None with get, set
+
   member val HostHandle: IDisposable option = None with get, set
 
   member val Disposed = false with get, set
@@ -153,6 +170,8 @@ type MountedHost() =
   member val LiveInspector = 0 with get, set
 
   member val LiveThread = 0 with get, set
+
+  member val LiveRepository = 0 with get, set
 
   member val HostDisposed = false with get, set
 
@@ -177,6 +196,7 @@ type MountedHost() =
     this.LiveHistory <- model.LiveHistory
     this.LiveInspector <- model.LiveInspector
     this.LiveThread <- model.LiveThread
+    this.LiveRepository <- model.LiveRepository
 
     this.CurrentHistory <-
       model.History |> Option.bind(fun child -> track child.Handle)
@@ -186,6 +206,9 @@ type MountedHost() =
 
     this.CurrentThread <-
       model.Thread |> Option.bind(fun child -> track child.Handle)
+
+    this.CurrentRepository <-
+      model.Repository |> Option.bind(fun child -> track child.Handle)
 
   member this.Attach(hostHandle: IDisposable) =
     this.HostHandle <- Some hostHandle
@@ -200,10 +223,12 @@ type MountedHost() =
       this.CurrentHistory |> Option.iter _.Dispose()
       this.CurrentInspector |> Option.iter _.Dispose()
       this.CurrentThread |> Option.iter _.Dispose()
+      this.CurrentRepository |> Option.iter _.Dispose()
       this.HostHandle |> Option.iter _.Dispose()
       this.LiveHistory <- 0
       this.LiveInspector <- 0
       this.LiveThread <- 0
+      this.LiveRepository <- 0
       this.HostDisposed <- true
       subject.OnCompleted()
       subject.Dispose()
@@ -241,6 +266,14 @@ type InspectorStart = {
 type ThreadStart = {
   CommitId: string
   Session: SignedInSession
+  KeyFile: string
+  ViewerId: string
+  Pasteis: bool
+}
+
+[<Struct>]
+type RepositoryStart = {
+  Handle: string
   KeyFile: string
   ViewerId: string
   Pasteis: bool
@@ -385,6 +418,37 @@ let startThread
     Handle = handle
   }
 
+let startRepository
+  (props: Props<'env>, dispatch: Msg -> unit, start: RepositoryStart)
+  : RepositoryChild =
+  let childProps: RepositoryHome.Props<'env> = {
+    Env = props.Env
+    Handle = start.Handle
+    KeyFile = start.KeyFile
+    ViewerId = start.ViewerId
+    Pasteis = start.Pasteis
+    Images = props.Images
+    Now = props.Now
+    Zone = props.Zone
+    OnOpenThread = fun commit -> dispatch(OpenThread commit.Id)
+    OnQuote = fun commit -> dispatch(Quote commit)
+    OnOpenExternal = fun url -> dispatch(OpenExternal url)
+    OnOpenRepository =
+      fun handle -> dispatch(RefSelected(Build.repository handle))
+    OnListChanged = fun open' -> dispatch(RepositoryListChanged open')
+  }
+
+  let view, rawHandle =
+    Programs.runPage(props.Env.Dispatcher, RepositoryHome.program childProps)
+
+  let handle = TrackedHandle(rawHandle) :> IDisposable
+
+  {
+    RepositoryHandle = start.Handle
+    View = view
+    Handle = handle
+  }
+
 let startHistoryCmd
   (props: Props<'env>, old: IDisposable option, start: HistoryStart)
   : Cmd<Msg> =
@@ -440,6 +504,30 @@ let startThreadCmd
       dispatch(ThreadReady(start.CommitId, child.View, child.Handle))
     | None -> ())
 
+let startRepositoryCmd
+  (props: Props<'env>, old: IDisposable option, start: RepositoryStart option)
+  : Cmd<Msg> =
+  Cmd.ofEffect(fun dispatch ->
+    match old with
+    | Some handle ->
+      handle.Dispose()
+      dispatch RepositoryStopped
+    | None -> ()
+
+    match start with
+    | Some start ->
+      let child = startRepository(props, dispatch, start)
+      dispatch(RepositoryReady(start.Handle, child.View, child.Handle))
+    | None -> ())
+
+let stopHistoryCmd(old: IDisposable option) : Cmd<Msg> =
+  Cmd.ofEffect(fun dispatch ->
+    match old with
+    | Some handle ->
+      handle.Dispose()
+      dispatch HistoryStopped
+    | None -> ())
+
 let stateCmd
   (props: Props<'env>, ref: Ref, checkoutId: string option)
   : Cmd<Msg> =
@@ -467,6 +555,8 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     Staging = Staging.initial
     ThreadId = None
     Thread = None
+    Repository = None
+    RepositoryListOpen = false
     Handle = data.Handle
     FetchedAt = None
     SavedCount = 0
@@ -479,6 +569,7 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     LiveHistory = 0
     LiveInspector = 0
     LiveThread = 0
+    LiveRepository = 0
   }
 
   let historyStart: HistoryStart = {
@@ -489,9 +580,24 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     Pasteis = data.Pasteis
   }
 
+  let refStart =
+    match Ref.repository selected with
+    | Some handle ->
+      startRepositoryCmd(
+        props,
+        None,
+        Some {
+          Handle = handle
+          KeyFile = data.KeyFile
+          ViewerId = data.ViewerId
+          Pasteis = data.Pasteis
+        }
+      )
+    | None -> startHistoryCmd(props, None, historyStart)
+
   model,
   Cmd.batch [
-    startHistoryCmd(props, None, historyStart)
+    refStart
     startInspectorCmd(props, None, checkoutStart)
     Cmd.ofMsg QueueRequested
   ]
@@ -501,27 +607,62 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | RefSelected ref ->
     let data = sessionData props
 
-    let start: HistoryStart = {
-      Ref = ref
-      Place = model.Places |> Map.tryFind ref
-      KeyFile = data.KeyFile
-      ViewerId = data.ViewerId
-      Pasteis = data.Pasteis
-    }
+    match Ref.repository ref with
+    | Some handle ->
+      {
+        model with
+            Selected = ref
+            History = None
+            FetchedAt = None
+            ThreadId = None
+            Thread = None
+            Repository = None
+            RepositoryListOpen = false
+      },
+      Cmd.batch [
+        stopHistoryCmd(model.History |> Option.map _.Handle)
+        startThreadCmd(props, model.Thread |> Option.map _.Handle, None)
 
-    {
-      model with
-          Selected = ref
-          History = None
-          FetchedAt = None
-          ThreadId = None
-          Thread = None
-    },
-    Cmd.batch [
-      startHistoryCmd(props, model.History |> Option.map _.Handle, start)
-      startThreadCmd(props, model.Thread |> Option.map _.Handle, None)
-      stateCmd(props, ref, model.CheckoutId)
-    ]
+        startRepositoryCmd(
+          props,
+          model.Repository |> Option.map _.Handle,
+          Some {
+            Handle = handle
+            KeyFile = data.KeyFile
+            ViewerId = data.ViewerId
+            Pasteis = data.Pasteis
+          }
+        )
+
+        stateCmd(props, ref, model.CheckoutId)
+      ]
+    | None ->
+      let start: HistoryStart = {
+        Ref = ref
+        Place = model.Places |> Map.tryFind ref
+        KeyFile = data.KeyFile
+        ViewerId = data.ViewerId
+        Pasteis = data.Pasteis
+      }
+
+      {
+        model with
+            Selected = ref
+            History = None
+            FetchedAt = None
+            ThreadId = None
+            Thread = None
+            Repository = None
+            RepositoryListOpen = false
+      },
+      Cmd.batch [
+        startHistoryCmd(props, model.History |> Option.map _.Handle, start)
+        startThreadCmd(props, model.Thread |> Option.map _.Handle, None)
+
+        startRepositoryCmd(props, model.Repository |> Option.map _.Handle, None)
+
+        stateCmd(props, ref, model.CheckoutId)
+      ]
   | CheckoutSet commitId ->
     let data = sessionData props
 
@@ -716,6 +857,18 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
           LiveThread = max 0 (model.LiveThread - 1)
      },
      Cmd.none)
+  | RepositoryStopped ->
+    ({
+      model with
+          LiveRepository = max 0 (model.LiveRepository - 1)
+     },
+     Cmd.none)
+  | RepositoryListChanged open' ->
+    ({
+      model with
+          RepositoryListOpen = open' && model.Repository.IsSome
+     },
+     Cmd.none)
   | HistoryReady(ref, restore, view, handle, refresh) ->
     if ref = model.Selected then
       model.History |> Option.iter(fun current -> current.Handle.Dispose())
@@ -790,6 +943,30 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
     else
       handle.Dispose()
       model, Cmd.none
+  | RepositoryReady(handle, view, childHandle) ->
+    if Some handle = Ref.repository model.Selected then
+      model.Repository |> Option.iter(fun current -> current.Handle.Dispose())
+
+      let live =
+        if model.Repository.IsSome then
+          model.LiveRepository
+        else
+          model.LiveRepository + 1
+
+      ({
+        model with
+            Repository =
+              Some {
+                RepositoryHandle = handle
+                View = view
+                Handle = childHandle
+              }
+            LiveRepository = live
+       },
+       Cmd.none)
+    else
+      childHandle.Dispose()
+      model, Cmd.none
 
 let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
   [
@@ -856,13 +1033,33 @@ let view
     |> Observable.map _.CheckoutId.IsSome
     |> Observable.distinctUntilChanged
 
+  let repositoryListOpen =
+    model
+    |> Observable.map _.RepositoryListOpen
+    |> Observable.distinctUntilChanged
+
+  let hasRight =
+    Observable.combineLatest hasCheckout repositoryListOpen
+    |> Observable.map(fun (checkout, listing) -> checkout || listing)
+    |> Observable.distinctUntilChanged
+
   let reserved =
-    Observable.combineLatest folded hasCheckout
-    |> Observable.map(fun (isFolded, checkout) ->
-      if isFolded || not checkout then 0.0 else 380.0)
+    Observable.combineLatest folded hasRight
+    |> Observable.map(fun (isFolded, right) ->
+      if isFolded || not right then 0.0 else 380.0)
 
   let threadOpen =
     model |> Observable.map _.Thread.IsSome |> Observable.distinctUntilChanged
+
+  let repositoryOpen =
+    model
+    |> Observable.map _.Repository.IsSome
+    |> Observable.distinctUntilChanged
+
+  let centerCovered =
+    Observable.combineLatest threadOpen repositoryOpen
+    |> Observable.map(fun (thread, repository) -> thread || repository)
+    |> Observable.distinctUntilChanged
 
   let historySlice =
     model
@@ -878,7 +1075,32 @@ let view
       .HorizontalContentAlignment(HorizontalAlignment.Stretch)
       .VerticalContentAlignment(VerticalAlignment.Stretch)
       .Content(historySlice |> _.ToBinding())
-      .IsVisible(threadOpen |> Observable.map not)
+      .IsVisible(centerCovered |> Observable.map not)
+      .Margin(
+        reserved |> Observable.map(fun right -> Thickness(0.0, 0.0, right, 0.0))
+      )
+
+  let repositoryPlaceholder = Panel()
+
+  let repositorySlice =
+    model
+    |> Observable.map(fun current ->
+      current.Repository |> Option.map _.View.Center)
+    |> Observable.distinctUntilChanged
+    |> Observable.map(Option.defaultValue repositoryPlaceholder)
+
+  let repositoryVisible =
+    Observable.combineLatest repositoryOpen threadOpen
+    |> Observable.map(fun (repository, thread) -> repository && not thread)
+    |> Observable.distinctUntilChanged
+
+  let repositoryHost =
+    ContentControl()
+      .Name("RepositoryRegion")
+      .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+      .VerticalContentAlignment(VerticalAlignment.Stretch)
+      .Content(repositorySlice |> _.ToBinding())
+      .IsVisible(repositoryVisible)
       .Margin(
         reserved |> Observable.map(fun right -> Thickness(0.0, 0.0, right, 0.0))
       )
@@ -934,10 +1156,36 @@ let view
       .Content(threadParentsSlice |> _.ToBinding())
       .IsVisible(threadOpen)
 
+  let repositoryListsPlaceholder = Panel()
+
+  let repositoryListsSlice =
+    model
+    |> Observable.map(fun current ->
+      current.Repository |> Option.map _.View.Lists)
+    |> Observable.distinctUntilChanged
+    |> Observable.map(Option.defaultValue repositoryListsPlaceholder)
+
+  let repositoryListsVisible =
+    Observable.combineLatest repositoryVisible repositoryListOpen
+    |> Observable.map(fun (repository, listing) -> repository && listing)
+    |> Observable.distinctUntilChanged
+
+  let repositoryListsHost =
+    ContentControl()
+      .Name("RepositoryListsRegion")
+      .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+      .VerticalContentAlignment(VerticalAlignment.Stretch)
+      .Content(repositoryListsSlice |> _.ToBinding())
+      .IsVisible(repositoryListsVisible)
+
   let inspectorSlot = Grid()
   inspectorSlot.RowDefinitions <- RowDefinitions("Auto,*")
 
-  inspectorSlot.Children(threadParentsHost.Row(0), inspectorContent.Row(1))
+  inspectorSlot.Children(
+    threadParentsHost.Row(0),
+    inspectorContent.Row(1),
+    repositoryListsHost.Row(1)
+  )
   |> ignore
 
   let inspectorRegion =
@@ -948,11 +1196,12 @@ let view
       .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
       .BorderThickness(Thickness(1.0, 0.0, 0.0, 0.0))
       .Child(inspectorSlot)
-      .IsVisible(hasCheckout)
+      .IsVisible(hasRight)
 
   let main = Grid()
 
-  main.Children(historyHost, threadHost, inspectorRegion) |> ignore
+  main.Children(historyHost, repositoryHost, threadHost, inspectorRegion)
+  |> ignore
 
   let stagingProps: Staging.Props<'env> = {
     Env = props.Env

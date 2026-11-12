@@ -40,6 +40,9 @@ module Ref =
   /// The log behind a history ref, when the ref is one.
   val log: ref: Ref -> LogKind option
 
+  /// The handle behind a repository ref, when the ref is one.
+  val repository: ref: Ref -> string option
+
 module Checkout =
 
   /// The checked-out commit's id.

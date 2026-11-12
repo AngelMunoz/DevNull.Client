@@ -41,10 +41,19 @@ type ThreadChild = {
   Handle: IDisposable
 }
 
+/// One live repository home: the handle it shows, its center and
+/// people-list views, and the handle that ends it.
+type RepositoryChild = {
+  RepositoryHandle: string
+  View: RepositoryHome.View
+  Handle: IDisposable
+}
+
 /// The host's state: the selected ref and checkout, the per-ref
-/// places, the staging flag and state, the open thread, the status
-/// bar's handle and fetch time, the counts, the fold, the clock, and
-/// the live child programs.
+/// places, the staging flag and state, the open thread, the open
+/// repository home and its people list, the status bar's handle and
+/// fetch time, the counts, the fold, the clock, and the live child
+/// programs.
 type Model = {
   Selected: Ref
   CheckoutId: string option
@@ -53,6 +62,8 @@ type Model = {
   Staging: Staging.Model
   ThreadId: string option
   Thread: ThreadChild option
+  Repository: RepositoryChild option
+  RepositoryListOpen: bool
   Handle: string
   FetchedAt: DateTimeOffset option
   SavedCount: int
@@ -65,12 +76,14 @@ type Model = {
   LiveHistory: int
   LiveInspector: int
   LiveThread: int
+  LiveRepository: int
 }
 
 /// The host's messages: ref and checkout selections, the staging flag
 /// and its draft, post, schedule, and queue messages, the open thread
-/// and its back request, the fold, the clock and session, the history
-/// place report, and the host's open, external, and quote requests.
+/// and its back request, the repository home and its people-list
+/// report, the fold, the clock and session, the history place report,
+/// and the host's open, external, and quote requests.
 [<NoComparison>]
 type Msg =
   | RefSelected of ref: Ref
@@ -93,6 +106,8 @@ type Msg =
   | HistoryStopped
   | InspectorStopped
   | ThreadStopped
+  | RepositoryStopped
+  | RepositoryListChanged of open': bool
   | HistoryReady of
     ref: Ref *
     restore: HistoryColumn.Place option *
@@ -104,6 +119,10 @@ type Msg =
     commitId: string *
     view: ThreadMode.View *
     handle: IDisposable
+  | RepositoryReady of
+    handle: string *
+    view: RepositoryHome.View *
+    lifetime: IDisposable
 
 /// What the host needs from its integrator: the protocol workers, the
 /// dispatcher that starts child programs, the session store, the image
@@ -147,6 +166,7 @@ type internal MountedHost =
   member LiveHistory: int
   member LiveInspector: int
   member LiveThread: int
+  member LiveRepository: int
   member HostDisposed: bool
   interface IDisposable
 
@@ -165,7 +185,9 @@ val subscribe: props: Props<'env> -> model: Model -> Sub<Msg>
 /// the status bar. The inspector is a 380 px right region while the
 /// host is wide, and a sheet over the history when `Folded` holds.
 /// An open thread replaces the history center and adds its PARENTS
-/// chain above the inspector checkout.
+/// chain above the inspector checkout. A selected repository ref
+/// replaces the history center with its home; an open people list
+/// takes the inspector's place.
 val view:
   props: Props<'env> ->
   model: IObservable<Model> ->

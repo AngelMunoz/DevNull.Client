@@ -60,6 +60,9 @@ let private latest = WorkbenchSettings.parse "latest" |> WorkbenchState.refOf
 let private trending =
   WorkbenchSettings.parse "trending" |> WorkbenchState.refOf
 
+let private repository =
+  WorkbenchSettings.parse "repository:octocat" |> WorkbenchState.refOf
+
 let private followingCommit =
   match LogPage.decode logPageJson with
   | Ok page ->
@@ -81,6 +84,24 @@ let private countingApi() =
       ok repliesPageJson
     elif request.Target.StartsWith "/api/v1/commits/" then
       ok threadPageJson
+    else
+      ok "{}")
+
+let private repositoryApi =
+  FakeApi(fun request ->
+    if request.Target = "/api/v1/users/octocat" then
+      ok profileWithStatsJson
+    elif request.Target.StartsWith "/api/v1/users/octocat/commits" then
+      ok(commitsPageOf commitJson)
+    elif request.Target.Contains "/followers" then
+      ok followersPageJson
+    elif request.Target.Contains "/following" then
+      ok followingPageJson
+    elif
+      (request.Method = "POST" || request.Method = "DELETE")
+      && request.Target.EndsWith "/follow"
+    then
+      ok ""
     else
       ok "{}")
 
@@ -595,6 +616,112 @@ let tests =
         Expect.equal liveHistory 1 "the history program count changed"
         Expect.equal liveThread 0 "the thread program stayed live"
         Expect.isNone threadId "the thread id stayed"
+      })
+
+    testCaseAsync
+      "a repository ref keeps the history place on the way back"
+      (async {
+        let! (opened,
+              listOpen,
+              restored,
+              placeKept,
+              liveHistory,
+              liveRepository,
+              repositoryGone) =
+          probeUiAsync(fun () ->
+            let env = TestEnv(signedInStore(), repositoryApi :> IHttp)
+            let props = hostProps(env, WorkbenchSettings.initial)
+            let model, cmd = WorkbenchHost.init props
+            let model = runEngine(props, model, cmd)
+
+            let place: HistoryColumn.Place = {
+              Offset = 333.0
+              Head = Some "head-r"
+            }
+
+            let model, _ =
+              WorkbenchHost.update(
+                props,
+                WorkbenchHost.HistoryReported(
+                  following,
+                  { Place = place; FetchedAt = Some now }
+                ),
+                model
+              )
+
+            let model, cmd =
+              WorkbenchHost.update(
+                props,
+                WorkbenchHost.RefSelected repository,
+                model
+              )
+
+            let model = runEngine(props, model, cmd)
+
+            let opened =
+              model.Repository
+              |> Option.map _.RepositoryHandle
+              |> Option.defaultValue ""
+              |> (=) "octocat"
+              && model.History.IsNone
+              && model.LiveHistory = 0
+              && model.LiveRepository = 1
+
+            let model, _ =
+              WorkbenchHost.update(
+                props,
+                WorkbenchHost.RepositoryListChanged true,
+                model
+              )
+
+            let listOpen = model.RepositoryListOpen
+
+            let model, cmd =
+              WorkbenchHost.update(
+                props,
+                WorkbenchHost.RefSelected following,
+                model
+              )
+
+            let model = runEngine(props, model, cmd)
+
+            let restored = model.History |> Option.bind _.Restore
+
+            let placeKept =
+              model.Places
+              |> Map.tryFind following
+              |> Option.exists(fun kept -> kept.Offset = place.Offset)
+
+            let repositoryGone =
+              model.Repository.IsNone && model.LiveRepository = 0
+
+            model.History |> Option.iter(fun child -> child.Handle.Dispose())
+
+            model.Inspector |> Option.iter(fun child -> child.Handle.Dispose())
+
+            model.Repository
+            |> Option.iter(fun child -> child.Handle.Dispose())
+
+            opened,
+            listOpen,
+            restored,
+            placeKept,
+            model.LiveHistory,
+            model.LiveRepository,
+            repositoryGone)
+
+        Expect.isTrue opened "the repository home did not replace the history"
+        Expect.isTrue listOpen "the people list did not open"
+
+        Expect.equal
+          restored
+          (Some { Offset = 333.0; Head = Some "head-r" })
+          "the history place did not come back"
+
+        Expect.isTrue placeKept "the stored history place was dropped"
+        Expect.equal liveHistory 1 "the history program did not return"
+        Expect.equal liveRepository 0 "the repository program stayed live"
+        Expect.isTrue repositoryGone "the repository home stayed selected"
       })
 
     testCase "the fold and counts are model data"

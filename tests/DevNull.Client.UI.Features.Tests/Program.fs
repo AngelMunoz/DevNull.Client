@@ -14,6 +14,7 @@ open DevNull.Client.UI.Tests.Formatting
 open DevNull.Client.UI.Tests.HistoryColumnTests
 open DevNull.Client.UI.Tests.InspectorTests
 open DevNull.Client.UI.Tests.ThreadModeTests
+open DevNull.Client.UI.Tests.RepositoryHomeTests
 open DevNull.Client.UI.Tests.WorkbenchHostTests
 open DevNull.Client.UI.Tests.ProfilePictures
 open DevNull.Client.UI.Tests.SearchLatest
@@ -30,6 +31,7 @@ let main argv =
       HistoryColumnTests.tests
       InspectorTests.tests
       ThreadModeTests.tests
+      RepositoryHomeTests.tests
       WorkbenchHostTests.tests
       Scheduled.tests
       WhoToFollow.tests

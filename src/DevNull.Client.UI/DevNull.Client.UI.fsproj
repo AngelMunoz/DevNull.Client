@@ -172,6 +172,10 @@
     <Compile Include="Components\LiveNow.fs" />
     <Compile Include="Components\ThreadVoice.fsi" />
     <Compile Include="Components\ThreadVoice.fs" />
+    <Compile Include="Layouts\Editor\EditorTypes.fsi" />
+    <Compile Include="Layouts\Editor\EditorTypes.fs" />
+    <Compile Include="Layouts\Editor\EditorSettings.fsi" />
+    <Compile Include="Layouts\Editor\EditorSettings.fs" />
     <Compile Include="Views\CommitActions.fsi" />
     <Compile Include="Views\CommitActions.fs" />
     <Compile Include="Views\CommitRows.fsi" />

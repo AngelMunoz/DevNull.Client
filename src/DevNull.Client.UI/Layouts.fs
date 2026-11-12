@@ -325,6 +325,7 @@ let builtIn
           member _.Navigate _ = ()
           member _.Narrow = Observable.single false
           member _.ToggleDrawer() = ()
+
           member _.Handle(intent) =
             match intent with
             | LayoutIntent.ComposeNow -> mounted.Send EditorRoot.OpenTerminal

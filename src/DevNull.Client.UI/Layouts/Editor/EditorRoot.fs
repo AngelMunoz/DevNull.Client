@@ -1092,20 +1092,53 @@ let quoteCard(props: Props<'env>, commit: Commit) : Control =
     }
     (LiveCommit commit)
 
-let program(args: ProgramArgs<'env>) : Program<unit, Model, Msg, Control> =
+type EditorCommand =
+  | OpenTerminal
+  | OpenPalette
+  | Escape
+  | OpenProblems
+
+[<Sealed>]
+type EditorMount
+  (
+    root: Control,
+    send: EditorCommand -> unit,
+    overlay: unit -> bool,
+    dispose: unit -> unit
+  ) =
+  member _.Root = root
+
+  member _.Send(command) = send command
+
+  member _.OverlayOpen() = overlay()
+
+  interface IDisposable with
+    member _.Dispose() = dispose()
+
+let private programFor
+  (args: ProgramArgs<'env>, external: IObservable<Msg>, onModel: Model -> unit)
+  : Program<unit, Model, Msg, Control> =
   Program.mkProgram
     (fun () ->
-      initial(args.Props, HistoryTab.State.snapshot HistoryTab.State.initial),
-      Cmd.OfAsync.perform readQueue args.Props QueueFetched)
+      let model, cmd =
+        initial(args.Props, HistoryTab.State.snapshot HistoryTab.State.initial),
+        Cmd.OfAsync.perform readQueue args.Props QueueFetched
+
+      onModel model
+      model, cmd)
     (fun msg model ->
-      update(
-        {
-          Runtime = args.Runtime
-          Props = args.Props
-        },
-        msg,
-        model
-      ))
+      let next, cmd =
+        update(
+          {
+            Runtime = args.Runtime
+            Props = args.Props
+          },
+          msg,
+          model
+        )
+
+      onModel next
+      next, cmd)
     (fun model dispatch ->
       view {
         Runtime = args.Runtime
@@ -1113,9 +1146,13 @@ let program(args: ProgramArgs<'env>) : Program<unit, Model, Msg, Control> =
         Model = model
         Dispatch = dispatch
       })
-  |> Program.withSubscription(fun model -> subscribe(args, model))
+  |> Program.withSubscription(fun model ->
+    Sub.batch [ subscribe(args, model); Sub.fromObservable "mount" external ])
 
-let mount(dispatcher: IDispatcher, props: Props<'env>) =
+let program(args: ProgramArgs<'env>) : Program<unit, Model, Msg, Control> =
+  programFor(args, Observable.empty, ignore)
+
+let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
   let snapshots =
     new BehaviorSubject<HistoryTab.Snapshot>(
       HistoryTab.State.snapshot HistoryTab.State.initial
@@ -1161,6 +1198,9 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
       .Margin(Thickness(0.0, 48.0, 0.0, 0.0))
 
   let paletteLifetime = new SerialDisposable()
+
+  let commandPath = new System.Reactive.Subjects.Subject<Msg>()
+  let current = new BehaviorSubject<Model option>(None)
 
   let showTerminal(request: TerminalRequest) =
     let target, quoted, participants =
@@ -1353,8 +1393,15 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
     PalettePanels = palettePanels
   }
 
+  let mountedProgram =
+    programFor(
+      args,
+      commandPath :> IObservable<Msg>,
+      fun model -> current.OnNext(Some model)
+    )
+
   let root, frameHandle =
-    DevNull.Client.Programs.runPage(dispatcher, program args)
+    DevNull.Client.Programs.runPage(dispatcher, mountedProgram)
 
   let threadsCleanup =
     Disposable.Create(fun () ->
@@ -1401,7 +1448,11 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
       composerEvents.OnCompleted()
       composerEvents.Dispose()
       fetches.OnCompleted()
-      fetches.Dispose())
+      fetches.Dispose()
+      commandPath.OnCompleted()
+      commandPath.Dispose()
+      current.OnCompleted()
+      current.Dispose())
 
   let handles = new CompositeDisposable()
 
@@ -1412,4 +1463,33 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
   handles.Add paletteLifetime
   handles.Add subjectCleanup
 
-  root, (handles :> IDisposable)
+  let send(command: EditorCommand) =
+    match current.Value with
+    | Some model ->
+      match command with
+      | OpenTerminal -> commandPath.OnNext(PanelSelected EditorPanel.Terminal)
+      | OpenProblems -> commandPath.OnNext(PanelSelected EditorPanel.Problems)
+      | OpenPalette ->
+        if not model.PaletteOpen then
+          commandPath.OnNext PaletteToggled
+      | Escape ->
+        if model.PaletteOpen then
+          commandPath.OnNext PaletteClosed
+        elif model.Panel.Open then
+          commandPath.OnNext PanelClosed
+    | None -> ()
+
+  let overlayOpen() =
+    current.Value
+    |> Option.exists(fun model -> model.PaletteOpen || model.Panel.Open)
+
+  new EditorMount(
+    root,
+    send,
+    overlayOpen,
+    fun () -> (handles :> IDisposable).Dispose()
+  )
+
+let mount(dispatcher: IDispatcher, props: Props<'env>) =
+  let mounted = mountFor(dispatcher, props)
+  mounted.Root, (mounted :> IDisposable)

@@ -44,8 +44,32 @@ type Props<'env
   OnUseDefaultLayout: unit -> unit
 }
 
+/// One frame action the window's key tunnel and tray may send.
+type EditorCommand =
+  | OpenTerminal
+  | OpenPalette
+  | Escape
+  | OpenProblems
+
+/// One mounted editor for the layout adapter: the root, the frame's
+/// own command path, the overlay probe, and the one lifetime.
+[<Sealed>]
+type EditorMount =
+  member Root: Control
+
+  member Send: command: EditorCommand -> unit
+
+  member OverlayOpen: unit -> bool
+
+  interface IDisposable
+
 /// Mounts the editor frame: the activity bar, the explorer, the tab
 /// strip, the pinned history tab, the panel host, and the status strip
 /// at the width band the root's own size selects. The caller owns the
 /// returned handle and disposes it once when the layout unmounts.
 val mount: dispatcher: IDispatcher * props: Props<'env> -> Control * IDisposable
+
+/// Mounts the editor with its command surface. `Send` enters the same
+/// update path as the frame's own controls; `Escape` closes the palette
+/// before the panel; `OverlayOpen` reports either overlay.
+val mountFor: dispatcher: IDispatcher * props: Props<'env> -> EditorMount

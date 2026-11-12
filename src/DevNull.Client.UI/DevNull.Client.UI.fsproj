@@ -224,6 +224,10 @@
     <Compile Include="Views\AboutView.fs" />
     <Compile Include="Views\SearchView.fsi" />
     <Compile Include="Views\SearchView.fs" />
+    <Compile Include="Layouts\Workbench\WorkbenchTypes.fsi" />
+    <Compile Include="Layouts\Workbench\WorkbenchTypes.fs" />
+    <Compile Include="Layouts\Workbench\WorkbenchSettings.fsi" />
+    <Compile Include="Layouts\Workbench\WorkbenchSettings.fs" />
     <Compile Include="Views\Routes.fsi" />
     <Compile Include="Views\Routes.fs" />
     <Compile Include="Shell.fsi" />

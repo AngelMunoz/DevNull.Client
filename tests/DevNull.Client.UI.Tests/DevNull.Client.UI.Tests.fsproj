@@ -16,6 +16,7 @@
     <Compile Include="Shortcuts.Tests.fs" />
     <Compile Include="Leaks.Tests.fs" />
     <Compile Include="Feed.Tests.fs" />
+    <Compile Include="WorkbenchSettings.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

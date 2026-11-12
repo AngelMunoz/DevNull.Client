@@ -11,6 +11,14 @@ open DevNull.Client.UI.Tests.Search
 open DevNull.Client.UI.Tests.Share
 open DevNull.Client.UI.Tests.Stargazers
 open DevNull.Client.UI.Tests.Formatting
+open DevNull.Client.UI.Tests.HistoryColumnTests
+open DevNull.Client.UI.Tests.InspectorTests
+open DevNull.Client.UI.Tests.ThreadModeTests
+open DevNull.Client.UI.Tests.RepositoryHomeTests
+open DevNull.Client.UI.Tests.NotificationsCenterTests
+open DevNull.Client.UI.Tests.SearchPaletteTests
+open DevNull.Client.UI.Tests.SearchResultsTests
+open DevNull.Client.UI.Tests.WorkbenchHostTests
 open DevNull.Client.UI.Tests.ProfilePictures
 open DevNull.Client.UI.Tests.SearchLatest
 open DevNull.Client.UI.Tests.Translation
@@ -23,6 +31,14 @@ let main argv =
       Search.tests
       Search.completionTests
       Composer.tests
+      HistoryColumnTests.tests
+      InspectorTests.tests
+      ThreadModeTests.tests
+      RepositoryHomeTests.tests
+      NotificationsCenterTests.tests
+      SearchPaletteTests.tests
+      SearchResultsTests.tests
+      WorkbenchHostTests.tests
       Scheduled.tests
       WhoToFollow.tests
       Translation.tests

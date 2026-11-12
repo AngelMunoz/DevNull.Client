@@ -13,6 +13,14 @@
     <Compile Include="..\DevNull.Client.UI.Tests\App.Tests.fs" Link="App.Tests.fs" />
     <Compile Include="..\DevNull.Client.UI.Remotes.Tests\Remotes.Tests.fs" Link="Remotes.Tests.fs" />
     <Compile Include="Composer.Tests.fs" />
+    <Compile Include="HistoryColumn.Tests.fs" />
+    <Compile Include="Inspector.Tests.fs" />
+    <Compile Include="ThreadMode.Tests.fs" />
+    <Compile Include="RepositoryHome.Tests.fs" />
+    <Compile Include="NotificationsCenter.Tests.fs" />
+    <Compile Include="SearchPalette.Tests.fs" />
+    <Compile Include="SearchResults.Tests.fs" />
+    <Compile Include="WorkbenchHost.Tests.fs" />
     <Compile Include="Search.Tests.fs" />
     <Compile Include="Scheduled.Tests.fs" />
     <Compile Include="Translation.Tests.fs" />

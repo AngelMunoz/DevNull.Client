@@ -239,12 +239,13 @@ let tests =
 
         let! window, mounted =
           probeUiAsync(fun () ->
-            let view, handle = WorkbenchHost.mount(ui, props)
+            let mounted = WorkbenchHost.mountFor(ui, props)
+            let view = mounted.Root
 
             let window = Window(Width = 1600.0, Height = 900.0, Content = view)
 
             window.Show()
-            window, handle :?> WorkbenchHost.MountedHost)
+            window, mounted.Inner)
 
         let! history =
           waitForAsync(

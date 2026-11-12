@@ -1,7 +1,12 @@
 module DevNull.Client.Layouts
 
 open System
+open Avalonia
 open Avalonia.Controls
+open Avalonia.Layout
+open NXUI.Extensions
+open FSharp.Control.Reactive
+open DevNull.Client
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
@@ -9,6 +14,9 @@ open DevNull.Client.Env
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
 open DevNull.Client.WebsiteLayout
+open DevNull.Client.Workbench
+open DevNull.Client.Core.ApiTypes
+open DevNull.Client.Formatting
 open DevNull.Client.Natives
 open DevNull.Client.Profiles
 open DevNull.Client.RecentSearchStore
@@ -111,4 +119,158 @@ let builtIn
         member _.Dispose() = site.Dispose()
     }
 
-  [ { Name = "current"; Mount = current } ]
+  // The workbench arrangement's zone: the device's own zone, or the
+  // one the person's settings name, kept as the pages keep it.
+  let workbenchZone(settings: UserSettings option) : Zone =
+    let timezone =
+      settings
+      |> Option.bind(fun current -> Some current.Timezone)
+      |> Option.defaultValue FollowDevice
+
+    match timezone with
+    | FollowDevice -> {
+        Info = TimeZoneInfo.Local
+        Label = TimeZoneInfo.Local.Id
+      }
+    | ZoneOf(id, _) ->
+      let found =
+        try
+          TimeZoneInfo.FindSystemTimeZoneById(id)
+        with _ ->
+          TimeZoneInfo.Local
+
+      { Info = found; Label = id }
+
+  let fullscreenOf(surface: IHostSurface) : unit -> unit =
+    fun () ->
+      match surface.Window.WindowState with
+      | WindowState.FullScreen ->
+        surface.Window.WindowState <- WindowState.Normal
+      | _ -> surface.Window.WindowState <- WindowState.FullScreen
+
+  // The workbench signs in through the site layout: signed out, the
+  // arrangement holds one line and the switch back. The host's own
+  // sign-in surface stays the site's (gap H-0d).
+  let signedOutWorkbench(surface: IHostSurface) : ILayout =
+    let root =
+      StackPanel()
+        .Spacing(12.0)
+        .Margin(16.0)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Children(
+          TextBlock()
+            .Classes(Theme.name Theme.Subtitle)
+            .Text("The workbench signs in through the site layout."),
+          Button()
+            .Classes(Theme.name Theme.AccentButton)
+            .Content(TextBlock().Text("Use default layout"))
+            .OnClickHandler(fun _ _ -> surface.Switch "current")
+        )
+
+    {
+      new ILayout with
+        member _.Name = "workbench"
+        member _.Root = root
+
+        member _.Actions = {
+          Compose = ignore
+          Search = ignore
+          Help = ignore
+          Escape = ignore
+          Navigate = ignore
+          ToggleFullScreen = fullscreenOf surface
+          WalkCards = ignore
+        }
+
+        member _.OverlayOpen() = false
+        member _.Navigate _ = ()
+        member _.Narrow = Observable.single false
+        member _.ToggleDrawer() = ()
+        member _.Handle _ = ()
+
+      interface IDisposable with
+        member _.Dispose() = ()
+    }
+
+  let workbench(surface: IHostSurface) : ILayout =
+    let session = (env :> IProvideSession).Session
+
+    match session.Current with
+    | SignedOut -> signedOutWorkbench surface
+    | SignedIn _ ->
+      let settings = (env :> IProvideSettings).Settings
+
+      // The mount and its sinks meet only after both exist: the lazy
+      // cell breaks the circle without a mutable slot.
+      let rec mount =
+        lazy
+          WorkbenchHost.mountFor(
+            (env :> IProvideDispatcher).Dispatcher,
+            {
+              Env = env
+              Initial = WorkbenchSettings.parse settings.Current.WorkbenchState
+              Images = (env :> IProvideImageCache).ImageCache
+              Now = (env :> IProvideUiClock).UiClock.Minute
+              Zone =
+                workbenchZone(
+                  (env :> IProvideUserSettings).UserSettings.Current
+                )
+              OnOpenAuthor =
+                fun handle ->
+                  mount
+                    .Force()
+                    .Send(WorkbenchHost.RefSelected(Build.repository handle))
+              OnOpenExternal =
+                fun url -> (env :> IProvideBrowser).Browser.Open url |> ignore
+              OnStateChanged =
+                fun state ->
+                  settings.SetWorkbenchState(WorkbenchSettings.store state)
+            }
+          )
+
+      let mounted = mount.Force()
+
+      {
+        new ILayout with
+          member _.Name = "workbench"
+          member _.Root = mounted.Root
+
+          member _.Actions = {
+            Compose = fun () -> mounted.Send WorkbenchHost.StagingToggled
+            Search = fun () -> mounted.Send WorkbenchHost.SearchPaletteToggled
+            Help = ignore
+            Escape = fun () -> mounted.Escape()
+            Navigate = ignore
+            ToggleFullScreen = fullscreenOf surface
+            WalkCards = ignore
+          }
+
+          member _.OverlayOpen() = mounted.OverlayOpen()
+          member _.Navigate _ = ()
+          member _.Narrow = Observable.single false
+          member _.ToggleDrawer() = ()
+
+          member _.Handle(intent) =
+            match intent with
+            | LayoutIntent.OpenHome ->
+              mounted.Send(WorkbenchHost.RefSelected(Build.history Latest))
+            | LayoutIntent.OpenNotifications ->
+              mounted.Send(WorkbenchHost.RefSelected(Build.notifications))
+            | LayoutIntent.OpenSaved ->
+              mounted.Send(WorkbenchHost.RefSelected(Build.saved))
+            | LayoutIntent.ComposeNow ->
+              mounted.Send WorkbenchHost.StagingToggled
+            | LayoutIntent.SearchNow ->
+              mounted.Send WorkbenchHost.SearchPaletteToggled
+
+        interface IDisposable with
+          member _.Dispose() = (mounted :> IDisposable).Dispose()
+      }
+
+  [
+    { Name = "current"; Mount = current }
+    {
+      Name = "workbench"
+      Mount = workbench
+    }
+  ]

@@ -196,6 +196,8 @@ type MountedHost() =
 
   member val HostHandle: IDisposable option = None with get, set
 
+  member val CurrentModel: Model option = None with get, set
+
   member val Disposed = false with get, set
 
   member val LiveHistory = 0 with get, set
@@ -219,6 +221,8 @@ type MountedHost() =
   member _.Created = created |> Seq.toList
 
   member this.Record(model: Model) =
+    this.CurrentModel <- Some model
+
     let track(handle: IDisposable) =
       match handle with
       | :? TrackedHandle as tracked ->
@@ -1785,7 +1789,32 @@ let program(props: Props<'env>) =
     (view props)
   |> Program.withSubscription(subscribe props)
 
-let mount(dispatcher: IDispatcher, props: Props<'env>) : Control * IDisposable =
+[<Sealed>]
+type WorkbenchMount(mounted: MountedHost, root: Control) =
+  member _.Root = root
+
+  member _.Send(msg: Msg) = mounted.Send msg
+
+  member internal _.Inner = mounted
+
+  member _.OverlayOpen() =
+    mounted.CurrentModel
+    |> Option.map(fun model ->
+      model.StagingOpen || model.SearchPalette.IsSome || model.Search.IsSome)
+    |> Option.defaultValue false
+
+  member _.Escape() =
+    match mounted.CurrentModel with
+    | Some model when model.Search.IsSome -> mounted.Send SearchClosed
+    | Some model when model.SearchPalette.IsSome ->
+      mounted.Send SearchPaletteClosed
+    | Some model when model.StagingOpen -> mounted.Send StagingToggled
+    | _ -> ()
+
+  interface IDisposable with
+    member _.Dispose() = (mounted :> IDisposable).Dispose()
+
+let mountFor(dispatcher: IDispatcher, props: Props<'env>) : WorkbenchMount =
   let mounted = MountedHost()
 
   let wrappedInit() =
@@ -1809,4 +1838,8 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) : Control * IDisposable =
   let view, hostHandle = Programs.runPage(dispatcher, mountedProgram)
 
   mounted.Attach hostHandle
-  view, (mounted :> IDisposable)
+  WorkbenchMount(mounted, view)
+
+let mount(dispatcher: IDispatcher, props: Props<'env>) : Control * IDisposable =
+  let mounted = mountFor(dispatcher, props)
+  mounted.Root, (mounted :> IDisposable)

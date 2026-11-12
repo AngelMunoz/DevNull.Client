@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Settings:** an Appearance row names the layout the window shows; a pick changes it at once, with no restart. The site's own layout is the choice today.
+- **Workbench:** a second layout for wide screens — the feed as a source-control workbench with a refs tree, one history in the center, the checked-out commit in an inspector pane, a staging area for writing, and a status bar naming the ref, the lane, and the signing key. Pick it in Settings under Appearance; the change applies at once, and the default layout is one click back. Remotes, the More menu, and translations stay in the default layout.
+- **Settings:** an Appearance row names the layout the window shows; a pick changes it at once, with no restart. The site's own layout is the default.
 
 ### Changed
 

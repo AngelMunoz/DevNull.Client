@@ -10,6 +10,7 @@ open System.Reactive.Subjects
 open Avalonia.Controls
 open Avalonia.Input
 open Avalonia.Interactivity
+open Avalonia.VisualTree
 open NXUI.Extensions
 open Expecto
 open DevNull.Client.Core.Http
@@ -107,7 +108,12 @@ let tests =
 
         Expect.isSome (parseLayout "current") "the registry word did not parse"
 
-        Expect.isNone (parseLayout "workbench") "an unknown word parsed")
+        Expect.isSome (parseLayout "workbench") "the workbench word parsed"
+
+        Expect.equal
+          (layoutString WorkbenchLayout)
+          "workbench"
+          "the stored word")
 
     testCaseAsync
       "the default layout maps the window intents to routes"
@@ -235,6 +241,49 @@ let tests =
           )
 
         Expect.isTrue compose "the key never reached the default again"
+      })
+
+    testCaseAsync
+      "the workbench layout mounts through the registry and returns"
+      (async {
+        let env = TestEnv(signedInStore(), logApi() :> IHttp)
+
+        let! layout =
+          probeUiAsync(fun () ->
+            let surface = {
+              new IHostSurface with
+                member _.Window = Window()
+
+                member _.Active = new BehaviorSubject<bool>(true)
+
+                member _.Switch _ = ()
+            }
+
+            let mounted =
+              DevNull.Client.Layouts.builtIn(env, TimeSpan.FromSeconds 30.0)
+              |> List.find(fun entry -> entry.Name = "workbench")
+              |> fun entry -> entry.Mount surface
+
+            let host =
+              Window(Width = 1600.0, Height = 900.0, Content = mounted.Root)
+
+            host.Show()
+            mounted)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> layout.Root),
+            (fun root -> hasText(root, "HEAD -> Following"))
+          )
+
+        Expect.isTrue shown "the workbench never mounted"
+
+        do!
+          probeUiAsync(fun () ->
+            (layout :> IDisposable).Dispose()
+            true)
+          |> Async.Ignore
       })
 
     testCaseAsync

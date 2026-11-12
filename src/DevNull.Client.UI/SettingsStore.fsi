@@ -17,7 +17,9 @@ val themeString: choice: ThemeChoice -> string
 
 /// The arrangement the window's content shows: the site's own frame
 /// today, one case per layout the app adopts.
-type LayoutChoice = | CurrentLayout
+type LayoutChoice =
+  | CurrentLayout
+  | WorkbenchLayout
 
 /// The layout choice a stored name stands for; anything unknown is
 /// none.
@@ -34,6 +36,8 @@ type AppSettings = {
   Theme: ThemeChoice
   /// The arrangement the window's content shows.
   Layout: LayoutChoice
+  /// The workbench's stored state, one raw string its own parse leaf reads.
+  WorkbenchState: string
   /// Whether the desktop sidebar shows its labels.
   SidebarExpanded: bool
   /// Unsent chat drafts by conversation key, emptied as they go out.
@@ -67,6 +71,7 @@ type AppSettingsStore =
   /// Writes the layout choice, then publishes it. The window mounts
   /// what it names; the file keeps it for the next start.
   abstract SetLayout: choice: LayoutChoice -> unit
+  abstract SetWorkbenchState: state: string -> unit
 
   /// Writes the sidebar width choice, then publishes it.
   abstract SetSidebarExpanded: expanded: bool -> unit

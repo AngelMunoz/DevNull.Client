@@ -195,6 +195,7 @@ type internal TrackedHandle =
 [<Sealed>]
 type internal MountedHost =
   member Send: msg: Msg -> unit
+  member CurrentModel: Model option
   member Created: TrackedHandle list
   member LiveHistory: int
   member LiveInspector: int
@@ -240,3 +241,23 @@ val program: props: Props<'env> -> Program<unit, Model, Msg, Control>
 /// Disposing it ends the host program and every live child program it
 /// recorded, exactly once.
 val mount: dispatcher: IDispatcher * props: Props<'env> -> Control * IDisposable
+
+/// One mounted workbench for the layout adapter: the root, the host
+/// message path the window's key tunnel and tray reach, the overlay
+/// probe and the escape order its own model decides, and the one
+/// lifetime.
+[<Sealed>]
+type WorkbenchMount =
+  member Root: Control
+  member Send: msg: Msg -> unit
+  /// The tracked host beneath, for the tests' counted asserts.
+  member internal Inner: MountedHost
+  member OverlayOpen: unit -> bool
+  /// Closes the top overlay the model holds: the search center, then
+  /// the palette, then staging. A model with no overlay does nothing.
+  member Escape: unit -> unit
+  interface IDisposable
+
+/// Mounts the host with the adapter's richer surface: the message
+/// path and the overlay order live with the model that owns them.
+val mountFor: dispatcher: IDispatcher * props: Props<'env> -> WorkbenchMount

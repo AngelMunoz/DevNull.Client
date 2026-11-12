@@ -26,21 +26,26 @@ let themeString(choice: ThemeChoice) : string =
   | Light -> "light"
   | Dark -> "dark"
 
-type LayoutChoice = | CurrentLayout
+type LayoutChoice =
+  | CurrentLayout
+  | WorkbenchLayout
 
 let parseLayout(name: string) : LayoutChoice option =
   match name.Trim().ToLowerInvariant() with
   | "current" -> Some CurrentLayout
+  | "workbench" -> Some WorkbenchLayout
   | _ -> None
 
 let layoutString(choice: LayoutChoice) : string =
   match choice with
   | CurrentLayout -> "current"
+  | WorkbenchLayout -> "workbench"
 
 type AppSettings = {
   CloseToTray: bool
   Theme: ThemeChoice
   Layout: LayoutChoice
+  WorkbenchState: string
   SidebarExpanded: bool
   ChatDrafts: Map<string, string>
   VoiceVolume: float
@@ -53,6 +58,7 @@ type AppSettingsStore =
   abstract SetCloseToTray: enabled: bool -> unit
   abstract SetTheme: choice: ThemeChoice -> unit
   abstract SetLayout: choice: LayoutChoice -> unit
+  abstract SetWorkbenchState: state: string -> unit
   abstract SetSidebarExpanded: expanded: bool -> unit
   abstract SetChatDraft: key: string * text: string -> unit
   abstract SetVoiceVolume: volume: float -> unit
@@ -73,6 +79,7 @@ module AppSettingsStore =
     CloseToTray = false
     Theme = System
     Layout = CurrentLayout
+    WorkbenchState = ""
     SidebarExpanded = true
     ChatDrafts = Map.empty
     VoiceVolume = 1.0
@@ -115,6 +122,15 @@ module AppSettingsStore =
       {
         state.Settings.Value with
             Layout = choice
+      }
+    )
+
+  let setWorkbenchState(state: State, value: string) =
+    change(
+      state,
+      {
+        state.Settings.Value with
+            WorkbenchState = value
       }
     )
 
@@ -201,6 +217,8 @@ module AppSettingsStore =
         member _.SetTheme(choice) = setTheme(context, choice)
         member _.SetLayout(choice) = setLayout(context, choice)
 
+        member _.SetWorkbenchState(state) = setWorkbenchState(context, state)
+
         member _.SetSidebarExpanded(expanded) =
           setSidebarExpanded(context, expanded)
 
@@ -226,6 +244,7 @@ let save(settings: AppSettings) : Result<unit, string> =
     json.["close_to_tray"] <- JsonValue.Create settings.CloseToTray
     json["theme"] <- JsonValue.Create(themeString settings.Theme)
     json["layout"] <- JsonValue.Create(layoutString settings.Layout)
+    json["workbench_state"] <- JsonValue.Create settings.WorkbenchState
     json["sidebar_expanded"] <- JsonValue.Create settings.SidebarExpanded
 
     let drafts = JsonObject()
@@ -264,6 +283,12 @@ let load() : Result<AppSettings option, string> =
         value.GetString() |> Option.ofObj |> Option.bind parseLayout
       | _ -> None
       |> Option.defaultValue CurrentLayout
+
+    let workbenchState =
+      match root.TryGetProperty "workbench_state" with
+      | true, value when value.ValueKind = JsonValueKind.String ->
+        value.GetString() |> Option.ofObj |> Option.defaultValue ""
+      | _ -> ""
 
     let sidebarExpanded =
       match root.TryGetProperty "sidebar_expanded" with
@@ -305,6 +330,7 @@ let load() : Result<AppSettings option, string> =
         CloseToTray = closeToTray
         Theme = theme
         Layout = layout
+        WorkbenchState = workbenchState
         SidebarExpanded = sidebarExpanded
         ChatDrafts = chatDrafts
         VoiceVolume = voiceVolume

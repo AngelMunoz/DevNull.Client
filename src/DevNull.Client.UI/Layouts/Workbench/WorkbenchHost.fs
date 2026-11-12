@@ -37,12 +37,20 @@ type InspectorChild = {
   Handle: IDisposable
 }
 
+type ThreadChild = {
+  CommitId: string
+  View: ThreadMode.View
+  Handle: IDisposable
+}
+
 type Model = {
   Selected: Ref
   CheckoutId: string option
   Places: Map<Ref, HistoryColumn.Place>
   StagingOpen: bool
   Staging: Staging.Model
+  ThreadId: string option
+  Thread: ThreadChild option
   Handle: string
   FetchedAt: DateTimeOffset option
   SavedCount: int
@@ -54,12 +62,15 @@ type Model = {
   Inspector: InspectorChild option
   LiveHistory: int
   LiveInspector: int
+  LiveThread: int
 }
 
 [<NoComparison>]
 type Msg =
   | RefSelected of ref: Ref
   | CheckoutSet of commitId: string option
+  | OpenThread of commitId: string
+  | ThreadClosed
   | StagingToggled
   | DraftChanged of text: string
   | StagingPosted of commit: Commit
@@ -75,6 +86,7 @@ type Msg =
   | Quote of Commit
   | HistoryStopped
   | InspectorStopped
+  | ThreadStopped
   | HistoryReady of
     ref: Ref *
     restore: HistoryColumn.Place option *
@@ -82,6 +94,10 @@ type Msg =
     handle: IDisposable *
     refresh: (unit -> unit)
   | InspectorReady of commitId: string * view: Control * handle: IDisposable
+  | ThreadReady of
+    commitId: string *
+    view: ThreadMode.View *
+    handle: IDisposable
 
 type Props<'env
   when 'env :> IProvideClock
@@ -126,6 +142,8 @@ type MountedHost() =
 
   member val CurrentInspector: TrackedHandle option = None with get, set
 
+  member val CurrentThread: TrackedHandle option = None with get, set
+
   member val HostHandle: IDisposable option = None with get, set
 
   member val Disposed = false with get, set
@@ -133,6 +151,8 @@ type MountedHost() =
   member val LiveHistory = 0 with get, set
 
   member val LiveInspector = 0 with get, set
+
+  member val LiveThread = 0 with get, set
 
   member val HostDisposed = false with get, set
 
@@ -156,12 +176,16 @@ type MountedHost() =
 
     this.LiveHistory <- model.LiveHistory
     this.LiveInspector <- model.LiveInspector
+    this.LiveThread <- model.LiveThread
 
     this.CurrentHistory <-
       model.History |> Option.bind(fun child -> track child.Handle)
 
     this.CurrentInspector <-
       model.Inspector |> Option.bind(fun child -> track child.Handle)
+
+    this.CurrentThread <-
+      model.Thread |> Option.bind(fun child -> track child.Handle)
 
   member this.Attach(hostHandle: IDisposable) =
     this.HostHandle <- Some hostHandle
@@ -175,9 +199,11 @@ type MountedHost() =
       this.Disposed <- true
       this.CurrentHistory |> Option.iter _.Dispose()
       this.CurrentInspector |> Option.iter _.Dispose()
+      this.CurrentThread |> Option.iter _.Dispose()
       this.HostHandle |> Option.iter _.Dispose()
       this.LiveHistory <- 0
       this.LiveInspector <- 0
+      this.LiveThread <- 0
       this.HostDisposed <- true
       subject.OnCompleted()
       subject.Dispose()
@@ -211,6 +237,15 @@ type InspectorStart = {
   Pasteis: bool
 }
 
+[<Struct>]
+type ThreadStart = {
+  CommitId: string
+  Session: SignedInSession
+  KeyFile: string
+  ViewerId: string
+  Pasteis: bool
+}
+
 let sessionOfState(state: SessionState) : SessionData =
   match state with
   | SignedIn session -> {
@@ -230,6 +265,18 @@ let sessionOfState(state: SessionState) : SessionData =
 
 let sessionData(props: Props<'env>) : SessionData =
   sessionOfState props.Env.Session.Current
+
+let threadStartOf(props: Props<'env>, commitId: string) : ThreadStart option =
+  match props.Env.Session.Current with
+  | SignedIn session ->
+    Some {
+      CommitId = commitId
+      Session = session
+      KeyFile = session.KeyFile
+      ViewerId = session.Session.User.Id
+      Pasteis = session.Session.PasteisMode
+    }
+  | SignedOut -> None
 
 let fetchQueue(props: Props<'env>) : Async<Result<ScheduledPage, AppError>> =
   ScheduledCommits.list(
@@ -259,7 +306,7 @@ let startHistory
       Refresh = refresh :> IObservable<unit>
       Zone = props.Zone
       OnOpenExternal = fun url -> dispatch(OpenExternal url)
-      OnOpened = fun commit -> dispatch(CheckoutSet(Some commit.Id))
+      OnOpened = fun commit -> dispatch(OpenThread commit.Id)
       OnQuote = fun commit -> dispatch(Quote commit)
       Restore = start.Place
       OnReport = fun report -> dispatch(HistoryReported(start.Ref, report))
@@ -291,6 +338,7 @@ let startInspector
     Now = props.Now
     Zone = props.Zone
     OnCheckoutParent = fun commitId -> dispatch(CheckoutSet(Some commitId))
+    OnCheckoutChild = fun commitId -> dispatch(CheckoutSet(Some commitId))
     OnOpenAuthor = fun handle -> dispatch(OpenAuthor handle)
     OnOpenExternal = fun url -> dispatch(OpenExternal url)
     OnQuote = fun commit -> dispatch(Quote commit)
@@ -298,6 +346,36 @@ let startInspector
 
   let view, rawHandle =
     Programs.runPage(props.Env.Dispatcher, Inspector.program childProps)
+
+  let handle = TrackedHandle(rawHandle) :> IDisposable
+
+  {
+    CommitId = start.CommitId
+    View = view
+    Handle = handle
+  }
+
+let startThread
+  (props: Props<'env>, dispatch: Msg -> unit, start: ThreadStart)
+  : ThreadChild =
+  let childProps: ThreadMode.Props<'env> = {
+    Env = props.Env
+    Session = start.Session
+    CommitId = start.CommitId
+    KeyFile = start.KeyFile
+    ViewerId = start.ViewerId
+    Pasteis = start.Pasteis
+    Images = props.Images
+    Now = props.Now
+    Zone = props.Zone
+    OnBack = fun () -> dispatch ThreadClosed
+    OnOpenThread = fun commit -> dispatch(OpenThread commit.Id)
+    OnOpenExternal = fun url -> dispatch(OpenExternal url)
+    OnQuote = fun commit -> dispatch(Quote commit)
+  }
+
+  let view, rawHandle =
+    Programs.runPage(props.Env.Dispatcher, ThreadMode.program childProps)
 
   let handle = TrackedHandle(rawHandle) :> IDisposable
 
@@ -346,6 +424,22 @@ let startInspectorCmd
       dispatch(InspectorReady(start.CommitId, child.View, child.Handle))
     | None -> ())
 
+let startThreadCmd
+  (props: Props<'env>, old: IDisposable option, start: ThreadStart option)
+  : Cmd<Msg> =
+  Cmd.ofEffect(fun dispatch ->
+    match old with
+    | Some handle ->
+      handle.Dispose()
+      dispatch ThreadStopped
+    | None -> ()
+
+    match start with
+    | Some start ->
+      let child = startThread(props, dispatch, start)
+      dispatch(ThreadReady(start.CommitId, child.View, child.Handle))
+    | None -> ())
+
 let stateCmd
   (props: Props<'env>, ref: Ref, checkoutId: string option)
   : Cmd<Msg> =
@@ -371,6 +465,8 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     Places = Map.empty
     StagingOpen = false
     Staging = Staging.initial
+    ThreadId = None
+    Thread = None
     Handle = data.Handle
     FetchedAt = None
     SavedCount = 0
@@ -382,6 +478,7 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     Inspector = None
     LiveHistory = 0
     LiveInspector = 0
+    LiveThread = 0
   }
 
   let historyStart: HistoryStart = {
@@ -417,9 +514,12 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
           Selected = ref
           History = None
           FetchedAt = None
+          ThreadId = None
+          Thread = None
     },
     Cmd.batch [
       startHistoryCmd(props, model.History |> Option.map _.Handle, start)
+      startThreadCmd(props, model.Thread |> Option.map _.Handle, None)
       stateCmd(props, ref, model.CheckoutId)
     ]
   | CheckoutSet commitId ->
@@ -444,6 +544,45 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
 
       stateCmd(props, model.Selected, commitId)
     ]
+  | OpenThread commitId ->
+    let data = sessionData props
+
+    let checkoutStart: InspectorStart = {
+      CommitId = commitId
+      KeyFile = data.KeyFile
+      ViewerId = data.ViewerId
+      Pasteis = data.Pasteis
+    }
+
+    {
+      model with
+          CheckoutId = Some commitId
+          ThreadId = Some commitId
+          Thread = None
+          Inspector = None
+    },
+    Cmd.batch [
+      startThreadCmd(
+        props,
+        model.Thread |> Option.map _.Handle,
+        threadStartOf(props, commitId)
+      )
+
+      startInspectorCmd(
+        props,
+        model.Inspector |> Option.map _.Handle,
+        Some checkoutStart
+      )
+
+      stateCmd(props, model.Selected, Some commitId)
+    ]
+  | ThreadClosed ->
+    {
+      model with
+          ThreadId = None
+          Thread = None
+    },
+    startThreadCmd(props, model.Thread |> Option.map _.Handle, None)
   | StagingToggled ->
     {
       model with
@@ -571,6 +710,12 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
           LiveInspector = max 0 (model.LiveInspector - 1)
      },
      Cmd.none)
+  | ThreadStopped ->
+    ({
+      model with
+          LiveThread = max 0 (model.LiveThread - 1)
+     },
+     Cmd.none)
   | HistoryReady(ref, restore, view, handle, refresh) ->
     if ref = model.Selected then
       model.History |> Option.iter(fun current -> current.Handle.Dispose())
@@ -616,6 +761,30 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
                 Handle = handle
               }
             LiveInspector = live
+       },
+       Cmd.none)
+    else
+      handle.Dispose()
+      model, Cmd.none
+  | ThreadReady(commitId, view, handle) ->
+    if Some commitId = model.ThreadId then
+      model.Thread |> Option.iter(fun current -> current.Handle.Dispose())
+
+      let live =
+        if model.Thread.IsSome then
+          model.LiveThread
+        else
+          model.LiveThread + 1
+
+      ({
+        model with
+            Thread =
+              Some {
+                CommitId = commitId
+                View = view
+                Handle = handle
+              }
+            LiveThread = live
        },
        Cmd.none)
     else
@@ -692,6 +861,9 @@ let view
     |> Observable.map(fun (isFolded, checkout) ->
       if isFolded || not checkout then 0.0 else 380.0)
 
+  let threadOpen =
+    model |> Observable.map _.Thread.IsSome |> Observable.distinctUntilChanged
+
   let historySlice =
     model
     |> Observable.map(fun current ->
@@ -706,6 +878,27 @@ let view
       .HorizontalContentAlignment(HorizontalAlignment.Stretch)
       .VerticalContentAlignment(VerticalAlignment.Stretch)
       .Content(historySlice |> _.ToBinding())
+      .IsVisible(threadOpen |> Observable.map not)
+      .Margin(
+        reserved |> Observable.map(fun right -> Thickness(0.0, 0.0, right, 0.0))
+      )
+
+  let threadPlaceholder = Panel()
+  let threadParentsPlaceholder = Panel()
+
+  let threadSlice =
+    model
+    |> Observable.map(fun current -> current.Thread |> Option.map _.View.Center)
+    |> Observable.distinctUntilChanged
+    |> Observable.map(Option.defaultValue threadPlaceholder)
+
+  let threadHost =
+    ContentControl()
+      .Name("ThreadRegion")
+      .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+      .VerticalContentAlignment(VerticalAlignment.Stretch)
+      .Content(threadSlice |> _.ToBinding())
+      .IsVisible(threadOpen)
       .Margin(
         reserved |> Observable.map(fun right -> Thickness(0.0, 0.0, right, 0.0))
       )
@@ -722,6 +915,31 @@ let view
     |> Observable.distinctUntilChanged
     |> Observable.map(Option.defaultValue inspectorPlaceholder)
 
+  let inspectorContent =
+    ContentControl()
+      .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+      .VerticalContentAlignment(VerticalAlignment.Stretch)
+      .Content(inspectorSlice |> _.ToBinding())
+
+  let threadParentsSlice =
+    model
+    |> Observable.map(fun current ->
+      current.Thread |> Option.map _.View.Parents)
+    |> Observable.distinctUntilChanged
+    |> Observable.map(Option.defaultValue threadParentsPlaceholder)
+
+  let threadParentsHost =
+    ContentControl()
+      .Name("ThreadParentsRegion")
+      .Content(threadParentsSlice |> _.ToBinding())
+      .IsVisible(threadOpen)
+
+  let inspectorSlot = Grid()
+  inspectorSlot.RowDefinitions <- RowDefinitions("Auto,*")
+
+  inspectorSlot.Children(threadParentsHost.Row(0), inspectorContent.Row(1))
+  |> ignore
+
   let inspectorRegion =
     Border()
       .Name("InspectorRegion")
@@ -729,17 +947,12 @@ let view
       .HorizontalAlignment(HorizontalAlignment.Right)
       .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
       .BorderThickness(Thickness(1.0, 0.0, 0.0, 0.0))
-      .Child(
-        ContentControl()
-          .HorizontalContentAlignment(HorizontalAlignment.Stretch)
-          .VerticalContentAlignment(VerticalAlignment.Stretch)
-          .Content(inspectorSlice |> _.ToBinding())
-      )
+      .Child(inspectorSlot)
       .IsVisible(hasCheckout)
 
   let main = Grid()
 
-  main.Children(historyHost, inspectorRegion) |> ignore
+  main.Children(historyHost, threadHost, inspectorRegion) |> ignore
 
   let stagingProps: Staging.Props<'env> = {
     Env = props.Env

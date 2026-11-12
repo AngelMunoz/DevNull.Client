@@ -33,16 +33,26 @@ type InspectorChild = {
   Handle: IDisposable
 }
 
+/// One live thread program: the commit it shows, its center and
+/// parents views, and the handle that ends it.
+type ThreadChild = {
+  CommitId: string
+  View: ThreadMode.View
+  Handle: IDisposable
+}
+
 /// The host's state: the selected ref and checkout, the per-ref
-/// places, the staging flag and state, the status bar's handle and
-/// fetch time, the counts, the fold, the clock, and the live child
-/// programs.
+/// places, the staging flag and state, the open thread, the status
+/// bar's handle and fetch time, the counts, the fold, the clock, and
+/// the live child programs.
 type Model = {
   Selected: Ref
   CheckoutId: string option
   Places: Map<Ref, HistoryColumn.Place>
   StagingOpen: bool
   Staging: Staging.Model
+  ThreadId: string option
+  Thread: ThreadChild option
   Handle: string
   FetchedAt: DateTimeOffset option
   SavedCount: int
@@ -54,16 +64,19 @@ type Model = {
   Inspector: InspectorChild option
   LiveHistory: int
   LiveInspector: int
+  LiveThread: int
 }
 
 /// The host's messages: ref and checkout selections, the staging flag
-/// and its draft, post, schedule, and queue messages, the fold, the
-/// clock and session, the history place report, and the host's open,
-/// external, and quote requests.
+/// and its draft, post, schedule, and queue messages, the open thread
+/// and its back request, the fold, the clock and session, the history
+/// place report, and the host's open, external, and quote requests.
 [<NoComparison>]
 type Msg =
   | RefSelected of ref: Ref
   | CheckoutSet of commitId: string option
+  | OpenThread of commitId: string
+  | ThreadClosed
   | StagingToggled
   | DraftChanged of text: string
   | StagingPosted of commit: Commit
@@ -79,6 +92,7 @@ type Msg =
   | Quote of Commit
   | HistoryStopped
   | InspectorStopped
+  | ThreadStopped
   | HistoryReady of
     ref: Ref *
     restore: HistoryColumn.Place option *
@@ -86,6 +100,10 @@ type Msg =
     handle: IDisposable *
     refresh: (unit -> unit)
   | InspectorReady of commitId: string * view: Control * handle: IDisposable
+  | ThreadReady of
+    commitId: string *
+    view: ThreadMode.View *
+    handle: IDisposable
 
 /// What the host needs from its integrator: the protocol workers, the
 /// dispatcher that starts child programs, the session store, the image
@@ -128,6 +146,7 @@ type internal MountedHost =
   member Created: TrackedHandle list
   member LiveHistory: int
   member LiveInspector: int
+  member LiveThread: int
   member HostDisposed: bool
   interface IDisposable
 
@@ -145,6 +164,8 @@ val subscribe: props: Props<'env> -> model: Model -> Sub<Msg>
 /// The three-region layout, the staging strip and its open area, and
 /// the status bar. The inspector is a 380 px right region while the
 /// host is wide, and a sheet over the history when `Folded` holds.
+/// An open thread replaces the history center and adds its PARENTS
+/// chain above the inspector checkout.
 val view:
   props: Props<'env> ->
   model: IObservable<Model> ->

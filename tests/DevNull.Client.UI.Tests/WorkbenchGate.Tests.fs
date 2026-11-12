@@ -119,6 +119,7 @@ let private inspectorProps(env: TestEnv) : Inspector.Props<TestEnv> = {
     Label = "UTC"
   }
   OnCheckoutParent = ignore
+  OnCheckoutChild = ignore
   OnOpenAuthor = ignore
   OnOpenExternal = ignore
   OnQuote = ignore
@@ -234,6 +235,31 @@ let tests =
         Expect.isTrue dense "the card did not take the dense rail width"
 
         do! onUiAsync(fun () -> window.Close())
+      })
+
+    testCaseAsync
+      "G5 the chain rows take the thread grow callback"
+      (async {
+        let commit = pageOf logPageJson |> commitOf
+
+        let! built =
+          probeUiAsync(fun () ->
+            let grow (_: ChainCtx) (_: Commit) : Control = Panel()
+
+            let ctx: ChainCtx = {
+              Props = rowProps commit
+              Depth = 0
+              ParentLane = None
+              ParentHandle = Author.handle commit.Author
+              Grow = ValueSome grow
+            }
+
+            chainRows(ctx, [ LiveCommit commit ]))
+
+        Expect.equal
+          (built.GetType().Name)
+          "StackPanel"
+          "the chain rows did not build"
       })
 
     testCaseAsync

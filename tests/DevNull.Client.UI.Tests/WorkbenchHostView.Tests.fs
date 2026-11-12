@@ -11,6 +11,7 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Http
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.Stores
 open DevNull.Client.Workbench
 open DevNull.Client.UI.Tests.Fixtures
 open DevNull.Client.UI.Tests.Harness
@@ -56,6 +57,70 @@ let private images = {
     member _.Get(_url: string) = async { return None }
 }
 
+let private sessionOf(env: TestEnv) =
+  match (env :> IProvideSession).Session.Current with
+  | SignedIn session -> session
+  | SignedOut -> failwith "the W3 test needs a signed-in session"
+
+let private threadPage =
+  let json =
+    threadPageJson.Replace(
+      "\"ancestors\":[]",
+      "\"ancestors\":[" + secondCommitJson + "]"
+    )
+
+  match CommitPage.decode json with
+  | Ok page -> page
+  | Error failure ->
+    failwith $"the canned thread never decoded: {failure.Message}"
+
+let private threadReplies =
+  match CommitNode.decodePage repliesPageJson with
+  | Ok page -> page
+  | Error failure ->
+    failwith $"the canned replies never decoded: {failure.Message}"
+
+let private threadViewOf(env: TestEnv) : ThreadMode.View =
+  let model: ThreadMode.Model = {
+    CommitId = threadPage.Commit.Id
+    Loading = false
+    Error = None
+    Commit = Some threadPage.Commit
+    Ancestors = threadPage.Ancestors
+    ReplyParticipants = threadPage.ReplyParticipants
+    Replies = threadReplies.Items
+    RepliesCursor = Some "next"
+    RepliesLoading = false
+    RepliesError = None
+    Now = now
+  }
+
+  let props: ThreadMode.Props<TestEnv> = {
+    Env = env
+    Session = sessionOf env
+    CommitId = threadPage.Commit.Id
+    KeyFile = "/tmp/devnull-test-id_ed25519"
+    ViewerId = "01a151db-0000-0000-0000-000000000000"
+    Pasteis = true
+    Images = images
+    Now = Observable.single now
+    Zone = {
+      Info = TimeZoneInfo.Utc
+      Label = "UTC"
+    }
+    OnBack = ignore
+    OnOpenThread = ignore
+    OnOpenExternal = ignore
+    OnQuote = ignore
+  }
+
+  let subject = new BehaviorSubject<ThreadMode.Model>(model)
+
+  ThreadMode.view
+    props
+    (subject :> IObservable<ThreadMode.Model>)
+    (fun (_: ThreadMode.Msg) -> ())
+
 let private hostProps(env: TestEnv) : WorkbenchHost.Props<TestEnv> = {
   Env = env
   Initial = WorkbenchSettings.initial
@@ -100,6 +165,8 @@ let private modelOf(folded: bool, stagingOpen: bool) : WorkbenchHost.Model =
     Places = Map.empty
     StagingOpen = stagingOpen
     Staging = stagingOf stagingOpen
+    ThreadId = None
+    Thread = None
     Handle = "octocat"
     FetchedAt = Some(now.AddMinutes -12.0)
     SavedCount = 4
@@ -123,6 +190,7 @@ let private modelOf(folded: bool, stagingOpen: bool) : WorkbenchHost.Model =
       }
     LiveHistory = 1
     LiveInspector = 1
+    LiveThread = 0
   }
 
 let private buildAsync
@@ -143,6 +211,41 @@ let private buildAsync
           (fun (_: WorkbenchHost.Msg) -> ())
 
       let window = Window(Width = width, Height = 800.0, Content = view)
+
+      window.Show()
+      window, subject)
+}
+
+let private buildThreadAsync
+  ()
+  : Async<Window * BehaviorSubject<WorkbenchHost.Model>> = async {
+  return!
+    probeUiAsync(fun () ->
+      let env = TestEnv(signedInStore(), FakeApi("{}") :> IHttp)
+      let props = hostProps env
+      let threadView = threadViewOf env
+
+      let model = {
+        modelOf(false, false) with
+            ThreadId = Some threadPage.Commit.Id
+            Thread =
+              Some {
+                CommitId = threadPage.Commit.Id
+                View = threadView
+                Handle = fakeHandle
+              }
+            LiveThread = 1
+      }
+
+      let subject = new BehaviorSubject<WorkbenchHost.Model>(model)
+
+      let view =
+        WorkbenchHost.view
+          props
+          (subject :> IObservable<WorkbenchHost.Model>)
+          (fun (_: WorkbenchHost.Msg) -> ())
+
+      let window = Window(Width = 1600.0, Height = 900.0, Content = view)
 
       window.Show()
       window, subject)
@@ -320,6 +423,80 @@ let tests =
         Expect.isTrue
           (historyWidth > 900.0 && historyWidth < 1050.0)
           $"the history lost its free width on staging: {historyWidth}"
+
+        do! closeAsync(window, subject)
+      })
+
+    testCaseAsync
+      "the W3 frame at 1600 px opens the thread, parents, and reply composer"
+      (async {
+        let! window, subject = buildThreadAsync()
+
+        let! shown =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              hasTextFragment(root, "THREAD")
+              && hasText(root, "PARENTS")
+              && hasText(root, "It was DNS.")
+              && hasText(root, "Second commit.")
+              && hasText(root, "A reply.")
+          )
+
+        Expect.isTrue shown "the W3 frame never rendered its thread"
+
+        let! composer =
+          waitForAsync(
+            5000,
+            (fun () -> textBoxWithWatermark(window, "Write your reply…")),
+            Option.isSome
+          )
+
+        Expect.isTrue composer "the inline reply composer never opened"
+
+        let! audience =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "ReplyingToLine")),
+            Option.isSome
+          )
+
+        Expect.isTrue audience "the reply composer lost its participants"
+
+        do! pumpAsync()
+
+        let! (centerWidth,
+              historyVisible,
+              threadVisible,
+              parentsVisible,
+              inspectorVisible) =
+          probeUiAsync(fun () ->
+            widthOf(window, "ThreadCenter"),
+            controlByName(window, "HistoryRegion")
+            |> Option.map _.IsVisible
+            |> Option.defaultValue false,
+            controlByName(window, "ThreadRegion")
+            |> Option.map _.IsVisible
+            |> Option.defaultValue false,
+            controlByName(window, "ThreadParents")
+            |> Option.map _.IsVisible
+            |> Option.defaultValue false,
+            controlByName(window, "InspectorRegion")
+            |> Option.map _.IsVisible
+            |> Option.defaultValue false)
+
+        Expect.isTrue
+          (centerWidth > 900.0 && centerWidth < 1050.0)
+          $"the thread lost the free center width: {centerWidth}"
+
+        Expect.isFalse
+          historyVisible
+          "the history stayed visible over the thread"
+
+        Expect.isTrue threadVisible "the thread region is not visible"
+        Expect.isTrue parentsVisible "the PARENTS chain is not visible"
+        Expect.isTrue inspectorVisible "the inspector checkout is not visible"
 
         do! closeAsync(window, subject)
       })

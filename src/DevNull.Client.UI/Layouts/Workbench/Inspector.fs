@@ -46,6 +46,7 @@ type Msg =
   | PastelGiven of Commit
   | PastelDone of Result<PastelResult, AppError>
   | ParentWalked of commitId: string
+  | ChildOpened of commitId: string
   | AuthorOpened of handle: string
   | QuoteRequested of Commit
 
@@ -63,6 +64,7 @@ type Props<'env
   Now: IObservable<DateTimeOffset>
   Zone: Zone
   OnCheckoutParent: string -> unit
+  OnCheckoutChild: string -> unit
   OnOpenAuthor: string -> unit
   OnOpenExternal: string -> unit
   OnQuote: Commit -> unit
@@ -252,6 +254,8 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
        Cmd.none)
   | ParentWalked commitId ->
     model, Cmd.ofAction(fun () -> props.OnCheckoutParent commitId)
+  | ChildOpened commitId ->
+    model, Cmd.ofAction(fun () -> props.OnCheckoutChild commitId)
   | AuthorOpened handle ->
     model, Cmd.ofAction(fun () -> props.OnOpenAuthor handle)
   | QuoteRequested commit -> model, Cmd.ofAction(fun () -> props.OnQuote commit)
@@ -319,6 +323,7 @@ let view
   let childProps =
     rowProps(fun event ->
       match event with
+      | CommitCard.Opened commit -> dispatch(ChildOpened commit.Id)
       | CommitCard.QuoteRequested commit -> dispatch(QuoteRequested commit)
       | _ -> ())
 

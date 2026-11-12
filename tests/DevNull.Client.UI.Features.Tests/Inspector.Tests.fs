@@ -55,6 +55,7 @@ type WorkbenchEnv() =
 [<Struct>]
 type Sinks = {
   Parent: string -> unit
+  Child: string -> unit
   Author: string -> unit
   External: string -> unit
   Quote: Commit -> unit
@@ -62,6 +63,7 @@ type Sinks = {
 
 let noSinks: Sinks = {
   Parent = ignore
+  Child = ignore
   Author = ignore
   External = ignore
   Quote = ignore
@@ -85,6 +87,7 @@ let props(env: WorkbenchEnv, sinks: Sinks) : Inspector.Props<WorkbenchEnv> = {
     Label = "UTC"
   }
   OnCheckoutParent = sinks.Parent
+  OnCheckoutChild = sinks.Child
   OnOpenAuthor = sinks.Author
   OnOpenExternal = sinks.External
   OnQuote = sinks.Quote
@@ -239,14 +242,17 @@ let tests =
       Expect.isSome model.Error "the show error"
       Expect.equal model.CommitId p.CommitId "the checkout id stayed"
 
-    testCase "the parent, author, and quote intents leave through their sinks"
+    testCase
+      "the parent, child, author, and quote intents leave through their sinks"
     <| fun () ->
       let walked = ResizeArray<string>()
+      let children = ResizeArray<string>()
       let opened = ResizeArray<string>()
       let quoted = ResizeArray<Commit>()
 
       let sinks = {
         Parent = walked.Add
+        Child = children.Add
         Author = opened.Add
         External = ignore
         Quote = quoted.Add
@@ -264,6 +270,12 @@ let tests =
 
       run parentCmd
       Expect.equal (walked |> Seq.toList) [ "parent-id" ] "the parent sink"
+
+      let model, childCmd =
+        Inspector.update(p, Inspector.ChildOpened "child-id", model)
+
+      run childCmd
+      Expect.equal (children |> Seq.toList) [ "child-id" ] "the child sink"
 
       let model, authorCmd =
         Inspector.update(p, Inspector.AuthorOpened "octocat", model)

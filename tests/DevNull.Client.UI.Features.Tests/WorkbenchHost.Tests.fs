@@ -506,6 +506,97 @@ let tests =
         do! onUiAsync(fun () -> (mounted :> IDisposable).Dispose())
       })
 
+    testCaseAsync
+      "the thread back keeps the history program and its place"
+      (async {
+        let! (sameDuring,
+              sameAfter,
+              opened,
+              placeKept,
+              liveHistory,
+              liveThread,
+              threadId) =
+          probeUiAsync(fun () ->
+            let env = TestEnv(signedInStore(), api :> IHttp)
+            let props = hostProps(env, WorkbenchSettings.initial)
+            let model, cmd = WorkbenchHost.init props
+            let model = runEngine(props, model, cmd)
+
+            let historyHandle = model.History |> Option.map _.Handle
+
+            let sameHandle(candidate: IDisposable option) =
+              match historyHandle, candidate with
+              | Some left, Some right -> obj.ReferenceEquals(left, right)
+              | None, None -> true
+              | _ -> false
+
+            let place: HistoryColumn.Place = {
+              Offset = 222.0
+              Head = Some "head-a"
+            }
+
+            let model, _ =
+              WorkbenchHost.update(
+                props,
+                WorkbenchHost.HistoryReported(
+                  following,
+                  { Place = place; FetchedAt = Some now }
+                ),
+                model
+              )
+
+            let model, cmd =
+              WorkbenchHost.update(
+                props,
+                WorkbenchHost.OpenThread checkoutA,
+                model
+              )
+
+            let model = runEngine(props, model, cmd)
+
+            let during = model.History |> Option.map _.Handle
+
+            let opened =
+              model.ThreadId = Some checkoutA
+              && model.CheckoutId = Some checkoutA
+              && model.LiveThread = 1
+
+            let model, cmd =
+              WorkbenchHost.update(props, WorkbenchHost.ThreadClosed, model)
+
+            let model = runEngine(props, model, cmd)
+
+            let after = model.History |> Option.map _.Handle
+
+            let placeKept =
+              model.Places
+              |> Map.tryFind following
+              |> Option.exists(fun kept -> kept.Offset = place.Offset)
+
+            model.History |> Option.iter(fun child -> child.Handle.Dispose())
+
+            model.Inspector |> Option.iter(fun child -> child.Handle.Dispose())
+
+            model.Thread |> Option.iter(fun child -> child.Handle.Dispose())
+
+            sameHandle during,
+            sameHandle after,
+            opened,
+            placeKept,
+            model.LiveHistory,
+            model.LiveThread,
+            model.ThreadId)
+
+        Expect.isTrue sameDuring "the thread open replaced the history program"
+
+        Expect.isTrue sameAfter "the thread back replaced the history program"
+        Expect.isTrue opened "the thread did not open its checkout"
+        Expect.isTrue placeKept "the thread back dropped the history place"
+        Expect.equal liveHistory 1 "the history program count changed"
+        Expect.equal liveThread 0 "the thread program stayed live"
+        Expect.isNone threadId "the thread id stayed"
+      })
+
     testCase "the fold and counts are model data"
     <| fun () ->
       let env = TestEnv(signedInStore(), api :> IHttp)

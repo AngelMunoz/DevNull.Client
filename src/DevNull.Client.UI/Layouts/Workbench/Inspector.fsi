@@ -44,14 +44,15 @@ type Msg =
   | PastelGiven of Commit
   | PastelDone of Result<PastelResult, AppError>
   | ParentWalked of commitId: string
+  | ChildOpened of commitId: string
   | AuthorOpened of handle: string
   | QuoteRequested of Commit
 
 /// What one inspector needs from its host: the protocol workers, the
 /// signed key file and viewer, the pastéis flag, the image cache, the
-/// clock ticks, the time zone, and the host's parent, author, external,
-/// and quote sinks. `CommitId` is the checkout: it never changes
-/// through a message.
+/// clock ticks, the time zone, and the host's parent, child, author,
+/// external, and quote sinks. `CommitId` is the checkout: it never
+/// changes through a message.
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
@@ -66,6 +67,7 @@ type Props<'env
   Now: IObservable<DateTimeOffset>
   Zone: Zone
   OnCheckoutParent: string -> unit
+  OnCheckoutChild: string -> unit
   OnOpenAuthor: string -> unit
   OnOpenExternal: string -> unit
   OnQuote: Commit -> unit

@@ -79,13 +79,12 @@ let pageOf(json: string) =
   | Error failure ->
     failwith $"the canned page never decoded: {failure.Message}"
 
-let newCountPage(count: int) =
+let countedPageOf(json: string, count: int) =
   pageOf(
-    logPageJson.Replace(
-      "\"new_commits_count\":null",
-      $"\"new_commits_count\":{count}"
-    )
+    json.Replace("\"new_commits_count\":null", $"\"new_commits_count\":{count}")
   )
+
+let newCountPage(count: int) = countedPageOf(logPageJson, count)
 
 let commitOf(page: LogPage) =
   match page.Page.Items with
@@ -179,6 +178,37 @@ let tests =
         )
 
       Expect.equal kept.NewCount (Some 3) "the count survived"
+
+    testCase
+      "a heard newer commit rides the next poll and a page fetch clears it"
+    <| fun () ->
+      let p, first = firstModel Following
+
+      let heard, _ =
+        HistoryColumn.update(
+          p,
+          HistoryColumn.NewChecked(Ok(countedPageOf(secondLogPageJson, 1))),
+          first
+        )
+
+      Expect.equal
+        heard.HeardIds
+        [ "018f4c1e-9999-7c3a-9b2d-5e6f7a8b9c0d" ]
+        "the newer commit was heard"
+
+      Expect.equal
+        heard.Items.Length
+        1
+        "the newer commit stays out of the loaded rows"
+
+      let cleared, _ =
+        HistoryColumn.update(
+          p,
+          HistoryColumn.NewFetched(Ok(newCountPage 0)),
+          heard
+        )
+
+      Expect.isEmpty cleared.HeardIds "the page fetch cleared the heard set"
 
     testCase "the polling flag gates the one-minute poll"
     <| fun () ->

@@ -2,6 +2,8 @@ namespace DevNull.Client.Layouts.Workbench
 
 open System
 open DevNull.Client.Core.ApiTypes
+open DevNull.Client.Core.Types
+open DevNull.Client.Errors
 
 module WorkbenchSettings =
 
@@ -33,9 +35,9 @@ module WorkbenchSettings =
       | _ -> None
 
   let parseCheckout(token: string) =
-    match Guid.TryParse token with
-    | true, id -> Some(id.ToString "D")
-    | false, _ -> None
+    match CommitIds.parse<AppError> token with
+    | Ok id -> Some(CommitIds.value id)
+    | Error _ -> None
 
   let parse(raw: string) : WorkbenchState =
     if String.IsNullOrWhiteSpace raw then

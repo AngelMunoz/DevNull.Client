@@ -2,7 +2,9 @@ module DevNull.Client.UI.Tests.WorkbenchGateTests
 
 open System
 open System.Reactive.Subjects
+open Avalonia
 open Avalonia.Controls
+open Avalonia.Headless
 open Avalonia.VisualTree
 open Expecto
 open FSharp.Control.Reactive
@@ -10,8 +12,10 @@ open FSharp.Control.Reactive
 open DevNull.Client.Components
 open DevNull.Client.Components.CommitCard
 open DevNull.Client.Core.ApiTypes
+open DevNull.Client.Core.Http
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.Layouts.Workbench
 open DevNull.Client.UI.Tests.Fixtures
 open DevNull.Client.UI.Tests.Harness
 
@@ -23,6 +27,13 @@ let private row(index: int) : Control =
   cell.Height <- 24.0
   cell.Child <- label
   cell
+
+let private controlByName(root: Control, name: string) : Control option =
+  root.GetVisualDescendants()
+  |> Seq.choose(function
+    | :? Control as control when control.Name = name -> Some control
+    | _ -> None)
+  |> Seq.tryHead
 
 let private realized(window: Window) : int =
   window.GetVisualDescendants()
@@ -67,6 +78,26 @@ let private rowProps(commit: Commit) : RowProps = {
     Info = TimeZoneInfo.Utc
     Label = "UTC"
   }
+}
+
+let private historyProps(env: TestEnv) : HistoryColumn.Props<TestEnv> = {
+  Env = env
+  Log = Following
+  KeyFile = "/tmp/devnull-test-id_ed25519"
+  ViewerId = "01a151db-7fee-727b-a7ce-c911a7556242"
+  Pasteis = false
+  Images = {
+    new ImageCacheService with
+      member _.Get(_url: string) = async { return None }
+  }
+  Now = Observable.single(DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero))
+  Zone = {
+    Info = TimeZoneInfo.Utc
+    Label = "UTC"
+  }
+  OnOpenExternal = ignore
+  OnOpened = ignore
+  OnQuote = ignore
 }
 
 let tests =
@@ -179,5 +210,188 @@ let tests =
         Expect.isTrue dense "the card did not take the dense rail width"
 
         do! onUiAsync(fun () -> window.Close())
+      })
+
+    testCaseAsync
+      "G2 the commit card carries the workbench flyout callback"
+      (async {
+        let commit = pageOf logPageJson |> commitOf
+        let opened = ResizeArray<string>()
+
+        let source: UserFlyout.Source = {
+          Fetch = fun _ -> async { return None }
+          OnOpen = fun handle -> opened.Add handle
+          OnOpenOrg = ignore
+          OnOpenTag = ignore
+          Cache = {
+            new ImageCacheService with
+              member _.Get(_url: string) = async { return None }
+          }
+        }
+
+        let props = {
+          rowProps commit with
+              Flyout = ValueSome source
+        }
+
+        let! window =
+          probeUiAsync(fun () ->
+            let card = feedRow props (LiveCommit commit)
+
+            let window = Window(Width = 900.0, Height = 600.0, Content = card)
+
+            window.Show()
+            window)
+
+        do! settleAsync()
+
+        let! body =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue body "the card never rendered its body"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "AuthorAvatar")
+            |> Option.iter(fun control ->
+              match control with
+              | :? Button as button ->
+                let center =
+                  Point(button.Bounds.Width / 2.0, button.Bounds.Height / 2.0)
+
+                let moved = button.TranslatePoint(center, window)
+
+                if moved.HasValue then
+                  window.MouseMove moved.Value
+              | _ -> ()))
+
+        let! card =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "Reading the profile…")
+          )
+
+        Expect.isTrue card "the hover card never opened"
+
+        let! exists =
+          probeUiAsync(fun () ->
+            controlByName(window, "UserFlyout") |> Option.isSome)
+
+        Expect.isTrue exists "the flyout content did not exist"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "UserFlyout")
+            |> Option.iter(function
+              | :? ContentControl as host ->
+                match host.Content with
+                | :? Button as openCard -> click openCard
+                | _ -> ()
+              | _ -> ()))
+
+        let! heard =
+          waitForAsync(5000, (fun () -> opened.Count), fun count -> count > 0)
+
+        Expect.isTrue heard "the flyout's open callback never ran"
+
+        Expect.equal
+          (opened |> Seq.toList)
+          [ "octocat" ]
+          "the open callback received the author handle"
+
+        do! onUiAsync(fun () -> window.Close())
+      })
+  ]
+
+let columnTests =
+  testList "workbench history column view" [
+    testCaseAsync
+      "the history column renders its fetched page"
+      (async {
+        let page = pageOf logPageJson
+        let now = DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero)
+
+        let subject =
+          new BehaviorSubject<HistoryColumn.Model>(
+            {
+              Loading = false
+              Error = None
+              Items = page.Page.Items
+              NextCursor = page.Page.NextCursor
+              Head = Some "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+              NewCount = None
+              Ranked = false
+              Polling = false
+              Now = now
+              FetchedAt = Some(now.AddMinutes -12.0)
+              Busy = None
+              PollChoices = Map.empty
+              Pasteis = false
+              HeardIds = []
+            }
+          )
+
+        let env = TestEnv(signedInStore(), FakeApi("{}") :> IHttp)
+        let props = historyProps env
+
+        let! window =
+          probeUiAsync(fun () ->
+            let view =
+              HistoryColumn.view
+                props
+                (subject :> IObservable<HistoryColumn.Model>)
+                (fun (_: HistoryColumn.Msg) -> ())
+
+            let window = Window(Width = 1200.0, Height = 600.0, Content = view)
+
+            window.Show()
+            window)
+
+        let! head =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "HEAD -> Following")
+          )
+
+        Expect.isTrue head "the HEAD line never rendered"
+
+        let! fetched =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "fetched 12m")
+          )
+
+        Expect.isTrue fetched "the fetched line never rendered"
+
+        let! rows =
+          waitForAsync(
+            5000,
+            (fun () -> realized window),
+            fun count -> count > 0
+          )
+
+        Expect.isTrue rows "the feed never realized a row"
+
+        let! body =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue body "the fetched commit never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            subject.OnCompleted()
+            subject.Dispose())
       })
   ]

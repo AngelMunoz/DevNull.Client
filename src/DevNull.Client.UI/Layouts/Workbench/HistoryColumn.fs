@@ -33,6 +33,7 @@ type Model = {
   Busy: string option
   PollChoices: Map<string, string>
   Pasteis: bool
+  HeardIds: string list
 }
 
 type Msg =
@@ -73,12 +74,6 @@ type Props<'env
   OnQuote: Commit -> unit
 }
 
-let labelOf(log: LogKind) =
-  match log with
-  | Latest -> "Latest"
-  | Following -> "Following"
-  | Trending -> "Trending"
-
 let headOf(items: CommitNode list) =
   items
   |> List.tryPick(function
@@ -96,6 +91,17 @@ let replaceNode(items: CommitNode list, updated: Commit) =
   |> List.map(function
     | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
     | node -> node)
+
+let insertLate(late: Commit, items: CommitNode list) =
+  let at =
+    items
+    |> List.tryFindIndex(function
+      | Tombstone _ -> false
+      | LiveCommit commit -> commit.CreatedAt < late.CreatedAt)
+
+  match at with
+  | Some index -> items |> List.insertAt index (LiveCommit late)
+  | None -> items @ [ LiveCommit late ]
 
 let fetch
   (props: Props<'env>, cursor: string option)
@@ -126,7 +132,7 @@ let checkNew
       Log = props.Log
       Since = Some head
       Cursor = None
-      Arrived = []
+      Arrived = if model.Ranked then [] else model.HeardIds
       Pending = ids |> List.truncate 100
       Everything = false
       Through = ids |> List.rev |> List.truncate 20
@@ -182,6 +188,7 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     Busy = None
     PollChoices = Map.empty
     Pasteis = props.Pasteis
+    HeardIds = []
    },
    Cmd.OfAsync.perform fetch (props, None) Fetched)
 
@@ -200,6 +207,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             NewCount = None
             Ranked = page.IsRanked
             FetchedAt = Some model.Now
+            HeardIds = []
        },
        Cmd.none)
     | Error error ->
@@ -233,11 +241,70 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
     | _ -> model, Cmd.none
   | NewChecked result ->
     match result with
-    | Ok page ->
+    | Ok page when model.Ranked ->
       ({
         model with
             NewCount =
               page.NewCommitsCount |> Option.filter(fun count -> count > 0)
+       },
+       Cmd.none)
+    | Ok page ->
+      let loaded =
+        model.Items
+        |> List.choose(function
+          | LiveCommit commit -> Some commit.Id
+          | Tombstone _ -> None)
+        |> Set.ofList
+
+      let headAt =
+        model.Items
+        |> List.tryPick(function
+          | LiveCommit commit when Some commit.Id = model.Head ->
+            Some commit.CreatedAt
+          | _ -> None)
+
+      let isNewer(commit: Commit) =
+        match headAt with
+        | Some at -> commit.CreatedAt > at
+        | None -> true
+
+      let unloaded =
+        page.Page.Items
+        |> List.choose(function
+          | LiveCommit commit when not(Set.contains commit.Id loaded) ->
+            Some commit
+          | _ -> None)
+
+      let late =
+        unloaded
+        |> List.filter(fun commit -> not(isNewer commit))
+        |> List.sortByDescending(fun commit -> commit.CreatedAt)
+
+      let merged =
+        late
+        |> List.fold
+          (fun items arrival -> insertLate(arrival, items))
+          model.Items
+
+      let mergedLoaded =
+        merged
+        |> List.choose(function
+          | LiveCommit commit -> Some commit.Id
+          | Tombstone _ -> None)
+        |> Set.ofList
+
+      let heard =
+        (model.HeardIds @ (unloaded |> List.filter isNewer |> List.map _.Id))
+        |> List.distinct
+        |> List.filter(fun id -> not(Set.contains id mergedLoaded))
+        |> List.truncate 100
+
+      ({
+        model with
+            Items = merged
+            NewCount =
+              page.NewCommitsCount |> Option.filter(fun count -> count > 0)
+            HeardIds = heard
        },
        Cmd.none)
     | Error _ -> model, Cmd.none
@@ -255,6 +322,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             Head = headOf page.Page.Items
             Ranked = page.IsRanked
             FetchedAt = Some model.Now
+            HeardIds = []
        },
        Cmd.none)
     | Error error -> ({ model with Error = Some error }, Cmd.none)
@@ -393,9 +461,6 @@ let view
     Zone = props.Zone
   }
 
-  let headLine =
-    model |> Observable.map(fun _ -> "HEAD -> " + labelOf props.Log)
-
   let fetchedLine =
     model
     |> Observable.map(fun current ->
@@ -432,7 +497,9 @@ let view
             StackPanel()
               .Spacing(2.0)
               .Children(
-                TextBlock().Classes(Theme.name Theme.Mono).Text(headLine),
+                TextBlock()
+                  .Classes(Theme.name Theme.Mono)
+                  .Text("HEAD -> " + Ref.label(Build.history props.Log)),
                 TextBlock().Classes(Theme.name Theme.Mono).Text(fetchedLine)
               )
           )
@@ -441,14 +508,11 @@ let view
   let statusText =
     model
     |> Observable.map(fun current ->
-      if current.Loading then
-        "Loading the history…"
-      elif current.Error.IsSome then
-        current.Error |> Option.map describe |> Option.defaultValue ""
-      elif current.Items.IsEmpty then
-        "Nothing here yet. Commit something."
-      else
-        "")
+      match current.Loading, current.Error, current.Items with
+      | true, _, _ -> "Loading the history…"
+      | false, Some error, _ -> describe error
+      | false, None, [] -> "Nothing here yet. Commit something."
+      | false, None, _ -> "")
 
   let statusLine =
     TextBlock()
@@ -460,7 +524,7 @@ let view
 
   let feed =
     Feed.view {
-      Items = model |> Observable.map _.Items |> Slices.gateByRef
+      Items = model |> Observable.map _.Items
       KeyOf = FeedParts.nodeKey
       Row = fun node -> CommitCard.feedRow rowProps node
       Footer =

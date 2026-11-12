@@ -21,6 +21,7 @@ let main argv =
       FeedTests.tests
       WorkbenchSettingsTests.tests
       WorkbenchGateTests.tests
+      WorkbenchGateTests.columnTests
       App.tests
       App.notificationDayTests
       // Focus and key routing are process-global too; the suite runs

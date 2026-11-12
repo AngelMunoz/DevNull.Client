@@ -11,8 +11,9 @@ open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 
 /// One history column's state: one log's loaded rows, its cursor and
-/// head, the last page fetch, the new-commit count, the poll's gate,
-/// and the poll choices and in-flight action the cards follow.
+/// head, the last page fetch, the new-commit count, the poll's gate
+/// and the newer commits that poll already heard, the clock, and the
+/// poll choices and in-flight action the cards follow.
 type Model = {
   Loading: bool
   Error: AppError option
@@ -27,6 +28,7 @@ type Model = {
   Busy: string option
   PollChoices: Map<string, string>
   Pasteis: bool
+  HeardIds: string list
 }
 
 /// One history column's messages: the first page, the cursor, the

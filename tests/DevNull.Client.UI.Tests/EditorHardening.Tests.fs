@@ -175,6 +175,87 @@ let tests =
       })
 
     testCaseAsync
+      "mountFor sends the terminal open and Escape closes it"
+      (async {
+        let env = TestEnv(signedInStore(), threadApi() :> IHttp)
+
+        let! window, mounted =
+          probeUiAsync(fun () ->
+            let mounted = EditorRoot.mountFor(ui, EditorFrame.props env)
+
+            let window =
+              Window(Width = 1600.0, Height = 900.0, Content = mounted.Root)
+
+            window.Show()
+            window, mounted)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history never rendered"
+        Expect.isFalse (mounted.OverlayOpen()) "an overlay stood at rest"
+
+        do! onUiAsync(fun () -> mounted.Send EditorRoot.OpenTerminal)
+
+        let! panel =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> visible(root, "EditorPanel")
+          )
+
+        Expect.isTrue panel "the terminal panel never opened"
+        Expect.isTrue (mounted.OverlayOpen()) "the panel did not hold the frame"
+
+        do! onUiAsync(fun () -> mounted.Send EditorRoot.OpenPalette)
+
+        let! palette =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> visible(root, "PaletteQuery")
+          )
+
+        Expect.isTrue palette "the palette never opened over the panel"
+
+        do! onUiAsync(fun () -> mounted.Send EditorRoot.Escape)
+
+        let! paletteClosed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> not(visible(root, "PaletteQuery"))
+          )
+
+        Expect.isTrue paletteClosed "Escape did not close the palette first"
+
+        Expect.isTrue
+          (mounted.OverlayOpen())
+          "the panel did not stay under the palette"
+
+        do! onUiAsync(fun () -> mounted.Send EditorRoot.Escape)
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> not(visible(root, "EditorPanel"))
+          )
+
+        Expect.isTrue closed "Escape did not close the panel"
+        Expect.isFalse (mounted.OverlayOpen()) "the overlay probe stayed true"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            (mounted :> IDisposable).Dispose())
+      })
+
+    testCaseAsync
       "the help overlay and queue notice name the default layout"
       (async {
         let api = threadApi()
@@ -244,7 +325,7 @@ let tests =
         let api = churnApi()
         let env = TestEnv(signedInStore(), api :> IHttp)
 
-        let! window, handle, weak =
+        let! window, handleRef, weak =
           probeUiAsync(fun () ->
             let control, handle = EditorRoot.mount(ui, EditorFrame.props env)
 
@@ -252,7 +333,7 @@ let tests =
               Window(Width = 1600.0, Height = 900.0, Content = control)
 
             window.Show()
-            window, handle, WeakReference(control))
+            window, ref(Some handle), WeakReference(control))
 
         let! shown =
           waitForAsync(
@@ -335,7 +416,10 @@ let tests =
         do!
           onUiAsync(fun () ->
             window.Close()
-            handle.Dispose())
+
+            handleRef.Value |> Option.iter(fun handle -> handle.Dispose())
+
+            handleRef.Value <- None)
 
         collect()
 

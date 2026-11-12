@@ -27,11 +27,12 @@ let rowOf(token: string, count: int option) : RefRow = {
   Count = count
 }
 
-let rows(saved: int, unread: int) = [
+let rows(saved: int, scheduled: int, unread: int) = [
   rowOf("latest", None)
   rowOf("following", None)
   rowOf("trending", None)
   rowOf("saved", Some saved)
+  rowOf("scheduled", Some scheduled)
   rowOf("notifications", Some unread)
 ]
 

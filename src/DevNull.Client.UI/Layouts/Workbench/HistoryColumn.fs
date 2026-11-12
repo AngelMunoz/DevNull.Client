@@ -55,6 +55,7 @@ type Msg =
   | NewRequested
   | NewFetched of Result<LogPage, AppError>
   | ClockTicked of moment: DateTimeOffset
+  | RefreshRequested
   | PollingChanged of active: bool
   | Scrolled of offset: float
   | Opened of Commit
@@ -79,6 +80,7 @@ type Props<'env
   Pasteis: bool
   Images: ImageCacheService
   Now: IObservable<DateTimeOffset>
+  Refresh: IObservable<unit>
   Zone: Zone
   OnOpenExternal: string -> unit
   OnOpened: Commit -> unit
@@ -353,6 +355,14 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
       next, report(props, next)
     | Error error -> ({ model with Error = Some error }, Cmd.none)
   | ClockTicked moment -> ({ model with Now = moment }, Cmd.none)
+  | RefreshRequested ->
+    ({
+      model with
+          Loading = true
+          Error = None
+          NewCount = None
+     },
+     Cmd.OfAsync.perform fetch (props, None) Fetched)
   | PollingChanged active -> ({ model with Polling = active }, Cmd.none)
   | Scrolled offset ->
     let next = { model with Offset = offset }
@@ -448,6 +458,10 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
 let subscribe (props: Props<'env>) (model: Model) : Sub<Msg> =
   [
     Sub.fromObservable "clock" (props.Now |> Observable.map ClockTicked)
+
+    Sub.fromObservable
+      "refresh"
+      (props.Refresh |> Observable.map(fun () -> RefreshRequested))
 
     if model.Polling then
       Sub.interval "since-poll" (TimeSpan.FromMinutes 1.0) (fun () -> CheckNew)

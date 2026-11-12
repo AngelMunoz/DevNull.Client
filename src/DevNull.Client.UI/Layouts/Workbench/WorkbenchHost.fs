@@ -11,10 +11,13 @@ open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
 open DevNull.Client
+open DevNull.Client.AttachmentSources
+open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Env
+open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.Stores
@@ -25,6 +28,7 @@ type HistoryChild = {
   Restore: HistoryColumn.Place option
   View: Control
   Handle: IDisposable
+  Refresh: unit -> unit
 }
 
 type InspectorChild = {
@@ -38,6 +42,7 @@ type Model = {
   CheckoutId: string option
   Places: Map<Ref, HistoryColumn.Place>
   StagingOpen: bool
+  Staging: Staging.Model
   Handle: string
   FetchedAt: DateTimeOffset option
   SavedCount: int
@@ -56,6 +61,11 @@ type Msg =
   | RefSelected of ref: Ref
   | CheckoutSet of commitId: string option
   | StagingToggled
+  | DraftChanged of text: string
+  | StagingPosted of commit: Commit
+  | StagingScheduled of entry: ScheduledCommit
+  | QueueRequested
+  | QueueFetched of Result<ScheduledPage, AppError>
   | WidthChanged of width: float
   | ClockTicked of moment: DateTimeOffset
   | SessionChanged of state: SessionState
@@ -69,7 +79,8 @@ type Msg =
     ref: Ref *
     restore: HistoryColumn.Place option *
     view: Control *
-    handle: IDisposable
+    handle: IDisposable *
+    refresh: (unit -> unit)
   | InspectorReady of commitId: string * view: Control * handle: IDisposable
 
 type Props<'env
@@ -78,14 +89,16 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
-  and 'env :> IProvideSession> = {
+  and 'env :> IProvideSession
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLogging> = {
   Env: 'env
   Initial: WorkbenchState
   Images: ImageCacheService
   Now: IObservable<DateTimeOffset>
   Zone: Zone
   OnOpenAuthor: string -> unit
-  OnQuote: Commit -> unit
   OnOpenExternal: string -> unit
   OnStateChanged: WorkbenchState -> unit
 }
@@ -218,12 +231,23 @@ let sessionOfState(state: SessionState) : SessionData =
 let sessionData(props: Props<'env>) : SessionData =
   sessionOfState props.Env.Session.Current
 
+let fetchQueue(props: Props<'env>) : Async<Result<ScheduledPage, AppError>> =
+  ScheduledCommits.list(
+    props.Env,
+    {
+      KeyFile = (sessionData props).KeyFile
+      Page = 1
+    }
+  )
+
 let startHistory
   (props: Props<'env>, dispatch: Msg -> unit, start: HistoryStart)
   : HistoryChild option =
   match Ref.log start.Ref with
   | None -> None
   | Some log ->
+    let refresh = new System.Reactive.Subjects.Subject<unit>()
+
     let childProps: HistoryColumn.Props<'env> = {
       Env = props.Env
       Log = log
@@ -232,6 +256,7 @@ let startHistory
       Pasteis = start.Pasteis
       Images = props.Images
       Now = props.Now
+      Refresh = refresh :> IObservable<unit>
       Zone = props.Zone
       OnOpenExternal = fun url -> dispatch(OpenExternal url)
       OnOpened = fun commit -> dispatch(CheckoutSet(Some commit.Id))
@@ -250,6 +275,7 @@ let startHistory
       Restore = start.Place
       View = view
       Handle = handle
+      Refresh = fun () -> refresh.OnNext()
     }
 
 let startInspector
@@ -293,7 +319,15 @@ let startHistoryCmd
 
     match startHistory(props, dispatch, start) with
     | Some child ->
-      dispatch(HistoryReady(start.Ref, start.Place, child.View, child.Handle))
+      dispatch(
+        HistoryReady(
+          start.Ref,
+          start.Place,
+          child.View,
+          child.Handle,
+          child.Refresh
+        )
+      )
     | None -> ())
 
 let startInspectorCmd
@@ -336,6 +370,7 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     CheckoutId = checkoutId
     Places = Map.empty
     StagingOpen = false
+    Staging = Staging.initial
     Handle = data.Handle
     FetchedAt = None
     SavedCount = 0
@@ -361,6 +396,7 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
   Cmd.batch [
     startHistoryCmd(props, None, historyStart)
     startInspectorCmd(props, None, checkoutStart)
+    Cmd.ofMsg QueueRequested
   ]
 
 let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
@@ -414,6 +450,75 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
           StagingOpen = not model.StagingOpen
     },
     Cmd.none
+  | DraftChanged text ->
+    {
+      model with
+          Staging = { model.Staging with Draft = text }
+    },
+    Cmd.none
+  | StagingPosted _ ->
+    {
+      model with
+          Staging = {
+            model.Staging with
+                Draft = ""
+                Quote = None
+          }
+    },
+    Cmd.ofAction(fun () ->
+      model.History |> Option.iter(fun child -> child.Refresh()))
+  | StagingScheduled _ ->
+    {
+      model with
+          Staging = {
+            model.Staging with
+                Draft = ""
+                Quote = None
+          }
+    },
+    Cmd.ofMsg QueueRequested
+  | QueueRequested ->
+    {
+      model with
+          Staging = {
+            model.Staging with
+                Queue = {
+                  model.Staging.Queue with
+                      Loading = true
+                      Error = None
+                }
+          }
+    },
+    Cmd.OfAsync.perform fetchQueue props QueueFetched
+  | QueueFetched result ->
+    match result with
+    | Ok page ->
+      {
+        model with
+            Staging = {
+              model.Staging with
+                  Queue = {
+                    Items = page.Items
+                    Total = page.Total
+                    Loading = false
+                    Error = None
+                  }
+            }
+      },
+      Cmd.none
+    | Error error ->
+      {
+        model with
+            Staging = {
+              model.Staging with
+                  Queue = {
+                    model.Staging.Queue with
+                        Loading = false
+                        Error = Some error
+                  }
+            }
+      },
+      Cmd.none
   | WidthChanged width -> { model with Folded = width < 1100.0 }, Cmd.none
   | ClockTicked moment -> { model with Now = moment }, Cmd.none
   | SessionChanged state ->
@@ -444,7 +549,16 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | OpenAuthor handle ->
     model, Cmd.ofAction(fun () -> props.OnOpenAuthor handle)
   | OpenExternal url -> model, Cmd.ofAction(fun () -> props.OnOpenExternal url)
-  | Quote commit -> model, Cmd.ofAction(fun () -> props.OnQuote commit)
+  | Quote commit ->
+    {
+      model with
+          StagingOpen = true
+          Staging = {
+            model.Staging with
+                Quote = Some commit
+          }
+    },
+    Cmd.none
   | HistoryStopped ->
     ({
       model with
@@ -457,7 +571,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
           LiveInspector = max 0 (model.LiveInspector - 1)
      },
      Cmd.none)
-  | HistoryReady(ref, restore, view, handle) ->
+  | HistoryReady(ref, restore, view, handle, refresh) ->
     if ref = model.Selected then
       model.History |> Option.iter(fun current -> current.Handle.Dispose())
 
@@ -475,6 +589,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
                 Restore = restore
                 View = view
                 Handle = handle
+                Refresh = refresh
               }
             LiveHistory = live
        },
@@ -536,12 +651,15 @@ let view
   let refsSlice =
     model
     |> Observable.map(fun current ->
-      current.Selected, current.SavedCount, current.UnreadCount)
+      current.Selected,
+      current.SavedCount,
+      current.Staging.Queue.Total,
+      current.UnreadCount)
     |> Observable.distinctUntilChanged
-    |> Observable.map(fun (selected, saved, unread) ->
+    |> Observable.map(fun (selected, saved, scheduled, unread) ->
       WorkbenchChrome.refs(
         {
-          Rows = WorkbenchChrome.rows(saved, unread)
+          Rows = WorkbenchChrome.rows(saved, scheduled, unread)
           Selected = selected
         },
         fun ref -> dispatch(RefSelected ref)
@@ -623,6 +741,31 @@ let view
 
   main.Children(historyHost, inspectorRegion) |> ignore
 
+  let stagingProps: Staging.Props<'env> = {
+    Env = props.Env
+    Session =
+      match props.Env.Session.Current with
+      | SignedIn session -> Some session
+      | SignedOut -> None
+    OnToggle = fun () -> dispatch StagingToggled
+    OnDraftChanged = fun text -> dispatch(DraftChanged text)
+    OnPosted = fun commit -> dispatch(StagingPosted commit)
+    OnScheduled = fun entry -> dispatch(StagingScheduled entry)
+  }
+
+  let staging =
+    Staging.view
+      stagingProps
+      (model
+       |> Observable.map(fun current ->
+         {
+           Open = current.StagingOpen
+           Draft = current.Staging.Draft
+           Quote = current.Staging.Quote
+           Queue = current.Staging.Queue
+         }
+         : Staging.View))
+
   let statusLine =
     TextBlock()
       .Classes(Theme.name Theme.Mono)
@@ -649,13 +792,14 @@ let view
 
   let root = Grid().Name("WorkbenchRoot")
 
-  root.RowDefinitions <- RowDefinitions("*,Auto")
+  root.RowDefinitions <- RowDefinitions("*,Auto,Auto")
   root.ColumnDefinitions <- ColumnDefinitions("240,*")
 
   root.Children(
     refsRegion.Column(0).Row(0),
     main.Column(1).Row(0),
-    statusBar.Row(1).ColumnSpan(2)
+    staging.Row(1).ColumnSpan(2),
+    statusBar.Row(2).ColumnSpan(2)
   )
   |> ignore
 

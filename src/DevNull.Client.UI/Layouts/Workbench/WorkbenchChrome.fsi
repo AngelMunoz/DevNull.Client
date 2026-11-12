@@ -28,8 +28,8 @@ type StatusModel = {
 val refs: model: RefsModel * onSelect: (Ref -> unit) -> Control
 
 /// The refs tree rows in display order: Latest, Following, Trending,
-/// then Saved and Notifications with their counts.
-val rows: saved: int * unread: int -> RefRow list
+/// then Saved, Scheduled, and Notifications with their counts.
+val rows: saved: int * scheduled: int * unread: int -> RefRow list
 
 /// The status bar's one line: the ref, the handle, and the fetch time.
 val statusText: model: StatusModel -> string

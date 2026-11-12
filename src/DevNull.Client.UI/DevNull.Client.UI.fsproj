@@ -234,6 +234,8 @@
     <Compile Include="Layouts\Workbench\Inspector.fs" />
     <Compile Include="Layouts\Workbench\WorkbenchChrome.fsi" />
     <Compile Include="Layouts\Workbench\WorkbenchChrome.fs" />
+    <Compile Include="Layouts\Workbench\Staging.fsi" />
+    <Compile Include="Layouts\Workbench\Staging.fs" />
     <Compile Include="Layouts\Workbench\WorkbenchHost.fsi" />
     <Compile Include="Layouts\Workbench\WorkbenchHost.fs" />
     <Compile Include="Views\Routes.fsi" />

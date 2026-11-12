@@ -48,7 +48,6 @@ let private hostProps
     Label = "UTC"
   }
   OnOpenAuthor = ignore
-  OnQuote = ignore
   OnOpenExternal = ignore
   OnStateChanged = ignore
 }
@@ -60,6 +59,30 @@ let private latest = WorkbenchSettings.parse "latest" |> WorkbenchState.refOf
 
 let private trending =
   WorkbenchSettings.parse "trending" |> WorkbenchState.refOf
+
+let private followingCommit =
+  match LogPage.decode logPageJson with
+  | Ok page ->
+    match page.Page.Items with
+    | LiveCommit commit :: _ -> commit
+    | _ -> failwith "the canned log carries no live commit"
+  | Error failure -> failwith $"the canned log never decoded: {failure.Message}"
+
+let private emptyQueueJson =
+  """{"data":[],"links":{"first":null,"last":null,"prev":null,"next":null},"meta":{"current_page":1,"from":0,"last_page":1,"path":"","per_page":20,"to":0,"total":0}}"""
+
+let private countingApi() =
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/scheduled-commits" then
+      ok emptyQueueJson
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    elif request.Target.Contains "/replies" then
+      ok repliesPageJson
+    elif request.Target.StartsWith "/api/v1/commits/" then
+      ok threadPageJson
+    else
+      ok "{}")
 
 let private runEngine
   (
@@ -377,6 +400,110 @@ let tests =
         Expect.equal mounted.LiveHistory 0 "the history count stayed up"
         Expect.equal mounted.LiveInspector 0 "the inspector count stayed up"
         Expect.isTrue mounted.HostDisposed "the host handle stayed live"
+      })
+
+    testCase "the staging strip opens and closes"
+    <| fun () ->
+      let env = TestEnv(signedInStore(), api :> IHttp)
+      let props = hostProps(env, WorkbenchSettings.initial)
+      let model, _ = WorkbenchHost.init props
+
+      Expect.isFalse model.StagingOpen "the staging area starts closed"
+
+      let opened, _ =
+        WorkbenchHost.update(props, WorkbenchHost.StagingToggled, model)
+
+      Expect.isTrue opened.StagingOpen "the staging area did not open"
+
+      let closed, _ =
+        WorkbenchHost.update(props, WorkbenchHost.StagingToggled, opened)
+
+      Expect.isFalse closed.StagingOpen "the staging area did not close"
+
+    testCase "a quote opens the staging area with its target"
+    <| fun () ->
+      let env = TestEnv(signedInStore(), api :> IHttp)
+      let props = hostProps(env, WorkbenchSettings.initial)
+      let model, _ = WorkbenchHost.init props
+
+      let quoted, _ =
+        WorkbenchHost.update(props, WorkbenchHost.Quote followingCommit, model)
+
+      Expect.isTrue quoted.StagingOpen "the quote did not open staging"
+
+      Expect.equal
+        quoted.Staging.Quote
+        (Some followingCommit)
+        "the quote target did not reach staging"
+
+    testCase "the queue count feeds the refs tree row"
+    <| fun () ->
+      let env = TestEnv(signedInStore(), api :> IHttp)
+      let props = hostProps(env, WorkbenchSettings.initial)
+      let model, _ = WorkbenchHost.init props
+
+      let page: ScheduledPage = {
+        Items = []
+        CurrentPage = 1
+        LastPage = 1
+        Total = 2
+      }
+
+      let loaded, _ =
+        WorkbenchHost.update(props, WorkbenchHost.QueueFetched(Ok page), model)
+
+      Expect.equal loaded.Staging.Queue.Total 2 "the queue total did not land"
+
+      let scheduled =
+        WorkbenchSettings.parse "scheduled" |> WorkbenchState.refOf
+
+      let row =
+        WorkbenchChrome.rows(0, loaded.Staging.Queue.Total, 0)
+        |> List.find(fun entry -> entry.Ref = scheduled)
+
+      Expect.equal
+        row.Count
+        (Some 2)
+        "the scheduled row did not carry the count"
+
+    testCaseAsync
+      "a posted commit refreshes the shown history once"
+      (async {
+        let api = countingApi()
+
+        let! _view, mounted =
+          probeUiAsync(fun () ->
+            let env = TestEnv(signedInStore(), api :> IHttp)
+            let props = hostProps(env, WorkbenchSettings.initial)
+            let view, handle = WorkbenchHost.mount(Harness.ui, props)
+            view, handle :?> WorkbenchHost.MountedHost)
+
+        let logCount() =
+          api.Requests
+          |> List.filter(fun request ->
+            request.Target.StartsWith "/api/v1/log/")
+          |> List.length
+
+        let! first = waitForAsync(5000, logCount, fun count -> count >= 1)
+
+        Expect.isTrue first "the first history read never landed"
+
+        do!
+          onUiAsync(fun () ->
+            mounted.Send(WorkbenchHost.StagingPosted followingCommit))
+
+        let! second = waitForAsync(5000, logCount, fun count -> count >= 2)
+
+        Expect.isTrue second "the post did not refresh the history"
+
+        do! settleAsync()
+
+        Expect.equal
+          (logCount())
+          2
+          "the post refreshed the history more than once"
+
+        do! onUiAsync(fun () -> (mounted :> IDisposable).Dispose())
       })
 
     testCase "the fold and counts are model data"

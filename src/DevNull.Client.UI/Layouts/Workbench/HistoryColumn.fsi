@@ -57,6 +57,7 @@ type Msg =
   | NewRequested
   | NewFetched of Result<LogPage, AppError>
   | ClockTicked of moment: DateTimeOffset
+  | RefreshRequested
   | PollingChanged of active: bool
   | Scrolled of offset: float
   | Opened of Commit
@@ -71,8 +72,8 @@ type Msg =
 
 /// What one history column needs from its host: the protocol workers,
 /// the signed key file and viewer, the pastéis flag, the image cache,
-/// the clock ticks, the time zone, and the host's open, quote, and
-/// external-link sinks.
+/// the clock ticks, the named refresh requests, the time zone, and the
+/// host's open, quote, and external-link sinks.
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
@@ -85,6 +86,8 @@ type Props<'env
   Pasteis: bool
   Images: ImageCacheService
   Now: IObservable<DateTimeOffset>
+  /// One request to read the first page again, such as after a post.
+  Refresh: IObservable<unit>
   Zone: Zone
   OnOpenExternal: string -> unit
   OnOpened: Commit -> unit
@@ -99,8 +102,8 @@ val init: props: Props<'env> -> Model * Cmd<Msg>
 /// The column's one update function.
 val update: props: Props<'env> * msg: Msg * model: Model -> Model * Cmd<Msg>
 
-/// The column's inlets: the host's clock ticks and the one-minute
-/// since-poll while `Polling` holds.
+/// The column's inlets: the host's clock ticks, its named refresh
+/// requests, and the one-minute since-poll while `Polling` holds.
 val subscribe: props: Props<'env> -> model: Model -> Sub<Msg>
 
 /// The column's view: the ref header, the fetch and new-count line,

@@ -64,6 +64,7 @@ let props(log: LogKind) : HistoryColumn.Props<WorkbenchEnv> = {
   Pasteis = true
   Images = images
   Now = Observable.single(DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero))
+  Refresh = Observable.empty
   Zone = {
     Info = TimeZoneInfo.Utc
     Label = "UTC"

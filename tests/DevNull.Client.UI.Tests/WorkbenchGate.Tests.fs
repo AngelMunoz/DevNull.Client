@@ -91,6 +91,7 @@ let private historyProps(env: TestEnv) : HistoryColumn.Props<TestEnv> = {
       member _.Get(_url: string) = async { return None }
   }
   Now = Observable.single(DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero))
+  Refresh = Observable.empty
   Zone = {
     Info = TimeZoneInfo.Utc
     Label = "UTC"

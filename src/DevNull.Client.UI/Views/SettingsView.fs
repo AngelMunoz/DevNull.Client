@@ -78,6 +78,7 @@ module State =
     | RevokeDone of Result<unit, AppError> * Device
     | CloseToTraySet of enabled: bool
     | ThemeChosen of choice: ThemeChoice
+    | LayoutChosen of choice: LayoutChoice
     | SettingsChanged of settings: AppSettings
     | PrefsArrived of settings: UserSettings option
     | ZonePicked of id: string option
@@ -100,6 +101,7 @@ module State =
     Settings = {
       CloseToTray = false
       Theme = System
+      Layout = CurrentLayout
       SidebarExpanded = true
       ChatDrafts = Map.empty
       VoiceVolume = 1.0
@@ -471,6 +473,14 @@ module State =
             Settings = { model.Settings with Theme = choice }
       },
       Cmd.ofAction(fun () -> store.SetTheme choice)
+    | LayoutChosen choice ->
+      let store = (props.Env :> IProvideSettings).Settings
+
+      {
+        model with
+            Settings = { model.Settings with Layout = choice }
+      },
+      Cmd.ofAction(fun () -> store.SetLayout choice)
     | SettingsChanged settings -> { model with Settings = settings }, Cmd.none
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
@@ -612,6 +622,54 @@ module Parts =
           .Classes(Theme.name Theme.Muted)
           .Text("The light and dark palettes of the site, or the system's."),
         themeHost
+      )
+
+  // The layout row: one button per arrangement the app ships. A pick
+  // writes the setting, and the window mounts the choice at once — no
+  // restart.
+  let layoutRow
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : Control =
+    let host = ContentControl()
+
+    let choices =
+      PageChrome.rebuildOn(
+        model,
+        (fun current -> current.Settings.Layout),
+        fun current ->
+          let choiceButton(label: string, choice: LayoutChoice) : Control =
+            let button =
+              Button()
+                .Classes(Theme.name Theme.NavButton)
+                .Content(label)
+                .OnClickHandler(fun _ _ -> dispatch(State.LayoutChosen choice))
+
+            if current.Settings.Layout = choice then
+              button.Classes(Theme.name Theme.AccentEdge) |> ignore
+
+            button
+
+          let row: Control array = [|
+            choiceButton("Default (site)", CurrentLayout)
+          |]
+
+          StackPanel()
+            .Orientation(Orientation.Horizontal)
+            .Spacing(6.0)
+            .Children(row)
+      )
+
+    host.Content(choices.ToBinding()) |> ignore
+
+    StackPanel()
+      .Spacing(6.0)
+      .Children(
+        TextBlock().Classes(Theme.name Theme.Subtitle).Text("Layout"),
+        TextBlock()
+          .Classes(Theme.name Theme.Muted)
+          .TextWrapping(TextWrapping.Wrap)
+          .Text("The layout changes now. No restart."),
+        host
       )
 
   // One zone the picker offers: its IANA id and its current offset.
@@ -1182,6 +1240,7 @@ let view
             TextBlock().Text(user.Name),
             Parts.laneRow(model, dispatch),
             Parts.themeRow(model, dispatch),
+            Parts.layoutRow(model, dispatch),
             Parts.timezoneRow(model, dispatch),
             Parts.languageRow(model, dispatch),
             Parts.pasteisRow(model, dispatch),

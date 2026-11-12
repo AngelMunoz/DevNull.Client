@@ -15,9 +15,11 @@ open FSharp.Control.Reactive
 open MVUish.Avalonia
 open MVUish.Avalonia.Collections
 open DevNull.Client
+open DevNull.Client.Components
 open DevNull.Client.Components.CommitCard
 open DevNull.Client.Components.PageChrome
 open DevNull.Client.Components.ReplyPicker
+open DevNull.Client.Components.UserFlyout
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
@@ -25,6 +27,7 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.Profiles
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
 
@@ -43,7 +46,8 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideUiClock
-  and 'env :> IProvideImageCache> = {
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideProfiles> = {
   Env: 'env
   Session: SignedInSession
   CommitId: string
@@ -53,6 +57,7 @@ type Props<'env
   OnFetch: Result<unit, string> -> unit
   OnQuote: Commit -> unit
   OnReplyRequested: Commit -> unit
+  OnOpenRepo: string -> unit
 }
 
 module State =
@@ -410,6 +415,14 @@ let view
   let busy =
     model |> Observable.map(fun current -> current.Busy) |> Slices.share
 
+  let flyout: UserFlyout.Source = {
+    Fetch = props.Env.Profiles.Fetch
+    OnOpen = props.OnOpenRepo
+    OnOpenOrg = ignore
+    OnOpenTag = ignore
+    Cache = props.Env.ImageCache
+  }
+
   let mainProps: RowProps = {
     OnEvent = fun event -> dispatch(State.CardEvent event)
     OnOpenExternal = ignore
@@ -419,7 +432,7 @@ let view
     PollChoices = model |> Observable.map(fun current -> current.PollChoices)
     Dense = false
     Images = props.Env.ImageCache
-    Flyout = ValueNone
+    Flyout = ValueSome flyout
     Pin = ValueNone
     Star =
       ValueSome {

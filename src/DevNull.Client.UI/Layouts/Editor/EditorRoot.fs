@@ -23,6 +23,7 @@ open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.Profiles
 open DevNull.Client.Remotes
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
@@ -38,6 +39,7 @@ type Props<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideDispatcher
   and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideProfiles
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
@@ -136,6 +138,7 @@ type ProgramArgs<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideDispatcher
   and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideProfiles
   and 'env :> IProvideLogging> = {
   Runtime: Runtime
   Props: Props<'env>
@@ -161,6 +164,7 @@ type ViewArgs<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideDispatcher
   and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideProfiles
   and 'env :> IProvideLogging> = {
   Runtime: Runtime
   Props: Props<'env>
@@ -179,6 +183,7 @@ type UpdateArgs<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideDispatcher
   and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideProfiles
   and 'env :> IProvideLogging> = { Runtime: Runtime; Props: Props<'env> }
 
 [<Struct>]
@@ -193,6 +198,7 @@ type HistoryArgs<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideDispatcher
   and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideProfiles
   and 'env :> IProvideLogging> = {
   Props: Props<'env>
   Log: LogKind
@@ -222,6 +228,7 @@ type ThreadHooks = {
   Fetch: Result<unit, string> -> unit
   Quote: Commit -> unit
   Reply: Commit -> unit
+  OpenRepo: string -> unit
 }
 
 let threadProps
@@ -236,6 +243,7 @@ let threadProps
   OnFetch = hooks.Fetch
   OnQuote = hooks.Quote
   OnReplyRequested = hooks.Reply
+  OnOpenRepo = hooks.OpenRepo
 }
 
 [<Struct>]
@@ -1105,6 +1113,7 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
               Fetch = fun result -> fetches.OnNext($"thread {commitId}", result)
               Quote = fun commit -> quotes.OnNext commit
               Reply = fun commit -> replies.OnNext commit
+              OpenRepo = fun handle -> repoOpens.OnNext handle
             }
           )
         )

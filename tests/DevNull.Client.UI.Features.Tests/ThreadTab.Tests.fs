@@ -11,6 +11,7 @@ open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.ImageCache
 open DevNull.Client.Layouts.Editor
+open DevNull.Client.Profiles
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
 open DevNull.Client.UI.Tests.Fixtures
@@ -49,6 +50,12 @@ type FakeEnv(http: IHttp) =
     member _.ImageCache = {
       new ImageCacheService with
         member _.Get(_: string) = async { return None }
+    }
+
+  interface IProvideProfiles with
+    member _.Profiles = {
+      new IProfiles with
+        member _.Fetch(_: string) = async { return None }
     }
 
 let session: SignedInSession = {
@@ -108,6 +115,7 @@ let props
   OnFetch = sinks.Fetch
   OnQuote = sinks.Quote
   OnReplyRequested = sinks.Reply
+  OnOpenRepo = ignore
 }
 
 let pageOf(json: string) =

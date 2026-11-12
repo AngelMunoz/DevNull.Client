@@ -11,6 +11,7 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.Profiles
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
 open MVUish.Avalonia
@@ -39,7 +40,8 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideUiClock
-  and 'env :> IProvideImageCache> = {
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideProfiles> = {
   Env: 'env
   Session: SignedInSession
   CommitId: string
@@ -50,6 +52,8 @@ type Props<'env
   OnFetch: Result<unit, string> -> unit
   OnQuote: Commit -> unit
   OnReplyRequested: Commit -> unit
+  /// Opens the repository tab of one handle, from the author flyout.
+  OnOpenRepo: string -> unit
 }
 
 /// The tab's state logic, exported so the update stays testable

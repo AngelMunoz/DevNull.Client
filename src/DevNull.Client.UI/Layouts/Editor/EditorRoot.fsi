@@ -10,6 +10,7 @@ open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.Profiles
 open DevNull.Client.Remotes
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
@@ -29,6 +30,7 @@ type Props<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideDispatcher
   and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideProfiles
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession

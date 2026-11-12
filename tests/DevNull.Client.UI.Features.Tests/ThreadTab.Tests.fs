@@ -83,12 +83,14 @@ type Sinks = {
   Quote: Commit -> unit
   Reply: Commit -> unit
   Snapshot: ThreadTab.Snapshot -> unit
+  Fetch: Result<unit, string> -> unit
 }
 
 let quiet: Sinks = {
   Quote = ignore
   Reply = ignore
   Snapshot = ignore
+  Fetch = ignore
 }
 
 let props
@@ -103,6 +105,7 @@ let props
   }
   Now = fun () -> DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero)
   OnSnapshot = sinks.Snapshot
+  OnFetch = sinks.Fetch
   OnQuote = sinks.Quote
   OnReplyRequested = sinks.Reply
 }
@@ -184,7 +187,16 @@ let tests =
           next
         )
 
-      Expect.equal snapshot.RepliesCount 3 "the replies count")
+      Expect.equal snapshot.RepliesCount 3 "the replies count"
+
+      Expect.equal
+        (snapshot.Participants |> List.map(fun row -> row.Handle))
+        [ "octocat"; "mona"; "hubot" ]
+        "the reply participants"
+
+      Expect.isTrue
+        snapshot.Participants.Head.IsAuthor
+        "the author is not first")
 
     testCase "the replies append by cursor" (fun () ->
       let first, _ =
@@ -351,6 +363,7 @@ let tests =
           Quote = fun commit -> quotes.Add commit
           Reply = fun commit -> replies.Add commit
           Snapshot = ignore
+          Fetch = ignore
         }
 
         let! window, handle =

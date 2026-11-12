@@ -42,9 +42,11 @@ type Props<'env
   Active: IObservable<bool>
   Now: unit -> DateTimeOffset
   Restore: EditorPlace voption
+  Refresh: IObservable<unit>
   OnSnapshot: Snapshot -> unit
   OnScroll: float -> unit
   OnOpen: Commit -> unit
+  OnFetch: Result<unit, string> -> unit
 }
 
 module State =
@@ -72,6 +74,7 @@ module State =
     | CheckNew
     | NewChecked of Result<LogPage, AppError>
     | Opened of Commit
+    | RefreshRequested
 
   let initial = {
     Loading = true
@@ -153,6 +156,13 @@ module State =
   let announce(props: Props<'env>, model: Model) =
     Cmd.ofAction(fun () -> props.OnSnapshot(snapshot model))
 
+  let reportFetch(props: Props<'env>, result: Result<'a, AppError>) =
+    props.OnFetch(
+      match result with
+      | Ok _ -> Ok()
+      | Error error -> Error(describe error)
+    )
+
   let init(props: Props<'env>) =
     let restore = props.Restore |> ValueOption.defaultValue EditorPlace.empty
 
@@ -171,6 +181,8 @@ module State =
   let update(props: Props<'env>, msg: Msg, model: Model) =
     match msg with
     | Fetched result ->
+      reportFetch(props, result)
+
       match result with
       | Ok page ->
         let next = {
@@ -201,6 +213,8 @@ module State =
         model, Cmd.OfAsync.perform fetch (props, model.NextCursor) Appended
       | None -> model, Cmd.none
     | Appended result ->
+      reportFetch(props, result)
+
       match result with
       | Ok page ->
         let next = {
@@ -229,7 +243,14 @@ module State =
         model, Cmd.OfAsync.perform checkNew (props, model, head) NewChecked
       | _ -> model, Cmd.none
     | Opened commit -> model, Cmd.ofAction(fun () -> props.OnOpen commit)
+    | RefreshRequested ->
+      if model.Loading then
+        model, Cmd.none
+      else
+        model, Cmd.OfAsync.perform fetch (props, None) Fetched
     | NewChecked result ->
+      reportFetch(props, result)
+
       match result with
       | Ok page ->
         let count =
@@ -299,6 +320,10 @@ module State =
   let subscribe(props: Props<'env>, model: Model) : Sub<Msg> =
     [
       Sub.fromObservable "active" (props.Active |> Observable.map ActiveChanged)
+
+      Sub.fromObservable
+        "refresh"
+        (props.Refresh |> Observable.map(fun () -> RefreshRequested))
 
       Sub.fromObservable
         "clock"

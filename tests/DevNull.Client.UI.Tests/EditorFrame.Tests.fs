@@ -31,11 +31,8 @@ let props(env: TestEnv) : EditorRoot.Props<TestEnv> =
       Label = "UTC"
     }
     Saved = Observable.single 4
-    Queue = Observable.single 1
     Active = Observable.single true
     Now = fun () -> DateTimeOffset.UtcNow
-    OnQuote = ignore
-    OnReplyRequested = ignore
   }
 
 let statusText(window: Window) =

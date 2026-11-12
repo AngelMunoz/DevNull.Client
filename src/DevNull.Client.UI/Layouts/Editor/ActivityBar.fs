@@ -85,6 +85,7 @@ let activityButton(props: Props, activity: Activity) : Control =
 
   AutomationProperties.SetName(button, nameOf activity)
   ToolTip.SetTip(button, nameOf activity)
+  button.Name <- $"EditorActivity-{nameOf activity}"
   button
 
 let view(props: Props) : Control =

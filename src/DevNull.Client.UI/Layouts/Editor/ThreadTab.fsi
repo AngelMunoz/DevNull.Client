@@ -4,6 +4,7 @@ open System
 open Avalonia.Controls
 open Avalonia.Threading
 open DevNull.Client.Components.CommitCard
+open DevNull.Client.Components.ReplyPicker
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
@@ -15,11 +16,15 @@ open DevNull.Client.UiClock
 open MVUish.Avalonia
 
 /// What the frame reads from one thread tab: the commit, the replies
-/// count the last read carried, and the read's state.
+/// count the last read carried, the people a reply may reach, and the
+/// read's state.
 [<Struct>]
 type Snapshot = {
   CommitId: string
   RepliesCount: int
+  /// The people a reply may reach: the thread's author first, then
+  /// the read's reply participants.
+  Participants: ParticipantRow list
   Loading: bool
   Error: AppError option
 }
@@ -41,6 +46,8 @@ type Props<'env
   Zone: Zone
   Now: unit -> DateTimeOffset
   OnSnapshot: Snapshot -> unit
+  /// One read's result, for the frame's output log.
+  OnFetch: Result<unit, string> -> unit
   OnQuote: Commit -> unit
   OnReplyRequested: Commit -> unit
 }

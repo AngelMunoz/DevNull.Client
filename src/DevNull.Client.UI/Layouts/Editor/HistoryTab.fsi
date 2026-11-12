@@ -43,11 +43,15 @@ type Props<'env
   Now: unit -> DateTimeOffset
   /// The reading place this ref returns to, or empty for a fresh read.
   Restore: EditorPlace voption
+  /// A named nudge from the host: read the first page once more.
+  Refresh: IObservable<unit>
   OnSnapshot: Snapshot -> unit
   /// The feed's settled scroll offset, so the host can park the place.
   OnScroll: float -> unit
   /// A card click: the host opens the commit's thread tab.
   OnOpen: Commit -> unit
+  /// One read's result, for the frame's output log.
+  OnFetch: Result<unit, string> -> unit
 }
 
 /// The tab's state logic, exported so the update stays testable
@@ -84,6 +88,7 @@ module State =
     | CheckNew
     | NewChecked of Result<LogPage, AppError>
     | Opened of Commit
+    | RefreshRequested
 
   /// The fresh state: the first page is on its way.
   val initial: Model
@@ -104,8 +109,9 @@ module State =
   /// Applies one message.
   val update: props: Props<'env> * msg: Msg * model: Model -> Model * Cmd<Msg>
 
-  /// The tab's inlets from outside: the host's active stream and the
-  /// shared clock, plus the poll while the model carries it.
+  /// The tab's inlets from outside: the host's active stream, the
+  /// refresh nudge, and the shared clock, plus the poll while the
+  /// model carries it.
   val subscribe: props: Props<'env> * model: Model -> Sub<Msg>
 
 /// The tab's view: one virtualized feed over the loaded commits, the

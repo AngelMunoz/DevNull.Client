@@ -188,6 +188,8 @@
     <Compile Include="Layouts\Editor\Explorer.fs" />
     <Compile Include="Layouts\Editor\StatusBar.fsi" />
     <Compile Include="Layouts\Editor\StatusBar.fs" />
+    <Compile Include="Layouts\Editor\EditorPanel.fsi" />
+    <Compile Include="Layouts\Editor\EditorPanel.fs" />
     <Compile Include="Layouts\Editor\EditorRoot.fsi" />
     <Compile Include="Layouts\Editor\EditorRoot.fs" />
     <Compile Include="Views\CommitActions.fsi" />

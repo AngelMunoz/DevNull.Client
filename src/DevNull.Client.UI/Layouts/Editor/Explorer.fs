@@ -87,6 +87,8 @@ let countRow(row: CountRow) =
       .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
       .Column(1)
 
+  count.Name <- $"ExplorerCount-{row.Title}"
+
   let content = Grid().Children(label.Column(0), count)
 
   content.ColumnDefinitions <- ColumnDefinitions("*,Auto")

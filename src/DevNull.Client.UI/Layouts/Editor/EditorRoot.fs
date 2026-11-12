@@ -11,10 +11,16 @@ open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
 open DevNull.Client
+open DevNull.Client.AttachmentSources
+open DevNull.Client.Components.CommitCard
 open DevNull.Client.Components.PageChrome
+open DevNull.Client.Components.ReplyPicker
+open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.Env
+open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.Remotes
@@ -29,21 +35,31 @@ type Props<'env
   and 'env :> IProvideSession
   and 'env :> IProvideRemotes
   and 'env :> IProvideUiClock
-  and 'env :> IProvideImageCache> = {
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
   Stored: StoredState
   Lane: Lane option
   Zone: Zone
   Saved: IObservable<int>
-  Queue: IObservable<int>
   Active: IObservable<bool>
   Now: unit -> DateTimeOffset
-  OnQuote: Commit -> unit
-  OnReplyRequested: Commit -> unit
 }
 
 type ThreadEntry = { View: Control; Lifetime: IDisposable }
+
+type ComposerEvent =
+  | Posted of Commit
+  | Scheduled of ScheduledCommit
+
+[<Struct>]
+type TerminalRequest =
+  | FreshTerm
+  | QuoteTerm of Commit
+  | ReplyTerm of Commit * ParticipantRow list
 
 type Runtime = {
   History: Control
@@ -51,6 +67,9 @@ type Runtime = {
   OpenThread: string -> unit
   CloseThread: string -> unit
   Threads: IObservable<Map<string, Control>>
+  Terminal: Control
+  ShowTerminal: TerminalRequest -> unit
+  RefreshHistory: unit -> unit
 }
 
 type Model = {
@@ -65,6 +84,10 @@ type Model = {
   Activity: ActivityBar.Activity
   FlyoutOpen: bool
   Now: DateTimeOffset
+  Panel: EditorPanel.State
+  Problems: EditorPanel.ProblemsState
+  Output: EditorPanel.OutputLine list
+  ThreadParticipants: Map<string, ParticipantRow list>
 }
 
 type Msg =
@@ -78,16 +101,25 @@ type Msg =
   | SessionChanged of SessionState
   | RemotesChanged of count: int
   | SavedChanged of count: int
-  | QueueChanged of count: int
   | ClockTicked of moment: DateTimeOffset
   | ActivitySelected of ActivityBar.Activity
   | WidthChanged of band: WidthBand
+  | PanelToggled of EditorPanel.Tab
+  | PanelSelected of EditorPanel.Tab
+  | PanelClosed
+  | ProblemsFetched of Result<NotificationPage, AppError>
+  | QueueFetched of Result<ScheduledPage, AppError>
+  | FetchObserved of string * Result<unit, string>
+  | QuoteRequested of Commit
+  | ReplyRequested of Commit
+  | ComposerChanged of ComposerEvent
 
 [<Struct>]
 type HistorySinks = {
   Snapshot: HistoryTab.Snapshot -> unit
   Scroll: float -> unit
   Open: Commit -> unit
+  Fetch: Result<unit, string> -> unit
 }
 
 type ProgramArgs<'env
@@ -98,13 +130,20 @@ type ProgramArgs<'env
   and 'env :> IProvideSession
   and 'env :> IProvideRemotes
   and 'env :> IProvideUiClock
-  and 'env :> IProvideImageCache> = {
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLogging> = {
   Runtime: Runtime
   Props: Props<'env>
   History: IObservable<HistoryTab.Snapshot>
   Scrolls: IObservable<LogKind * float>
   Threads: IObservable<string * ThreadTab.Snapshot>
   Opens: IObservable<Commit>
+  Quotes: IObservable<Commit>
+  Replies: IObservable<Commit>
+  ComposerEvents: IObservable<ComposerEvent>
+  Fetches: IObservable<string * Result<unit, string>>
 }
 
 type ViewArgs<'env
@@ -115,12 +154,28 @@ type ViewArgs<'env
   and 'env :> IProvideSession
   and 'env :> IProvideRemotes
   and 'env :> IProvideUiClock
-  and 'env :> IProvideImageCache> = {
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLogging> = {
   Runtime: Runtime
   Props: Props<'env>
   Model: IObservable<Model>
   Dispatch: Dispatch<Msg>
 }
+
+type UpdateArgs<'env
+  when 'env :> IProvideClock
+  and 'env :> IProvideNonceSource
+  and 'env :> IProvideSigner
+  and 'env :> IProvideHttp
+  and 'env :> IProvideSession
+  and 'env :> IProvideRemotes
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLogging> = { Runtime: Runtime; Props: Props<'env> }
 
 [<Struct>]
 type HistoryArgs<'env
@@ -131,10 +186,14 @@ type HistoryArgs<'env
   and 'env :> IProvideSession
   and 'env :> IProvideRemotes
   and 'env :> IProvideUiClock
-  and 'env :> IProvideImageCache> = {
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLogging> = {
   Props: Props<'env>
   Log: LogKind
   Place: EditorPlace
+  Refresh: IObservable<unit>
   Sinks: HistorySinks
 }
 
@@ -146,22 +205,33 @@ let historyProps(args: HistoryArgs<'env>) : HistoryTab.Props<'env> = {
   Active = args.Props.Active
   Now = args.Props.Now
   Restore = ValueSome args.Place
+  Refresh = args.Refresh
   OnSnapshot = args.Sinks.Snapshot
   OnScroll = args.Sinks.Scroll
   OnOpen = args.Sinks.Open
+  OnFetch = args.Sinks.Fetch
+}
+
+[<Struct>]
+type ThreadHooks = {
+  Snapshot: ThreadTab.Snapshot -> unit
+  Fetch: Result<unit, string> -> unit
+  Quote: Commit -> unit
+  Reply: Commit -> unit
 }
 
 let threadProps
-  (props: Props<'env>, commitId: string, onSnapshot: ThreadTab.Snapshot -> unit)
+  (props: Props<'env>, commitId: string, hooks: ThreadHooks)
   : ThreadTab.Props<'env> = {
   Env = props.Env
   Session = props.Session
   CommitId = commitId
   Zone = props.Zone
   Now = props.Now
-  OnSnapshot = onSnapshot
-  OnQuote = props.OnQuote
-  OnReplyRequested = props.OnReplyRequested
+  OnSnapshot = hooks.Snapshot
+  OnFetch = hooks.Fetch
+  OnQuote = hooks.Quote
+  OnReplyRequested = hooks.Reply
 }
 
 let initial(props: Props<'env>, history: HistoryTab.Snapshot) = {
@@ -176,6 +246,10 @@ let initial(props: Props<'env>, history: HistoryTab.Snapshot) = {
   Activity = ActivityBar.History
   FlyoutOpen = false
   Now = props.Now()
+  Panel = EditorPanel.closed
+  Problems = EditorPanel.emptyProblems
+  Output = []
+  ThreadParticipants = Map.empty
 }
 
 let unreadOf(state: SessionState) =
@@ -183,7 +257,45 @@ let unreadOf(state: SessionState) =
   | SignedIn session -> session.Session.UnreadNotificationsCount
   | SignedOut -> 0
 
-let update(runtime: Runtime, msg: Msg, model: Model) =
+let readNotifications
+  (props: Props<'env>)
+  : Async<Result<NotificationPage, AppError>> =
+  Notifications.list(
+    props.Env,
+    {
+      KeyFile = props.Session.KeyFile
+      Filter = None
+      Through = None
+      Cursor = None
+    }
+  )
+
+let readQueue(props: Props<'env>) : Async<Result<ScheduledPage, AppError>> =
+  ScheduledCommits.list(
+    props.Env,
+    {
+      KeyFile = props.Session.KeyFile
+      Page = 1
+    }
+  )
+
+let addOutput(refName: string, result: Result<unit, string>, model: Model) = {
+  model with
+      Output =
+        EditorPanel.appendOutput(
+          {
+            Ref = refName
+            Result =
+              match result with
+              | Ok() -> "ok"
+              | Error message -> $"failed: {message}"
+            At = model.Now
+          },
+          model.Output
+        )
+}
+
+let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
   match msg with
   | RefSelected log ->
     let place =
@@ -204,7 +316,7 @@ let update(runtime: Runtime, msg: Msg, model: Model) =
           FlyoutOpen = false
     }
 
-    next, Cmd.ofAction(fun () -> runtime.SwitchRef(log, place))
+    next, Cmd.ofAction(fun () -> args.Runtime.SwitchRef(log, place))
   | OpenThread commit ->
     let id = TabId.thread commit.Id
 
@@ -232,7 +344,7 @@ let update(runtime: Runtime, msg: Msg, model: Model) =
             FlyoutOpen = false
       }
 
-      next, Cmd.ofAction(fun () -> runtime.OpenThread commit.Id)
+      next, Cmd.ofAction(fun () -> args.Runtime.OpenThread commit.Id)
   | TabSelected id ->
     let next = {
       model with
@@ -247,16 +359,26 @@ let update(runtime: Runtime, msg: Msg, model: Model) =
       |> EditorState.tabs
       |> List.tryFind(fun tab -> EditorTab.id tab = id)
 
+    let closed =
+      match target with
+      | Some tab when not(EditorTab.isPinned tab) -> true
+      | _ -> false
+
     let next = {
       model with
           Frame = EditorState.closeTab(id, model.Frame)
+          ThreadParticipants =
+            if closed then
+              model.ThreadParticipants |> Map.remove(TabId.key id)
+            else
+              model.ThreadParticipants
     }
 
     let cmd =
-      match target with
-      | Some tab when not(EditorTab.isPinned tab) ->
-        Cmd.ofAction(fun () -> runtime.CloseThread(TabId.key id))
-      | _ -> Cmd.none
+      if closed then
+        Cmd.ofAction(fun () -> args.Runtime.CloseThread(TabId.key id))
+      else
+        Cmd.none
 
     next, cmd
   | HistoryChanged history ->
@@ -303,7 +425,13 @@ let update(runtime: Runtime, msg: Msg, model: Model) =
         else
           frame
 
-      { model with Frame = frame }, Cmd.none
+      {
+        model with
+            Frame = frame
+            ThreadParticipants =
+              model.ThreadParticipants.Add(commitId, snapshot.Participants)
+      },
+      Cmd.none
   | Scrolled(log, offset) ->
     let place =
       model.Places |> Map.tryFind log |> Option.defaultValue EditorPlace.empty
@@ -327,34 +455,191 @@ let update(runtime: Runtime, msg: Msg, model: Model) =
     let next = { model with Saved = count }
 
     next, Cmd.none
-  | QueueChanged count ->
-    let next = { model with Queue = count }
-
-    next, Cmd.none
   | ClockTicked moment ->
     let next = { model with Now = moment }
 
     next, Cmd.none
   | ActivitySelected activity ->
-    let flyout =
-      activity = ActivityBar.History
-      && model.Band <> Full
-      && not model.FlyoutOpen
+    match activity with
+    | ActivityBar.Problems ->
+      let panel = EditorPanel.toggle(EditorPanel.Problems, model.Panel)
+      let openProblems = panel.Open && panel.Tab = EditorPanel.Problems
 
-    let frame =
-      if activity = ActivityBar.History && model.Band = Full then
-        EditorState.selectTab(TabId.history, model.Frame)
-      else
-        model.Frame
+      let next = {
+        model with
+            Panel = panel
+            Activity = ActivityBar.Problems
+            FlyoutOpen = false
+            Problems =
+              if openProblems then
+                EditorPanel.beginProblems model.Problems
+              else
+                model.Problems
+      }
+
+      let cmd =
+        if openProblems then
+          Cmd.OfAsync.perform readNotifications args.Props ProblemsFetched
+        else
+          Cmd.none
+
+      next, cmd
+    | ActivityBar.History ->
+      let flyout = model.Band <> Full && not model.FlyoutOpen
+
+      let frame =
+        if model.Band = Full then
+          EditorState.selectTab(TabId.history, model.Frame)
+        else
+          model.Frame
+
+      let next = {
+        model with
+            Frame = frame
+            Activity = ActivityBar.History
+            FlyoutOpen = flyout
+            Panel = EditorPanel.close model.Panel
+      }
+
+      next, Cmd.none
+    | _ ->
+      let next = {
+        model with
+            Activity = activity
+            FlyoutOpen = false
+      }
+
+      next, Cmd.none
+  | PanelToggled tab ->
+    let panel = EditorPanel.toggle(tab, model.Panel)
+    let openProblems = panel.Open && panel.Tab = EditorPanel.Problems
 
     let next = {
       model with
-          Frame = frame
-          Activity = activity
-          FlyoutOpen = flyout
+          Panel = panel
+          Activity = ActivityBar.Problems
+          FlyoutOpen = false
+          Problems =
+            if openProblems then
+              EditorPanel.beginProblems model.Problems
+            else
+              model.Problems
     }
 
-    next, Cmd.none
+    let cmd =
+      if openProblems then
+        Cmd.OfAsync.perform readNotifications args.Props ProblemsFetched
+      else
+        Cmd.none
+
+    next, cmd
+  | PanelSelected tab ->
+    let panel = EditorPanel.select(tab, model.Panel)
+    let openProblems = tab = EditorPanel.Problems
+
+    let next = {
+      model with
+          Panel = panel
+          Activity = ActivityBar.Problems
+          FlyoutOpen = false
+          Problems =
+            if openProblems then
+              EditorPanel.beginProblems model.Problems
+            else
+              model.Problems
+    }
+
+    let cmd =
+      if openProblems then
+        Cmd.OfAsync.perform readNotifications args.Props ProblemsFetched
+      else
+        Cmd.none
+
+    next, cmd
+  | PanelClosed ->
+    {
+      model with
+          Panel = EditorPanel.close model.Panel
+          Activity = ActivityBar.History
+    },
+    Cmd.none
+  | ProblemsFetched result ->
+    match result with
+    | Ok page ->
+      let next = {
+        model with
+            Problems = {
+              Loading = false
+              Error = None
+              Items = page.Page.Items
+            }
+      }
+
+      addOutput("notifications", Ok(), next), Cmd.none
+    | Error error ->
+      let next = {
+        model with
+            Problems = {
+              model.Problems with
+                  Loading = false
+                  Error = Some error
+            }
+      }
+
+      addOutput("notifications", Error(describe error), next), Cmd.none
+  | QueueFetched result ->
+    match result with
+    | Ok page ->
+      addOutput("queue", Ok(), { model with Queue = page.Total }), Cmd.none
+    | Error error -> addOutput("queue", Error(describe error), model), Cmd.none
+  | FetchObserved(refName, result) ->
+    addOutput(refName, result, model), Cmd.none
+  | QuoteRequested commit ->
+    let next = {
+      model with
+          Panel = EditorPanel.openOn(EditorPanel.Terminal, model.Panel)
+          Activity = ActivityBar.Problems
+          FlyoutOpen = false
+    }
+
+    next, Cmd.ofAction(fun () -> args.Runtime.ShowTerminal(QuoteTerm commit))
+  | ReplyRequested commit ->
+    let active = EditorState.activeTab model.Frame
+
+    let participants =
+      if TabId.isHistory active then
+        []
+      else
+        model.ThreadParticipants
+        |> Map.tryFind(TabId.key active)
+        |> Option.defaultValue []
+
+    let next = {
+      model with
+          Panel = EditorPanel.openOn(EditorPanel.Terminal, model.Panel)
+          Activity = ActivityBar.Problems
+          FlyoutOpen = false
+    }
+
+    next,
+    Cmd.ofAction(fun () ->
+      args.Runtime.ShowTerminal(ReplyTerm(commit, participants)))
+  | ComposerChanged event ->
+    match event with
+    | Posted _ ->
+      let next = {
+        model with
+            Panel = EditorPanel.close model.Panel
+            Activity = ActivityBar.History
+      }
+
+      next,
+      Cmd.batch [
+        Cmd.ofAction(fun () -> args.Runtime.RefreshHistory())
+        Cmd.ofAction(fun () -> args.Runtime.ShowTerminal FreshTerm)
+      ]
+    | Scheduled _ ->
+      model, Cmd.OfAsync.perform readQueue args.Props QueueFetched
   | WidthChanged band ->
     if band = model.Band then
       model, Cmd.none
@@ -377,6 +662,20 @@ let subscribe(args: ProgramArgs<'env>, _model: Model) : Sub<Msg> =
 
     Sub.fromObservable "opens" (args.Opens |> Observable.map OpenThread)
 
+    Sub.fromObservable "quotes" (args.Quotes |> Observable.map QuoteRequested)
+
+    Sub.fromObservable "replies" (args.Replies |> Observable.map ReplyRequested)
+
+    Sub.fromObservable
+      "composer"
+      (args.ComposerEvents |> Observable.map ComposerChanged)
+
+    Sub.fromObservable
+      "fetches"
+      (args.Fetches
+       |> Observable.map(fun (refName, result) ->
+         FetchObserved(refName, result)))
+
     Sub.fromObservable
       "session"
       (args.Props.Env.Session.Observe |> Observable.map SessionChanged)
@@ -388,8 +687,6 @@ let subscribe(args: ProgramArgs<'env>, _model: Model) : Sub<Msg> =
          RemotesChanged(state.Unread |> Option.defaultValue 0)))
 
     Sub.fromObservable "saved" (args.Props.Saved |> Observable.map SavedChanged)
-
-    Sub.fromObservable "queue" (args.Props.Queue |> Observable.map QueueChanged)
 
     Sub.fromObservable
       "clock"
@@ -481,6 +778,37 @@ let view(args: ViewArgs<'env>) : Control =
 
   let content = ContentControl().Content(activeContent |> _.ToBinding())
 
+  let panel =
+    EditorPanel.view {
+      State = model |> Observable.map(fun current -> current.Panel)
+      Problems = model |> Observable.map(fun current -> current.Problems)
+      Output = model |> Observable.map(fun current -> current.Output)
+      Terminal = args.Runtime.Terminal
+      Now = model |> Observable.map(fun current -> current.Now)
+      OnSelect = fun tab -> dispatch(PanelSelected tab)
+      OnClose = fun () -> dispatch PanelClosed
+      OnOpenCommit = fun commit -> dispatch(OpenThread commit)
+    }
+
+  let spacer =
+    Border()
+      .Height(EditorPanel.height)
+      .IsVisible(
+        model
+        |> Observable.map(fun current ->
+          current.Panel.Open && current.Band = Full)
+      )
+
+  let dim =
+    Border()
+      .Name("EditorPanelDim")
+      .Classes(Theme.name Theme.ScrimBack)
+      .IsVisible(
+        model
+        |> Observable.map(fun current ->
+          current.Panel.Open && current.Band <> Full)
+      )
+
   let flyoutExplorer =
     ContentControl().Width(240.0).Content(explorer |> _.ToBinding())
 
@@ -500,7 +828,12 @@ let view(args: ViewArgs<'env>) : Control =
 
   let contentArea = Grid()
 
-  contentArea.Children(content, flyout) |> ignore
+  contentArea.RowDefinitions <- RowDefinitions("*,Auto")
+  Grid.SetRowSpan(dim, 2)
+  Grid.SetRowSpan(panel, 2)
+
+  contentArea.Children(content.Row(0), spacer.Row(1), flyout, dim, panel)
+  |> ignore
 
   let editor = Grid()
 
@@ -549,12 +882,43 @@ let view(args: ViewArgs<'env>) : Control =
 
   root
 
+let quoteCard(props: Props<'env>, commit: Commit) : Control =
+  feedRow
+    {
+      OnEvent = ignore
+      OnOpenExternal = ignore
+      ViewerId = props.Session.Session.User.Id
+      Pasteis = Observable.single props.Session.Session.PasteisMode
+      Now = Observable.single(props.Now())
+      PollChoices = Observable.single(Map.empty<string, string>)
+      Dense = true
+      Images = props.Env.ImageCache
+      Flyout = ValueNone
+      Pin = ValueNone
+      Star = ValueNone
+      Stars = ValueNone
+      Vote = ValueNone
+      Pastel = ValueNone
+      Menu = ValueNone
+      Translation = Observable.single(fun _ -> ValueNone)
+      Zone = props.Zone
+    }
+    (LiveCommit commit)
+
 let program(args: ProgramArgs<'env>) : Program<unit, Model, Msg, Control> =
   Program.mkProgram
     (fun () ->
       initial(args.Props, HistoryTab.State.snapshot HistoryTab.State.initial),
-      Cmd.none)
-    (fun msg model -> update(args.Runtime, msg, model))
+      Cmd.OfAsync.perform readQueue args.Props QueueFetched)
+    (fun msg model ->
+      update(
+        {
+          Runtime = args.Runtime
+          Props = args.Props
+        },
+        msg,
+        model
+      ))
     (fun model dispatch ->
       view {
         Runtime = args.Runtime
@@ -579,9 +943,55 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
     new System.Reactive.Subjects.Subject<string * ThreadTab.Snapshot>()
 
   let opens = new System.Reactive.Subjects.Subject<Commit>()
+  let historyRefresh = new System.Reactive.Subjects.Subject<unit>()
+  let quotes = new System.Reactive.Subjects.Subject<Commit>()
+  let replies = new System.Reactive.Subjects.Subject<Commit>()
+
+  let composerEvents = new System.Reactive.Subjects.Subject<ComposerEvent>()
+
+  let fetches =
+    new System.Reactive.Subjects.ReplaySubject<string * Result<unit, string>>(
+      EditorPanel.outputCap
+    )
+
   let entries = new BehaviorSubject<Map<string, ThreadEntry>>(Map.empty)
   let content = ContentControl()
+  let term = ContentControl()
   let historyLifetime = new SerialDisposable()
+
+  let showTerminal(request: TerminalRequest) =
+    let target, quoted, participants =
+      match request with
+      | FreshTerm -> DevNull.Client.Components.Composer.Fresh, None, ValueNone
+      | QuoteTerm commit ->
+        DevNull.Client.Components.Composer.Quoting commit.Id,
+        Some commit,
+        ValueNone
+      | ReplyTerm(commit, rows) ->
+        DevNull.Client.Components.Composer.ReplyTo commit.Id,
+        None,
+        ValueSome rows
+
+    let composer =
+      DevNull.Client.Components.Composer.Page {
+        Env = props.Env
+        Session = props.Session
+        Target = target
+        Participants = participants
+        OnCommitted = fun commit -> composerEvents.OnNext(Posted commit)
+        OnScheduled =
+          ValueSome(fun scheduled -> composerEvents.OnNext(Scheduled scheduled))
+        OnOpenQueue = ValueNone
+        Draft = ValueNone
+        OnBodyReady = ValueSome(fun body -> body.Focus() |> ignore)
+      }
+
+    let parts: Control array =
+      match quoted with
+      | Some commit -> [| quoteCard(props, commit); composer |]
+      | None -> [| composer |]
+
+    term.Content <- StackPanel().Spacing(8.0).Children(parts)
 
   let show(log: LogKind, place: EditorPlace) =
     selected.OnNext log
@@ -594,6 +1004,7 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
           Props = props
           Log = log
           Place = place
+          Refresh = historyRefresh
           Sinks = {
             Snapshot =
               fun snapshot ->
@@ -607,6 +1018,10 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
               fun commit ->
                 if selected.Value = log then
                   opens.OnNext commit
+            Fetch =
+              fun result ->
+                if selected.Value = log then
+                  fetches.OnNext($"history {LogLabel.ofKind log}", result)
           }
         }
       )
@@ -615,6 +1030,7 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
     historyLifetime.Disposable <- handle
 
   show(StoredState.selectedRef props.Stored, EditorPlace.empty)
+  showTerminal FreshTerm
 
   let threads =
     entries
@@ -629,7 +1045,13 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
           threadProps(
             props,
             commitId,
-            fun snapshot -> threadSnapshots.OnNext(commitId, snapshot)
+            {
+              Snapshot =
+                fun snapshot -> threadSnapshots.OnNext(commitId, snapshot)
+              Fetch = fun result -> fetches.OnNext($"thread {commitId}", result)
+              Quote = fun commit -> quotes.OnNext commit
+              Reply = fun commit -> replies.OnNext commit
+            }
           )
         )
 
@@ -650,6 +1072,9 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
     OpenThread = openThread
     CloseThread = closeThread
     Threads = threads
+    Terminal = term
+    ShowTerminal = showTerminal
+    RefreshHistory = fun () -> historyRefresh.OnNext()
   }
 
   let args: ProgramArgs<'env> = {
@@ -659,6 +1084,10 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
     Scrolls = scrolls
     Threads = threadSnapshots
     Opens = opens
+    Quotes = quotes
+    Replies = replies
+    ComposerEvents = composerEvents
+    Fetches = fetches
   }
 
   let root, frameHandle =
@@ -683,7 +1112,17 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
       threadSnapshots.OnCompleted()
       threadSnapshots.Dispose()
       opens.OnCompleted()
-      opens.Dispose())
+      opens.Dispose()
+      historyRefresh.OnCompleted()
+      historyRefresh.Dispose()
+      quotes.OnCompleted()
+      quotes.Dispose()
+      replies.OnCompleted()
+      replies.Dispose()
+      composerEvents.OnCompleted()
+      composerEvents.Dispose()
+      fetches.OnCompleted()
+      fetches.Dispose())
 
   let handles = new CompositeDisposable()
 

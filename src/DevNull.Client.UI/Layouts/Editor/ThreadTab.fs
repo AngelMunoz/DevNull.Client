@@ -17,6 +17,7 @@ open MVUish.Avalonia.Collections
 open DevNull.Client
 open DevNull.Client.Components.CommitCard
 open DevNull.Client.Components.PageChrome
+open DevNull.Client.Components.ReplyPicker
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
@@ -31,6 +32,7 @@ open DevNull.Client.UiClock
 type Snapshot = {
   CommitId: string
   RepliesCount: int
+  Participants: ParticipantRow list
   Loading: bool
   Error: AppError option
 }
@@ -48,6 +50,7 @@ type Props<'env
   Zone: Zone
   Now: unit -> DateTimeOffset
   OnSnapshot: Snapshot -> unit
+  OnFetch: Result<unit, string> -> unit
   OnQuote: Commit -> unit
   OnReplyRequested: Commit -> unit
 }
@@ -98,12 +101,44 @@ module State =
     |> Option.bind(fun page -> page.Commit.RepliesCount)
     |> Option.defaultValue model.Replies.Length
 
+  let participantsOf(model: Model) =
+    match model.Page with
+    | Some page ->
+      let author = page.Commit.Author
+
+      let first: ParticipantRow = {
+        Id = Author.id author
+        Handle = Author.handle author
+        IsAuthor = true
+      }
+
+      let others =
+        page.ReplyParticipants
+        |> List.map(fun participant ->
+          {
+            Id = participant.Id
+            Handle = participant.Handle
+            IsAuthor = false
+          }
+          : ParticipantRow)
+
+      first :: others
+    | None -> []
+
   let snapshot(props: Props<'env>, model: Model) = {
     CommitId = props.CommitId
     RepliesCount = repliesCount model
+    Participants = participantsOf model
     Loading = model.Loading
     Error = model.Error
   }
+
+  let reportFetch(props: Props<'env>, result: Result<'a, AppError>) =
+    props.OnFetch(
+      match result with
+      | Ok _ -> Ok()
+      | Error error -> Error(describe error)
+    )
 
   let peekCached(model: Model, commitId: string) =
     model.Peek
@@ -192,6 +227,8 @@ module State =
   let update(props: Props<'env>, msg: Msg, model: Model) =
     match msg with
     | ThreadFetched result ->
+      reportFetch(props, result)
+
       match result with
       | Ok page ->
         let next = {
@@ -211,6 +248,8 @@ module State =
 
         next, announce(props, next)
     | RepliesFetched result ->
+      reportFetch(props, result)
+
       match result with
       | Ok page ->
         let next = {

@@ -2,7 +2,6 @@ module DevNull.Client.WebsiteLayout
 
 open System
 open Avalonia.Controls
-open Navs
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
@@ -23,12 +22,12 @@ open DevNull.Client.Unread
 open DevNull.Client.UiClock
 open DevNull.Client.UserSettingsStore
 open DevNull.Client.TranslationCache
-open DevNull.Client.Views.Routes
 
 /// Everything the website arrangement reads: the env its pages and
-/// dialogs call, the router the app built, the URL it booted on, and
-/// the window the arrangement stands in. The router and its boot URL
-/// belong to the app, not the arrangement: they outlive the layout.
+/// dialogs call, the window the arrangement stands in, and how long
+/// its undo toast stands. The arrangement builds its own route table
+/// and router at mount, and restores the path the route store kept
+/// while it stood down.
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
@@ -56,8 +55,6 @@ type Props<'env
   and 'env :> IProvideBrowser
   and 'env :> IProvideNatives> = {
   Env: 'env
-  Router: IRouter<Control>
-  BootUrl: string
   Window: Window
   /// How long the delete-undo toast stands; the window's own value,
   /// shortened only by the tests.
@@ -78,35 +75,6 @@ type Mount = {
   ToggleDrawer: unit -> unit
   Dispose: unit -> unit
 }
-
-/// Builds the app's route table and the router. The first navigation
-/// (`/log/latest` signed in, `/signin` signed out) is already in
-/// flight when this returns.
-val buildRoutes:
-  env: 'env -> RouterShell
-    when 'env :> IProvideClock
-    and 'env :> IProvideNonceSource
-    and 'env :> IProvideSigner
-    and 'env :> IProvidePkceSource
-    and 'env :> IProvideMachineName
-    and 'env :> IProvideHttp
-    and 'env :> IProvideDispatcher
-    and 'env :> IProvideSession
-    and 'env :> IProvideUiClock
-    and 'env :> IProvideImageCache
-    and 'env :> IProvideAttachmentSources
-    and 'env :> IProvideLastVisit
-    and 'env :> IProvideRecentSearches
-    and 'env :> IProvideProfiles
-    and 'env :> IProvideTimeline
-    and 'env :> IProvideSshKeys
-    and 'env :> IProvideSettings
-    and 'env :> IProvideUserSettings
-    and 'env :> IProvideTranslations
-    and 'env :> IProvideLogging
-    and 'env :> IProvideRemotes
-    and 'env :> IProvideBrowser
-    and 'env :> IProvideNatives
 
 /// Mounts the website arrangement — the dev-null site's own frame: the
 /// responsive sidebar, the reading column, the aside, the route

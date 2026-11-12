@@ -33,6 +33,7 @@ open DevNull.Client.Natives
 open DevNull.Client.Profiles
 open DevNull.Client.RecentSearchStore
 open DevNull.Client.Remotes
+open DevNull.Client.RemotesState
 open DevNull.Client.RouteStore
 open DevNull.Client.SettingsStore
 open DevNull.Client.Shortcuts
@@ -78,8 +79,6 @@ type Props<'env
   and 'env :> IProvideBrowser
   and 'env :> IProvideNatives> = {
   Env: 'env
-  Router: IRouter<Control>
-  BootUrl: string
   Window: Window
   UndoWindow: TimeSpan
 }
@@ -154,13 +153,16 @@ type ImmediatePageTransition() =
     member _.Start(_, _, _, _) = Task.CompletedTask
 
 // What one sidebar entry reads: where it goes, which section is
-// active, and whether the labels are hidden.
+// active, whether the labels are hidden, and the badge brushes the
+// mount owns.
 [<Struct>]
 type NavContext = {
   Navigate: string -> unit
   Active: BehaviorSubject<string voption>
   Compact: IObservable<bool>
   ScrollToTop: unit -> unit
+  Accent: IObservable<IBrush>
+  OnAccent: IObservable<IBrush>
 }
 
 let navItem(context: NavContext, entry: NavEntry) : Control =
@@ -176,7 +178,7 @@ let navItem(context: NavContext, entry: NavEntry) : Control =
     | ValueSome unread ->
       let badge =
         Border()
-          .Background(Brushes.accent)
+          .Background(context.Accent)
           .CornerRadius(8.0)
           .MinWidth(16.0)
           .Height(16.0)
@@ -188,7 +190,7 @@ let navItem(context: NavContext, entry: NavEntry) : Control =
           .Child(
             TextBlock()
               .FontSize(10.0)
-              .Foreground(Brushes.onAccent)
+              .Foreground(context.OnAccent)
               .Text(
                 unread
                 |> Observable.map(fun count ->
@@ -405,6 +407,8 @@ type SidebarProps = {
   Entries: NavEntry list
   Session: IObservable<SessionState>
   Images: ImageCacheService
+  Accent: IObservable<IBrush>
+  OnAccent: IObservable<IBrush>
   OpenCompose: unit -> unit
   OpenSearch: unit -> unit
   ToggleSidebar: unit -> unit
@@ -542,6 +546,8 @@ let sidebar(props: SidebarProps) : Control =
     Active = props.Active
     Compact = props.Compact
     ScrollToTop = props.ScrollToTop
+    Accent = props.Accent
+    OnAccent = props.OnAccent
   }
 
   let navChildren: Control array = [|
@@ -695,16 +701,8 @@ let chromeFeed(props: ChromeProps<'env>) : Control =
       PageChrome.rebuildOn(props.Session, userKey, chrome) |> _.ToBinding()
     )
 
-let buildRoutes
-  (env:
-    #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvidePkceSource & #IProvideMachineName & #IProvideHttp & #IProvideDispatcher & #IProvideSession & #IProvideUiClock & #IProvideImageCache & #IProvideAttachmentSources & #IProvideLastVisit & #IProvideRecentSearches & #IProvideProfiles & #IProvideTimeline & #IProvideSshKeys & #IProvideSettings & #IProvideUserSettings & #IProvideTranslations & #IProvideLogging & #IProvideRemotes & #IProvideBrowser & #IProvideNatives)
-  : RouterShell =
-  Routes.build env
-
 let mount(props: Props<'env>) : Mount =
   let env = props.Env
-  let router = props.Router
-  let bootUrl = props.BootUrl
   let window = props.Window
 
   let session = (env :> IProvideSession).Session
@@ -716,10 +714,35 @@ let mount(props: Props<'env>) : Mount =
 
   let inline keep(handle: IDisposable) = handles.Add handle
 
-  let activeSection =
-    new BehaviorSubject<string voption>(Navigation.sectionOf bootUrl)
+  // The arrangement's own route table and router: built at mount, so
+  // no outlet outlives its tree and no remount re-attaches a page
+  // whose programs ended at the first detach. The path the route
+  // store kept — the last path while another layout stood in the
+  // slot — is read before this mount's own boot lands.
+  let storedPath = env.Routes.Current
+
+  let routes = Routes.build env
+  let router = routes.Router
 
   let navigate(url: string) = Routes.go(env, router, url)
+
+  // The route store carries the live path to any chrome that follows
+  // the route; this mount feeds it while it stands. The boot
+  // navigation predates the subscription, so its route lands by hand.
+  env.Routes.Land routes.BootUrl
+
+  router.Changed
+  |> Observable.subscribe(fun snapshot ->
+    snapshot.Route |> ValueOption.iter(fun route -> env.Routes.Land route.Path))
+  |> keep
+
+  // A remount restores the last path: the fresh boot lands first,
+  // then the stored path supersedes it.
+  if storedPath <> "" && storedPath <> routes.BootUrl then
+    navigate storedPath
+
+  let activeSection =
+    new BehaviorSubject<string voption>(Navigation.sectionOf env.Routes.Current)
 
   router.Changed
   |> Observable.map(fun snapshot ->
@@ -963,14 +986,52 @@ let mount(props: Props<'env>) : Mount =
       Place = DialogChrome.Bottom
     }
 
+  // The arrangement mirrors the app-level streams it binds, so every
+  // binding's observer dies with the mount: no app-lifetime subject
+  // holds a binding — and through it a control — after the slot
+  // swaps. The feeds ride the handles the unmount releases.
+  let sessionStates = new BehaviorSubject<SessionState>(session.Current)
+
+  session.Observe |> Observable.subscribe sessionStates.OnNext |> keep
+
+  let remotesStates = new BehaviorSubject<RemotesState>(env.Remotes.Current)
+
+  env.Remotes.Observe |> Observable.subscribe remotesStates.OnNext |> keep
+
+  let unreadCounts = new BehaviorSubject<int>(0)
+
+  env.Unread.Count |> Observable.subscribe unreadCounts.OnNext |> keep
+
+  let routePaths = new BehaviorSubject<string>(env.Routes.Current)
+
+  env.Routes.Path |> Observable.subscribe routePaths.OnNext |> keep
+
+  // The themed brushes ride the app's own resource observables, which
+  // outlive every mount and never let a detached binding go. The
+  // arrangement mirrors the brushes it binds, so a retired tree holds
+  // nothing the app keeps.
+  let brushOf(source: IObservable<IBrush>) : BehaviorSubject<IBrush> =
+    let mirror = new BehaviorSubject<IBrush>(Brushes.Transparent)
+
+    source |> Observable.subscribe mirror.OnNext |> keep
+
+    mirror
+
+  let accentBrushes = brushOf(Brushes.accent)
+  let onAccentBrushes = brushOf(Brushes.onAccent)
+  let surfaceBrushes = brushOf(Brushes.surface)
+  let backgroundBrushes = brushOf(Brushes.background)
+  let cardBrushes = brushOf(Brushes.card)
+  let borderBrushes = brushOf(Brushes.border)
+
   // The remotes entry shows only while the account carries the
   // direct messages; its badge follows the store's unread total.
   let remotesUnread =
-    env.Remotes.Observe
+    remotesStates
     |> Observable.map(fun state -> state.Unread |> Option.defaultValue 0)
 
   let remotesOn =
-    session.Observe
+    sessionStates
     |> Observable.map(fun state ->
       match state with
       | SignedIn entry -> entry.Session.Remotes.IsSome
@@ -990,7 +1051,7 @@ let mount(props: Props<'env>) : Mount =
       Label = "Notifications"
       Section = "notifications"
       Url = "/notifications"
-      Badge = ValueSome(env.Unread.Count)
+      Badge = ValueSome unreadCounts
       Visible = ValueNone
     }
     {
@@ -1055,8 +1116,10 @@ let mount(props: Props<'env>) : Mount =
       Compact = compact
       Layout = layout
       Entries = entries
-      Session = session.Observe
+      Session = sessionStates
       Images = (env :> IProvideImageCache).ImageCache
+      Accent = accentBrushes
+      OnAccent = onAccentBrushes
       OpenCompose = fun () -> composeOpen.OnNext true
       OpenSearch = fun () -> searchOpen.OnNext true
       ToggleSidebar = toggleSidebar
@@ -1071,7 +1134,10 @@ let mount(props: Props<'env>) : Mount =
   let paneBackground =
     narrow
     |> Observable.map(fun isNarrow ->
-      if isNarrow then Brushes.surface else Brushes.background)
+      if isNarrow then
+        surfaceBrushes :> IObservable<IBrush>
+      else
+        backgroundBrushes :> IObservable<IBrush>)
     |> Observable.bind id
 
   let paneMargin =
@@ -1093,7 +1159,7 @@ let mount(props: Props<'env>) : Mount =
   let sidebarPane =
     Border()
       .Child(sidebarContent)
-      .BorderBrush(Brushes.border)
+      .BorderBrush(borderBrushes)
       .Background(paneBackground)
       .Margin(paneMargin)
       .BorderThickness(paneHairline)
@@ -1107,7 +1173,7 @@ let mount(props: Props<'env>) : Mount =
   let asidePane =
     aside {
       Env = env
-      Session = session.Observe
+      Session = sessionStates
       Navigate = navigate
       Wide = wide
     }
@@ -1125,7 +1191,7 @@ let mount(props: Props<'env>) : Mount =
     chromeFeed {
       Env = env
       Nav = router
-      Session = session.Observe
+      Session = sessionStates
       OnComposerBody = inlineComposerBody.OnNext
     }
 
@@ -1150,7 +1216,7 @@ let mount(props: Props<'env>) : Mount =
   // inbox and thread sit side by side, the way the site's own page
   // does.
   let isRemotes =
-    env.Routes.Path |> Observable.map(fun path -> path.StartsWith "/remotes")
+    routePaths |> Observable.map(fun path -> path.StartsWith "/remotes")
 
   let mainWidth =
     Observable.combineLatest
@@ -1167,8 +1233,8 @@ let mount(props: Props<'env>) : Mount =
 
   let mainHost =
     Border()
-      .Background(Brushes.card)
-      .BorderBrush(Brushes.border)
+      .Background(cardBrushes)
+      .BorderBrush(borderBrushes)
       .BorderThickness(Thickness(1.0, 0.0, 1.0, 0.0))
       .MaxWidth(mainWidth)
       .Child(mainColumn)
@@ -1270,6 +1336,16 @@ let mount(props: Props<'env>) : Mount =
       undoToast
       inlineComposerBody
       previous
+      sessionStates
+      remotesStates
+      unreadCounts
+      routePaths
+      accentBrushes
+      onAccentBrushes
+      surfaceBrushes
+      backgroundBrushes
+      cardBrushes
+      borderBrushes
     ]
 
     for handle in handles do
@@ -1277,6 +1353,13 @@ let mount(props: Props<'env>) : Mount =
 
     for subject in subjects do
       subject.Dispose()
+
+    // The pages hand their lifetimes to their route context, and a
+    // navigation away is what ends them. The retired arrangement
+    // parks its router on the about page — the one page that asks for
+    // nothing — after its route-store feed is cut, so the pages it
+    // showed end with it and the store keeps the path to restore.
+    navigate "/about"
 
   {
     Root = root

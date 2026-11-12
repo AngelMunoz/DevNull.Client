@@ -2,7 +2,6 @@ module DevNull.Client.Layouts
 
 open System
 open Avalonia.Controls
-open Navs
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
@@ -84,23 +83,12 @@ type RegisteredLayout = {
   Mount: IHostSurface -> ILayout
 }
 
-/// The built-ins for one env: the layouts in settings order, and the
-/// routes every surface shares. The routes are built once here — the
-/// host keeps the router for the tray and the sign-in callback, and
-/// the layout factories close over the same one, so a future switch
-/// keeps the router and its path alive.
-type BuiltIns = {
-  Layouts: RegisteredLayout list
-  Router: IRouter<Control>
-  BootUrl: string
-}
-
 /// The built-in layouts, in settings order. The first entry is the
 /// default layout, the one a stored name no registry knows falls back
 /// to. The factories close over the env and the undo window they are
 /// given here.
 val builtIn:
-  env: 'env * undoWindow: TimeSpan -> BuiltIns
+  env: 'env * undoWindow: TimeSpan -> RegisteredLayout list
     when 'env :> IProvideClock
     and 'env :> IProvideNonceSource
     and 'env :> IProvidePkceSource

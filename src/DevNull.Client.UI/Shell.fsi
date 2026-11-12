@@ -8,6 +8,7 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Env
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
+open DevNull.Client.Layouts
 open DevNull.Client.Natives
 open DevNull.Client.Profiles
 open DevNull.Client.RecentSearchStore
@@ -64,3 +65,12 @@ type Shell<'env
 
   /// Closes for real: the close-to-tray flag never hides this path.
   member Quit: unit -> unit
+
+  /// Adds one more layout to this window's registry, beside the
+  /// built-ins. The test harness registers its layouts this way.
+  member RegisterLayout: entry: RegisteredLayout -> unit
+
+  /// Asks the window to mount the layout a wire name stands for — the
+  /// same ask a mounted layout makes through the host surface, and
+  /// the one a pick in Settings rides once a second choice ships.
+  member SwitchLayout: name: string -> unit

@@ -5,13 +5,12 @@ open Avalonia
 open Avalonia.Controls
 open Avalonia.Platform
 open Microsoft.Extensions.Logging
-open Navs
-open DevNull.Client.Navigation
+open DevNull.Client.Layouts
 
 [<Struct>]
 type TrayProps = {
   Window: Window
-  Router: IRouter<Control>
+  Intents: LayoutIntent -> unit
   Unread: IObservable<int>
   Quit: unit -> unit
   Log: ILogger
@@ -27,12 +26,14 @@ module Helpers =
 
     window.Activate()
 
-  let navigate(props: TrayProps, url: string) : unit =
+  // The tray asks the active layout: the window stands on screen
+  // first, then the layout answers the intent its own way.
+  let ask(props: TrayProps, intent: LayoutIntent) : unit =
     raiseWindow props.Window
 
-    props.Log.LogDebug("The tray navigates to {Url}.", url)
+    props.Log.LogDebug("The tray asked for {Intent}.", intent)
 
-    go(props.Router, url, fun error -> props.Log.LogWarning("{Error}", error))
+    props.Intents intent
 
   let menuItem(label: string, onClick: unit -> unit) : NativeMenuItem =
     let entry = NativeMenuItem(Header = label)
@@ -57,19 +58,24 @@ let install(props: TrayProps) : unit =
   menu.Add(
     Helpers.menuItem(
       "Open /dev/null",
-      fun () -> Helpers.navigate(props, "/log/latest")
+      fun () ->
+        props.Log.LogDebug("The tray raised the window.")
+        Helpers.raiseWindow window
     )
   )
 
   menu.Add(
     Helpers.menuItem(
       "Notifications",
-      fun () -> Helpers.navigate(props, "/notifications")
+      fun () -> Helpers.ask(props, LayoutIntent.OpenNotifications)
     )
   )
 
   menu.Add(
-    Helpers.menuItem("Saved", fun () -> Helpers.navigate(props, "/saved"))
+    Helpers.menuItem(
+      "Saved",
+      fun () -> Helpers.ask(props, LayoutIntent.OpenSaved)
+    )
   )
 
   menu.Add(NativeMenuItemSeparator())

@@ -90,8 +90,6 @@
     <Compile Include="Navigation.fs" />
     <Compile Include="Shortcuts.fsi" />
     <Compile Include="Shortcuts.fs" />
-    <Compile Include="Tray.fsi" />
-    <Compile Include="Tray.fs" />
     <Compile Include="Slices.fsi" />
     <Compile Include="Slices.fs" />
     <Compile Include="Components\Status.fsi" />
@@ -230,6 +228,8 @@
     <Compile Include="Layouts\Website\WebsiteLayout.fs" />
     <Compile Include="Layouts.fsi" />
     <Compile Include="Layouts.fs" />
+    <Compile Include="Tray.fsi" />
+    <Compile Include="Tray.fs" />
     <Compile Include="Shell.fsi" />
     <Compile Include="Shell.fs" />
     <Compile Include="Startup.fsi" />

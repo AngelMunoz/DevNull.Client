@@ -2,7 +2,6 @@ module DevNull.Client.Layouts
 
 open System
 open Avalonia.Controls
-open Navs
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
@@ -71,25 +70,12 @@ type RegisteredLayout = {
   Mount: IHostSurface -> ILayout
 }
 
-/// The built-ins for one env: the layouts in settings order, and the
-/// routes every surface shares. The routes are built once here — the
-/// host keeps the router for the tray and the sign-in callback, and
-/// the layout factories close over the same one, so a future switch
-/// keeps the router and its path alive.
-type BuiltIns = {
-  Layouts: RegisteredLayout list
-  Router: IRouter<Control>
-  BootUrl: string
-}
-
 let builtIn
   (
     env:
       #IProvideClock & #IProvideNonceSource & #IProvidePkceSource & #IProvideMachineName & #IProvideSigner & #IProvideHttp & #IProvideDispatcher & #IProvideSession & #IProvideSettings & #IProvideLogging & #IProvideUnread & #IProvideUserSettings & #IProvideTranslations & #IProvideUiClock & #IProvideImageCache & #IProvideAttachmentSources & #IProvideLastVisit & #IProvideRecentSearches & #IProvideProfiles & #IProvideTimeline & #IProvideRoutes & #IProvideSshKeys & #IProvideRemotes & #IProvideBrowser & #IProvideNatives,
     undoWindow: TimeSpan
-  ) : BuiltIns =
-  let routes = WebsiteLayout.buildRoutes env
-
+  ) : RegisteredLayout list =
   // The default layout's intents are the identity mapping to routes:
   // the tray's Notifications and Saved land on the pages they name,
   // and the two compose intents open the arrangement's own dialogs.
@@ -97,8 +83,6 @@ let builtIn
     let site =
       WebsiteLayout.mount {
         Env = env
-        Router = routes.Router
-        BootUrl = routes.BootUrl
         Window = host.Window
         UndoWindow = undoWindow
       }
@@ -124,8 +108,4 @@ let builtIn
         member _.Dispose() = site.Dispose()
     }
 
-  {
-    Layouts = [ { Name = "current"; Mount = current } ]
-    Router = routes.Router
-    BootUrl = routes.BootUrl
-  }
+  [ { Name = "current"; Mount = current } ]

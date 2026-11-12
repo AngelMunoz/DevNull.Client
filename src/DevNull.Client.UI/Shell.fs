@@ -216,6 +216,16 @@ type Shell<'env
   // the Closing handler stands down.
   let quitRequested = new BehaviorSubject<bool>(false)
 
+  // Every switch ask, from a mounted layout, from the window's own
+  // ask, or from a pick in Settings once a second choice ships. The
+  // feed breaks the loop between the host surface and the switch
+  // itself.
+  let switchAsked = new System.Reactive.Subjects.Subject<string>()
+
+  // The slot's registry: the built-ins plus whatever the window
+  // registered at run time.
+  let registered = ResizeArray<RegisteredLayout>()
+
   do
     let session = (env :> IProvideSession).Session
 
@@ -264,41 +274,45 @@ type Shell<'env
     this.GetObservable(Window.WindowStateProperty)
     |> Observable.add(fun _ -> pulse())
 
-    // The app's routes: the router every surface shares — the tray,
-    // the sign-in callback, and the mounted layout — and the URL the
-    // first navigation landed on. The registry builds them once, so a
-    // future layout switch keeps the router and its path alive.
+    // The layout registry: the built-ins plus whatever the window
+    // registers at run time. Each layout builds its own routes at
+    // mount and restores the path the route store kept, so a switch
+    // needs no shared router — the tray asks intents and the callback
+    // rides the active layout's own navigation.
     let registry = Layouts.builtIn(env, undoWindow)
-    let router = registry.Router
 
-    // The route store carries the live path to any chrome that follows
-    // the route; the host feeds it for the app lifetime. The boot
-    // navigation predates the subscription, so its route lands by
-    // hand.
-    env.Routes.Land registry.BootUrl
+    registered.AddRange(registry)
 
-    router.Changed
-    |> Observable.add(fun snapshot ->
-      snapshot.Route
-      |> ValueOption.iter(fun route ->
-        log.LogDebug("The route landed at {Url}.", route.Path)
-        env.Routes.Land route.Path))
-
-    // The mounted layout: the host offers the window surface, and the
-    // registry's first entry — the default — mounts the website
-    // arrangement in the content slot.
+    // The host surface every layout receives at mount: the window it
+    // stands in, the visibility gate its own loops may follow, and the
+    // switch ask that lands on the feed below.
     let surface = {
       new IHostSurface with
         member _.Window = this
 
         member _.Active = windowActive
 
-        // The live switch lands with the registry's second entry;
-        // one layout is mounted today.
-        member _.Switch _ = ()
+        member _.Switch name = switchAsked.OnNext name
     }
 
-    let site = (List.head registry.Layouts).Mount surface
+    // The mounted layout: the host offers the window surface, and the
+    // registry mounts the arrangement the stored choice names; a
+    // name no entry answers falls back to the default, with one line.
+    let mountOf(name: string) : ILayout =
+      match registered |> Seq.tryFind(fun entry -> entry.Name = name) with
+      | Some entry -> entry.Mount surface
+      | None ->
+        log.LogWarning(
+          "The layout {Name} is not registered; the default layout mounts.",
+          name
+        )
+
+        (List.head registry).Mount surface
+
+    let mounted =
+      new BehaviorSubject<ILayout>(
+        mountOf(layoutString settings.Current.Layout)
+      )
 
     // The terms gate: while the signed account has not accepted the
     // terms in force, one dialog blocks the panes. Only the session's
@@ -344,10 +358,17 @@ type Shell<'env
 
     let windowState = this.GetObservable(Window.WindowStateProperty)
 
+    // The band follows the active layout: the narrow band rides the
+    // layout the slot holds — switched as the slot swaps — and the
+    // drawer toggle asks whatever layout stands in it, so no band
+    // binding outlives the layout it was built against.
+    let activeNarrow =
+      mounted |> Observable.switchMap(fun layout -> layout.Narrow)
+
     let bandPanel =
       band {
-        Narrow = site.Narrow
-        ToggleDrawer = site.ToggleDrawer
+        Narrow = activeNarrow
+        ToggleDrawer = fun () -> mounted.Value.ToggleDrawer()
         WindowState = windowState
         Minimize = fun () -> this.WindowState <- WindowState.Minimized
         ToggleMaximize =
@@ -358,9 +379,55 @@ type Shell<'env
         Close = fun () -> this.Close()
       }
 
-    // The window's one tree: the mounted layout under the terms gate
-    // and the band, so every layout inherits the gate.
-    this.Content <- Panel().Children(site.Root, termsLayer, bandPanel)
+    // The window's one tree: the content slot under the terms gate and
+    // the band, so every layout inherits the gate and the chrome.
+    let content = Panel().Children(mounted.Value.Root, termsLayer, bandPanel)
+
+    this.Content <- content
+
+    // The live switch: the retired layout lets go of everything it
+    // wired, the named one mounts in the same slot, and focus lands on
+    // the new root, so no key press reaches a dead control. One frame:
+    // the window, the gates, the band, and the loops never rebuild.
+    let switchTo(name: string) : unit =
+      if name <> mounted.Value.Name then
+        let retired = mounted.Value
+
+        retired.Dispose()
+        content.Children.RemoveAt(0)
+
+        let next = mountOf name
+
+        content.Children.Insert(0, next.Root)
+        mounted.OnNext next
+        next.Root.Focus() |> ignore
+
+    // One ask, one path: a layout's own Switch call, the window's own
+    // ask, and — once a second choice ships — a pick in Settings all
+    // land here. The stored choice is written first, so it persists
+    // even if the app dies mid-switch; a name no choice backs (a
+    // layout registered at run time) mounts for this run only.
+    switchAsked
+    |> Observable.add(fun name ->
+      match parseLayout name with
+      | Some choice -> settings.SetLayout choice
+      | None ->
+        log.LogDebug(
+          "The layout {Name} carries no stored choice; it mounts for this run only.",
+          name
+        )
+
+      switchTo name)
+
+    // The stored choice drives the slot: the replay carries the choice
+    // the window opened with, which is already mounted, and a later
+    // change mounts what it names.
+    settings.Observe
+    |> Observable.map(fun value -> layoutString value.Layout)
+    |> Observable.distinctUntilChanged
+    |> Observable.add(fun name ->
+      if name <> mounted.Value.Name then
+        switchTo name)
 
     // The inbox marks everything read as it lists, so the poller stops
     // while the inbox is on screen. The gate reads the live route the
@@ -408,7 +475,7 @@ type Shell<'env
 
     Tray.install {
       Window = this
-      Router = router
+      Intents = fun intent -> mounted.Value.Handle intent
       Unread = env.Unread.Count
       Log = log
       Quit =
@@ -419,12 +486,21 @@ type Shell<'env
     }
 
     // The one key table, tunneled ahead of every focused control. The
-    // host owns the tunnel; the mounted layout owns the actions it
-    // reaches, so no route outlives its page through it.
+    // host owns the tunnel; every ask reads the active layout, so a
+    // switch rebinds the table without a second install, and no route
+    // outlives its page through it.
     Shortcuts.install {
       Root = this
-      Actions = site.Actions
-      OverlayOpen = site.OverlayOpen
+      Actions = {
+        Compose = fun () -> mounted.Value.Actions.Compose()
+        Search = fun () -> mounted.Value.Actions.Search()
+        Help = fun () -> mounted.Value.Actions.Help()
+        Escape = fun () -> mounted.Value.Actions.Escape()
+        Navigate = fun url -> mounted.Value.Actions.Navigate url
+        ToggleFullScreen = fun () -> mounted.Value.Actions.ToggleFullScreen()
+        WalkCards = fun step -> mounted.Value.Actions.WalkCards step
+      }
+      OverlayOpen = fun () -> mounted.Value.OverlayOpen()
     }
 
     match callback with
@@ -434,7 +510,7 @@ type Shell<'env
       asyncEx {
         do! DeviceAuth.finish(env, uri, log) |> Async.Ignore
 
-        site.Navigate "/signin"
+        mounted.Value.Navigate "/signin"
       }
       |> Async.StartImmediate
     | None -> ()
@@ -452,3 +528,13 @@ type Shell<'env
   member this.Quit() : unit =
     quitRequested.OnNext true
     this.Close()
+
+  /// Adds one more layout to this window's registry, beside the
+  /// built-ins. The test harness registers its layouts this way.
+  member this.RegisterLayout(entry: RegisteredLayout) : unit =
+    registered.Add entry
+
+  /// Asks the window to mount the layout a wire name stands for — the
+  /// same ask a mounted layout makes through the host surface, and
+  /// the one a pick in Settings rides once a second choice ships.
+  member this.SwitchLayout(name: string) : unit = switchAsked.OnNext name

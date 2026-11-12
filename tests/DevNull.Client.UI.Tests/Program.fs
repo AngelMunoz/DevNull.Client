@@ -5,6 +5,7 @@ open Expecto
 open DevNull.Client.UI.Tests
 open DevNull.Client.UI.Tests.FeedTests
 open DevNull.Client.UI.Tests.Natives
+open DevNull.Client.UI.Tests.WorkbenchGateTests
 open DevNull.Client.UI.Tests.WorkbenchSettingsTests
 
 [<EntryPoint>]
@@ -19,6 +20,7 @@ let main argv =
       testSequenced Leaks.tests
       FeedTests.tests
       WorkbenchSettingsTests.tests
+      WorkbenchGateTests.tests
       App.tests
       App.notificationDayTests
       // Focus and key routing are process-global too; the suite runs

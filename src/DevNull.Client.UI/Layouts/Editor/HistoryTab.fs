@@ -24,6 +24,7 @@ open DevNull.Client.UiClock
 type Snapshot = {
   NewCount: int
   FetchedAt: DateTimeOffset option
+  Head: string option
   Loading: bool
 }
 
@@ -40,7 +41,10 @@ type Props<'env
   Zone: Zone
   Active: IObservable<bool>
   Now: unit -> DateTimeOffset
+  Restore: EditorPlace voption
   OnSnapshot: Snapshot -> unit
+  OnScroll: float -> unit
+  OnOpen: Commit -> unit
 }
 
 module State =
@@ -52,8 +56,6 @@ module State =
     NextCursor: string option
     Head: string option
     NewCount: int option
-    /// The newer commits a poll heard but did not merge; the next
-    /// poll reports them as arrived.
     HeardIds: string list
     Ranked: bool
     Polling: bool
@@ -69,6 +71,7 @@ module State =
     | ClockTicked of moment: DateTimeOffset
     | CheckNew
     | NewChecked of Result<LogPage, AppError>
+    | Opened of Commit
 
   let initial = {
     Loading = true
@@ -89,6 +92,7 @@ module State =
   let snapshot(model: Model) = {
     NewCount = model.NewCount |> Option.defaultValue 0
     FetchedAt = model.FetchedAt
+    Head = model.Head
     Loading = model.Loading
   }
 
@@ -150,7 +154,13 @@ module State =
     Cmd.ofAction(fun () -> props.OnSnapshot(snapshot model))
 
   let init(props: Props<'env>) =
-    let model = { initial with Now = props.Now() }
+    let restore = props.Restore |> ValueOption.defaultValue EditorPlace.empty
+
+    let model = {
+      initial with
+          Now = props.Now()
+          Head = restore.Head
+    }
 
     model,
     Cmd.batch [
@@ -218,6 +228,7 @@ module State =
       | Some head, false ->
         model, Cmd.OfAsync.perform checkNew (props, model, head) NewChecked
       | _ -> model, Cmd.none
+    | Opened commit -> model, Cmd.ofAction(fun () -> props.OnOpen commit)
     | NewChecked result ->
       match result with
       | Ok page ->
@@ -314,7 +325,10 @@ let view
     model |> Observable.map(fun current -> current.NextCursor.IsSome)
 
   let rowProps: RowProps = {
-    OnEvent = ignore
+    OnEvent =
+      function
+      | Opened commit -> dispatch(State.Opened commit)
+      | _ -> ()
     OnOpenExternal = ignore
     ViewerId = props.Session.Session.User.Id
     Pasteis = Observable.single props.Session.Session.PasteisMode
@@ -343,8 +357,11 @@ let view
       HasMore = hasMore
       ScrollTo = ValueNone
       Ride = false
-      Restore = ValueNone
-      OnScroll = ValueNone
+      Restore =
+        props.Restore
+        |> ValueOption.map(fun place -> place.Scroll)
+        |> ValueOption.filter(fun scroll -> scroll > 0.0)
+      OnScroll = ValueSome(fun offset -> props.OnScroll offset)
       OnRide = ValueNone
       OnNeedMore = ValueSome(fun () -> dispatch State.MoreRequested)
     }

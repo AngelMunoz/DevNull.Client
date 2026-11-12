@@ -21,6 +21,7 @@ open MVUish.Avalonia
 type Snapshot = {
   NewCount: int
   FetchedAt: DateTimeOffset option
+  Head: string option
   Loading: bool
 }
 
@@ -40,7 +41,13 @@ type Props<'env
   Zone: Zone
   Active: IObservable<bool>
   Now: unit -> DateTimeOffset
+  /// The reading place this ref returns to, or empty for a fresh read.
+  Restore: EditorPlace voption
   OnSnapshot: Snapshot -> unit
+  /// The feed's settled scroll offset, so the host can park the place.
+  OnScroll: float -> unit
+  /// A card click: the host opens the commit's thread tab.
+  OnOpen: Commit -> unit
 }
 
 /// The tab's state logic, exported so the update stays testable
@@ -56,7 +63,7 @@ module State =
     NextCursor: string option
     Head: string option
     NewCount: int option
-    /// The newer commits a poll heard but did not merge; the next
+    /// The newer commits a poll heard but did not add; the next
     /// poll reports them as arrived.
     HeardIds: string list
     Ranked: bool
@@ -76,6 +83,7 @@ module State =
     | ClockTicked of moment: DateTimeOffset
     | CheckNew
     | NewChecked of Result<LogPage, AppError>
+    | Opened of Commit
 
   /// The fresh state: the first page is on its way.
   val initial: Model

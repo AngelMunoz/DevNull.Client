@@ -34,6 +34,10 @@ type Props<'env
   Queue: IObservable<int>
   Active: IObservable<bool>
   Now: unit -> DateTimeOffset
+  /// The quote intent a card reports; Phase 3's terminal panel routes it.
+  OnQuote: Commit -> unit
+  /// The reply intent a card reports; Phase 3's terminal panel routes it.
+  OnReplyRequested: Commit -> unit
 }
 
 /// Mounts the editor frame: the activity bar, the explorer, the tab

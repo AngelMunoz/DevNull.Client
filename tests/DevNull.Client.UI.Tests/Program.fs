@@ -7,6 +7,7 @@ open DevNull.Client.UI.Tests.FeedTests
 open DevNull.Client.UI.Tests.EditorSettings
 open DevNull.Client.UI.Tests.EditorTypes
 open DevNull.Client.UI.Tests.EditorFrame
+open DevNull.Client.UI.Tests.EditorChurn
 open DevNull.Client.UI.Tests.EditorGates
 open DevNull.Client.UI.Tests.Natives
 
@@ -30,6 +31,7 @@ let main argv =
       // Focus and key routing are process-global too; the suite runs
       // alone like the memory budgets.
       testSequenced Shortcuts.tests
+      testSequenced EditorChurn.tests
       Unread.tests
     ]
 

@@ -10,6 +10,8 @@ module TabId =
 
   let ordinary(key: string) = TabId key
 
+  let thread(commitId: string) = TabId commitId
+
   let key(TabId key) = key
 
   let isHistory id = id = history
@@ -19,6 +21,8 @@ type EditorTab = {
   Title: string
   IsPinned: bool
   Dirty: int
+  RepliesCount: int
+  SeenReplies: int
 }
 
 module LogLabel =
@@ -36,6 +40,8 @@ module EditorTab =
     Title = LogLabel.ofKind log
     IsPinned = true
     Dirty = 0
+    RepliesCount = 0
+    SeenReplies = 0
   }
 
   let ordinary(id: TabId, title: string) = {
@@ -43,7 +49,21 @@ module EditorTab =
     Title = title
     IsPinned = false
     Dirty = 0
+    RepliesCount = 0
+    SeenReplies = 0
   }
+
+  let thread(id: TabId, title: string, repliesCount: int) =
+    let count = max 0 repliesCount
+
+    {
+      Id = id
+      Title = title
+      IsPinned = false
+      Dirty = 0
+      RepliesCount = count
+      SeenReplies = count
+    }
 
   let id(tab: EditorTab) = tab.Id
 
@@ -53,9 +73,45 @@ module EditorTab =
 
   let isPinned(tab: EditorTab) = tab.IsPinned
 
+  let repliesCount(tab: EditorTab) = tab.RepliesCount
+
+  let seenReplies(tab: EditorTab) = tab.SeenReplies
+
+  let withReplies(count: int, tab: EditorTab) =
+    let count = max 0 count
+
+    {
+      tab with
+          RepliesCount = count
+          Dirty = max 0 (count - tab.SeenReplies)
+    }
+
+  let markSeen(tab: EditorTab) = {
+    tab with
+        SeenReplies = tab.RepliesCount
+        Dirty = 0
+  }
+
   let dirty(tab: EditorTab) = tab.Dirty
 
   let withDirty(count: int, tab: EditorTab) = { tab with Dirty = max 0 count }
+
+[<Struct>]
+type EditorPlace = { Scroll: float; Head: string option }
+
+module EditorPlace =
+
+  let empty = { Scroll = 0.0; Head = None }
+
+  let withScroll(scroll: float, place: EditorPlace) = {
+    place with
+        Scroll = max 0.0 scroll
+  }
+
+  let withHead(head: string option, place: EditorPlace) = {
+    place with
+        Head = head
+  }
 
 type WidthBand =
   | Full
@@ -103,9 +159,31 @@ module EditorState =
 
   let selectTab(id: TabId, state: EditorState) =
     if state.Tabs |> List.exists(fun tab -> tab.Id = id) then
-      { state with ActiveTab = id }
+      let tabs =
+        state.Tabs
+        |> List.map(fun tab ->
+          if tab.Id = id && not(TabId.isHistory id) then
+            EditorTab.markSeen tab
+          else
+            tab)
+
+      {
+        state with
+            ActiveTab = id
+            Tabs = tabs
+      }
     else
       state
+
+  let openTab(tab: EditorTab, state: EditorState) =
+    if state.Tabs |> List.exists(fun existing -> existing.Id = tab.Id) then
+      selectTab(tab.Id, state)
+    else
+      {
+        state with
+            Tabs = state.Tabs @ [ tab ]
+            ActiveTab = tab.Id
+      }
 
   let historyTab(tabs: EditorTab list, selected: LogKind) =
     tabs
@@ -158,4 +236,23 @@ module EditorState =
           state.Tabs
           |> List.map(fun tab ->
             if tab.Id = id then EditorTab.withDirty(count, tab) else tab)
+  }
+
+  let setReplies(id: TabId, count: int, state: EditorState) = {
+    state with
+        Tabs =
+          state.Tabs
+          |> List.map(fun tab ->
+            if tab.Id = id then
+              EditorTab.withReplies(count, tab)
+            else
+              tab)
+  }
+
+  let markSeen(id: TabId, state: EditorState) = {
+    state with
+        Tabs =
+          state.Tabs
+          |> List.map(fun tab ->
+            if tab.Id = id then EditorTab.markSeen tab else tab)
   }

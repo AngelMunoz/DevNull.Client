@@ -14,6 +14,7 @@ open DevNull.Client.UI.Tests.Formatting
 open DevNull.Client.UI.Tests.ProfilePictures
 open DevNull.Client.UI.Tests.SearchLatest
 open DevNull.Client.UI.Tests.HistoryTab
+open DevNull.Client.UI.Tests.ThreadTab
 open DevNull.Client.UI.Tests.Translation
 open DevNull.Client.UI.Tests.WhoToFollow
 
@@ -36,6 +37,7 @@ let main argv =
       ProfilePictures.tests
       SearchLatest.tests
       HistoryTab.tests
+      ThreadTab.tests
     ]
 
   // Every UI test shares the one headless session thread, so a pool the

@@ -26,6 +26,7 @@
     <Compile Include="ProfilePictures.Tests.fs" />
     <Compile Include="SearchLatest.Tests.fs" />
     <Compile Include="HistoryTab.Tests.fs" />
+    <Compile Include="ThreadTab.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

@@ -15,6 +15,9 @@ module TabId =
   /// The identity of one ordinary tab, from its stable key.
   val ordinary: key: string -> TabId
 
+  /// The identity of one thread tab: the checked-out commit's id.
+  val thread: commitId: string -> TabId
+
   /// The key this identity carries.
   val key: id: TabId -> string
 
@@ -40,6 +43,10 @@ module EditorTab =
   /// One ordinary tab over its identity and title.
   val ordinary: id: TabId * title: string -> EditorTab
 
+  /// One thread tab at its first read: the replies count is the one
+  /// the card showed, and the tab starts seen.
+  val thread: id: TabId * title: string * repliesCount: int -> EditorTab
+
   /// The tab's identity.
   val id: tab: EditorTab -> TabId
 
@@ -52,12 +59,42 @@ module EditorTab =
   /// Whether the tab stays open through its close control.
   val isPinned: tab: EditorTab -> bool
 
+  /// The replies count the thread's last read reported.
+  val repliesCount: tab: EditorTab -> int
+
+  /// The replies count the reader last saw.
+  val seenReplies: tab: EditorTab -> int
+
+  /// The same tab under another replies count; its dirty count is the
+  /// unseen delta.
+  val withReplies: count: int * tab: EditorTab -> EditorTab
+
+  /// The same tab with every reply seen and no dot.
+  val markSeen: tab: EditorTab -> EditorTab
+
   /// The dirty count the dot shows; zero draws no dot.
   val dirty: tab: EditorTab -> int
 
   /// The same tab under another dirty count; a negative count reads
   /// as zero.
   val withDirty: count: int * tab: EditorTab -> EditorTab
+
+/// One ref's reading place: the feed's scroll offset and the newest
+/// commit the last first page carried. The root holds one per ref.
+[<Struct>]
+type EditorPlace = { Scroll: float; Head: string option }
+
+module EditorPlace =
+
+  /// No place read yet.
+  val empty: EditorPlace
+
+  /// The same place at another scroll offset; a negative offset reads
+  /// as zero.
+  val withScroll: scroll: float * place: EditorPlace -> EditorPlace
+
+  /// The same place over another head.
+  val withHead: head: string option * place: EditorPlace -> EditorPlace
 
 /// The width band the frame renders in.
 type WidthBand =
@@ -92,8 +129,14 @@ module EditorState =
   /// The active tab's identity.
   val activeTab: state: EditorState -> TabId
 
-  /// The same state on another tab, when that tab exists.
+  /// The same state on another tab, when that tab exists. A thread
+  /// tab's unseen replies clear as it takes the focus; the history
+  /// tab keeps its own new-commit count.
   val selectTab: id: TabId * state: EditorState -> EditorState
+
+  /// The same state with one tab opened, or with its tab selected
+  /// when it already exists.
+  val openTab: tab: EditorTab * state: EditorState -> EditorState
 
   /// The same state under another tab list. A list without the pinned
   /// history tab gains it back at the head.
@@ -105,3 +148,10 @@ module EditorState =
 
   /// The same state with one tab's dirty count set.
   val setDirty: id: TabId * count: int * state: EditorState -> EditorState
+
+  /// The same state with one thread tab's replies count set; its dirty
+  /// count follows the unseen delta.
+  val setReplies: id: TabId * count: int * state: EditorState -> EditorState
+
+  /// The same state with every reply of one thread tab seen.
+  val markSeen: id: TabId * state: EditorState -> EditorState

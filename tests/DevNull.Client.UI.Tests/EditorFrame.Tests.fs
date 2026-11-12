@@ -1,6 +1,7 @@
 module DevNull.Client.UI.Tests.EditorFrame
 
 open System
+open Avalonia
 open Avalonia.Controls
 open Avalonia.VisualTree
 open Expecto
@@ -33,6 +34,8 @@ let props(env: TestEnv) : EditorRoot.Props<TestEnv> =
     Queue = Observable.single 1
     Active = Observable.single true
     Now = fun () -> DateTimeOffset.UtcNow
+    OnQuote = ignore
+    OnReplyRequested = ignore
   }
 
 let statusText(window: Window) =
@@ -54,6 +57,46 @@ let explorerVisible(window: Window) =
     && (match visual with
         | :? Control as control -> control.IsEffectivelyVisible
         | _ -> false))
+
+let tabCount(window: Window) =
+  window.GetVisualDescendants()
+  |> Seq.filter(fun visual ->
+    match visual with
+    | :? Button as button ->
+      button.Classes.Contains(Theme.name Theme.TabButton)
+    | _ -> false)
+  |> Seq.length
+
+let feedScroller(window: Window) =
+  window.GetVisualDescendants()
+  |> Seq.choose(function
+    | :? ScrollViewer as scroller -> Some scroller
+    | _ -> None)
+  |> Seq.filter(fun scroller ->
+    scroller.Extent.Height > scroller.Viewport.Height + 1.0)
+  |> Seq.sortByDescending(fun scroller -> scroller.Extent.Height)
+  |> Seq.tryHead
+
+let longCommit(index: int) =
+  let moment =
+    DateTimeOffset(2026, 10, 20, 4, 17, 19, TimeSpan.Zero)
+      .AddMinutes(float index)
+      .ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+
+  commitJson
+    .Replace(
+      "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d",
+      $"018f4c1e-{index:D4}-7c3a-9b2d-5e6f7a8b9c0d"
+    )
+    .Replace("It was DNS.", $"Commit {index}.")
+    .Replace("2026-10-20T04:17:19Z", moment)
+
+let longLogPageJson =
+  let rows = [ for index in 0..29 -> longCommit index ] |> String.concat ","
+
+  sprintf
+    "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"following\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
+    rows
 
 let tests =
   testList "editor frame" [
@@ -119,16 +162,7 @@ let tests =
 
         Expect.isTrue shown "the explorer's header never rendered"
 
-        let tabCount() =
-          window.GetVisualDescendants()
-          |> Seq.filter(fun visual ->
-            match visual with
-            | :? Button as button ->
-              button.Classes.Contains(Theme.name Theme.TabButton)
-            | _ -> false)
-          |> Seq.length
-
-        let! tabsBefore = probeUiAsync(fun () -> tabCount())
+        let! tabsBefore = probeUiAsync(fun () -> tabCount window)
 
         do!
           onUiAsync(fun () ->
@@ -150,7 +184,7 @@ let tests =
         do! settleAsync()
 
         let! tabsAfter, switchedStatus =
-          probeUiAsync(fun () -> tabCount(), statusText window)
+          probeUiAsync(fun () -> tabCount window, statusText window)
 
         Expect.equal tabsAfter tabsBefore "the ref switch churned the tab strip"
 
@@ -177,6 +211,184 @@ let tests =
         Expect.isFalse
           explorerAtFloor
           "the explorer stayed visible at the app floor"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            handle.Dispose())
+      })
+
+    testCaseAsync
+      "a ref switch restores the place with one first-page fetch"
+      (async {
+        let api =
+          FakeApi(fun request ->
+            if request.Target.StartsWith "/api/v1/log/" then
+              ok longLogPageJson
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let env = TestEnv(signedInStore(), api :> IHttp)
+
+        let! window, handle =
+          probeUiAsync(fun () ->
+            let control, handle = EditorRoot.mount(ui, props env)
+
+            let window =
+              Window(Width = 1600.0, Height = 900.0, Content = control)
+
+            window.Show()
+            window, handle)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "Commit 0.")
+          )
+
+        Expect.isTrue shown "the long history never rendered"
+
+        do! settleAsync()
+
+        do!
+          onUiAsync(fun () ->
+            feedScroller window
+            |> Option.iter(fun scroller ->
+              scroller.Offset <- Vector(0.0, 240.0)))
+
+        do! settleAsync()
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "Latest") |> Option.iter click)
+
+        let! latest =
+          waitForAsync(
+            8000,
+            (fun () -> api.Requests),
+            fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Method = "GET"
+                && request.Target.StartsWith "/api/v1/log/latest")
+          )
+
+        Expect.isTrue latest "the Latest ref never read"
+
+        do! settleAsync()
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "Following") |> Option.iter click)
+
+        let! returned =
+          waitForAsync(
+            8000,
+            (fun () -> api.Requests),
+            fun requests ->
+              requests
+              |> List.filter(fun request ->
+                request.Method = "GET"
+                && request.Target.StartsWith "/api/v1/log/following")
+              |> List.length
+              >= 2
+          )
+
+        Expect.isTrue returned "the Following ref never read again"
+
+        let! restored =
+          waitForAsync(
+            8000,
+            (fun () ->
+              feedScroller window
+              |> Option.map(fun scroller -> scroller.Offset.Y)
+              |> Option.defaultValue -1.0),
+            fun offset -> abs(offset - 240.0) < 4.0
+          )
+
+        Expect.isTrue restored "the scroll place never returned"
+
+        let following =
+          api.Requests
+          |> List.filter(fun request ->
+            request.Method = "GET"
+            && request.Target.StartsWith "/api/v1/log/following")
+          |> List.length
+
+        Expect.equal following 2 "one first-page fetch per return"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            handle.Dispose())
+      })
+
+    testCaseAsync
+      "a thread tab opens beside the pinned tab at 1600 and trims at 380"
+      (async {
+        let api = threadApi()
+        let env = TestEnv(signedInStore(), api :> IHttp)
+
+        let! window, handle =
+          probeUiAsync(fun () ->
+            let control, handle = EditorRoot.mount(ui, props env)
+
+            let window =
+              Window(Width = 1600.0, Height = 900.0, Content = control)
+
+            window.Show()
+            window, handle)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history card never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "It was DNS.") |> Option.iter click)
+
+        let! thread =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "A reply.")
+          )
+
+        Expect.isTrue thread "the thread tab never opened"
+
+        let! tabs = probeUiAsync(fun () -> tabCount window)
+
+        Expect.equal tabs 2 "the pinned tab and the thread tab"
+
+        do! onUiAsync(fun () -> window.Width <- 380.0)
+        do! settleAsync()
+
+        let! kept =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "A reply.")
+          )
+
+        Expect.isTrue kept "the thread left at 380 px"
+
+        let! trimmed =
+          waitForAsync(
+            5000,
+            (fun () -> statusText window),
+            fun text ->
+              text |> Option.exists(fun value -> value = "⎇ Following")
+          )
+
+        Expect.isTrue trimmed "the status strip never trimmed at 380 px"
 
         do!
           onUiAsync(fun () ->

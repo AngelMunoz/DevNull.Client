@@ -86,7 +86,10 @@ let props(log: LogKind) : HistoryTab.Props<FakeEnv> = {
   }
   Active = Observable.single true
   Now = fun () -> DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero)
+  Restore = ValueNone
   OnSnapshot = ignore
+  OnScroll = ignore
+  OnOpen = ignore
 }
 
 let pageOf(json: string) =

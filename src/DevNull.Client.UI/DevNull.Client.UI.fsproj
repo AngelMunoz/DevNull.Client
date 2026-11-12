@@ -178,6 +178,8 @@
     <Compile Include="Layouts\Editor\EditorSettings.fs" />
     <Compile Include="Layouts\Editor\HistoryTab.fsi" />
     <Compile Include="Layouts\Editor\HistoryTab.fs" />
+    <Compile Include="Layouts\Editor\ThreadTab.fsi" />
+    <Compile Include="Layouts\Editor\ThreadTab.fs" />
     <Compile Include="Layouts\Editor\TabStrip.fsi" />
     <Compile Include="Layouts\Editor\TabStrip.fs" />
     <Compile Include="Layouts\Editor\ActivityBar.fsi" />

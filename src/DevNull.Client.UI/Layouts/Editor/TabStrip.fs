@@ -39,13 +39,17 @@ let dirtyDot(count: int) : Control voption =
     ValueNone
 
 let closeButton(props: Props, tab: EditorTab) : Control =
-  Button()
-    .Classes(Theme.name Theme.GhostButton)
-    .Padding(Thickness(2.0))
-    .Content(iconAt(Close, 10.0))
-    .OnClickHandler(fun _ args ->
-      args.Handled <- true
-      props.OnClose(EditorTab.id tab))
+  let button =
+    Button()
+      .Classes(Theme.name Theme.GhostButton)
+      .Padding(Thickness(2.0))
+      .Content(iconAt(Close, 10.0))
+      .OnClickHandler(fun _ args ->
+        args.Handled <- true
+        props.OnClose(EditorTab.id tab))
+
+  button.Name <- $"EditorTabClose-{TabId.key(EditorTab.id tab)}"
+  button
 
 let tabContent(props: Props, tab: EditorTab) : Control =
   let mark: Control array =
@@ -78,9 +82,13 @@ let tabButton(props: Props, tab: EditorTab) : Control =
     else
       Button().Classes(Theme.name Theme.TabButton)
 
+  let button =
+    button
+      .Content(tabContent(props, tab))
+      .OnClickHandler(fun _ _ -> props.OnSelect(EditorTab.id tab))
+
+  button.Name <- $"EditorTab-{TabId.key(EditorTab.id tab)}"
   button
-    .Content(tabContent(props, tab))
-    .OnClickHandler(fun _ _ -> props.OnSelect(EditorTab.id tab))
 
 let overflow(props: Props, hidden: EditorTab list) : Control =
   let menu = MenuFlyout()

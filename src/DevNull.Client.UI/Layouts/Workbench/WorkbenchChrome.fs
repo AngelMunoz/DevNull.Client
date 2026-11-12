@@ -1,4 +1,4 @@
-module DevNull.Client.Layouts.Workbench.WorkbenchChrome
+module DevNull.Client.Workbench.WorkbenchChrome
 
 open System
 open Avalonia.Controls

@@ -1,4 +1,4 @@
-namespace DevNull.Client.Layouts.Workbench
+namespace DevNull.Client.Workbench
 
 /// The workbench's stored state as one plain string. The stored form
 /// is the ref's token, then `|` and the checked-out commit id when one

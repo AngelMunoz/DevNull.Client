@@ -1,4 +1,4 @@
-namespace DevNull.Client.Layouts.Workbench
+namespace DevNull.Client.Workbench
 
 open DevNull.Client.Core.ApiTypes
 

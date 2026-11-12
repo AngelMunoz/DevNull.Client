@@ -1,4 +1,4 @@
-module DevNull.Client.Layouts.Workbench.Inspector
+module DevNull.Client.Workbench.Inspector
 
 open System
 open Avalonia.Controls

@@ -3,7 +3,7 @@ module DevNull.Client.UI.Tests.WorkbenchSettingsTests
 open Expecto
 
 open DevNull.Client.Core.ApiTypes
-open DevNull.Client.Layouts.Workbench
+open DevNull.Client.Workbench
 
 let private commitId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
 

@@ -1,4 +1,4 @@
-module DevNull.Client.Layouts.Workbench.HistoryColumn
+module DevNull.Client.Workbench.HistoryColumn
 
 open System
 open Avalonia.Controls

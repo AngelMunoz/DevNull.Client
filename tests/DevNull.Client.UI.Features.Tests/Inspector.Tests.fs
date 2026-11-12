@@ -11,7 +11,7 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
-open DevNull.Client.Layouts.Workbench
+open DevNull.Client.Workbench
 open DevNull.Client.UI.Tests.Fixtures
 
 type WorkbenchEnv() =

@@ -10,7 +10,7 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Http
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
-open DevNull.Client.Layouts.Workbench
+open DevNull.Client.Workbench
 open DevNull.Client.Stores
 open DevNull.Client.UI.Tests.Fixtures
 open DevNull.Client.UI.Tests.Harness

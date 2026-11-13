@@ -471,12 +471,14 @@ let view
   let busy =
     model |> Observable.map(fun current -> current.Busy) |> Slices.share
 
+  let cards = model |> Observable.map _.Cards |> Slices.share
+
   let cardDispatch msg = dispatch(State.CardMsg msg)
 
   let baseProps =
     EditorCards.row {
       Props = State.cardsProps props
-      State = model |> Observable.map _.Cards
+      State = cards
       Dispatch = cardDispatch
       OnEvent =
         EditorCards.event(
@@ -487,8 +489,7 @@ let view
 
   let mainProps: RowProps = {
     baseProps with
-        PollChoices =
-          model |> Observable.map(fun current -> current.PollChoices)
+        PollChoices = model |> Observable.map _.PollChoices |> Slices.share
         Dense = false
         Star =
           ValueSome {
@@ -535,6 +536,8 @@ let view
 
         let body =
           model
+          |> Observable.distinctUntilChangedKey(fun current ->
+            current.Peek |> Option.map fst)
           |> Observable.map(fun current ->
             match current.Peek with
             | Some(id, page) when id = commit.Id -> page.Commit.Body
@@ -565,12 +568,11 @@ let view
     ContentControl()
       .Content(
         model
-        |> Observable.map(fun current ->
-          current.Page
-          |> Option.map(fun page -> page.Ancestors)
-          |> Option.defaultValue [])
+        |> Observable.map _.Page
         |> Slices.gateByRef
-        |> Observable.map breadcrumbs
+        |> Observable.map(function
+          | Some page -> breadcrumbs page.Ancestors
+          | None -> breadcrumbs [])
         |> _.ToBinding()
       )
 
@@ -580,9 +582,16 @@ let view
     ContentControl()
       .Content(
         model
+        |> Slices.gateByRefKey
+          (fun current ->
+            current.Page
+            |> Option.map(fun page -> page.Commit)
+            |> function
+              | Some value -> value
+              | None -> null)
+          (fun current -> current.Deleted)
         |> Observable.map(fun current ->
           current.Page |> Option.map(fun page -> page.Commit), current.Deleted)
-        |> Observable.distinctUntilChanged
         |> Observable.map(fun (commit, deleted) ->
           match commit, deleted with
           | Some commit, Some commitId when commit.Id = commitId ->
@@ -601,6 +610,9 @@ let view
     TextBlock()
       .Text(
         model
+        |> Slices.gateByRefKey (fun current -> current.Replies) (fun current ->
+          current.Page
+          |> Option.map(fun page -> page.Commit.Id, page.Commit.RepliesCount))
         |> Observable.map(fun current ->
           $"REPLIES {(State.snapshot(props, current)).RepliesCount}")
       )
@@ -648,11 +660,7 @@ let view
   Grid()
     .Children(
       content,
-      EditorCards.layer(
-        State.cardsProps props,
-        model |> Observable.map _.Cards,
-        cardDispatch
-      )
+      EditorCards.layer(State.cardsProps props, cards, cardDispatch)
     )
 
 let program

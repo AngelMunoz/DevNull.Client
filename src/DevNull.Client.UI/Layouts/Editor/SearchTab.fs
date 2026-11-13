@@ -257,7 +257,8 @@ let view
   let body =
     rebuildOn(
       model,
-      (fun current -> current),
+      (fun current ->
+        current.People, current.Commits, current.Error, current.Cards),
       fun current -> sections(props, current, dispatch)
     )
 

@@ -250,6 +250,7 @@ let view
             .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
             .Text(
               now
+              |> Observable.distinctUntilChangedKey minuteBucket
               |> Observable.map(fun moment ->
                 timeAgo(moment, notification.CreatedAt))
             )
@@ -318,8 +319,9 @@ let view
       )
       .BindItemsSource(
         model
-        |> Observable.map(fun current ->
-          current.Items :> IReadOnlyList<Notification>),
+        |> Observable.map _.Items
+        |> Slices.gateByRef
+        |> Observable.map(fun items -> items :> IReadOnlyList<Notification>),
         fun notification -> notification.Id
       )
 
@@ -348,26 +350,32 @@ let view
   let loadingLine =
     PageChrome.collapsingMessagePanel(
       model
+      |> Slices.gateByRefKey (fun current -> current.Items) (fun current ->
+        current.Loading)
       |> Observable.map(fun current ->
         if current.Loading && current.Items.IsEmpty then
           "Reading the inbox…"
         elif current.Loading then
           "Refreshing…"
         else
-          ""),
+          "")
+      |> Slices.share,
       Theme.Muted
     )
 
   let emptyLine =
     PageChrome.collapsingMessagePanel(
       model
+      |> Slices.gateByRefKey (fun current -> current.Items) (fun current ->
+        current.Loading, current.Error)
       |> Observable.map(fun current ->
         if
           current.Error.IsNone && not current.Loading && current.Items.IsEmpty
         then
           "Nothing here yet."
         else
-          ""),
+          "")
+      |> Slices.share,
       Theme.Muted
     )
 

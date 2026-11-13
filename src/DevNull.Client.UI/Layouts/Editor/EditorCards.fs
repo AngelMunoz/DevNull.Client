@@ -183,6 +183,7 @@ let update
   (props: Props<'env>, msg: Msg, state: State)
   : State * Cmd<Msg> * Effect list =
   match msg with
+  | StarToggled commit when state.Busy = Some commit.Id -> state, Cmd.none, []
   | StarToggled commit ->
     { state with Busy = Some commit.Id },
     Cmd.OfAsync.perform
@@ -224,6 +225,8 @@ let update
     },
     Cmd.none,
     []
+  | PollVoteRequested commit when state.Busy = Some commit.Id ->
+    state, Cmd.none, []
   | PollVoteRequested commit ->
     match selectedOption(state.PollChoices, commit) with
     | None -> state, Cmd.none, []
@@ -570,11 +573,11 @@ let row(args: RowArgs<'env>) : RowProps =
     Block = fun commit -> args.Dispatch(AuthorBlockRequested commit)
     Relations =
       state
-      |> Observable.map(fun current ->
-        fun commit ->
-          current.Relations
-          |> Map.tryFind(Author.handle commit.Author)
-          |> ValueOption.ofOption)
+      |> Observable.map(fun current (commit: Commit) ->
+        current.Relations
+        |> Map.tryFind(Author.handle commit.Author)
+        |> ValueOption.ofOption)
+      |> Slices.share
     Busy = menuBusy
   }
 
@@ -583,8 +586,8 @@ let row(args: RowArgs<'env>) : RowProps =
     OnOpenExternal = fun url -> args.Props.Env.Browser.Open(url) |> ignore
     ViewerId = args.Props.Session.Session.User.Id
     Pasteis = Observable.single args.Props.Session.Session.PasteisMode
-    Now = state |> Observable.map _.Now
-    PollChoices = state |> Observable.map _.PollChoices
+    Now = state |> Observable.map _.Now |> Slices.share
+    PollChoices = state |> Observable.map _.PollChoices |> Slices.share
     Dense = false
     Images = args.Props.Env.ImageCache
     Flyout =
@@ -611,6 +614,7 @@ let row(args: RowArgs<'env>) : RowProps =
             Now = current.Now
             Commit = commit
           })
+      |> Slices.share
     Zone = args.Props.Zone
   }
 

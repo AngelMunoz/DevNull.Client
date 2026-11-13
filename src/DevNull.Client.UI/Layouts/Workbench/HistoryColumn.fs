@@ -412,7 +412,9 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
           NewCount = None
     },
     Cmd.OfAsync.perform fetch (props, None) Fetched
+  | PollingChanged active when active = model.Polling -> model, Cmd.none
   | PollingChanged active -> { model with Polling = active }, Cmd.none
+  | Scrolled offset when offset = model.Offset -> model, Cmd.none
   | Scrolled offset ->
     let next = { model with Offset = offset }
     next, report(props, next)
@@ -514,13 +516,24 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             Busy = None
       },
       Cmd.none
-  | CommitUpdated updated ->
+  | CommitUpdated updated when
+    model.Items
+    |> List.exists(function
+      | LiveCommit commit -> commit.Id = updated.Id
+      | Tombstone _ -> false)
+    ->
     {
       model with
           Items = replaceNode(model.Items, updated)
     },
     Cmd.none
-  | CommitDeleted commitId ->
+  | CommitUpdated _ -> model, Cmd.none
+  | CommitDeleted commitId when
+    model.Items
+    |> List.exists(function
+      | LiveCommit commit -> commit.Id = commitId
+      | Tombstone _ -> false)
+    ->
     {
       model with
           Items =
@@ -535,6 +548,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
               | _ -> None)
     },
     Cmd.none
+  | CommitDeleted _ -> model, Cmd.none
 
 let subscribe (props: Props<'env>) (model: Model) : Sub<Msg> =
   [
@@ -696,6 +710,8 @@ let view
 
   let fetchedLine =
     model
+    |> Observable.distinctUntilChangedKey(fun current ->
+      current.FetchedAt, minuteBucket current.Now)
     |> Observable.map(fun current ->
       match current.FetchedAt with
       | Some at -> "fetched " + timeAgo(current.Now, at)
@@ -703,6 +719,7 @@ let view
 
   let pillText =
     model
+    |> Observable.distinctUntilChangedKey _.NewCount
     |> Observable.map(fun current ->
       current.NewCount
       |> Option.map(fun count -> $"{count} new — fetch")
@@ -740,6 +757,8 @@ let view
 
   let statusText =
     model
+    |> Slices.gateByRefKey (fun current -> current.Items) (fun current ->
+      current.Loading, current.Error)
     |> Observable.map(fun current ->
       match current.Loading, current.Error, current.Items with
       | true, _, _ -> "Loading the history…"
@@ -753,12 +772,14 @@ let view
       .Margin(Thickness(16.0, 6.0, 16.0, 6.0))
       .Text(statusText)
 
-  let hasMore = model |> Observable.map _.NextCursor.IsSome
+  let hasMore = model |> Observable.map _.NextCursor.IsSome |> Slices.share
 
   let feed =
     Feed.view {
       Items =
         model
+        |> Slices.gateByRefKey (fun current -> current.Items) (fun current ->
+          current.Ranked, minuteBucket current.Now)
         |> Observable.map(fun current ->
           timelineRows(
             current.Items,

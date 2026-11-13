@@ -435,7 +435,15 @@ let view
   let body =
     rebuildOn(
       model,
-      (fun current -> current),
+      (fun current ->
+        current.Saved,
+        current.Queue,
+        current.Loading,
+        current.Error,
+        current.QueuePage,
+        current.QueueLast,
+        current.Cards,
+        minuteBucket current.Now),
       fun current ->
         match props.Kind with
         | Saved -> savedView(props, current, dispatch)

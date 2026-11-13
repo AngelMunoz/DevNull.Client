@@ -58,6 +58,13 @@ let timeAgo(now: DateTimeOffset, at: DateTimeOffset) : string =
   elif span.TotalDays < 30.0 then $"{int span.TotalDays}d"
   else at.ToString("MMM d")
 
+/// The minute a wall-clock instant falls in, for gating time text
+/// without formatting it: key a slice on this and the text rebuilds
+/// at most once a minute. A label may trail a fresh minute by
+/// seconds, where the span crosses a boundary mid-bucket.
+let minuteBucket(moment: DateTimeOffset) : int64 =
+  moment.UtcTicks / TimeSpan.TicksPerMinute
+
 let shortCount(count: int) : string =
   if count < 1000 then
     string count

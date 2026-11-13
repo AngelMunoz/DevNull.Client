@@ -1,6 +1,7 @@
 module DevNull.Client.Editor.QuoteCard
 
 open System
+open System.Collections.Generic
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Layout
@@ -110,11 +111,31 @@ let view
     | MoreRepliesRequested commit -> props.OnOpenThread commit
     | _ -> ()
 
+  let cardStateEqual
+    (left: bool * Commit * EditorCards.State)
+    (right: bool * Commit * EditorCards.State)
+    : bool =
+    let deletedLeft, commitLeft, cardsLeft = left
+    let deletedRight, commitRight, cardsRight = right
+
+    deletedLeft = deletedRight
+    && commitLeft.Id = commitRight.Id
+    && (obj.ReferenceEquals(cardsLeft, cardsRight) || cardsLeft = cardsRight)
+
   let card =
     model
     |> Observable.map(fun current ->
       current.Deleted, current.Commit, current.Cards)
-    |> Observable.distinctUntilChanged
+    |> Observable.distinctUntilChangedCompare
+      {
+        new Collections.Generic.IEqualityComparer<
+          bool * Commit * EditorCards.State
+             > with
+          member _.Equals(left, right) = cardStateEqual left right
+
+          member _.GetHashCode((deleted, commit, _)) =
+            HashCode.Combine(deleted, commit.Id)
+      }
     |> Observable.map(fun (deleted, commit, cards) ->
       let rowProps =
         EditorCards.row {
@@ -137,7 +158,7 @@ let view
       ContentControl().Content(card),
       EditorCards.layer(
         cardsProps props,
-        model |> Observable.map _.Cards,
+        model |> Observable.map _.Cards |> Slices.share,
         cardDispatch
       )
     )

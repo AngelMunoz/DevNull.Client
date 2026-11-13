@@ -6,6 +6,7 @@ open Avalonia.Threading
 open IcedTasks
 open Microsoft.Extensions.Logging
 open FSharp.Control.Reactive
+open DevNull.Client
 open DevNull.Client.Components
 open DevNull.Client.Components.CommitCard
 open DevNull.Client.Components.CommitMenu
@@ -376,11 +377,11 @@ let create(props: SurfaceProps<'env>) : SurfaceView =
     Block = blockAuthor
     Relations =
       relations
-      |> Observable.map(fun current ->
-        fun commit ->
-          current
-          |> Map.tryFind(Author.handle commit.Author)
-          |> ValueOption.ofOption)
+      |> Observable.map(fun current (commit: Commit) ->
+        current
+        |> Map.tryFind(Author.handle commit.Author)
+        |> ValueOption.ofOption)
+      |> Slices.share
     Busy = busy :> IObservable<string option>
   }
 
@@ -438,6 +439,7 @@ let create(props: SurfaceProps<'env>) : SurfaceView =
           Now = moment
           Commit = commit
         })
+    |> Slices.share
 
   {
     Star = starSlot

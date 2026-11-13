@@ -199,6 +199,8 @@ let navItem(context: NavContext, entry: NavEntry) : Control =
     match entry.Badge with
     | ValueNone -> Icons.icon entry.Glyph
     | ValueSome unread ->
+      let shared = unread |> Observable.distinctUntilChanged |> Slices.share
+
       let badge =
         Border()
           .Background(context.Accent)
@@ -209,13 +211,13 @@ let navItem(context: NavContext, entry: NavEntry) : Control =
           .HorizontalAlignment(HorizontalAlignment.Right)
           .VerticalAlignment(VerticalAlignment.Top)
           .Margin(0.0, -4.0, -6.0, 0.0)
-          .IsVisible(unread |> Observable.map(fun count -> count > 0))
+          .IsVisible(shared |> Observable.map(fun count -> count > 0))
           .Child(
             TextBlock()
               .FontSize(10.0)
               .Foreground(context.OnAccent)
               .Text(
-                unread
+                shared
                 |> Observable.map(fun count ->
                   if count > 99 then "99+" else string count)
               )
@@ -283,6 +285,8 @@ let footer(context: FooterContext) : Control =
     |> Observable.map(function
       | SignedIn _ -> true
       | SignedOut -> false)
+    |> Observable.distinctUntilChanged
+    |> Slices.share
 
   // The identity cell, the way the chrome's guard works: a poll's
   // session refresh lands here without rebuilding the row.
@@ -532,6 +536,7 @@ let sidebar(props: SidebarProps) : Control =
             | Standard
             | Wide -> true
             | _ -> false)
+          |> Observable.distinctUntilChanged
         )
         .OnClickHandler(fun _ _ -> props.ToggleSidebar())
 
@@ -790,12 +795,24 @@ let mount(props: Props<'env>) : Mount =
   // disagree.
   let layout = new BehaviorSubject<Layout>(layoutOf window.Width)
 
-  let narrow = layout |> Observable.map(fun current -> current = Narrow)
+  let narrow =
+    layout
+    |> Observable.map(fun current -> current = Narrow)
+    |> Observable.distinctUntilChanged
+    |> Slices.share
 
-  let wide = layout |> Observable.map(fun current -> current = Wide)
+  let wide =
+    layout
+    |> Observable.map(fun current -> current = Wide)
+    |> Observable.distinctUntilChanged
+    |> Slices.share
 
   window.GetObservable(TopLevel.ClientSizeProperty)
-  |> Observable.subscribe(fun size -> layout.OnNext(layoutOf size.Width))
+  |> Observable.subscribe(fun size ->
+    let next = layoutOf size.Width
+
+    if layout.Value <> next then
+      layout.OnNext next)
   |> keep
 
   // The sidebar's own width choice. The site stores it in a cookie;
@@ -957,15 +974,17 @@ let mount(props: Props<'env>) : Mount =
     // words and hides Undo while the toast stays open, and a second
     // delete re-aims the same card. The click reads the current toast,
     // never the one the card was built for.
+    let toast = undoToast |> Slices.share
+
     let words =
-      undoToast
+      toast
       |> Observable.map(fun current ->
         match current with
         | ValueSome(_, Some word) -> word
         | _ -> "Commit deleted.")
 
     let canUndo =
-      undoToast
+      toast
       |> Observable.map(fun current ->
         match current with
         | ValueSome(_, Some _) -> false
@@ -1011,19 +1030,31 @@ let mount(props: Props<'env>) : Mount =
   // swaps. The feeds ride the handles the unmount releases.
   let sessionStates = new BehaviorSubject<SessionState>(session.Current)
 
-  session.Observe |> Observable.subscribe sessionStates.OnNext |> keep
+  session.Observe
+  |> Observable.distinctUntilChanged
+  |> Observable.subscribe sessionStates.OnNext
+  |> keep
 
   let remotesStates = new BehaviorSubject<RemotesState>(env.Remotes.Current)
 
-  env.Remotes.Observe |> Observable.subscribe remotesStates.OnNext |> keep
+  env.Remotes.Observe
+  |> Observable.distinctUntilChanged
+  |> Observable.subscribe remotesStates.OnNext
+  |> keep
 
   let unreadCounts = new BehaviorSubject<int>(0)
 
-  env.Unread.Count |> Observable.subscribe unreadCounts.OnNext |> keep
+  env.Unread.Count
+  |> Observable.distinctUntilChanged
+  |> Observable.subscribe unreadCounts.OnNext
+  |> keep
 
   let routePaths = new BehaviorSubject<string>(env.Routes.Current)
 
-  env.Routes.Path |> Observable.subscribe routePaths.OnNext |> keep
+  env.Routes.Path
+  |> Observable.distinctUntilChanged
+  |> Observable.subscribe routePaths.OnNext
+  |> keep
 
   // The themed brushes ride the app's own resource observables, which
   // outlive every mount and never let a detached binding go. The
@@ -1048,6 +1079,8 @@ let mount(props: Props<'env>) : Mount =
   let remotesUnread =
     remotesStates
     |> Observable.map(fun state -> state.Unread |> Option.defaultValue 0)
+    |> Observable.distinctUntilChanged
+    |> Slices.share
 
   let remotesOn =
     sessionStates
@@ -1158,6 +1191,7 @@ let mount(props: Props<'env>) : Mount =
       else
         backgroundBrushes :> IObservable<IBrush>)
     |> Observable.bind id
+    |> Slices.share
 
   let paneMargin =
     narrow
@@ -1166,6 +1200,8 @@ let mount(props: Props<'env>) : Mount =
         Thickness(0.0, Theme.bandHeight, 0.0, 0.0)
       else
         Thickness(0.0))
+    |> Observable.distinctUntilChanged
+    |> Slices.share
 
   let paneHairline =
     narrow
@@ -1174,6 +1210,8 @@ let mount(props: Props<'env>) : Mount =
         Thickness(0.0, 0.0, 1.0, 0.0)
       else
         Thickness(0.0))
+    |> Observable.distinctUntilChanged
+    |> Slices.share
 
   let sidebarPane =
     Border()
@@ -1235,7 +1273,10 @@ let mount(props: Props<'env>) : Mount =
   // inbox and thread sit side by side, the way the site's own page
   // does.
   let isRemotes =
-    routePaths |> Observable.map(fun path -> path.StartsWith "/remotes")
+    routePaths
+    |> Observable.map(fun path -> path.StartsWith "/remotes")
+    |> Observable.distinctUntilChanged
+    |> Slices.share
 
   let mainWidth =
     Observable.combineLatest
@@ -1249,6 +1290,7 @@ let mount(props: Props<'env>) : Mount =
         | Standard
         | Wide when not isExpanded -> 796.0
         | _ -> 620.0)
+    |> Observable.distinctUntilChanged
 
   let mainHost =
     Border()

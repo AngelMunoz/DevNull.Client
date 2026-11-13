@@ -183,6 +183,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             RepliesError = Some error
       },
       Cmd.none
+  | MoreRepliesRequested when model.RepliesLoading -> model, Cmd.none
   | MoreRepliesRequested ->
     match model.RepliesCursor with
     | Some _ ->
@@ -254,9 +255,11 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
     Cmd.none
   | PollVoteRequested commit ->
     match CommitCard.selectedOption(model.PollChoices, commit) with
-    | Some option ->
+    | Some option when model.Error.IsSome ->
       { model with Error = None },
       Cmd.OfAsync.perform vote (props, commit, option) PollVotedDone
+    | Some option ->
+      model, Cmd.OfAsync.perform vote (props, commit, option) PollVotedDone
     | None -> model, Cmd.none
   | PollVotedDone result ->
     match result with
@@ -313,11 +316,6 @@ let participantsOf
       : ReplyPicker.ParticipantRow)
 
   authorRow :: rows
-
-let inline nodeKey(node: CommitNode) =
-  match node with
-  | LiveCommit commit -> commit.Id
-  | Tombstone tombstone -> tombstone.Id
 
 let view
   (props: Props<'env>)
@@ -402,17 +400,16 @@ let view
     | Some commit -> $"{commit.Id}|{commit.RepliesCount}"
     | None -> ""
 
-  let parentsKey(current: Model) =
+  let parentsKey(current: Model) : string * obj =
     match current.Commit with
-    | Some commit ->
-      commit.Id
-      + "|"
-      + (current.Ancestors |> List.map nodeKey |> String.concat ",")
-    | None when current.Loading -> "loading"
-    | None -> "error"
+    | Some commit -> commit.Id, current.Ancestors
+    | None when current.Loading -> "loading", Unchecked.defaultof<obj>
+    | None -> "error", Unchecked.defaultof<obj>
 
-  let repliesKey(current: Model) =
-    current.Replies |> List.map nodeKey |> String.concat ","
+  let repliesKey(current: Model) : string * obj =
+    match current.Commit with
+    | Some commit -> commit.Id, current.Replies
+    | None -> "", Unchecked.defaultof<obj>
 
   let composerKey(current: Model) =
     match current.Commit with
@@ -529,8 +526,10 @@ let view
           ),
         PageChrome.collapsingMessagePanel(
           model
+          |> Observable.distinctUntilChangedKey _.RepliesLoading
           |> Observable.map(fun current ->
-            if current.RepliesLoading then "Loading replies…" else ""),
+            if current.RepliesLoading then "Loading replies…" else "")
+          |> Slices.share,
           Theme.Muted
         ),
         PageChrome.errorPanel(model |> Observable.map _.RepliesError),
@@ -557,8 +556,10 @@ let view
         back,
         PageChrome.collapsingMessagePanel(
           model
+          |> Observable.distinctUntilChangedKey _.Loading
           |> Observable.map(fun current ->
-            if current.Loading then "Reading the thread…" else ""),
+            if current.Loading then "Reading the thread…" else "")
+          |> Slices.share,
           Theme.Muted
         ),
         PageChrome.errorPanel(model |> Observable.map _.Error),

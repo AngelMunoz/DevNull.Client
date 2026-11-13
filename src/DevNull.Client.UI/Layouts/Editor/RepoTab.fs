@@ -886,6 +886,8 @@ let view
   : Control =
   let cardDispatch msg = dispatch(CardMsg msg)
 
+  let cards = model |> Observable.map _.Cards |> Slices.share
+
   let fallback =
     function
     | Opened commit -> props.OnOpenCommit commit
@@ -897,7 +899,7 @@ let view
   let rowProps =
     EditorCards.row {
       Props = cardsProps props
-      State = model |> Observable.map _.Cards
+      State = cards
       Dispatch = cardDispatch
       OnEvent = EditorCards.event(cardDispatch, fallback)
     }
@@ -942,7 +944,7 @@ let view
         model,
         (fun current ->
           current.Commits,
-          current.CommitsCursor,
+          current.CommitsCursor |> Option.defaultValue "",
           current.CommitsLoading,
           current.CommitsError),
         fun current -> commitsView(current, rowProps)
@@ -981,14 +983,7 @@ let view
       )
 
   Grid()
-    .Children(
-      content,
-      EditorCards.layer(
-        cardsProps props,
-        model |> Observable.map _.Cards,
-        cardDispatch
-      )
-    )
+    .Children(content, EditorCards.layer(cardsProps props, cards, cardDispatch))
 
 let program(props: Props<'env>) : Program<unit, Model, Msg, Control> =
   Program.mkProgram

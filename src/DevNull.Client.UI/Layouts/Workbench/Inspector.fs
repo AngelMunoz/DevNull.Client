@@ -231,6 +231,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             RepliesError = Some error
       },
       Cmd.none
+  | MoreRepliesRequested when model.RepliesLoading -> model, Cmd.none
   | MoreRepliesRequested ->
     match model.RepliesCursor with
     | Some _ ->
@@ -614,6 +615,8 @@ let view
           .Classes(Theme.name Theme.Mono)
           .Text(
             model
+            |> Observable.distinctUntilChangedKey(fun current ->
+              current.Commit |> Option.map _.Id)
             |> Observable.map(fun current ->
               current.Commit
               |> Option.map(fun commit -> "CHECKOUT " + commit.ShortHash)
@@ -624,13 +627,16 @@ let view
   let busyLine =
     PageChrome.collapsingMessagePanel(
       model
+      |> Observable.distinctUntilChangedKey(fun current ->
+        current.Loading, current.Commit.IsNone, current.Error.IsNone)
       |> Observable.map(fun current ->
         if current.Loading then
           "Reading the commit…"
         elif current.Commit.IsNone && current.Error.IsNone then
           "No commit checked out."
         else
-          ""),
+          "")
+      |> Slices.share,
       Theme.Muted
     )
 
@@ -641,7 +647,7 @@ let view
       .Content(
         model
         |> Observable.map _.Commit
-        |> Observable.distinctUntilChanged
+        |> Slices.gateByRef
         |> Observable.map(function
           | Some commit -> authorBlock commit.Author
           | None -> Panel() :> Control)
@@ -692,7 +698,7 @@ let view
       .Content(
         model
         |> Observable.map _.Commit
-        |> Observable.distinctUntilChanged
+        |> Slices.gateByRef
         |> Observable.map(function
           | Some commit -> CommitCard.feedRow checkoutProps (LiveCommit commit)
           | None -> Panel() :> Control)
@@ -704,7 +710,7 @@ let view
       .Content(
         model
         |> Observable.map _.Ancestors
-        |> Observable.distinctUntilChanged
+        |> Slices.gateByRef
         |> Observable.map(function
           | [] -> Panel() :> Control
           | nodes ->
@@ -725,7 +731,7 @@ let view
       .Content(
         model
         |> Observable.map _.Replies
-        |> Observable.distinctUntilChanged
+        |> Slices.gateByRef
         |> Observable.map(fun nodes ->
           StackPanel().Spacing(2.0).Children [|
             for node in nodes -> CommitCard.feedRow childProps node
@@ -743,13 +749,18 @@ let view
         repliesRows,
         PageChrome.collapsingMessagePanel(
           model
+          |> Observable.distinctUntilChangedKey(fun current ->
+            current.RepliesLoading,
+            current.Replies.IsEmpty,
+            current.RepliesError.IsNone)
           |> Observable.map(fun current ->
             if current.RepliesLoading then
               "Loading replies…"
             elif current.Replies.IsEmpty && current.RepliesError.IsNone then
               "No replies yet."
             else
-              ""),
+              "")
+          |> Slices.share,
           Theme.Muted
         ),
         PageChrome.errorPanel(model |> Observable.map _.RepliesError),

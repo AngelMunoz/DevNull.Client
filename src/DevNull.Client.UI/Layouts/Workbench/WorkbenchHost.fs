@@ -1121,11 +1121,14 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
     Cmd.none
   | ComposeRequested -> { model with StagingOpen = true }, Cmd.none
   | DraftChanged text ->
-    {
-      model with
-          Staging = { model.Staging with Draft = text }
-    },
-    Cmd.none
+    if text = model.Staging.Draft then
+      model, Cmd.none
+    else
+      {
+        model with
+            Staging = { model.Staging with Draft = text }
+      },
+      Cmd.none
   | StagingPosted _ ->
     {
       model with
@@ -1189,7 +1192,13 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             }
       },
       Cmd.none
-  | WidthChanged width -> { model with Folded = width < 1100.0 }, Cmd.none
+  | WidthChanged width ->
+    let folded = width < 1100.0
+
+    if folded = model.Folded then
+      model, Cmd.none
+    else
+      { model with Folded = folded }, Cmd.none
   | ClockTicked moment -> { model with Now = moment }, Cmd.none
   | SessionChanged state ->
     let data = sessionOfState state
@@ -1202,20 +1211,23 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
     },
     Cmd.none
   | HistoryReported(ref, report) ->
-    let places = model.Places |> Map.add ref report.Place
+    match model.Places |> Map.tryFind ref with
+    | Some place when place = report.Place -> model, Cmd.none
+    | _ ->
+      let places = model.Places |> Map.add ref report.Place
 
-    let fetchedAt =
-      if ref = model.Selected then
-        report.FetchedAt |> Option.orElse model.FetchedAt
-      else
-        model.FetchedAt
+      let fetchedAt =
+        if ref = model.Selected then
+          report.FetchedAt |> Option.orElse model.FetchedAt
+        else
+          model.FetchedAt
 
-    {
-      model with
-          Places = places
-          FetchedAt = fetchedAt
-    },
-    Cmd.none
+      {
+        model with
+            Places = places
+            FetchedAt = fetchedAt
+      },
+      Cmd.none
   | OpenAuthor handle ->
     model, Cmd.ofAction(fun () -> props.OnOpenAuthor handle)
   | OpenExternal url -> model, Cmd.ofAction(fun () -> props.OnOpenExternal url)
@@ -1260,11 +1272,16 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
     },
     Cmd.none
   | RepositoryListChanged open' ->
-    {
-      model with
-          RepositoryListOpen = open' && model.Repository.IsSome
-    },
-    Cmd.none
+    let listed = open' && model.Repository.IsSome
+
+    if listed = model.RepositoryListOpen then
+      model, Cmd.none
+    else
+      {
+        model with
+            RepositoryListOpen = listed
+      },
+      Cmd.none
   | NotificationsStopped ->
     {
       model with
@@ -1310,8 +1327,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         None
       )
     | None ->
-      { model with SearchPalette = None },
-      startSearchPaletteCmd(props, None, Some { KeyFile = data.KeyFile })
+      model, startSearchPaletteCmd(props, None, Some { KeyFile = data.KeyFile })
   | SearchPaletteClosed ->
     { model with SearchPalette = None },
     startSearchPaletteCmd(
@@ -1647,32 +1663,44 @@ let view
     model
     |> Observable.map _.RepositoryListOpen
     |> Observable.distinctUntilChanged
+    |> Slices.share
 
   let hasRight =
     Observable.combineLatest hasCheckout repositoryListOpen
     |> Observable.map(fun (checkout, listing) -> checkout || listing)
     |> Observable.distinctUntilChanged
+    |> Slices.share
 
   let reserved =
     Observable.combineLatest folded hasRight
     |> Observable.map(fun (isFolded, right) ->
       if isFolded || not right then 0.0 else 380.0)
+    |> Observable.distinctUntilChanged
+    |> Slices.share
 
   let threadOpen =
-    model |> Observable.map _.Thread.IsSome |> Observable.distinctUntilChanged
+    model
+    |> Observable.map _.Thread.IsSome
+    |> Observable.distinctUntilChanged
+    |> Slices.share
 
   let repositoryOpen =
     model
     |> Observable.map _.Repository.IsSome
     |> Observable.distinctUntilChanged
+    |> Slices.share
 
   let notificationsOpen =
     model
     |> Observable.map _.Notifications.IsSome
     |> Observable.distinctUntilChanged
+    |> Slices.share
 
   let searchOpen =
-    model |> Observable.map _.Search.IsSome |> Observable.distinctUntilChanged
+    model
+    |> Observable.map _.Search.IsSome
+    |> Observable.distinctUntilChanged
+    |> Slices.share
 
   let paletteOpen =
     model
@@ -1682,6 +1710,7 @@ let view
   let coveredThreadRepo =
     Observable.combineLatest threadOpen repositoryOpen
     |> Observable.map(fun (thread, repository) -> thread || repository)
+    |> Slices.share
 
   let coveredThreadRepoNotifications =
     Observable.combineLatest coveredThreadRepo notificationsOpen
@@ -1723,11 +1752,13 @@ let view
   let repositoryBusy =
     Observable.combineLatest threadOpen searchOpen
     |> Observable.map(fun (thread, search) -> thread || search)
+    |> Slices.share
 
   let repositoryVisible =
     Observable.combineLatest repositoryBusy repositoryOpen
     |> Observable.map(fun (busy, repository) -> repository && not busy)
     |> Observable.distinctUntilChanged
+    |> Slices.share
 
   let repositoryHost =
     ContentControl()
@@ -1936,7 +1967,8 @@ let view
            Quote = current.Staging.Quote
            Queue = current.Staging.Queue
          }
-         : Staging.View))
+         : Staging.View)
+       |> Slices.share)
 
   let statusLine =
     TextBlock()
@@ -1945,6 +1977,11 @@ let view
       .TextTrimming(TextTrimming.CharacterEllipsis)
       .Text(
         model
+        |> Observable.distinctUntilChangedKey(fun current ->
+          current.Selected,
+          current.Handle,
+          current.FetchedAt,
+          minuteBucket current.Now)
         |> Observable.map(fun current ->
           WorkbenchChrome.statusText(
             {

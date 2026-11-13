@@ -423,8 +423,9 @@ let view
     model: IObservable<State.Model>,
     dispatch: Dispatch<State.Msg>
   ) : Control =
-  let hasMore =
-    model |> Observable.map(fun current -> current.NextCursor.IsSome)
+  let hasMore = model |> Observable.map _.NextCursor.IsSome |> Slices.share
+
+  let cards = model |> Observable.map _.Cards |> Slices.share
 
   let cardDispatch msg = dispatch(State.CardMsg msg)
 
@@ -439,7 +440,7 @@ let view
   let rowProps =
     EditorCards.row {
       Props = cardsProps props
-      State = model |> Observable.map _.Cards
+      State = cards
       Dispatch = cardDispatch
       OnEvent = EditorCards.event(cardDispatch, fallback)
     }
@@ -470,14 +471,7 @@ let view
       .Children(error.Row(0), feed.Row(1))
 
   Grid()
-    .Children(
-      layout,
-      EditorCards.layer(
-        cardsProps props,
-        model |> Observable.map _.Cards,
-        cardDispatch
-      )
-    )
+    .Children(layout, EditorCards.layer(cardsProps props, cards, cardDispatch))
 
 let program
   (props: Props<'env>)

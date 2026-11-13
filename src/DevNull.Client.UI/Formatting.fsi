@@ -20,6 +20,11 @@ val absolute: zone: Zone * moment: DateTimeOffset -> string
 /// web client shows commit times.
 val timeAgo: now: DateTimeOffset * at: DateTimeOffset -> string
 
+/// The minute a wall-clock instant falls in, for gating time text
+/// without formatting it: key a slice on this and the text rebuilds
+/// at most once a minute.
+val minuteBucket: moment: DateTimeOffset -> int64
+
 /// A count as "1.2k", "345", the way the web client shows stars.
 val shortCount: count: int -> string
 

@@ -142,8 +142,9 @@ let queue(model: IObservable<View>) : Control =
       )
       .BindItemsSource(
         model
-        |> Observable.map(fun current ->
-          current.Queue.Items :> IReadOnlyList<ScheduledCommit>),
+        |> Observable.map _.Queue.Items
+        |> Slices.gateByRef
+        |> Observable.map(fun items -> items :> IReadOnlyList<ScheduledCommit>),
         fun entry -> entry.Id
       )
 

@@ -280,6 +280,7 @@ let problemRow(props: Props, notification: Notification) : Control =
 
   let time =
     props.Now
+    |> Observable.distinctUntilChangedKey minuteBucket
     |> Observable.map(fun now -> timeAgo(now, notification.CreatedAt))
     |> fun text ->
         TextBlock()
@@ -385,17 +386,34 @@ let outputView(lines: OutputLine list) : Control =
         StackPanel().Spacing(2.0).Margin(Thickness(10.0, 6.0)).Children(rows)
       )
 
+/// The tab as a cheap comparable key: the kind rank and tag, or the
+/// plain tab name. Key slices on this instead of the tab so a tick
+/// that did not switch tabs or kinds skips the problems sort.
+let inline tabKey(tab: Tab) : int * string =
+  match tab with
+  | Kind kind ->
+    match kind with
+    | NotificationKind.UnknownKind raw -> 9, raw
+    | _ -> kindRank kind, ""
+  | Activity -> 10, ""
+  | Terminal -> 11, ""
+
 let view(props: Props) : Control =
   let current =
     Observable.combineLatest props.State props.Problems
+    |> Slices.gateByRefKey
+      (fun (_, problems) -> problems.Items)
+      (fun (state, problems) ->
+        tabKey state.Tab, problems.Loading, problems.Error, problems.NextCursor)
     |> Observable.map(fun (state, problems) ->
       effectiveTab(problems.Items, state.Tab), problems)
+    |> Slices.share
 
   let tabStripHost =
     let binding =
       rebuildOn(
         current,
-        (fun (tab, problems) -> tab, problems.Items),
+        (fun (tab, problems) -> tabKey tab, problems.Items),
         (fun (tab, problems) -> tabStrip(props, tab, problems.Items))
       )
       |> _.ToBinding()
@@ -407,7 +425,7 @@ let view(props: Props) : Control =
       .Content(
         rebuildOn(
           current,
-          (fun (tab, problems) -> tab, problems),
+          (fun (tab, problems) -> tabKey tab, problems),
           fun (tab, problems) ->
             match tab with
             | Kind kind -> problemsView(props, problems, kind)
@@ -428,7 +446,11 @@ let view(props: Props) : Control =
   let outputHost =
     ContentControl()
       .Content(
-        rebuildOn(props.Output, (fun lines -> lines), outputView)
+        rebuildOn(
+          props.Output |> Slices.gateByRef,
+          (fun lines -> lines),
+          outputView
+        )
         |> _.ToBinding()
       )
       .IsVisible(current |> Observable.map(fun (tab, _) -> tab = Activity))

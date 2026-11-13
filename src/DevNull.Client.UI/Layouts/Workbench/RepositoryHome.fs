@@ -451,9 +451,11 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
     Cmd.none
   | PollVoteRequested commit ->
     match CommitCard.selectedOption(model.PollChoices, commit) with
-    | Some option ->
+    | Some option when model.CommitsError.IsSome ->
       { model with CommitsError = None },
       Cmd.OfAsync.perform vote (props, commit, option) PollVotedDone
+    | Some option ->
+      model, Cmd.OfAsync.perform vote (props, commit, option) PollVotedDone
     | None -> model, Cmd.none
   | PollVotedDone result ->
     match result with
@@ -465,18 +467,30 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
       },
       Cmd.none
     | Error error -> { model with CommitsError = Some error }, Cmd.none
-  | CommitUpdated updated ->
+  | CommitUpdated updated when
+    model.Commits
+    |> List.exists(function
+      | LiveCommit commit -> commit.Id = updated.Id
+      | Tombstone _ -> false)
+    ->
     {
       model with
           Commits = replaceNode(model.Commits, updated)
     },
     Cmd.none
-  | CommitDeleted commitId ->
+  | CommitUpdated _ -> model, Cmd.none
+  | CommitDeleted commitId when
+    model.Commits
+    |> List.exists(function
+      | LiveCommit commit -> commit.Id = commitId
+      | Tombstone _ -> false)
+    ->
     {
       model with
           Commits = removeNode(model.Commits, commitId)
     },
     Cmd.none
+  | CommitDeleted _ -> model, Cmd.none
   | ClockTicked moment -> { model with Now = moment }, Cmd.none
 
 let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
@@ -690,21 +704,19 @@ let view
 
   top.Children(identity.Column(0), followButton.Column(1)) |> ignore
 
+  let bioText' =
+    model
+    |> Observable.map(fun current ->
+      current.Details |> Option.map bioText |> Option.defaultValue "")
+    |> Observable.distinctUntilChanged
+    |> Slices.share
+
   let bio =
     TextBlock()
       .Classes(Theme.name Theme.Muted)
       .TextWrapping(TextWrapping.Wrap)
-      .Text(
-        model
-        |> Observable.map(fun current ->
-          current.Details |> Option.map bioText |> Option.defaultValue "")
-      )
-      .IsVisible(
-        model
-        |> Observable.map(fun current ->
-          current.Details
-          |> Option.exists(fun details -> bioText details <> ""))
-      )
+      .Text(bioText')
+      .IsVisible(bioText' |> Observable.map(fun text -> text <> ""))
 
   let meta =
     TextBlock()
@@ -714,6 +726,7 @@ let view
         model
         |> Observable.map(fun current ->
           current.Details |> Option.map metaText |> Option.defaultValue "")
+        |> Observable.distinctUntilChanged
       )
 
   let githubKey(current: Model) =
@@ -793,11 +806,14 @@ let view
   let profileLoading =
     PageChrome.collapsingMessagePanel(
       model
+      |> Observable.distinctUntilChangedKey(fun current ->
+        current.Loading, current.Details.IsNone)
       |> Observable.map(fun current ->
         if current.Loading && current.Details.IsNone then
           "Reading the profile…"
         else
-          ""),
+          "")
+      |> Slices.share,
       Theme.Muted
     )
 
@@ -846,20 +862,14 @@ let view
           |> Option.exists(fun details -> details.PinnedCommit.IsSome))
       )
 
-  let activityKey(current: Model) =
-    current.Details
-    |> Option.bind(fun details -> details.Activity)
-    |> Option.map(fun activity ->
-      String.concat "|" [
-        activity.Scale
-        laneKey(
-          current.Details |> Option.bind(fun details -> details.Profile.Lane)
-        )
-        activity.Buckets
-        |> List.map(fun bucket -> bucket.Date + ":" + string bucket.Count)
-        |> String.concat ","
-      ])
-    |> Option.defaultValue ""
+  let activityKey(current: Model) : string * string * obj =
+    match current.Details |> Option.bind(fun details -> details.Activity) with
+    | Some activity ->
+      let lane =
+        current.Details |> Option.bind(fun details -> details.Profile.Lane)
+
+      activity.Scale, laneKey lane, activity.Buckets
+    | None -> "", "", Unchecked.defaultof<obj>
 
   let buildActivity(current: Model) : Control =
     match
@@ -926,21 +936,19 @@ let view
           |> Option.exists(fun details -> details.Activity.IsSome))
       )
 
+  let statsText' =
+    model
+    |> Observable.map(fun current ->
+      current.Details |> Option.map statsText |> Option.defaultValue "")
+    |> Observable.distinctUntilChanged
+    |> Slices.share
+
   let stats =
     TextBlock()
       .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
       .FontSize(12.0)
-      .Text(
-        model
-        |> Observable.map(fun current ->
-          current.Details |> Option.map statsText |> Option.defaultValue "")
-      )
-      .IsVisible(
-        model
-        |> Observable.map(fun current ->
-          current.Details
-          |> Option.exists(fun details -> statsText details <> ""))
-      )
+      .Text(statsText')
+      .IsVisible(statsText' |> Observable.map(fun text -> text <> ""))
 
   let commits =
     ItemsControl()
@@ -957,8 +965,9 @@ let view
       )
       .BindItemsSource(
         model
-        |> Observable.map(fun current ->
-          current.Commits :> IReadOnlyList<CommitNode>),
+        |> Observable.map _.Commits
+        |> Slices.gateByRef
+        |> Observable.map(fun commits -> commits :> IReadOnlyList<CommitNode>),
         FeedParts.nodeKey
       )
 
@@ -966,28 +975,36 @@ let view
     TextBlock()
       .Classes(Theme.name Theme.Mono)
       .Text(
-        model |> Observable.map(fun current -> "HISTORY @" + current.Handle)
+        model
+        |> Observable.distinctUntilChangedKey _.Handle
+        |> Observable.map(fun current -> "HISTORY @" + current.Handle)
       )
 
   let loadingLine =
     PageChrome.collapsingMessagePanel(
       model
+      |> Slices.gateByRefKey (fun current -> current.Commits) (fun current ->
+        current.CommitsLoading)
       |> Observable.map(fun current ->
         if current.CommitsLoading && current.Commits.IsEmpty then
           "Reading commits…"
         else
-          ""),
+          "")
+      |> Slices.share,
       Theme.Muted
     )
 
   let emptyLine =
     PageChrome.collapsingMessagePanel(
       model
+      |> Slices.gateByRefKey (fun current -> current.Commits) (fun current ->
+        current.CommitsLoading)
       |> Observable.map(fun current ->
         if not current.CommitsLoading && current.Commits.IsEmpty then
           "No commits yet."
         else
-          ""),
+          "")
+      |> Slices.share,
       Theme.Muted
     )
 
@@ -1095,9 +1112,11 @@ let view
       )
       .BindItemsSource(
         model
-        |> Observable.map(fun current ->
-          current.People |> Option.map _.Items |> Option.defaultValue []
-          :> IReadOnlyList<User>),
+        |> Observable.map _.People
+        |> Slices.gateByRef
+        |> Observable.map(function
+          | Some people -> people.Items :> IReadOnlyList<User>
+          | None -> Array.empty),
         fun user -> user.Id
       )
 
@@ -1106,6 +1125,8 @@ let view
       .Classes(Theme.name Theme.Mono)
       .Text(
         model
+        |> Observable.distinctUntilChangedKey(fun current ->
+          current.People |> Option.map _.Kind)
         |> Observable.map(fun current ->
           current.People
           |> Option.map(fun people -> peopleTitle(current.Handle, people))
@@ -1125,26 +1146,42 @@ let view
   let peopleLoadingLine =
     PageChrome.collapsingMessagePanel(
       model
+      |> Slices.gateByRefKey
+        (fun current ->
+          current.People
+          |> function
+            | Some value -> value
+            | None -> null)
+        (fun _ -> ())
       |> Observable.map(fun current ->
         match current.People with
         | Some people when people.Loading && people.Items.IsEmpty ->
           match people.Kind with
           | Followers -> "Reading followers…"
           | Following -> "Reading following…"
-        | _ -> ""),
+        | _ -> "")
+      |> Slices.share,
       Theme.Muted
     )
 
   let peopleEmptyLine =
     PageChrome.collapsingMessagePanel(
       model
+      |> Slices.gateByRefKey
+        (fun current ->
+          current.People
+          |> function
+            | Some value -> value
+            | None -> null)
+        (fun _ -> ())
       |> Observable.map(fun current ->
         match current.People with
         | Some people when not people.Loading && people.Items.IsEmpty ->
           match people.Kind with
           | Followers -> "No followers yet."
           | Following -> "Not following anyone yet."
-        | _ -> ""),
+        | _ -> "")
+      |> Slices.share,
       Theme.Muted
     )
 

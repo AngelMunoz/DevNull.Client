@@ -641,13 +641,16 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
     let place =
       model.Places |> Map.tryFind log |> Option.defaultValue EditorPlace.empty
 
-    let next = {
-      model with
-          Places =
-            model.Places |> Map.add log (EditorPlace.withScroll(offset, place))
-    }
+    let next = EditorPlace.withScroll(offset, place)
 
-    next, Cmd.none
+    if next = place then
+      model, Cmd.none
+    else
+      {
+        model with
+            Places = model.Places |> Map.add log next
+      },
+      Cmd.none
   | SessionChanged state ->
     let next = { model with Unread = unreadOf state }
 
@@ -937,10 +940,33 @@ let view(args: ViewArgs<'env>) : Control =
   let dispatch = args.Dispatch
   let props = args.Props
 
+  let inline bandIndex(band: WidthBand) =
+    match band with
+    | Full -> 0
+    | Folded -> 1
+    | Trimmed -> 2
+
+  let inline activityIndex(activity: ActivityBar.Activity) =
+    match activity with
+    | ActivityBar.History -> 0
+    | ActivityBar.Problems -> 1
+    | ActivityBar.Remotes -> 2
+    | ActivityBar.Account -> 3
+
+  let inline tabKey tab =
+    TabId.key(EditorTab.id tab)
+    + "|"
+    + EditorTab.title tab
+    + "|"
+    + string(EditorTab.dirty tab)
+    + "|"
+    + string(EditorTab.repliesCount tab)
+
   let activity =
     rebuildOn(
       model,
-      (fun current -> current.Activity, current.Unread, current.RemoteCount),
+      (fun current ->
+        activityIndex current.Activity, current.Unread, current.RemoteCount),
       (fun current ->
         ActivityBar.view {
           Selected = current.Activity
@@ -956,7 +982,9 @@ let view(args: ViewArgs<'env>) : Control =
     rebuildOn(
       model,
       (fun current ->
-        EditorState.selectedRef current.Frame, current.Saved, current.Queue),
+        LogKinds.wire(EditorState.selectedRef current.Frame),
+        current.Saved,
+        current.Queue),
       (fun current ->
         Explorer.view {
           Selected = EditorState.selectedRef current.Frame
@@ -984,9 +1012,12 @@ let view(args: ViewArgs<'env>) : Control =
     rebuildOn(
       model,
       (fun current ->
-        EditorState.tabs current.Frame,
-        EditorState.activeTab current.Frame,
-        current.Band),
+        current.Frame
+        |> EditorState.tabs
+        |> List.map tabKey
+        |> String.concat ";",
+        TabId.key(EditorState.activeTab current.Frame),
+        bandIndex current.Band),
       (fun current ->
         TabStrip.view {
           Tabs = EditorState.tabs current.Frame
@@ -1029,7 +1060,7 @@ let view(args: ViewArgs<'env>) : Control =
       (Observable.combineLatest
         (Observable.combineLatest
           (Observable.combineLatest
-            (model |> Observable.map(fun current -> current.Frame))
+            (model |> Observable.map _.Frame |> Slices.gateByRef)
             args.Runtime.Threads)
           args.Runtime.Repos)
         args.Runtime.Lists)
@@ -1069,9 +1100,9 @@ let view(args: ViewArgs<'env>) : Control =
     EditorPanel.view {
       State = model |> Observable.map(fun current -> current.Panel)
       Problems = model |> Observable.map(fun current -> current.Problems)
-      Output = model |> Observable.map(fun current -> current.Output)
+      Output = model |> Observable.map _.Output |> Slices.gateByRef
       Terminal = args.Runtime.Terminal
-      Now = model |> Observable.map(fun current -> current.Now)
+      Now = model |> Observable.map _.Now |> Slices.share
       OnSelect = fun tab -> dispatch(PanelSelected tab)
       OnClose = fun () -> dispatch PanelClosed
       OnOpenCommit = fun commit -> dispatch(OpenThread commit)
@@ -1143,10 +1174,13 @@ let view(args: ViewArgs<'env>) : Control =
     rebuildOn(
       model,
       (fun current ->
-        EditorState.selectedRef current.Frame,
-        current.History,
-        current.Now,
-        current.Band),
+        LogKinds.wire(EditorState.selectedRef current.Frame),
+        current.History.FetchedAt
+        |> Option.map _.Ticks
+        |> Option.defaultValue 0L,
+        current.History.NewCount,
+        minuteBucket current.Now,
+        bandIndex current.Band),
       (fun current ->
         StatusBar.view {
           Ref = EditorState.selectedRef current.Frame

@@ -1037,13 +1037,13 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | SessionChanged state ->
     let data = sessionOfState state
 
-    ({
+    {
       model with
           Handle = data.Handle
           UnreadCount = data.Unread
           Pasteis = data.Pasteis
      },
-     Cmd.none)
+     Cmd.none
   | HistoryReported(ref, report) ->
     let places = model.Places |> Map.add ref report.Place
 
@@ -1053,12 +1053,12 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
       else
         model.FetchedAt
 
-    ({
+    {
       model with
           Places = places
           FetchedAt = fetchedAt
      },
-     Cmd.none)
+     Cmd.none
   | OpenAuthor handle ->
     model, Cmd.ofAction(fun () -> props.OnOpenAuthor handle)
   | OpenExternal url -> model, Cmd.ofAction(fun () -> props.OnOpenExternal url)
@@ -1073,41 +1073,41 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
     },
     Cmd.none
   | HistoryStopped ->
-    ({
+    {
       model with
           LiveHistory = max 0 (model.LiveHistory - 1)
      },
-     Cmd.none)
+     Cmd.none
   | InspectorStopped ->
-    ({
+    {
       model with
           LiveInspector = max 0 (model.LiveInspector - 1)
      },
-     Cmd.none)
+     Cmd.none
   | ThreadStopped ->
-    ({
+    {
       model with
           LiveThread = max 0 (model.LiveThread - 1)
      },
-     Cmd.none)
+     Cmd.none
   | RepositoryStopped ->
-    ({
+    {
       model with
           LiveRepository = max 0 (model.LiveRepository - 1)
      },
-     Cmd.none)
+     Cmd.none
   | RepositoryListChanged open' ->
-    ({
+    {
       model with
           RepositoryListOpen = open' && model.Repository.IsSome
      },
-     Cmd.none)
+     Cmd.none
   | NotificationsStopped ->
-    ({
+    {
       model with
           LiveNotifications = max 0 (model.LiveNotifications - 1)
      },
-     Cmd.none)
+     Cmd.none
   | NotificationsReady(view, childHandle) ->
     if Ref.notifications model.Selected then
       model.Notifications
@@ -1119,12 +1119,12 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         else
           model.LiveNotifications + 1
 
-      ({
+      {
         model with
             Notifications = Some { View = view; Handle = childHandle }
             LiveNotifications = live
        },
-       Cmd.none)
+       Cmd.none
     else
       childHandle.Dispose()
       model, Cmd.none
@@ -1150,11 +1150,11 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
        None
      ))
   | SearchPaletteStopped ->
-    ({
+    {
       model with
           LiveSearchPalette = max 0 (model.LiveSearchPalette - 1)
      },
-     Cmd.none)
+     Cmd.none
   | SearchPaletteReady(view, childHandle) ->
     model.SearchPalette |> Option.iter(fun current -> current.Handle.Dispose())
 
@@ -1164,16 +1164,16 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
       else
         model.LiveSearchPalette + 1
 
-    ({
+    {
       model with
           SearchPalette = Some { View = view; Handle = childHandle }
           LiveSearchPalette = live
      },
-     Cmd.none)
+     Cmd.none
   | SearchCommitted term ->
     let data = sessionData props
 
-    ({
+    {
       model with
           History = None
           ThreadId = None
@@ -1203,13 +1203,13 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
            Term = term
          }
        )
-     ])
+     ]
   | SearchStopped ->
-    ({
+    {
       model with
           LiveSearch = max 0 (model.LiveSearch - 1)
      },
-     Cmd.none)
+     Cmd.none
   | SearchReady(term, view, childHandle) ->
     if model.SearchTerm = Some term then
       model.Search |> Option.iter(fun current -> current.Handle.Dispose())
@@ -1220,7 +1220,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         else
           model.LiveSearch + 1
 
-      ({
+      {
         model with
             Search =
               Some {
@@ -1230,7 +1230,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
               }
             LiveSearch = live
        },
-       Cmd.none)
+       Cmd.none
     else
       childHandle.Dispose()
       model, Cmd.none
@@ -1253,7 +1253,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         )
       | _ -> Cmd.none
 
-    ({
+    {
       model with
           Search = None
           SearchTerm = None
@@ -1261,7 +1261,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
      Cmd.batch [
        startSearchCmd(props, model.Search |> Option.map _.Handle, None)
        restart
-     ])
+     ]
   | HistoryReady(ref, restore, view, handle, refresh) ->
     if ref = model.Selected then
       model.History |> Option.iter(fun current -> current.Handle.Dispose())
@@ -1272,7 +1272,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         else
           model.LiveHistory + 1
 
-      ({
+      {
         model with
             History =
               Some {
@@ -1284,7 +1284,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
               }
             LiveHistory = live
        },
-       Cmd.none)
+       Cmd.none
     else
       handle.Dispose()
       model, Cmd.none
@@ -1298,7 +1298,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         else
           model.LiveInspector + 1
 
-      ({
+      {
         model with
             Inspector =
               Some {
@@ -1308,7 +1308,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
               }
             LiveInspector = live
        },
-       Cmd.none)
+       Cmd.none
     else
       handle.Dispose()
       model, Cmd.none
@@ -1322,7 +1322,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         else
           model.LiveThread + 1
 
-      ({
+      {
         model with
             Thread =
               Some {
@@ -1332,7 +1332,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
               }
             LiveThread = live
        },
-       Cmd.none)
+       Cmd.none
     else
       handle.Dispose()
       model, Cmd.none
@@ -1346,7 +1346,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         else
           model.LiveRepository + 1
 
-      ({
+      {
         model with
             Repository =
               Some {
@@ -1356,7 +1356,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
               }
             LiveRepository = live
        },
-       Cmd.none)
+       Cmd.none
     else
       childHandle.Dispose()
       model, Cmd.none

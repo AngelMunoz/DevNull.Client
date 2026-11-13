@@ -149,12 +149,12 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
       },
       Cmd.none
     | Error error ->
-      ({
+      {
         model with
             Loading = false
             Error = Some error
        },
-       Cmd.none)
+       Cmd.none
   | MoreRequested ->
     match model.Cursor with
     | Some cursor when not model.More && not model.Loading ->

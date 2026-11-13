@@ -120,7 +120,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | Shown result ->
     match result with
     | Ok page ->
-      ({
+      {
         model with
             Loading = false
             Error = None
@@ -130,36 +130,36 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             RepliesLoading = true
             RepliesError = None
        },
-       Cmd.OfAsync.perform fetchReplies (props, None) RepliesFetched)
+       Cmd.OfAsync.perform fetchReplies (props, None) RepliesFetched
     | Error error ->
-      ({
+      {
         model with
             Loading = false
             Error = Some error
        },
-       Cmd.none)
+       Cmd.none
   | RepliesFetched result ->
     match result with
     | Ok page ->
-      ({
+      {
         model with
             Replies = page.Items
             RepliesCursor = page.NextCursor
             RepliesLoading = false
             RepliesError = None
        },
-       Cmd.none)
+       Cmd.none
     | Error error ->
-      ({
+      {
         model with
             RepliesLoading = false
             RepliesError = Some error
        },
-       Cmd.none)
+       Cmd.none
   | MoreRepliesRequested ->
     match model.RepliesCursor with
     | Some _ ->
-      ({
+      {
         model with
             RepliesLoading = true
             RepliesError = None
@@ -167,26 +167,26 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
        Cmd.OfAsync.perform
          fetchReplies
          (props, model.RepliesCursor)
-         RepliesAppended)
+         RepliesAppended
     | None -> model, Cmd.none
   | RepliesAppended result ->
     match result with
     | Ok page ->
-      ({
+      {
         model with
             Replies = model.Replies @ page.Items
             RepliesCursor = page.NextCursor
             RepliesLoading = false
             RepliesError = None
        },
-       Cmd.none)
+       Cmd.none
     | Error error ->
-      ({
+      {
         model with
             RepliesLoading = false
             RepliesError = Some error
        },
-       Cmd.none)
+       Cmd.none
   | Posted reply ->
     let replies =
       model.Replies
@@ -206,13 +206,13 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
               |> Option.orElse(Some 1)
       })
 
-    ({
+    {
       model with
           Commit = commit
           Replies = replies
           RepliesError = None
      },
-     Cmd.none)
+     Cmd.none
   | ClockTicked moment -> ({ model with Now = moment }, Cmd.none)
   | BackRequested -> model, Cmd.ofAction(fun () -> props.OnBack())
   | Opened commit -> model, Cmd.ofAction(fun () -> props.OnOpenThread commit)

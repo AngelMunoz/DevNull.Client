@@ -94,6 +94,7 @@ let searchNav(props: Props<'env>) : INavigable = {
         fun _ -> Task.FromResult success
       | [| "search"; term |] ->
         props.OnOpenSearch(Uri.UnescapeDataString term)
+        props.OnClose()
         fun _ -> Task.FromResult success
       | _ -> fun _ -> Task.FromResult(Error(RouteNotFound url))
 
@@ -139,8 +140,7 @@ let commandBar(props: Props<'env>) =
     )
 
 let mount(dispatcher: IDispatcher, props: Props<'env>) : Control * IDisposable =
-  let log =
-    props.Env.LoggerFactory.CreateLogger "DevNull.Client.Layouts.Editor.Palette"
+  let log = props.Env.LoggerFactory.CreateLogger "DevNull.Client.Editor.Palette"
 
   let searches =
     new DevNull.Client.Search.Session(

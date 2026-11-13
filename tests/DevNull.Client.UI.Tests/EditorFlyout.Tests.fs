@@ -4,6 +4,7 @@ open System
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Headless
+open Avalonia.Input
 open Avalonia.VisualTree
 open Expecto
 open DevNull.Client.Core.Http
@@ -71,12 +72,151 @@ let clickFlyout(window: Window) : Async<unit> =
       match control with
       | :? ContentControl as host ->
         match host.Content with
-        | :? Button as card -> click card
+        | :? Button as card ->
+          let center =
+            card.TranslatePoint(
+              Point(card.Bounds.Width / 2.0, card.Bounds.Height / 2.0),
+              window
+            )
+
+          if center.HasValue then
+            window.MouseDown(
+              center.Value,
+              MouseButton.Left,
+              RawInputModifiers.None
+            )
+
+            window.MouseUp(
+              center.Value,
+              MouseButton.Left,
+              RawInputModifiers.None
+            )
         | _ -> ()
       | _ -> ()))
 
 let tests =
   testList "editor author flyout" [
+    testCaseAsync
+      "the history card author opens the repository tab"
+      (async {
+        let! window, handle = mountAt1600()
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history card never rendered"
+
+        do! hoverAuthor(window)
+
+        let! flyout =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              visible(root, "UserFlyout")
+              && (hasText(root, "Builds things.")
+                  || hasText(root, "Reading the profile…"))
+          )
+
+        Expect.isTrue flyout "the history author flyout never opened"
+
+        do! clickFlyout(window)
+
+        let! repo =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root ->
+              visible(root, "RepoTab") && hasText(root, "HISTORY @octocat")
+          )
+
+        Expect.isTrue
+          repo
+          "the history author flyout never opened the octocat repository tab"
+
+        do! close(window, handle)
+      })
+
+    testCaseAsync
+      "the history avatar activates an already open repository tab"
+      (async {
+        let! window, handle = mountAt1600()
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history card never rendered"
+
+        do! hoverAuthor(window)
+
+        let! firstFlyout =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              visible(root, "UserFlyout")
+              && (hasText(root, "Builds things.")
+                  || hasText(root, "Reading the profile…"))
+          )
+
+        Expect.isTrue firstFlyout "the first history flyout never opened"
+        do! clickFlyout(window)
+
+        let! firstRepo =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "HISTORY @octocat")
+          )
+
+        Expect.isTrue firstRepo "the first flyout never opened the repository"
+
+        do! clickName(window, "EditorTab-history")
+
+        let! back =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue back "the history tab never returned"
+
+        do! hoverAuthor(window)
+
+        let! secondFlyout =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              visible(root, "UserFlyout")
+              && (hasText(root, "Builds things.")
+                  || hasText(root, "Reading the profile…"))
+          )
+
+        Expect.isTrue secondFlyout "the second history flyout never opened"
+        do! clickFlyout(window)
+
+        let! secondRepo =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "HISTORY @octocat")
+          )
+
+        Expect.isTrue secondRepo "the flyout never reactivated the repository"
+
+        do! close(window, handle)
+      })
+
     testCaseAsync
       "the thread card author opens the repository tab"
       (async {

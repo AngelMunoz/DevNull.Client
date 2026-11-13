@@ -276,7 +276,9 @@
     <Compile Include="Layouts\Editor\Palette.fs" />
     <Compile Include="Layouts\Editor\ListTab.fsi" />
     <Compile Include="Layouts\Editor\ListTab.fs" />
-    <Compile Include="Layouts\Editor\EditorRoot.fsi" />
+        <Compile Include="Layouts\Editor\SearchTab.fsi" />
+    <Compile Include="Layouts\Editor\SearchTab.fs" />
+<Compile Include="Layouts\Editor\EditorRoot.fsi" />
     <Compile Include="Layouts\Editor\EditorRoot.fs" />
     <Compile Include="Layouts.fsi" />
     <Compile Include="Layouts.fs" />

@@ -87,7 +87,11 @@ type Runtime = {
   ShowTerminal: TerminalRequest -> unit
   RefreshHistory: unit -> unit
   OpenRepo: string -> unit
+  CloseRepo: string -> unit
   Repos: IObservable<Map<string, Control>>
+  OpenSearch: string -> unit
+  CloseSearch: string -> unit
+  Searches: IObservable<Map<string, Control>>
   OpenSaved: unit -> unit
   OpenQueue: unit -> unit
   Lists: IObservable<Map<string, Control>>
@@ -134,12 +138,15 @@ type Msg =
   | OpenNotifications
   | PanelClosed
   | ProblemsFetched of Result<NotificationPage, AppError>
+  | ProblemsMoreRequested
+  | ProblemsAppended of Result<NotificationPage, AppError>
   | QueueFetched of Result<ScheduledPage, AppError>
   | FetchObserved of string * Result<unit, string>
   | QuoteRequested of Commit
   | ReplyRequested of Commit
   | ComposerChanged of ComposerEvent
   | OpenRepo of string
+  | OpenSearch of string
   | OpenSaved
   | OpenQueue
   | OpenThreadById of string
@@ -346,7 +353,7 @@ let unreadOf(state: SessionState) =
   | SignedOut -> 0
 
 let readNotifications
-  (props: Props<'env>)
+  (props: Props<'env>, cursor: string option)
   : Async<Result<NotificationPage, AppError>> =
   Notifications.list(
     props.Env,
@@ -354,7 +361,7 @@ let readNotifications
       KeyFile = props.Session.KeyFile
       Filter = None
       Through = None
-      Cursor = None
+      Cursor = cursor
     }
   )
 
@@ -402,7 +409,10 @@ let openNotificationsPanel
 
   let cmd =
     if openKind then
-      Cmd.OfAsync.perform readNotifications args.Props ProblemsFetched
+      Cmd.OfAsync.perform
+        (fun () -> readNotifications(args.Props, None))
+        ()
+        ProblemsFetched
     else
       Cmd.none
 
@@ -419,6 +429,17 @@ let openRepo(args: UpdateArgs<'env>, handle: string, model: Model) =
   }
 
   next, Cmd.ofAction(fun () -> args.Runtime.OpenRepo handle)
+
+let openSearch(args: UpdateArgs<'env>, term: string, model: Model) =
+  let tab = EditorTab.search(TabId.search term, term)
+
+  let next = {
+    model with
+        Frame = EditorState.openTab(tab, model.Frame)
+        FlyoutOpen = false
+  }
+
+  next, Cmd.ofAction(fun () -> args.Runtime.OpenSearch term)
 
 let openList(args: UpdateArgs<'env>, kind: ListTab.Kind, model: Model) =
   let id, title, start =
@@ -554,6 +575,10 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
     let cmd =
       if closed && TabId.isList id then
         Cmd.ofAction(fun () -> args.Runtime.CloseList(TabId.key id))
+      elif closed && TabId.isRepo id then
+        Cmd.ofAction(fun () -> args.Runtime.CloseRepo(TabId.key id))
+      elif closed && TabId.isSearch id then
+        Cmd.ofAction(fun () -> args.Runtime.CloseSearch(TabId.key id))
       elif closed then
         Cmd.ofAction(fun () -> args.Runtime.CloseThread(TabId.key id))
       else
@@ -674,6 +699,7 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
 
       next, Cmd.none
   | OpenRepo handle -> openRepo(args, handle, model)
+  | OpenSearch term -> openSearch(args, term, model)
   | OpenSaved -> openList(args, ListTab.Saved, model)
   | OpenQueue -> openList(args, ListTab.Queue, model)
   | PaletteToggled ->
@@ -706,6 +732,58 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
           Activity = ActivityBar.History
     },
     Cmd.none
+  | ProblemsMoreRequested ->
+    match model.Problems.NextCursor with
+    | Some cursor when not model.Problems.Loading ->
+      let next = {
+        model with
+            Problems = {
+              model.Problems with
+                  Loading = true
+                  Error = None
+            }
+      }
+
+      next,
+      Cmd.OfAsync.perform
+        (fun () -> readNotifications(args.Props, Some cursor))
+        ()
+        ProblemsAppended
+    | _ -> model, Cmd.none
+  | ProblemsAppended result ->
+    match result with
+    | Ok page ->
+      let known = model.Problems.Items |> List.map _.Id |> Set.ofList
+
+      let appended =
+        page.Page.Items
+        |> List.filter(fun notification -> not(known.Contains notification.Id))
+
+      let items = model.Problems.Items @ appended
+
+      let next = {
+        model with
+            Panel = EditorPanel.reconcile(items, model.Panel)
+            Problems = {
+              Loading = false
+              Error = None
+              Items = items
+              NextCursor = page.Page.NextCursor
+            }
+      }
+
+      addOutput("notifications", Ok(), next), Cmd.none
+    | Error error ->
+      let next = {
+        model with
+            Problems = {
+              model.Problems with
+                  Loading = false
+                  Error = Some error
+            }
+      }
+
+      addOutput("notifications", Error(describe error), next), Cmd.none
   | ProblemsFetched result ->
     match result with
     | Ok page ->
@@ -716,6 +794,7 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
               Loading = false
               Error = None
               Items = page.Page.Items
+              NextCursor = page.Page.NextCursor
             }
       }
 
@@ -948,11 +1027,13 @@ let view(args: ViewArgs<'env>) : Control =
     Observable.combineLatest
       (Observable.combineLatest
         (Observable.combineLatest
-          (model |> Observable.map(fun current -> current.Frame))
-          args.Runtime.Threads)
-        args.Runtime.Repos)
-      args.Runtime.Lists
-    |> Observable.map(fun (((frame, threads), repos), lists) ->
+          (Observable.combineLatest
+            (model |> Observable.map(fun current -> current.Frame))
+            args.Runtime.Threads)
+          args.Runtime.Repos)
+        args.Runtime.Lists)
+      args.Runtime.Searches
+    |> Observable.map(fun ((((frame, threads), repos), lists), searches) ->
       let id = EditorState.activeTab frame
 
       if id = TabId.history then
@@ -961,6 +1042,8 @@ let view(args: ViewArgs<'env>) : Control =
         lists |> Map.tryFind(TabId.key id) |> Option.defaultValue loading
       elif TabId.isRepo id then
         repos |> Map.tryFind(TabId.key id) |> Option.defaultValue loading
+      elif TabId.isSearch id then
+        searches |> Map.tryFind(TabId.key id) |> Option.defaultValue loading
       else
         threads |> Map.tryFind(TabId.key id) |> Option.defaultValue loading)
     |> Observable.distinctUntilChanged
@@ -977,6 +1060,7 @@ let view(args: ViewArgs<'env>) : Control =
       OnSelect = fun tab -> dispatch(PanelSelected tab)
       OnClose = fun () -> dispatch PanelClosed
       OnOpenCommit = fun commit -> dispatch(OpenThread commit)
+      OnLoadMore = fun () -> dispatch ProblemsMoreRequested
     }
 
   let spacer =
@@ -1195,6 +1279,8 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
   let repoEntries = new BehaviorSubject<Map<string, ThreadEntry>>(Map.empty)
   let listEntries = new BehaviorSubject<Map<string, ThreadEntry>>(Map.empty)
 
+  let searchEntries = new BehaviorSubject<Map<string, ThreadEntry>>(Map.empty)
+
   let content = ContentControl()
   let term = ContentControl()
   let quoteLifetime = new SerialDisposable()
@@ -1326,7 +1412,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
             OnOpenCommit =
               fun commitId -> commandPath.OnNext(OpenThreadById commitId)
             OnOpenOrg = ignore
-            OnOpenSearch = ignore
+            OnOpenSearch = fun term -> commandPath.OnNext(OpenSearch term)
             OnSelectRef = fun log -> paletteRefs.OnNext log
             OnOpenNotifications = fun () -> commandPath.OnNext OpenNotifications
             OnOpenPanel = fun tab -> palettePanels.OnNext tab
@@ -1355,6 +1441,11 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
 
   let lists =
     listEntries
+    |> Observable.map(fun map -> map |> Map.map(fun _ entry -> entry.View))
+    |> Slices.share
+
+  let searches =
+    searchEntries
     |> Observable.map(fun map -> map |> Map.map(fun _ entry -> entry.View))
     |> Slices.share
 
@@ -1450,6 +1541,44 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
         repoEntries.Value.Add(key, { View = view; Lifetime = lifetime })
       )
 
+  let closeRepo(key: string) =
+    match Map.tryFind key repoEntries.Value with
+    | Some entry ->
+      repoEntries.OnNext(repoEntries.Value.Remove key)
+      entry.Lifetime.Dispose()
+    | None -> ()
+
+  let openSearch(term: string) =
+    let key = TabId.key(TabId.search term)
+
+    if not(Map.containsKey key searchEntries.Value) then
+      let view, lifetime =
+        SearchTab.mount(
+          dispatcher,
+          {
+            Env = props.Env
+            Session = props.Session
+            Term = term
+            Zone = props.Zone
+            Now = props.Now
+            OnOpenThread = fun commit -> opens.OnNext commit
+            OnReply = fun commit -> replies.OnNext commit
+            OnQuote = fun commit -> quotes.OnNext commit
+            OnOpenRepo = fun handle -> repoOpens.OnNext handle
+          }
+        )
+
+      searchEntries.OnNext(
+        searchEntries.Value.Add(key, { View = view; Lifetime = lifetime })
+      )
+
+  let closeSearch(key: string) =
+    match Map.tryFind key searchEntries.Value with
+    | Some entry ->
+      searchEntries.OnNext(searchEntries.Value.Remove key)
+      entry.Lifetime.Dispose()
+    | None -> ()
+
   let runtime = {
     History = content
     SwitchRef = show
@@ -1461,7 +1590,11 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
     ShowTerminal = showTerminal
     RefreshHistory = fun () -> historyRefresh.OnNext()
     OpenRepo = openRepo
+    CloseRepo = closeRepo
     Repos = repos
+    OpenSearch = openSearch
+    CloseSearch = closeSearch
+    Searches = searches
     OpenSaved = openSaved
     OpenQueue = openQueue
     Lists = lists
@@ -1521,6 +1654,14 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
       repoEntries.OnCompleted()
       repoEntries.Dispose())
 
+  let searchesCleanup =
+    Disposable.Create(fun () ->
+      for KeyValue(_, entry) in searchEntries.Value do
+        entry.Lifetime.Dispose()
+
+      searchEntries.OnCompleted()
+      searchEntries.Dispose())
+
   let subjectCleanup =
     Disposable.Create(fun () ->
       snapshots.OnCompleted()
@@ -1564,6 +1705,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
   handles.Add threadsCleanup
   handles.Add listsCleanup
   handles.Add reposCleanup
+  handles.Add searchesCleanup
   handles.Add paletteLifetime
   handles.Add subjectCleanup
 

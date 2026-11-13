@@ -1,4 +1,4 @@
-module DevNull.Client.Layouts.Editor.EditorCards
+module DevNull.Client.Editor.EditorCards
 
 open System
 open Avalonia
@@ -29,9 +29,8 @@ open DevNull.Client.Remotes
 open DevNull.Client.Stores
 open DevNull.Client.TranslationCache
 open DevNull.Client.UserSettingsStore
-open DevNull.Client.Views
-open DevNull.Client.Views.CommitActions
-open DevNull.Client.Views.TranslationModel
+open DevNull.Client.Components.CommitActions
+open DevNull.Client.Components.TranslationModel
 
 type Surface =
   | Feed

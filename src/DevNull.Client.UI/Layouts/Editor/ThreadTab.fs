@@ -15,6 +15,7 @@ open FSharp.Control.Reactive
 open MVUish.Avalonia
 open MVUish.Avalonia.Collections
 open DevNull.Client
+open DevNull.Client.Editor
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Components
 open DevNull.Client.Components.CommitCard

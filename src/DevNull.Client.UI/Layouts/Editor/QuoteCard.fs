@@ -1,4 +1,4 @@
-module DevNull.Client.Layouts.Editor.QuoteCard
+module DevNull.Client.Editor.QuoteCard
 
 open System
 open Avalonia

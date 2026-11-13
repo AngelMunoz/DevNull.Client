@@ -121,7 +121,7 @@ module State =
     /// Whether translations show by themselves.
     Automatic: bool
     /// Every commit's translation on this page.
-    Translations: TranslationModel.Book
+    Translations: DevNull.Client.Components.TranslationModel.Book
     /// Whether the page already asked for its automatic translations.
     AutoRan: bool
     /// The commit whose share dialog stands open.
@@ -170,7 +170,9 @@ module State =
     | OriginalRequested of Commit
     | TranslationDone of Commit * Result<TranslationPayload, AppError>
     | TranslationsAuto of (Commit * Result<TranslationPayload, AppError>) list
-    | TranslationRecalled of Commit * TranslationModel.Book option
+    | TranslationRecalled of
+      Commit *
+      DevNull.Client.Components.TranslationModel.Book option
     | PrefsArrived of settings: UserSettings option
     | ShareOpened of Commit
     | ShareClosed

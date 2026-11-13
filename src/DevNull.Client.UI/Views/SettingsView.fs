@@ -12,6 +12,7 @@ open MVUish.Avalonia
 open Navs
 open DevNull.Client
 open DevNull.Client.Components
+open DevNull.Client.Components.TranslationModel
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities

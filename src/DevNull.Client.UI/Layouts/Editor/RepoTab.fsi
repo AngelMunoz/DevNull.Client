@@ -1,6 +1,7 @@
 module DevNull.Client.Layouts.Editor.RepoTab
 
 open System
+open DevNull.Client.Editor
 open Avalonia.Controls
 open Avalonia.Threading
 open DevNull.Client.AttachmentSources

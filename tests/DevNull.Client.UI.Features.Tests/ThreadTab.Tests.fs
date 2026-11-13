@@ -13,6 +13,7 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Env
 open DevNull.Client.ImageCache
 open DevNull.Client.Layouts.Editor
+open DevNull.Client.Editor
 open DevNull.Client.Profiles
 open DevNull.Client.Remotes
 open DevNull.Client.TranslationCache

@@ -1,4 +1,4 @@
-﻿module DevNull.Client.UI.Tests.Translation
+module DevNull.Client.UI.Tests.Translation
 
 open System
 open System.IO
@@ -7,7 +7,7 @@ open Microsoft.Extensions.Logging.Abstractions
 open Avalonia.Controls
 open DevNull.Client
 open DevNull.Client.Core
-open DevNull.Client.Views.TranslationModel
+open DevNull.Client.Components.TranslationModel
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Types
 open DevNull.Client.Core.Http

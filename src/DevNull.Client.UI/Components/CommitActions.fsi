@@ -1,4 +1,4 @@
-module DevNull.Client.Views.CommitActions
+module DevNull.Client.Components.CommitActions
 
 open Microsoft.Extensions.Logging
 open DevNull.Client.Core.ApiTypes

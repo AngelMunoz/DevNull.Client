@@ -13,6 +13,7 @@ open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
 open DevNull.Client
+open DevNull.Client.Editor
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Components
 open DevNull.Client.Components.CommitCard

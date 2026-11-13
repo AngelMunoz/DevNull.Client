@@ -11,6 +11,7 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.Profiles
+open DevNull.Client.RecentSearchStore
 open DevNull.Client.Remotes
 open DevNull.Client.Stores
 open DevNull.Client.TranslationCache
@@ -36,6 +37,7 @@ type Props<'env
   and 'env :> IProvideTranslations
   and 'env :> IProvideUserSettings
   and 'env :> IProvideBrowser
+  and 'env :> IProvideRecentSearches
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession

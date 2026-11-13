@@ -28,6 +28,7 @@ open DevNull.Client.Formatting
 open DevNull.Client.Icons
 open DevNull.Client.ImageCache
 open DevNull.Client.Profiles
+open DevNull.Client.RecentSearchStore
 open DevNull.Client.TranslationCache
 open DevNull.Client.UserSettingsStore
 open DevNull.Client.Remotes
@@ -49,6 +50,7 @@ type Props<'env
   and 'env :> IProvideTranslations
   and 'env :> IProvideUserSettings
   and 'env :> IProvideBrowser
+  and 'env :> IProvideRecentSearches
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
@@ -129,6 +131,7 @@ type Msg =
   | WidthChanged of band: WidthBand
   | PanelToggled of EditorPanel.Tab
   | PanelSelected of EditorPanel.Tab
+  | OpenNotifications
   | PanelClosed
   | ProblemsFetched of Result<NotificationPage, AppError>
   | QueueFetched of Result<ScheduledPage, AppError>
@@ -139,6 +142,8 @@ type Msg =
   | OpenRepo of string
   | OpenSaved
   | OpenQueue
+  | OpenThreadById of string
+  | OpenCompose
   | PaletteToggled
   | PaletteClosed
 
@@ -168,6 +173,7 @@ type ProgramArgs<'env
   and 'env :> IProvideTranslations
   and 'env :> IProvideUserSettings
   and 'env :> IProvideBrowser
+  and 'env :> IProvideRecentSearches
   and 'env :> IProvideLogging> = {
   Runtime: Runtime
   Props: Props<'env>
@@ -200,6 +206,7 @@ type ViewArgs<'env
   and 'env :> IProvideTranslations
   and 'env :> IProvideUserSettings
   and 'env :> IProvideBrowser
+  and 'env :> IProvideRecentSearches
   and 'env :> IProvideLogging> = {
   Runtime: Runtime
   Props: Props<'env>
@@ -222,6 +229,7 @@ type UpdateArgs<'env
   and 'env :> IProvideTranslations
   and 'env :> IProvideUserSettings
   and 'env :> IProvideBrowser
+  and 'env :> IProvideRecentSearches
   and 'env :> IProvideLogging> = { Runtime: Runtime; Props: Props<'env> }
 
 [<Struct>]
@@ -240,6 +248,7 @@ type HistoryArgs<'env
   and 'env :> IProvideTranslations
   and 'env :> IProvideUserSettings
   and 'env :> IProvideBrowser
+  and 'env :> IProvideRecentSearches
   and 'env :> IProvideLogging> = {
   Props: Props<'env>
   Log: LogKind
@@ -374,6 +383,31 @@ let addOutput(refName: string, result: Result<unit, string>, model: Model) = {
         )
 }
 
+let openNotificationsPanel
+  (args: UpdateArgs<'env>, panel: EditorPanel.State, model: Model)
+  =
+  let openKind = panel.Open && EditorPanel.isKindTab panel.Tab
+
+  let next = {
+    model with
+        Panel = panel
+        Activity = ActivityBar.Problems
+        FlyoutOpen = false
+        Problems =
+          if openKind then
+            EditorPanel.beginProblems model.Problems
+          else
+            model.Problems
+  }
+
+  let cmd =
+    if openKind then
+      Cmd.OfAsync.perform readNotifications args.Props ProblemsFetched
+    else
+      Cmd.none
+
+  next, cmd
+
 let openRepo(args: UpdateArgs<'env>, handle: string, model: Model) =
   let tab = EditorTab.repo(TabId.repo handle, handle)
 
@@ -424,6 +458,42 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
     }
 
     next, Cmd.ofAction(fun () -> args.Runtime.SwitchRef(log, place))
+  | OpenThreadById commitId ->
+    let id = TabId.thread commitId
+
+    let exists =
+      model.Frame
+      |> EditorState.tabs
+      |> List.exists(fun tab -> EditorTab.id tab = id)
+
+    if exists then
+      let next = {
+        model with
+            Frame = EditorState.selectTab(id, model.Frame)
+            FlyoutOpen = false
+      }
+
+      next, Cmd.none
+    else
+      let short = commitId.Substring(0, min 8 commitId.Length)
+      let tab = EditorTab.thread(id, short, 0)
+
+      let next = {
+        model with
+            Frame = EditorState.openTab(tab, model.Frame)
+            FlyoutOpen = false
+      }
+
+      next, Cmd.ofAction(fun () -> args.Runtime.OpenThread commitId)
+  | OpenCompose ->
+    let next = {
+      model with
+          Panel = EditorPanel.openOn(EditorPanel.Terminal, model.Panel)
+          Activity = ActivityBar.Problems
+          FlyoutOpen = false
+    }
+
+    next, Cmd.ofAction(fun () -> args.Runtime.ShowTerminal FreshTerm)
   | OpenThread commit ->
     let id = TabId.thread commit.Id
 
@@ -571,28 +641,10 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
   | ActivitySelected activity ->
     match activity with
     | ActivityBar.Problems ->
-      let panel = EditorPanel.toggle(EditorPanel.Notifications, model.Panel)
-      let openProblems = panel.Open && panel.Tab = EditorPanel.Notifications
+      let panel =
+        EditorPanel.toggleNotifications(model.Problems.Items, model.Panel)
 
-      let next = {
-        model with
-            Panel = panel
-            Activity = ActivityBar.Problems
-            FlyoutOpen = false
-            Problems =
-              if openProblems then
-                EditorPanel.beginProblems model.Problems
-              else
-                model.Problems
-      }
-
-      let cmd =
-        if openProblems then
-          Cmd.OfAsync.perform readNotifications args.Props ProblemsFetched
-        else
-          Cmd.none
-
-      next, cmd
+      openNotificationsPanel(args, panel, model)
     | ActivityBar.History ->
       let flyout = model.Band <> Full && not model.FlyoutOpen
 
@@ -640,50 +692,13 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
     Cmd.ofAction(fun () -> args.Runtime.ClosePalette())
   | PanelToggled tab ->
     let panel = EditorPanel.toggle(tab, model.Panel)
-    let openProblems = panel.Open && panel.Tab = EditorPanel.Notifications
-
-    let next = {
-      model with
-          Panel = panel
-          Activity = ActivityBar.Problems
-          FlyoutOpen = false
-          Problems =
-            if openProblems then
-              EditorPanel.beginProblems model.Problems
-            else
-              model.Problems
-    }
-
-    let cmd =
-      if openProblems then
-        Cmd.OfAsync.perform readNotifications args.Props ProblemsFetched
-      else
-        Cmd.none
-
-    next, cmd
+    openNotificationsPanel(args, panel, model)
   | PanelSelected tab ->
     let panel = EditorPanel.select(tab, model.Panel)
-    let openProblems = tab = EditorPanel.Notifications
-
-    let next = {
-      model with
-          Panel = panel
-          Activity = ActivityBar.Problems
-          FlyoutOpen = false
-          Problems =
-            if openProblems then
-              EditorPanel.beginProblems model.Problems
-            else
-              model.Problems
-    }
-
-    let cmd =
-      if openProblems then
-        Cmd.OfAsync.perform readNotifications args.Props ProblemsFetched
-      else
-        Cmd.none
-
-    next, cmd
+    openNotificationsPanel(args, panel, model)
+  | OpenNotifications ->
+    let panel = EditorPanel.openFirst(model.Problems.Items, model.Panel)
+    openNotificationsPanel(args, panel, model)
   | PanelClosed ->
     {
       model with
@@ -696,6 +711,7 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
     | Ok page ->
       let next = {
         model with
+            Panel = EditorPanel.reconcile(page.Page.Items, model.Panel)
             Problems = {
               Loading = false
               Error = None
@@ -1307,10 +1323,15 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
             Env = props.Env
             Session = props.Session
             OnOpenRepo = fun handle -> repoOpens.OnNext handle
-            OnOpenThread = fun commit -> opens.OnNext commit
+            OnOpenCommit =
+              fun commitId -> commandPath.OnNext(OpenThreadById commitId)
+            OnOpenOrg = ignore
+            OnOpenSearch = ignore
             OnSelectRef = fun log -> paletteRefs.OnNext log
+            OnOpenNotifications = fun () -> commandPath.OnNext OpenNotifications
             OnOpenPanel = fun tab -> palettePanels.OnNext tab
             OnUseDefaultLayout = props.OnUseDefaultLayout
+            OnOpenCompose = fun () -> commandPath.OnNext OpenCompose
             OnClose = fun () -> paletteClose.OnNext()
           }
         )
@@ -1551,8 +1572,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
     | Some model ->
       match command with
       | OpenTerminal -> commandPath.OnNext(PanelSelected EditorPanel.Terminal)
-      | OpenProblems ->
-        commandPath.OnNext(PanelSelected EditorPanel.Notifications)
+      | OpenProblems -> commandPath.OnNext OpenNotifications
       | OpenPalette ->
         if not model.PaletteOpen then
           commandPath.OnNext PaletteToggled

@@ -5,9 +5,10 @@ open Avalonia.Controls
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Errors
 
-/// Which panel tab is in front.
+/// Which panel tab is in front: one notification kind, the
+/// activity log, or the terminal.
 type Tab =
-  | Notifications
+  | Kind of NotificationKind
   | Activity
   | Terminal
 
@@ -54,6 +55,9 @@ val openOn: tab: Tab * state: State -> State
 /// The panel open on one tab, replacing the current state.
 val select: tab: Tab * state: State -> State
 
+/// Whether the tab holds one notification kind.
+val isKindTab: tab: Tab -> bool
+
 /// The panel closed, with its tab kept for the next open.
 val close: state: State -> State
 
@@ -74,9 +78,29 @@ val emptyProblems: ProblemsState
 /// The same problems with a read in flight.
 val beginProblems: state: ProblemsState -> ProblemsState
 
-/// Notification rows grouped by kind in the panel's fixed order.
-val problemGroups:
-  items: Notification list -> (NotificationKind * Notification list) list
+/// The notification kinds present in the rows, in display order.
+val kindsOf: items: Notification list -> NotificationKind list
+
+/// The rows of one kind, in the read's own order.
+val notificationsOf:
+  items: Notification list * kind: NotificationKind -> Notification list
+
+/// The tab to show when the held tab is no longer present: the first
+/// kind, or Activity when no kind remains.
+val effectiveTab: items: Notification list * tab: Tab -> Tab
+
+/// Keeps the held tab when it is present, else moves to the first kind
+/// or Activity.
+val reconcile: items: Notification list * state: State -> State
+
+/// Opens the panel on the last-used kind when it is present, else the
+/// first kind. Before the first read lands, it keeps a first-kind
+/// placeholder so the read starts; the next reconcile picks the kind
+/// that is actually present.
+val openFirst: items: Notification list * state: State -> State
+
+/// Toggles the panel on its current kind, or opens the first kind.
+val toggleNotifications: items: Notification list * state: State -> State
 
 /// The severity mark of one kind: a check for Approved, a cross for
 /// Rejected, and nothing for every other kind.
@@ -87,6 +111,9 @@ val isUnread: notification: Notification -> bool
 
 /// The group heading of one kind.
 val kindLabel: kind: NotificationKind -> string
+
+/// The label one panel tab shows.
+val tabLabel: tab: Tab -> string
 
 /// The live commit a notification points at, when it points at one.
 val commitOf: notification: Notification -> Commit option

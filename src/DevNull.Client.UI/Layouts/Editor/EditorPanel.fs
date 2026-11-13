@@ -15,7 +15,7 @@ open DevNull.Client.Errors
 open DevNull.Client.Formatting
 
 type Tab =
-  | Notifications
+  | Kind of NotificationKind
   | Activity
   | Terminal
 
@@ -47,11 +47,17 @@ type Props = {
 
 let height = 280.0
 
-let closed = { Open = false; Tab = Notifications }
+let closed = { Open = false; Tab = Activity }
 
 let openOn(tab: Tab, state: State) = { state with Open = true; Tab = tab }
 
 let select(tab: Tab, state: State) = { state with Open = true; Tab = tab }
+
+let isKindTab(tab: Tab) =
+  match tab with
+  | Kind _ -> true
+  | Activity
+  | Terminal -> false
 
 let close(state: State) = { state with Open = false }
 
@@ -60,6 +66,19 @@ let toggle(tab: Tab, state: State) =
     close state
   else
     openOn(tab, state)
+
+let kindRank(kind: NotificationKind) =
+  match kind with
+  | NotificationKind.Followed -> 0
+  | NotificationKind.Replied -> 1
+  | NotificationKind.Quoted -> 2
+  | NotificationKind.Starred -> 3
+  | NotificationKind.Mentioned -> 4
+  | NotificationKind.LeveledUp -> 5
+  | NotificationKind.Approved -> 6
+  | NotificationKind.Rejected -> 7
+  | NotificationKind.FirstCommit -> 8
+  | NotificationKind.UnknownKind _ -> 9
 
 let isOpen(state: State) = state.Open
 
@@ -90,23 +109,48 @@ let kindLabel(kind: NotificationKind) =
   | NotificationKind.FirstCommit -> "FIRST COMMITS"
   | NotificationKind.UnknownKind raw -> raw.ToUpperInvariant()
 
-let kindOrder(kind: NotificationKind) =
-  match kind with
-  | NotificationKind.Followed -> 0
-  | NotificationKind.Replied -> 1
-  | NotificationKind.Quoted -> 2
-  | NotificationKind.Starred -> 3
-  | NotificationKind.Mentioned -> 4
-  | NotificationKind.LeveledUp -> 5
-  | NotificationKind.Approved -> 6
-  | NotificationKind.Rejected -> 7
-  | NotificationKind.FirstCommit -> 8
-  | NotificationKind.UnknownKind _ -> 9
-
-let problemGroups(items: Notification list) =
+let kindsOf(items: Notification list) : NotificationKind list =
   items
-  |> List.groupBy(fun notification -> notification.Type)
-  |> List.sortBy(fun (kind, _) -> kindOrder kind, kindLabel kind)
+  |> List.map(fun notification -> notification.Type)
+  |> List.distinctBy id
+  |> List.sortBy(fun kind -> kindRank kind, kindLabel kind)
+
+let notificationsOf(items: Notification list, kind: NotificationKind) =
+  items |> List.filter(fun notification -> notification.Type = kind)
+
+let hasKind(items: Notification list, kind: NotificationKind) =
+  items |> List.exists(fun notification -> notification.Type = kind)
+
+let firstKind(items: Notification list) =
+  match kindsOf items with
+  | kind :: _ -> Some kind
+  | [] -> None
+
+let effectiveTab(items: Notification list, tab: Tab) =
+  match tab with
+  | Kind kind when hasKind(items, kind) -> tab
+  | Kind _ -> firstKind items |> Option.map Kind |> Option.defaultValue Activity
+  | Activity
+  | Terminal -> tab
+
+let reconcile(items: Notification list, state: State) = {
+  state with
+      Tab = effectiveTab(items, state.Tab)
+}
+
+let openFirst(items: Notification list, state: State) =
+  let tab =
+    match effectiveTab(items, state.Tab) with
+    | Kind _ as held -> held
+    | _ ->
+      firstKind items |> Option.defaultValue NotificationKind.Followed |> Kind
+
+  { state with Open = true; Tab = tab }
+
+let toggleNotifications(items: Notification list, state: State) =
+  match state.Open, state.Tab with
+  | true, Kind _ -> close state
+  | _ -> openFirst(items, state)
 
 let severityOf(kind: NotificationKind) =
   match kind with
@@ -141,13 +185,13 @@ let actionOf(kind: NotificationKind) =
 
 let tabLabel(tab: Tab) =
   match tab with
-  | Notifications -> "NOTIFICATIONS"
+  | Kind kind -> kindLabel kind
   | Activity -> "ACTIVITY"
   | Terminal -> "TERMINAL"
 
 let tabName(tab: Tab) =
   match tab with
-  | Notifications -> "Notifications"
+  | Kind kind -> kindLabel kind
   | Activity -> "Activity"
   | Terminal -> "Terminal"
 
@@ -168,25 +212,38 @@ let tabButton(props: Props, current: Tab, tab: Tab) : Control =
   button.Name <- $"EditorPanelTab-{tabName tab}"
   button
 
-let tabStrip(props: Props, current: Tab) : Control =
-  let strip = Grid()
-  strip.ColumnDefinitions <- ColumnDefinitions("Auto,Auto,Auto,*,Auto")
+let tabStrip(props: Props, current: Tab, items: Notification list) : Control =
+  let tabs = [ Activity; Terminal ] @ (kindsOf items |> List.map Kind)
 
-  strip.Children(
-    tabButton(props, current, Notifications).Column(0),
-    tabButton(props, current, Activity).Column(1),
-    tabButton(props, current, Terminal).Column(2),
+  let strip =
+    StackPanel()
+      .Orientation(Orientation.Horizontal)
+      .Spacing(2.0)
+      .Children([| for tab in tabs -> tabButton(props, current, tab) |])
+
+  let scroll =
+    ScrollViewer()
+      .Name("EditorPanelTabs")
+      .HorizontalScrollBarVisibility(ScrollBarVisibility.Auto)
+      .VerticalScrollBarVisibility(ScrollBarVisibility.Disabled)
+      .Content(strip)
+
+  let frame = Grid()
+  frame.ColumnDefinitions <- ColumnDefinitions("*,Auto")
+
+  frame.Children(
+    scroll.Column(0),
     Button()
       .Name("EditorPanelClose")
       .Classes(Theme.name Theme.GhostButton)
       .Padding(Thickness(6.0, 2.0))
       .Content(TextBlock().Text("×"))
       .OnClickHandler(fun _ _ -> props.OnClose())
-      .Column(4)
+      .Column(1)
   )
   |> ignore
 
-  strip
+  frame
 
 let problemRow(props: Props, notification: Notification) : Control =
   let mark =
@@ -237,7 +294,11 @@ let problemRow(props: Props, notification: Notification) : Control =
     .OnClickHandler(fun _ _ ->
       commitOf notification |> Option.iter props.OnOpenCommit)
 
-let problemsView(props: Props, state: ProblemsState) : Control =
+let problemsView
+  (props: Props, state: ProblemsState, kind: NotificationKind)
+  : Control =
+  let rows = notificationsOf(state.Items, kind)
+
   let children: Control list = [
     if state.Loading && List.isEmpty state.Items then
       yield
@@ -250,24 +311,15 @@ let problemsView(props: Props, state: ProblemsState) : Control =
     | None -> ()
 
     if
-      not state.Loading
-      && state.Error |> Option.isNone
-      && List.isEmpty state.Items
+      not state.Loading && state.Error |> Option.isNone && List.isEmpty rows
     then
       yield
         TextBlock()
-          .Text("No problems.")
+          .Text("No notifications of this kind.")
           .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
 
-    for kind, rows in problemGroups state.Items do
-      yield
-        TextBlock()
-          .Text(kindLabel kind)
-          .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
-          .Margin(0.0, 8.0, 0.0, 2.0)
-
-      for notification in rows do
-        yield problemRow(props, notification)
+    for notification in rows do
+      yield problemRow(props, notification)
   ]
 
   ScrollViewer()
@@ -313,12 +365,17 @@ let outputView(lines: OutputLine list) : Control =
       )
 
 let view(props: Props) : Control =
+  let current =
+    Observable.combineLatest props.State props.Problems
+    |> Observable.map(fun (state, problems) ->
+      effectiveTab(problems.Items, state.Tab), problems)
+
   let tabStripHost =
     let binding =
       rebuildOn(
-        props.State,
-        (fun (state: State) -> state.Tab),
-        (fun (state: State) -> tabStrip(props, state.Tab))
+        current,
+        (fun (tab, problems) -> tab, problems.Items),
+        (fun (tab, problems) -> tabStrip(props, tab, problems.Items))
       )
       |> _.ToBinding()
 
@@ -328,14 +385,23 @@ let view(props: Props) : Control =
     ContentControl()
       .Content(
         rebuildOn(
-          props.Problems,
-          (fun (state: ProblemsState) -> state),
-          (fun (state: ProblemsState) -> problemsView(props, state))
+          current,
+          (fun (tab, problems) -> tab, problems),
+          fun (tab, problems) ->
+            match tab with
+            | Kind kind -> problemsView(props, problems, kind)
+            | Activity
+            | Terminal -> Panel()
         )
         |> _.ToBinding()
       )
       .IsVisible(
-        props.State |> Observable.map(fun state -> state.Tab = Notifications)
+        current
+        |> Observable.map(fun (tab, _) ->
+          match tab with
+          | Kind _ -> true
+          | Activity
+          | Terminal -> false)
       )
 
   let outputHost =
@@ -344,16 +410,12 @@ let view(props: Props) : Control =
         rebuildOn(props.Output, (fun lines -> lines), outputView)
         |> _.ToBinding()
       )
-      .IsVisible(
-        props.State |> Observable.map(fun state -> state.Tab = Activity)
-      )
+      .IsVisible(current |> Observable.map(fun (tab, _) -> tab = Activity))
 
   let terminalHost =
     ContentControl()
       .Content(props.Terminal)
-      .IsVisible(
-        props.State |> Observable.map(fun state -> state.Tab = Terminal)
-      )
+      .IsVisible(current |> Observable.map(fun (tab, _) -> tab = Terminal))
 
   let body = Grid()
   body.RowDefinitions <- RowDefinitions("Auto,*")

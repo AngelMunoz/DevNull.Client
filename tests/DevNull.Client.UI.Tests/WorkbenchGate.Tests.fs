@@ -101,6 +101,7 @@ let private historyProps(env: TestEnv) : HistoryColumn.Props<TestEnv> = {
   LastVisit = None
   OnOpenExternal = ignore
   OnOpened = ignore
+  OnReply = ignore
   OnQuote = ignore
   Restore = None
   OnReport = ignore
@@ -130,7 +131,7 @@ let private inspectorProps(env: TestEnv) : Inspector.Props<TestEnv> = {
   OnOpenExternal = ignore
   OnQuote = ignore
   OnClose = ignore
-  OnOpenThread = ignore
+  FocusComposer = false
   OnDialog = ignore
 }
 
@@ -493,6 +494,7 @@ let inspectorViewTests =
               Pinning = None
               PollChoices = Map.empty
               Now = now
+              FocusComposer = false
             }
           )
 

@@ -52,6 +52,20 @@ type WorkbenchEnv() =
   interface IProvideHttp with
     member _.Http = http
 
+  interface IProvideImageCache with
+    member _.ImageCache = {
+      new ImageCacheService with
+        member _.Get(_: string) = async { return None }
+    }
+
+  interface DevNull.Client.AttachmentSources.IProvideAttachmentSources with
+    member _.Attachments = {
+      new DevNull.Client.AttachmentSources.IAttachmentSources with
+        member _.PickFiles() = async { return [] }
+        member _.ReadClipboardImage() = async { return None }
+        member _.ReadClipboardText() = async { return None }
+    }
+
   interface DevNull.Client.Env.IProvideDispatcher with
     member _.Dispatcher = Unchecked.defaultof<Avalonia.Threading.IDispatcher>
 
@@ -112,7 +126,7 @@ let props(env: WorkbenchEnv, sinks: Sinks) : Inspector.Props<WorkbenchEnv> = {
   OnOpenExternal = sinks.External
   OnQuote = sinks.Quote
   OnClose = ignore
-  OnOpenThread = ignore
+  FocusComposer = false
   OnDialog = ignore
 }
 

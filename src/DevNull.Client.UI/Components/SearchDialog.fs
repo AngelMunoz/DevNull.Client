@@ -785,7 +785,7 @@ type Page<'env
     Program.mkProgram (State.initial props) (State.update props) (view props)
     |> Program.withSubscription(State.subscribe props)
 
-  let root, component =
+  let root, childHandle =
     Programs.runComponent(this, props.Env.Dispatcher, program)
 
   let lifetime =
@@ -793,7 +793,7 @@ type Page<'env
       this.Tag <- null
       this.Content <- null
       (props.Searches :> IDisposable).Dispose()
-      component.Dispose())
+      childHandle.Dispose())
 
   do
     this.Content <- root

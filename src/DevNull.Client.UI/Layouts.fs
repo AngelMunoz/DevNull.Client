@@ -295,8 +295,7 @@ let builtIn
           member _.Handle _ = ()
 
         interface IDisposable with
-          member _.Dispose() =
-            (workbenchLifetime :> IDisposable).Dispose()
+          member _.Dispose() = workbenchLifetime.Dispose()
       }
 
   // The editor arrangement: the frame mounts as content, and the

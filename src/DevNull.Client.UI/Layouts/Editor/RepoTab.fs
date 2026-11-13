@@ -474,7 +474,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) =
 
     next, Cmd.none
 
-let subscribe(props: Props<'env>, _model: Model) : Sub<Msg> =
+let subscribe(props: Props<'env>, model: Model) : Sub<Msg> =
   [
     Sub.fromObservable
       "clock"

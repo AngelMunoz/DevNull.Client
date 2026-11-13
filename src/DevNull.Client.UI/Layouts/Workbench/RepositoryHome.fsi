@@ -51,8 +51,8 @@ type Model = {
 }
 
 /// The home's messages: the profile and commit reads, the follow call
-/// and its answer, the people lists and their cursors, the back and
-/// open intents, and the clock.
+/// and its answer, the people lists and their cursors, the open,
+/// reply, quote, and external intents, and the clock.
 type Msg =
   | Shown of Result<ProfileDetails, AppError>
   | CommitsFetched of Result<Page<CommitNode>, AppError>
@@ -69,6 +69,7 @@ type Msg =
   | OpenRepository of handle: string
   | Opened of Commit
   | QuoteRequested of Commit
+  | ReplyRequested of Commit
   | ExternalOpened of url: string
   | PollChoiceChanged of Commit * PollOption * chosen: bool
   | PollVoteRequested of Commit
@@ -79,8 +80,9 @@ type Msg =
 
 /// What one repository home needs from its host: the protocol workers,
 /// the signed key file and viewer, the pastéis flag, the image cache,
-/// the clock and zone, and the host's thread, quote, external, and
-/// repository sinks plus the people-list visibility report.
+/// the clock and zone, and the host's checkout, reply, quote,
+/// external, and repository sinks plus the people-list visibility
+/// report.
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
@@ -101,7 +103,8 @@ type Props<'env
   Flyout: DevNull.Client.Components.UserFlyout.Source voption
   Now: IObservable<DateTimeOffset>
   Zone: Zone
-  OnOpenThread: Commit -> unit
+  OnOpened: Commit -> unit
+  OnReply: Commit -> unit
   OnQuote: Commit -> unit
   OnOpenExternal: string -> unit
   OnOpenRepository: string -> unit

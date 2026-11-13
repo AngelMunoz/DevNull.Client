@@ -58,13 +58,13 @@ type SurfaceView = {
   Handle: Event -> unit
 }
 
-let private unreadRelation: AuthorRelation = {
+let unreadRelation: AuthorRelation = {
   IsFollowing = false
   IsMuting = false
   IsBlocking = false
 }
 
-let private toRelation(loaded: ProfileDetails) : AuthorRelation = {
+let toRelation(loaded: ProfileDetails) : AuthorRelation = {
   IsFollowing = loaded.IsFollowing
   IsMuting = loaded.IsMuting
   IsBlocking = false

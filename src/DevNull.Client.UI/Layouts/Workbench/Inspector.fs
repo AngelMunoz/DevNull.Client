@@ -9,6 +9,7 @@ open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
 open DevNull.Client
+open DevNull.Client.AttachmentSources
 open DevNull.Client.Components
 open DevNull.Client.Components.CommitCard
 open DevNull.Client.Core.Api
@@ -40,6 +41,7 @@ type Model = {
   Pinning: string option
   PollChoices: Map<string, string>
   Now: DateTimeOffset
+  FocusComposer: bool
 }
 
 type Msg =
@@ -47,6 +49,7 @@ type Msg =
   | RepliesFetched of Result<Page<CommitNode>, AppError>
   | MoreRepliesRequested
   | RepliesAppended of Result<Page<CommitNode>, AppError>
+  | ReplyPosted of commit: Commit
   | ClockTicked of moment: DateTimeOffset
   | StarToggled of Commit
   | StarDone of Result<Commit, AppError>
@@ -72,6 +75,8 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideAttachmentSources
   and 'env :> IProvideProfiles
   and 'env :> IProvideTranslations
   and 'env :> IProvideUserSettings
@@ -91,7 +96,7 @@ type Props<'env
   OnOpenAuthor: string -> unit
   OnOpenExternal: string -> unit
   OnQuote: Commit -> unit
-  OnOpenThread: Commit -> unit
+  FocusComposer: bool
   OnClose: unit -> unit
   OnDialog: RowActions.Dialog -> unit
 }
@@ -166,7 +171,7 @@ let vote
   )
 
 let init(props: Props<'env>) : Model * Cmd<Msg> =
-  ({
+  {
     CommitId = props.CommitId
     Loading = true
     Error = None
@@ -181,15 +186,16 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     Pinning = None
     PollChoices = Map.empty
     Now = DateTimeOffset.UtcNow
-   },
-   Cmd.OfAsync.perform show props Shown)
+    FocusComposer = props.FocusComposer
+  },
+  Cmd.OfAsync.perform show props Shown
 
 let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   match msg with
   | Shown result ->
     match result with
     | Ok page ->
-      ({
+      {
         model with
             Loading = false
             Error = None
@@ -198,144 +204,170 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             ReplyParticipants = page.ReplyParticipants
             RepliesLoading = true
             RepliesError = None
-       },
-       Cmd.OfAsync.perform fetchReplies (props, None) RepliesFetched)
+      },
+      Cmd.OfAsync.perform fetchReplies (props, None) RepliesFetched
     | Error error ->
-      ({
+      {
         model with
             Loading = false
             Error = Some error
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | RepliesFetched result ->
     match result with
     | Ok page ->
-      ({
+      {
         model with
             Replies = page.Items
             RepliesCursor = page.NextCursor
             RepliesLoading = false
             RepliesError = None
-       },
-       Cmd.none)
+      },
+      Cmd.none
     | Error error ->
-      ({
+      {
         model with
             RepliesLoading = false
             RepliesError = Some error
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | MoreRepliesRequested ->
     match model.RepliesCursor with
     | Some _ ->
-      ({
+      {
         model with
             RepliesLoading = true
             RepliesError = None
-       },
-       Cmd.OfAsync.perform
-         fetchReplies
-         (props, model.RepliesCursor)
-         RepliesAppended)
+      },
+      Cmd.OfAsync.perform
+        fetchReplies
+        (props, model.RepliesCursor)
+        RepliesAppended
     | None -> model, Cmd.none
   | RepliesAppended result ->
     match result with
     | Ok page ->
-      ({
+      {
         model with
             Replies = model.Replies @ page.Items
             RepliesCursor = page.NextCursor
             RepliesLoading = false
             RepliesError = None
-       },
-       Cmd.none)
+      },
+      Cmd.none
     | Error error ->
-      ({
+      {
         model with
             RepliesLoading = false
             RepliesError = Some error
-       },
-       Cmd.none)
-  | ClockTicked moment -> ({ model with Now = moment }, Cmd.none)
+      },
+      Cmd.none
+  | ReplyPosted reply ->
+    let replies =
+      model.Replies
+      |> List.filter(fun node ->
+        match node with
+        | LiveCommit existing -> existing.Id <> reply.Id
+        | Tombstone tombstone -> tombstone.Id <> reply.Id)
+      |> fun items -> LiveCommit reply :: items
+
+    let commit =
+      model.Commit
+      |> Option.map(fun current -> {
+        current with
+            RepliesCount =
+              current.RepliesCount
+              |> Option.map((+) 1)
+              |> Option.orElse(Some 1)
+      })
+
+    {
+      model with
+          Commit = commit
+          Replies = replies
+          RepliesError = None
+    },
+    Cmd.none
+  | ClockTicked moment -> { model with Now = moment }, Cmd.none
   | StarToggled commit ->
-    ({
+    {
       model with
           Error = None
           Busy = Some commit.Id
-     },
-     Cmd.OfAsync.perform star (props, commit) StarDone)
+    },
+    Cmd.OfAsync.perform star (props, commit) StarDone
   | StarDone result ->
     match result with
     | Ok updated when updated.Id = model.CommitId ->
-      ({
+      {
         model with
             Commit = Some updated
             Busy = None
-       },
-       Cmd.none)
-    | Ok _ -> ({ model with Busy = None }, Cmd.none)
+      },
+      Cmd.none
+    | Ok _ -> { model with Busy = None }, Cmd.none
     | Error error ->
-      ({
+      {
         model with
             Error = Some error
             Busy = None
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | PinToggled commit ->
     let pinned = not commit.IsPinned
 
-    ({
+    {
       model with
           Error = None
           Pinning = Some commit.Id
-     },
-     Cmd.OfAsync.perform pin (props, commit, pinned) (fun result ->
-       PinDone(pinned, result)))
+    },
+    Cmd.OfAsync.perform pin (props, commit, pinned) (fun result ->
+      PinDone(pinned, result))
   | PinDone(_, result) ->
     match result with
     | Ok updated ->
-      ({
+      {
         model with
             Commit =
               model.Commit
               |> Option.map(fun current ->
                 if current.Id = updated.Id then updated else current)
             Pinning = None
-       },
-       Cmd.none)
+      },
+      Cmd.none
     | Error error ->
-      ({
+      {
         model with
             Error = Some error
             Pinning = None
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | PastelGiven commit ->
-    ({
+    {
       model with
           Error = None
           Busy = Some commit.Id
-     },
-     Cmd.OfAsync.perform givePastel (props, commit) PastelDone)
+    },
+    Cmd.OfAsync.perform givePastel (props, commit) PastelDone
   | PastelDone result ->
     match result with
     | Ok pastel when pastel.Commit.Id = model.CommitId ->
-      ({
+      {
         model with
             Commit = Some pastel.Commit
             Busy = None
-       },
-       Cmd.none)
-    | Ok _ -> ({ model with Busy = None }, Cmd.none)
+      },
+      Cmd.none
+    | Ok _ -> { model with Busy = None }, Cmd.none
     | Error error ->
-      ({
+      {
         model with
             Error = Some error
             Busy = None
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | PollChoiceChanged(commit, option, chosen) ->
-    ({
+    {
       model with
           PollChoices =
             CommitCard.choose {
@@ -344,22 +376,22 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
               OptionId = option.Id
               Chosen = chosen
             }
-     },
-     Cmd.none)
+    },
+    Cmd.none
   | PollVoteRequested commit ->
     match CommitCard.selectedOption(model.PollChoices, commit) with
     | Some option ->
-      ({
+      {
         model with
             Error = None
             Busy = Some commit.Id
-       },
-       Cmd.OfAsync.perform vote (props, commit, option) PollVotedDone)
+      },
+      Cmd.OfAsync.perform vote (props, commit, option) PollVotedDone
     | None -> model, Cmd.none
   | PollVotedDone result ->
     match result with
     | Ok updated ->
-      ({
+      {
         model with
             Commit =
               model.Commit
@@ -367,24 +399,24 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
                 if current.Id = updated.Id then updated else current)
             Busy = None
             PollChoices = model.PollChoices |> Map.remove updated.Id
-       },
-       Cmd.none)
+      },
+      Cmd.none
     | Error error ->
-      ({
+      {
         model with
             Error = Some error
             Busy = None
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | CommitUpdated updated ->
-    ({
+    {
       model with
           Commit =
             model.Commit
             |> Option.map(fun current ->
               if current.Id = updated.Id then updated else current)
-     },
-     Cmd.none)
+    },
+    Cmd.none
   | CommitDeleted commitId when commitId = model.CommitId ->
     model, Cmd.ofAction props.OnClose
   | CommitDeleted _ -> model, Cmd.none
@@ -395,12 +427,35 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | AuthorOpened handle ->
     model, Cmd.ofAction(fun () -> props.OnOpenAuthor handle)
   | QuoteRequested commit -> model, Cmd.ofAction(fun () -> props.OnQuote commit)
-  | ReplyToggled commit ->
-    model, Cmd.ofAction(fun () -> props.OnOpenThread commit)
+  | ReplyToggled _ when model.FocusComposer -> model, Cmd.none
+  | ReplyToggled _ -> { model with FocusComposer = true }, Cmd.none
   | CloseRequested -> model, Cmd.ofAction props.OnClose
 
 let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
   Sub.fromObservable "clock" (props.Now |> Observable.map ClockTicked)
+
+let participantsOf
+  (commit: Commit, others: ReplyParticipant list)
+  : ReplyPicker.ParticipantRow list =
+  let author = commit.Author
+
+  let authorRow: ReplyPicker.ParticipantRow = {
+    Id = Author.id author
+    Handle = Author.handle author
+    IsAuthor = true
+  }
+
+  let rows =
+    others
+    |> List.map(fun participant ->
+      {
+        Id = participant.Id
+        Handle = participant.Handle
+        IsAuthor = false
+      }
+      : ReplyPicker.ParticipantRow)
+
+  authorRow :: rows
 
 let laneLabel(lane: Lane option) =
   match lane with
@@ -487,7 +542,7 @@ let view
     rowProps(fun event ->
       match event with
       | CommitCard.Opened commit -> dispatch(ParentWalked commit.Id)
-      | CommitCard.ReplyToggled commit -> dispatch(ReplyToggled commit)
+      | CommitCard.ReplyToggled commit -> dispatch(ParentWalked commit.Id)
       | CommitCard.QuoteRequested commit -> dispatch(QuoteRequested commit)
       | CommitCard.PollChoiceChanged(commit, option, chosen) ->
         dispatch(PollChoiceChanged(commit, option, chosen))
@@ -497,7 +552,7 @@ let view
     rowProps(fun event ->
       match event with
       | CommitCard.Opened commit -> dispatch(ChildOpened commit.Id)
-      | CommitCard.ReplyToggled commit -> dispatch(ReplyToggled commit)
+      | CommitCard.ReplyToggled commit -> dispatch(ChildOpened commit.Id)
       | CommitCard.QuoteRequested commit -> dispatch(QuoteRequested commit)
       | CommitCard.PollChoiceChanged(commit, option, chosen) ->
         dispatch(PollChoiceChanged(commit, option, chosen))
@@ -517,23 +572,22 @@ let view
           TextBlock().Classes(Theme.name Theme.Mono).Text(laneLabel lane)
         )
 
-    let grid = Grid()
-    grid.ColumnDefinitions <- ColumnDefinitions("Auto,*")
-
-    grid.Children(
-      Avatar.view {
-        Name = (Author.name author)
-        Url = (Author.avatarUrl author)
-        Lane = lane
-        Size = 40.0
-        Cache = props.Images
-        Square = (Author.isOrganization author)
-        Viewable = false
-      }
-      |> _.Column(0)
-      |> _.Margin(0.0, 0.0, 12.0, 0.0),
-      identity.Column(1)
-    )
+    let grid =
+      Grid(ColumnDefinitions = ColumnDefinitions "Auto,*")
+        .Children(
+          Avatar.view {
+            Name = (Author.name author)
+            Url = (Author.avatarUrl author)
+            Lane = lane
+            Size = 40.0
+            Cache = props.Images
+            Square = (Author.isOrganization author)
+            Viewable = false
+          }
+          |> _.Column(0)
+          |> _.Margin(0.0, 0.0, 12.0, 0.0),
+          identity.Column(1)
+        )
 
     Button()
       .Classes(Theme.name Theme.GhostButton)
@@ -594,6 +648,45 @@ let view
         |> _.ToBinding()
       )
 
+  let composerKey(current: Model) =
+    match current.Commit, current.FocusComposer with
+    | Some commit, true -> commit.Id + "|focus"
+    | Some commit, false -> commit.Id
+    | None, _ when current.Loading -> "loading"
+    | None, _ -> "error"
+
+  let buildComposer(current: Model) : Control =
+    match current.Commit, props.Session with
+    | Some commit, Some session ->
+      Composer.Page {
+        Env = props.Env
+        Session = session
+        Target = Composer.ReplyTo commit.Id
+        Participants =
+          ValueSome(participantsOf(commit, current.ReplyParticipants))
+        OnCommitted = fun reply -> dispatch(ReplyPosted reply)
+        OnScheduled = ValueNone
+        OnOpenQueue = ValueNone
+        Draft = ValueNone
+        OnBodyReady =
+          if current.FocusComposer then
+            ValueSome(fun body -> body.Focus() |> ignore)
+          else
+            ValueNone
+      }
+      :> Control
+    | Some _, None ->
+      TextBlock().Classes(Theme.name Theme.Muted).Text("Sign in to reply.")
+    | None, _ ->
+      TextBlock()
+        .Classes(Theme.name Theme.Muted)
+        .Text(
+          if current.Loading then
+            "Loading the thread…"
+          else
+            "The thread could not be read."
+        )
+
   let cardHost =
     ContentControl()
       .Content(
@@ -619,13 +712,9 @@ let view
               .Spacing(6.0)
               .Children(
                 TextBlock().Classes(Theme.name Theme.Mono).Text("PARENTS"),
-                StackPanel()
-                  .Spacing(2.0)
-                  .Children(
-                    [|
-                      for node in nodes -> CommitCard.feedRow ancestorProps node
-                    |]
-                  )
+                StackPanel().Spacing(2.0).Children [|
+                  for node in nodes -> CommitCard.feedRow ancestorProps node
+                |]
               )
             :> Control)
         |> _.ToBinding()
@@ -638,11 +727,9 @@ let view
         |> Observable.map _.Replies
         |> Observable.distinctUntilChanged
         |> Observable.map(fun nodes ->
-          StackPanel()
-            .Spacing(2.0)
-            .Children(
-              [| for node in nodes -> CommitCard.feedRow childProps node |]
-            )
+          StackPanel().Spacing(2.0).Children [|
+            for node in nodes -> CommitCard.feedRow childProps node
+          |]
           :> Control)
         |> _.ToBinding()
       )
@@ -674,12 +761,19 @@ let view
         )
       )
 
+  let composerHost =
+    ContentControl()
+      .Name("InspectorComposer")
+      .Content(
+        PageChrome.rebuildOn(model, composerKey, buildComposer) |> _.ToBinding()
+      )
+
   ScrollViewer()
     .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
     .Content(
       StackPanel()
         .Spacing(12.0)
-        .Margin(Thickness(16.0, Theme.bandHeight + 8.0, 56.0, 16.0))
+        .Margin(Thickness(8.0, Theme.bandHeight + 8.0, 8.0, 8.0))
         .Children(
           header,
           busyLine,
@@ -687,7 +781,8 @@ let view
           authorHost,
           cardHost,
           parentsBlock,
-          repliesBlock
+          repliesBlock,
+          composerHost
         )
     )
 

@@ -57,7 +57,8 @@ let props(env: TestEnv, sinks: Sinks) : RepositoryHome.Props<TestEnv> = {
     Info = TimeZoneInfo.Utc
     Label = "UTC"
   }
-  OnOpenThread = sinks.Thread
+  OnOpened = sinks.Thread
+  OnReply = ignore
   OnQuote = sinks.Quote
   OnOpenExternal = sinks.External
   OnOpenRepository = sinks.Repository

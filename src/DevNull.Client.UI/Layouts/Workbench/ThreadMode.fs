@@ -126,7 +126,7 @@ let vote
   )
 
 let init(props: Props<'env>) : Model * Cmd<Msg> =
-  ({
+  {
     CommitId = props.CommitId
     Loading = true
     Error = None
@@ -139,15 +139,15 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     RepliesError = None
     PollChoices = Map.empty
     Now = DateTimeOffset.UtcNow
-   },
-   Cmd.OfAsync.perform show props Shown)
+  },
+  Cmd.OfAsync.perform show props Shown
 
 let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   match msg with
   | Shown result ->
     match result with
     | Ok page ->
-      ({
+      {
         model with
             Loading = false
             Error = None
@@ -156,64 +156,64 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             ReplyParticipants = page.ReplyParticipants
             RepliesLoading = true
             RepliesError = None
-       },
-       Cmd.OfAsync.perform fetchReplies (props, None) RepliesFetched)
+      },
+      Cmd.OfAsync.perform fetchReplies (props, None) RepliesFetched
     | Error error ->
-      ({
+      {
         model with
             Loading = false
             Error = Some error
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | RepliesFetched result ->
     match result with
     | Ok page ->
-      ({
+      {
         model with
             Replies = page.Items
             RepliesCursor = page.NextCursor
             RepliesLoading = false
             RepliesError = None
-       },
-       Cmd.none)
+      },
+      Cmd.none
     | Error error ->
-      ({
+      {
         model with
             RepliesLoading = false
             RepliesError = Some error
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | MoreRepliesRequested ->
     match model.RepliesCursor with
     | Some _ ->
-      ({
+      {
         model with
             RepliesLoading = true
             RepliesError = None
-       },
-       Cmd.OfAsync.perform
-         fetchReplies
-         (props, model.RepliesCursor)
-         RepliesAppended)
+      },
+      Cmd.OfAsync.perform
+        fetchReplies
+        (props, model.RepliesCursor)
+        RepliesAppended
     | None -> model, Cmd.none
   | RepliesAppended result ->
     match result with
     | Ok page ->
-      ({
+      {
         model with
             Replies = model.Replies @ page.Items
             RepliesCursor = page.NextCursor
             RepliesLoading = false
             RepliesError = None
-       },
-       Cmd.none)
+      },
+      Cmd.none
     | Error error ->
-      ({
+      {
         model with
             RepliesLoading = false
             RepliesError = Some error
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | Posted reply ->
     let replies =
       model.Replies
@@ -233,15 +233,15 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
               |> Option.orElse(Some 1)
       })
 
-    ({
+    {
       model with
           Commit = commit
           Replies = replies
           RepliesError = None
-     },
-     Cmd.none)
+    },
+    Cmd.none
   | PollChoiceChanged(commit, option, chosen) ->
-    ({
+    {
       model with
           PollChoices =
             CommitCard.choose {
@@ -250,40 +250,40 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
               OptionId = option.Id
               Chosen = chosen
             }
-     },
-     Cmd.none)
+    },
+    Cmd.none
   | PollVoteRequested commit ->
     match CommitCard.selectedOption(model.PollChoices, commit) with
     | Some option ->
-      ({ model with Error = None },
-       Cmd.OfAsync.perform vote (props, commit, option) PollVotedDone)
+      { model with Error = None },
+      Cmd.OfAsync.perform vote (props, commit, option) PollVotedDone
     | None -> model, Cmd.none
   | PollVotedDone result ->
     match result with
     | Ok updated ->
-      ({
+      {
         model with
             Commit =
               model.Commit
               |> Option.map(fun current ->
                 if current.Id = updated.Id then updated else current)
             PollChoices = model.PollChoices |> Map.remove updated.Id
-       },
-       Cmd.none)
-    | Error error -> ({ model with Error = Some error }, Cmd.none)
+      },
+      Cmd.none
+    | Error error -> { model with Error = Some error }, Cmd.none
   | CommitUpdated updated ->
-    ({
+    {
       model with
           Commit =
             model.Commit
             |> Option.map(fun current ->
               if current.Id = updated.Id then updated else current)
-     },
-     Cmd.none)
+    },
+    Cmd.none
   | CommitDeleted commitId when commitId = model.CommitId ->
     model, Cmd.ofAction(fun () -> props.OnBack())
   | CommitDeleted _ -> model, Cmd.none
-  | ClockTicked moment -> ({ model with Now = moment }, Cmd.none)
+  | ClockTicked moment -> { model with Now = moment }, Cmd.none
   | BackRequested -> model, Cmd.ofAction(fun () -> props.OnBack())
   | Opened commit -> model, Cmd.ofAction(fun () -> props.OnOpenThread commit)
   | QuoteRequested commit -> model, Cmd.ofAction(fun () -> props.OnQuote commit)
@@ -552,7 +552,7 @@ let view
   let stack =
     StackPanel()
       .Spacing(12.0)
-      .Margin(Thickness(16.0))
+      .Margin(4, 12)
       .Children(
         back,
         PageChrome.collapsingMessagePanel(

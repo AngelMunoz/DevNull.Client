@@ -92,6 +92,7 @@ let props(log: LogKind) : HistoryColumn.Props<WorkbenchEnv> = {
   LastVisit = None
   OnOpenExternal = ignore
   OnOpened = ignore
+  OnReply = ignore
   OnQuote = ignore
   Restore = None
   OnReport = ignore

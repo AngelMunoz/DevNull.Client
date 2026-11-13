@@ -293,7 +293,7 @@ module State =
       let next =
         effects
         |> List.fold
-          (fun current effect ->
+          (fun (current: Model) effect ->
             match effect with
             | EditorCards.CommitChanged updated -> {
                 current with
@@ -387,7 +387,7 @@ module State =
 
         next, Cmd.none
 
-  let subscribe(props: Props<'env>, _model: Model) : Sub<Msg> =
+  let subscribe(props: Props<'env>, model: Model) : Sub<Msg> =
     [
       Sub.fromObservable "active" (props.Active |> Observable.map ActiveChanged)
 
@@ -465,11 +465,9 @@ let view
 
   let error = errorPanel(model |> Observable.map(fun current -> current.Error))
 
-  let layout = Grid()
-
-  layout.RowDefinitions <- RowDefinitions("Auto,*")
-
-  layout.Children(error.Row(0), feed.Row(1))
+  let layout =
+    Grid(RowDefinitions = RowDefinitions "Auto,*")
+      .Children(error.Row(0), feed.Row(1))
 
   Grid()
     .Children(

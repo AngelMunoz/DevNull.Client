@@ -875,7 +875,7 @@ let mount(props: Props<'env>) : Mount =
           log
         )
 
-      SearchDialog.Page {
+      new SearchDialog.Page<'env> {
         Env = env
         SignedIn = entry
         Searches = searches

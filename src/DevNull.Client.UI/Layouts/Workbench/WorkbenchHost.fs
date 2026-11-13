@@ -115,6 +115,7 @@ type Model = {
 type Msg =
   | RefSelected of ref: Ref
   | CheckoutSet of commitId: string option
+  | ReplyRequested of commitId: string
   | OpenThread of commitId: string
   | ThreadClosed
   | StagingToggled
@@ -354,6 +355,7 @@ type InspectorStart = {
   KeyFile: string
   ViewerId: string
   Pasteis: bool
+  FocusComposer: bool
 }
 
 [<Struct>]
@@ -472,7 +474,8 @@ let startHistory
       Zone = props.Zone
       LastVisit = lastVisit
       OnOpenExternal = fun url -> dispatch(OpenExternal url)
-      OnOpened = fun commit -> dispatch(OpenThread commit.Id)
+      OnOpened = fun commit -> dispatch(CheckoutSet(Some commit.Id))
+      OnReply = fun commit -> dispatch(ReplyRequested commit.Id)
       OnQuote = fun commit -> dispatch(Quote commit)
       Restore = start.Place
       OnReport = fun report -> dispatch(HistoryReported(start.Ref, report))
@@ -482,7 +485,7 @@ let startHistory
     let view, rawHandle =
       Programs.runPage(props.Env.Dispatcher, HistoryColumn.program childProps)
 
-    let handle = TrackedHandle(rawHandle) :> IDisposable
+    let handle = new TrackedHandle(rawHandle) :> IDisposable
 
     Some {
       Ref = start.Ref
@@ -511,7 +514,7 @@ let startInspector
     OnOpenAuthor = fun handle -> dispatch(OpenAuthor handle)
     OnOpenExternal = fun url -> dispatch(OpenExternal url)
     OnQuote = fun commit -> dispatch(Quote commit)
-    OnOpenThread = fun commit -> dispatch(OpenThread commit.Id)
+    FocusComposer = start.FocusComposer
     OnClose = fun () -> dispatch(CheckoutSet None)
     OnDialog = DialogRequested >> dispatch
   }
@@ -519,7 +522,7 @@ let startInspector
   let view, rawHandle =
     Programs.runPage(props.Env.Dispatcher, Inspector.program childProps)
 
-  let handle = TrackedHandle(rawHandle) :> IDisposable
+  let handle = new TrackedHandle(rawHandle) :> IDisposable
 
   {
     CommitId = start.CommitId
@@ -551,7 +554,7 @@ let startThread
   let view, rawHandle =
     Programs.runPage(props.Env.Dispatcher, ThreadMode.program childProps)
 
-  let handle = TrackedHandle(rawHandle) :> IDisposable
+  let handle = new TrackedHandle(rawHandle) :> IDisposable
 
   {
     CommitId = start.CommitId
@@ -573,7 +576,8 @@ let startRepository
     Flyout = flyoutOf(props, dispatch)
     Now = props.Now
     Zone = props.Zone
-    OnOpenThread = fun commit -> dispatch(OpenThread commit.Id)
+    OnOpened = fun commit -> dispatch(CheckoutSet(Some commit.Id))
+    OnReply = fun commit -> dispatch(ReplyRequested commit.Id)
     OnQuote = fun commit -> dispatch(Quote commit)
     OnOpenExternal = fun url -> dispatch(OpenExternal url)
     OnOpenRepository =
@@ -585,7 +589,7 @@ let startRepository
   let view, rawHandle =
     Programs.runPage(props.Env.Dispatcher, RepositoryHome.program childProps)
 
-  let handle = TrackedHandle(rawHandle) :> IDisposable
+  let handle = new TrackedHandle(rawHandle) :> IDisposable
 
   {
     RepositoryHandle = start.Handle
@@ -612,7 +616,7 @@ let startNotifications
 
   {
     View = view
-    Handle = TrackedHandle(rawHandle) :> IDisposable
+    Handle = new TrackedHandle(rawHandle) :> IDisposable
   }
 
 let searchSession
@@ -695,7 +699,7 @@ let startSearchPalette
 
   {
     View = view
-    Handle = TrackedHandle(handle) :> IDisposable
+    Handle = new TrackedHandle(handle) :> IDisposable
   }
 
 let startSearch
@@ -722,7 +726,7 @@ let startSearch
   {
     Term = start.Term
     View = view
-    Handle = TrackedHandle(handle) :> IDisposable
+    Handle = new TrackedHandle(handle) :> IDisposable
   }
 
 let startHistoryCmd
@@ -874,6 +878,7 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
       KeyFile = data.KeyFile
       ViewerId = data.ViewerId
       Pasteis = data.Pasteis
+      FocusComposer = false
     })
 
   let model: Model = {
@@ -946,6 +951,31 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
   ]
 
 let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
+  let checkout(commitId: string option, focus: bool) : Model * Cmd<Msg> =
+    let data = sessionData props
+
+    let start: InspectorStart option =
+      commitId
+      |> Option.map(fun id -> {
+        CommitId = id
+        Session = data.Session
+        KeyFile = data.KeyFile
+        ViewerId = data.ViewerId
+        Pasteis = data.Pasteis
+        FocusComposer = focus
+      })
+
+    {
+      model with
+          CheckoutId = commitId
+          Inspector = None
+    },
+    Cmd.batch [
+      startInspectorCmd(props, model.Inspector |> Option.map _.Handle, start)
+
+      stateCmd(props, model.Selected, commitId)
+    ]
+
   match msg with
   | RefSelected ref ->
     let data = sessionData props
@@ -1038,29 +1068,9 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
           None
         )
       ]
-  | CheckoutSet commitId ->
-    let data = sessionData props
-
-    let start: InspectorStart option =
-      commitId
-      |> Option.map(fun id -> {
-        CommitId = id
-        Session = data.Session
-        KeyFile = data.KeyFile
-        ViewerId = data.ViewerId
-        Pasteis = data.Pasteis
-      })
-
-    {
-      model with
-          CheckoutId = commitId
-          Inspector = None
-    },
-    Cmd.batch [
-      startInspectorCmd(props, model.Inspector |> Option.map _.Handle, start)
-
-      stateCmd(props, model.Selected, commitId)
-    ]
+  | CheckoutSet commitId when commitId = model.CheckoutId -> model, Cmd.none
+  | CheckoutSet commitId -> checkout(commitId, false)
+  | ReplyRequested commitId -> checkout(Some commitId, true)
   | OpenThread commitId ->
     let data = sessionData props
 
@@ -1070,6 +1080,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
       KeyFile = data.KeyFile
       ViewerId = data.ViewerId
       Pasteis = data.Pasteis
+      FocusComposer = false
     }
 
     {
@@ -1182,13 +1193,13 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | SessionChanged state ->
     let data = sessionOfState state
 
-    ({
+    {
       model with
           Handle = data.Handle
           UnreadCount = data.Unread
           Pasteis = data.Pasteis
-     },
-     Cmd.none)
+    },
+    Cmd.none
   | HistoryReported(ref, report) ->
     let places = model.Places |> Map.add ref report.Place
 
@@ -1198,12 +1209,12 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
       else
         model.FetchedAt
 
-    ({
+    {
       model with
           Places = places
           FetchedAt = fetchedAt
-     },
-     Cmd.none)
+    },
+    Cmd.none
   | OpenAuthor handle ->
     model, Cmd.ofAction(fun () -> props.OnOpenAuthor handle)
   | OpenExternal url -> model, Cmd.ofAction(fun () -> props.OnOpenExternal url)
@@ -1218,41 +1229,41 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
     },
     Cmd.none
   | HistoryStopped ->
-    ({
+    {
       model with
           LiveHistory = max 0 (model.LiveHistory - 1)
-     },
-     Cmd.none)
+    },
+    Cmd.none
   | InspectorStopped ->
-    ({
+    {
       model with
           LiveInspector = max 0 (model.LiveInspector - 1)
-     },
-     Cmd.none)
+    },
+    Cmd.none
   | ThreadStopped ->
-    ({
+    {
       model with
           LiveThread = max 0 (model.LiveThread - 1)
-     },
-     Cmd.none)
+    },
+    Cmd.none
   | RepositoryStopped ->
-    ({
+    {
       model with
           LiveRepository = max 0 (model.LiveRepository - 1)
-     },
-     Cmd.none)
+    },
+    Cmd.none
   | RepositoryListChanged open' ->
-    ({
+    {
       model with
           RepositoryListOpen = open' && model.Repository.IsSome
-     },
-     Cmd.none)
+    },
+    Cmd.none
   | NotificationsStopped ->
-    ({
+    {
       model with
           LiveNotifications = max 0 (model.LiveNotifications - 1)
-     },
-     Cmd.none)
+    },
+    Cmd.none
   | NotificationsReady(view, childHandle) ->
     if Ref.notifications model.Selected then
       model.Notifications
@@ -1264,12 +1275,12 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         else
           model.LiveNotifications + 1
 
-      ({
+      {
         model with
             Notifications = Some { View = view; Handle = childHandle }
             LiveNotifications = live
-       },
-       Cmd.none)
+      },
+      Cmd.none
     else
       childHandle.Dispose()
       model, Cmd.none
@@ -1285,28 +1296,28 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
 
     match model.SearchPalette with
     | Some _ ->
-      ({ model with SearchPalette = None },
-       startSearchPaletteCmd(
-         props,
-         model.SearchPalette |> Option.map _.Handle,
-         None
-       ))
+      { model with SearchPalette = None },
+      startSearchPaletteCmd(
+        props,
+        model.SearchPalette |> Option.map _.Handle,
+        None
+      )
     | None ->
-      ({ model with SearchPalette = None },
-       startSearchPaletteCmd(props, None, Some { KeyFile = data.KeyFile }))
+      { model with SearchPalette = None },
+      startSearchPaletteCmd(props, None, Some { KeyFile = data.KeyFile })
   | SearchPaletteClosed ->
-    ({ model with SearchPalette = None },
-     startSearchPaletteCmd(
-       props,
-       model.SearchPalette |> Option.map _.Handle,
-       None
-     ))
+    { model with SearchPalette = None },
+    startSearchPaletteCmd(
+      props,
+      model.SearchPalette |> Option.map _.Handle,
+      None
+    )
   | SearchPaletteStopped ->
-    ({
+    {
       model with
           LiveSearchPalette = max 0 (model.LiveSearchPalette - 1)
-     },
-     Cmd.none)
+    },
+    Cmd.none
   | SearchPaletteReady(view, childHandle) ->
     model.SearchPalette |> Option.iter(fun current -> current.Handle.Dispose())
 
@@ -1316,16 +1327,16 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
       else
         model.LiveSearchPalette + 1
 
-    ({
+    {
       model with
           SearchPalette = Some { View = view; Handle = childHandle }
           LiveSearchPalette = live
-     },
-     Cmd.none)
+    },
+    Cmd.none
   | SearchCommitted term ->
     let data = sessionData props
 
-    ({
+    {
       model with
           History = None
           ThreadId = None
@@ -1333,30 +1344,30 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
           SearchPalette = None
           Search = None
           SearchTerm = Some term
-     },
-     Cmd.batch [
-       startThreadCmd(props, model.Thread |> Option.map _.Handle, None)
+    },
+    Cmd.batch [
+      startThreadCmd(props, model.Thread |> Option.map _.Handle, None)
 
-       startSearchPaletteCmd(
-         props,
-         model.SearchPalette |> Option.map _.Handle,
-         None
-       )
+      startSearchPaletteCmd(
+        props,
+        model.SearchPalette |> Option.map _.Handle,
+        None
+      )
 
-       stopHistoryCmd(model.History |> Option.map _.Handle)
+      stopHistoryCmd(model.History |> Option.map _.Handle)
 
-       startSearchCmd(
-         props,
-         model.Search |> Option.map _.Handle,
-         Some {
-           Session = data.Session
-           KeyFile = data.KeyFile
-           ViewerId = data.ViewerId
-           Pasteis = data.Pasteis
-           Term = term
-         }
-       )
-     ])
+      startSearchCmd(
+        props,
+        model.Search |> Option.map _.Handle,
+        Some {
+          Session = data.Session
+          KeyFile = data.KeyFile
+          ViewerId = data.ViewerId
+          Pasteis = data.Pasteis
+          Term = term
+        }
+      )
+    ]
   | DialogRequested(RowActions.Share commit) ->
     {
       model with
@@ -1374,11 +1385,11 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | ShareClosed -> { model with ShareOpen = None }, Cmd.none
   | ReportClosed -> { model with ReportOpen = None }, Cmd.none
   | SearchStopped ->
-    ({
+    {
       model with
           LiveSearch = max 0 (model.LiveSearch - 1)
-     },
-     Cmd.none)
+    },
+    Cmd.none
   | SearchReady(term, view, childHandle) ->
     if model.SearchTerm = Some term then
       model.Search |> Option.iter(fun current -> current.Handle.Dispose())
@@ -1389,7 +1400,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         else
           model.LiveSearch + 1
 
-      ({
+      {
         model with
             Search =
               Some {
@@ -1398,8 +1409,8 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
                 Handle = childHandle
               }
             LiveSearch = live
-       },
-       Cmd.none)
+      },
+      Cmd.none
     else
       childHandle.Dispose()
       model, Cmd.none
@@ -1424,17 +1435,17 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         )
       | _ -> Cmd.none
 
-    ({
+    {
       model with
           Search = None
           SearchTerm = None
           ShareOpen = None
           ReportOpen = None
-     },
-     Cmd.batch [
-       startSearchCmd(props, model.Search |> Option.map _.Handle, None)
-       restart
-     ])
+    },
+    Cmd.batch [
+      startSearchCmd(props, model.Search |> Option.map _.Handle, None)
+      restart
+    ]
   | HistoryReady(ref, restore, view, handle, refresh) ->
     if ref = model.Selected then
       model.History |> Option.iter(fun current -> current.Handle.Dispose())
@@ -1445,7 +1456,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         else
           model.LiveHistory + 1
 
-      ({
+      {
         model with
             History =
               Some {
@@ -1456,8 +1467,8 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
                 Refresh = refresh
               }
             LiveHistory = live
-       },
-       Cmd.none)
+      },
+      Cmd.none
     else
       handle.Dispose()
       model, Cmd.none
@@ -1471,7 +1482,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         else
           model.LiveInspector + 1
 
-      ({
+      {
         model with
             Inspector =
               Some {
@@ -1480,8 +1491,8 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
                 Handle = handle
               }
             LiveInspector = live
-       },
-       Cmd.none)
+      },
+      Cmd.none
     else
       handle.Dispose()
       model, Cmd.none
@@ -1495,7 +1506,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         else
           model.LiveThread + 1
 
-      ({
+      {
         model with
             Thread =
               Some {
@@ -1504,8 +1515,8 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
                 Handle = handle
               }
             LiveThread = live
-       },
-       Cmd.none)
+      },
+      Cmd.none
     else
       handle.Dispose()
       model, Cmd.none
@@ -1519,7 +1530,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         else
           model.LiveRepository + 1
 
-      ({
+      {
         model with
             Repository =
               Some {
@@ -1528,8 +1539,8 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
                 Handle = childHandle
               }
             LiveRepository = live
-       },
-       Cmd.none)
+      },
+      Cmd.none
     else
       childHandle.Dispose()
       model, Cmd.none
@@ -1599,18 +1610,15 @@ let view
       .Margin(Thickness(12.0, 12.0, 12.0, 6.0))
       .OnClickHandler(fun _ _ -> dispatch SearchPaletteToggled)
 
-  let refsColumn = Grid()
-
-  refsColumn.RowDefinitions <- RowDefinitions("Auto,*")
-
-  refsColumn.Children(
-    searchEntry.Row(0),
-    ScrollViewer()
-      .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
-      .Content(refsHost)
-      .Row(1)
-  )
-  |> ignore
+  let refsColumn =
+    Grid(RowDefinitions = RowDefinitions "Auto,*")
+      .Children(
+        searchEntry.Row(0),
+        ScrollViewer()
+          .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
+          .Content(refsHost)
+          .Row(1)
+      )
 
   let refsRegion =
     Border()
@@ -1850,15 +1858,13 @@ let view
       .Content(repositoryListsSlice |> _.ToBinding())
       .IsVisible(repositoryListsVisible)
 
-  let inspectorSlot = Grid()
-  inspectorSlot.RowDefinitions <- RowDefinitions("Auto,*")
-
-  inspectorSlot.Children(
-    threadParentsHost.Row(0),
-    inspectorContent.Row(1),
-    repositoryListsHost.Row(1)
-  )
-  |> ignore
+  let inspectorSlot =
+    Grid(RowDefinitions = RowDefinitions "Auto,*")
+      .Children(
+        threadParentsHost.Row(0),
+        inspectorContent.Row(1),
+        repositoryListsHost.Row(1)
+      )
 
   let inspectorRegion =
     Border()
@@ -1887,18 +1893,17 @@ let view
       .Content(paletteSlice |> _.ToBinding())
       .IsVisible(paletteOpen)
 
-  let main = Grid()
-
-  main.Children(
-    historyHost,
-    notificationsHost,
-    repositoryHost,
-    searchHost,
-    threadHost,
-    inspectorRegion,
-    paletteHost
-  )
-  |> ignore
+  let main =
+    Grid()
+      .Children(
+        historyHost,
+        notificationsHost,
+        repositoryHost,
+        searchHost,
+        threadHost,
+        inspectorRegion,
+        paletteHost
+      )
 
   let stagingProps: Staging.Props<'env> = {
     Env = props.Env
@@ -1944,12 +1949,13 @@ let view
           ))
       )
 
-  let statusBar = Border()
-  statusBar.Name <- "StatusBar"
-  statusBar.Classes(Theme.name Theme.Hairline) |> ignore
-  statusBar.BorderThickness <- Thickness(0.0, 1.0, 0.0, 0.0)
-  statusBar.Padding <- Thickness(16.0, 8.0, 16.0, 8.0)
-  statusBar.Child <- statusLine
+  let statusBar =
+    Border()
+      .Name("StatusBar")
+      .Classes(name Theme.Hairline)
+      .BorderThickness(Thickness(0.0, 1.0, 0.0, 0.0))
+      .Padding(Thickness(16.0, 8.0, 16.0, 8.0))
+      .Child(statusLine)
 
   let dialogLayer
     (name: string)
@@ -2003,25 +2009,24 @@ let view
       }
       :> Control)
 
-  let root = Grid().Name("WorkbenchRoot")
-
-  root.RowDefinitions <- RowDefinitions("*,Auto,Auto")
-  root.ColumnDefinitions <- ColumnDefinitions("240,*")
-
-  root.OnKeyDownHandler(fun _ args ->
-    if args.Key = Key.Escape then
-      args.Handled <- true
-      dispatch EscapeRequested)
-
-  root.Children(
-    refsRegion.Column(0).Row(0),
-    main.Column(1).Row(0),
-    staging.Row(1).ColumnSpan(2),
-    statusBar.Row(2).ColumnSpan(2),
-    shareLayer.RowSpan(3).ColumnSpan(2),
-    reportLayer.RowSpan(3).ColumnSpan(2)
-  )
-  |> ignore
+  let root =
+    Grid(
+      RowDefinitions = RowDefinitions "*,Auto,Auto",
+      ColumnDefinitions = ColumnDefinitions "240,*"
+    )
+      .Name("WorkbenchRoot")
+      .OnKeyDownHandler(fun _ args ->
+        if args.Key = Key.Escape then
+          args.Handled <- true
+          dispatch EscapeRequested)
+      .Children(
+        refsRegion.Column(0).Row(0),
+        main.Column(1).Row(0),
+        staging.Row(1).ColumnSpan(2),
+        statusBar.Row(2).ColumnSpan(2),
+        shareLayer.RowSpan(3).ColumnSpan(2),
+        reportLayer.RowSpan(3).ColumnSpan(2)
+      )
 
   root.SizeChanged.Add(fun args -> dispatch(WidthChanged args.NewSize.Width))
 
@@ -2035,7 +2040,7 @@ let program(props: Props<'env>) =
   |> Program.withSubscription(subscribe props)
 
 let mount(dispatcher: IDispatcher, props: Props<'env>) : Control * IDisposable =
-  let mounted = MountedHost()
+  let mounted = new MountedHost()
 
   let wrappedInit() =
     let model, cmd = init props

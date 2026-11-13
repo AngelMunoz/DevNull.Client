@@ -56,6 +56,7 @@ let private historyProps(env: TestEnv) : HistoryColumn.Props<TestEnv> = {
   LastVisit = None
   OnOpenExternal = ignore
   OnOpened = ignore
+  OnReply = ignore
   OnQuote = ignore
   Restore = None
   OnReport = ignore

@@ -73,6 +73,7 @@ type Msg =
   | OpenRepository of handle: string
   | Opened of Commit
   | QuoteRequested of Commit
+  | ReplyRequested of Commit
   | ExternalOpened of url: string
   | PollChoiceChanged of Commit * PollOption * chosen: bool
   | PollVoteRequested of Commit
@@ -101,7 +102,8 @@ type Props<'env
   Flyout: DevNull.Client.Components.UserFlyout.Source voption
   Now: IObservable<DateTimeOffset>
   Zone: Zone
-  OnOpenThread: Commit -> unit
+  OnOpened: Commit -> unit
+  OnReply: Commit -> unit
   OnQuote: Commit -> unit
   OnOpenExternal: string -> unit
   OnOpenRepository: string -> unit
@@ -192,7 +194,7 @@ let vote
   )
 
 let init(props: Props<'env>) : Model * Cmd<Msg> =
-  ({
+  {
     Handle = props.Handle
     Loading = true
     Error = None
@@ -206,11 +208,11 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     People = None
     PollChoices = Map.empty
     Now = DateTimeOffset.UtcNow
-   },
-   Cmd.batch [
-     Cmd.OfAsync.perform fetchProfile props Shown
-     Cmd.OfAsync.perform fetchCommits (props, None) CommitsFetched
-   ])
+  },
+  Cmd.batch [
+    Cmd.OfAsync.perform fetchProfile props Shown
+    Cmd.OfAsync.perform fetchCommits (props, None) CommitsFetched
+  ]
 
 let openPeople
   (props: Props<'env>, kind: PeopleKind, model: Model)
@@ -223,79 +225,79 @@ let openPeople
     Cursor = None
   }
 
-  ({ model with People = Some list },
-   Cmd.batch [
-     Cmd.ofAction(fun () -> props.OnListChanged true)
+  { model with People = Some list },
+  Cmd.batch [
+    Cmd.ofAction(fun () -> props.OnListChanged true)
 
-     Cmd.OfAsync.perform fetchPeople (props, kind, None) (fun result ->
-       PeopleFetched(kind, result))
-   ])
+    Cmd.OfAsync.perform fetchPeople (props, kind, None) (fun result ->
+      PeopleFetched(kind, result))
+  ]
 
 let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   match msg with
   | Shown result ->
     match result with
     | Ok details ->
-      ({
+      {
         model with
             Loading = false
             Error = None
             Details = Some details
-       },
-       Cmd.none)
+      },
+      Cmd.none
     | Error error ->
-      ({
+      {
         model with
             Loading = false
             Error = Some error
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | CommitsFetched result ->
     match result with
     | Ok page ->
-      ({
+      {
         model with
             Commits = page.Items
             CommitsCursor = page.NextCursor
             CommitsLoading = false
             CommitsError = None
-       },
-       Cmd.none)
+      },
+      Cmd.none
     | Error error ->
-      ({
+      {
         model with
             CommitsLoading = false
             CommitsError = Some error
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | MoreCommitsRequested ->
     match model.CommitsCursor with
     | Some cursor when not model.CommitsLoading ->
-      ({
+      {
         model with
             CommitsLoading = true
             CommitsError = None
-       },
-       Cmd.OfAsync.perform fetchCommits (props, Some cursor) CommitsAppended)
+      },
+      Cmd.OfAsync.perform fetchCommits (props, Some cursor) CommitsAppended
     | _ -> model, Cmd.none
   | CommitsAppended result ->
     match result with
     | Ok page ->
-      ({
+      {
         model with
             Commits = model.Commits @ page.Items
             CommitsCursor = page.NextCursor
             CommitsLoading = false
             CommitsError = None
-       },
-       Cmd.none)
+      },
+      Cmd.none
     | Error error ->
-      ({
+      {
         model with
             CommitsLoading = false
             CommitsError = Some error
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | FollowToggled ->
     match model.Details with
     | Some details when
@@ -304,7 +306,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
       let wanted = not details.IsFollowing
       let delta = if wanted then 1 else -1
 
-      ({
+      {
         model with
             Details =
               Some {
@@ -314,19 +316,19 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
               }
             FollowBusy = true
             FollowError = None
-       },
-       Cmd.OfAsync.perform follow (props, wanted) (fun result ->
-         FollowDone(wanted, result)))
+      },
+      Cmd.OfAsync.perform follow (props, wanted) (fun result ->
+        FollowDone(wanted, result))
     | _ -> model, Cmd.none
   | FollowDone(wanted, result) ->
     match result with
     | Ok() ->
-      ({
+      {
         model with
             FollowBusy = false
             FollowError = None
-       },
-       Cmd.none)
+      },
+      Cmd.none
     | Error error ->
       let delta = if wanted then -1 else 1
 
@@ -338,13 +340,13 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
               Profile = adjustFollowers(delta, current.Profile)
         })
 
-      ({
+      {
         model with
             Details = details
             FollowBusy = false
             FollowError = Some error
-       },
-       Cmd.none)
+      },
+      Cmd.none
   | FollowersRequested -> openPeople(props, Followers, model)
   | FollowingRequested -> openPeople(props, Following, model)
   | PeopleFetched(kind, result) ->
@@ -352,7 +354,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
     | Some list when list.Kind = kind ->
       match result with
       | Ok page ->
-        ({
+        {
           model with
               People =
                 Some {
@@ -362,10 +364,10 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
                       Items = page.Items
                       Cursor = page.NextCursor
                 }
-         },
-         Cmd.none)
+        },
+        Cmd.none
       | Error error ->
-        ({
+        {
           model with
               People =
                 Some {
@@ -373,13 +375,13 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
                       Loading = false
                       Error = Some error
                 }
-         },
-         Cmd.none)
+        },
+        Cmd.none
     | _ -> model, Cmd.none
   | MorePeopleRequested ->
     match model.People with
     | Some list when not list.Loading && list.Cursor.IsSome ->
-      ({
+      {
         model with
             People =
               Some {
@@ -387,18 +389,18 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
                     Loading = true
                     Error = None
               }
-       },
-       Cmd.OfAsync.perform
-         fetchPeople
-         (props, list.Kind, list.Cursor)
-         (fun result -> PeopleAppended(list.Kind, result)))
+      },
+      Cmd.OfAsync.perform
+        fetchPeople
+        (props, list.Kind, list.Cursor)
+        (fun result -> PeopleAppended(list.Kind, result))
     | _ -> model, Cmd.none
   | PeopleAppended(kind, result) ->
     match model.People with
     | Some list when list.Kind = kind ->
       match result with
       | Ok page ->
-        ({
+        {
           model with
               People =
                 Some {
@@ -408,10 +410,10 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
                       Items = list.Items @ page.Items
                       Cursor = page.NextCursor
                 }
-         },
-         Cmd.none)
+        },
+        Cmd.none
       | Error error ->
-        ({
+        {
           model with
               People =
                 Some {
@@ -419,23 +421,24 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
                       Loading = false
                       Error = Some error
                 }
-         },
-         Cmd.none)
+        },
+        Cmd.none
     | _ -> model, Cmd.none
   | PeopleClosed ->
     match model.People with
     | Some _ ->
-      ({ model with People = None },
-       Cmd.ofAction(fun () -> props.OnListChanged false))
+      { model with People = None },
+      Cmd.ofAction(fun () -> props.OnListChanged false)
     | None -> model, Cmd.none
   | OpenRepository handle ->
     model, Cmd.ofAction(fun () -> props.OnOpenRepository handle)
-  | Opened commit -> model, Cmd.ofAction(fun () -> props.OnOpenThread commit)
+  | Opened commit -> model, Cmd.ofAction(fun () -> props.OnOpened commit)
   | QuoteRequested commit -> model, Cmd.ofAction(fun () -> props.OnQuote commit)
+  | ReplyRequested commit -> model, Cmd.ofAction(fun () -> props.OnReply commit)
   | ExternalOpened url ->
     model, Cmd.ofAction(fun () -> props.OnOpenExternal url)
   | PollChoiceChanged(commit, option, chosen) ->
-    ({
+    {
       model with
           PollChoices =
             CommitCard.choose {
@@ -444,37 +447,37 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
               OptionId = option.Id
               Chosen = chosen
             }
-     },
-     Cmd.none)
+    },
+    Cmd.none
   | PollVoteRequested commit ->
     match CommitCard.selectedOption(model.PollChoices, commit) with
     | Some option ->
-      ({ model with CommitsError = None },
-       Cmd.OfAsync.perform vote (props, commit, option) PollVotedDone)
+      { model with CommitsError = None },
+      Cmd.OfAsync.perform vote (props, commit, option) PollVotedDone
     | None -> model, Cmd.none
   | PollVotedDone result ->
     match result with
     | Ok updated ->
-      ({
+      {
         model with
             Commits = replaceNode(model.Commits, updated)
             PollChoices = model.PollChoices |> Map.remove updated.Id
-       },
-       Cmd.none)
-    | Error error -> ({ model with CommitsError = Some error }, Cmd.none)
+      },
+      Cmd.none
+    | Error error -> { model with CommitsError = Some error }, Cmd.none
   | CommitUpdated updated ->
-    ({
+    {
       model with
           Commits = replaceNode(model.Commits, updated)
-     },
-     Cmd.none)
+    },
+    Cmd.none
   | CommitDeleted commitId ->
-    ({
+    {
       model with
           Commits = removeNode(model.Commits, commitId)
-     },
-     Cmd.none)
-  | ClockTicked moment -> ({ model with Now = moment }, Cmd.none)
+    },
+    Cmd.none
+  | ClockTicked moment -> { model with Now = moment }, Cmd.none
 
 let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
   Sub.fromObservable "clock" (props.Now |> Observable.map ClockTicked)
@@ -597,7 +600,7 @@ let view
   let cardEvent =
     function
     | CommitCard.Opened commit -> dispatch(Opened commit)
-    | CommitCard.ReplyToggled commit -> dispatch(Opened commit)
+    | CommitCard.ReplyToggled commit -> dispatch(ReplyRequested commit)
     | CommitCard.QuoteRequested commit -> dispatch(QuoteRequested commit)
     | CommitCard.PollChoiceChanged(commit, option, chosen) ->
       dispatch(PollChoiceChanged(commit, option, chosen))

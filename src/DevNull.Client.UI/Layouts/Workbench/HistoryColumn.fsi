@@ -51,8 +51,9 @@ type Report = {
 }
 
 /// One history column's messages: the first page, the cursor, the
-/// since-poll and its pill, the clock, the poll gate, the card's open
-/// and quote intents, and the card's star, pastel, and vote actions.
+/// since-poll and its pill, the clock, the poll gate, the card's open,
+/// reply, and quote intents, and the card's star, pastel, and vote
+/// actions.
 type Msg =
   | Fetched of Result<LogPage, AppError>
   | MoreRequested
@@ -67,6 +68,7 @@ type Msg =
   | Scrolled of offset: float
   | Opened of Commit
   | QuoteRequested of Commit
+  | ReplyRequested of Commit
   | StarToggled of Commit
   | StarDone of Result<Commit, AppError>
   | PastelGiven of Commit
@@ -80,8 +82,8 @@ type Msg =
 /// What one history column needs from its host: the source list, the
 /// protocol workers, the signed session, the pastéis flag, the image
 /// cache, the clock ticks, the named refresh requests, the time zone,
-/// the last-visit marker the log draws, and the host's open, quote,
-/// report, share, and external-link sinks.
+/// the last-visit marker the log draws, and the host's open, reply,
+/// quote, report, share, and external-link sinks.
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
@@ -108,6 +110,7 @@ type Props<'env
   LastVisit: DateTimeOffset option
   OnOpenExternal: string -> unit
   OnOpened: Commit -> unit
+  OnReply: Commit -> unit
   OnQuote: Commit -> unit
   Restore: Place option
   OnReport: Report -> unit

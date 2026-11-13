@@ -81,7 +81,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) =
     let next =
       effects
       |> List.fold
-        (fun current effect ->
+        (fun (current: Model) effect ->
           match effect with
           | EditorCards.CommitChanged updated -> {
               current with

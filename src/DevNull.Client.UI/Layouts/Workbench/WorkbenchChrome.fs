@@ -61,16 +61,13 @@ let refButton(selected: Ref, row: RefRow, onSelect: Ref -> unit) : Control =
       .Margin(Thickness(12.0, 0.0, 0.0, 0.0))
       .Text(row.Count |> Option.map string |> Option.defaultValue "")
 
-  let grid = Grid()
-
-  grid.ColumnDefinitions <- ColumnDefinitions("42,*,Auto")
-
-  grid.Children(
-    marker.Column(0),
-    label.Column(1),
-    count.Column(2).VerticalAlignment(VerticalAlignment.Center)
-  )
-  |> ignore
+  let grid =
+    Grid(ColumnDefinitions = ColumnDefinitions "42,*,Auto")
+      .Children(
+        marker.Column(0),
+        label.Column(1),
+        count.Column(2).VerticalAlignment(VerticalAlignment.Center)
+      )
 
   let button =
     Button()
@@ -95,21 +92,11 @@ let defaultLayoutRow(onUseDefaultLayout: unit -> unit) : Control =
 let refs
   (model: RefsModel, onSelect: Ref -> unit, onUseDefaultLayout: unit -> unit)
   : Control =
-  StackPanel()
-    .Spacing(2.0)
-    .Children(
-      [|
-        for row in model.Rows -> refButton(model.Selected, row, onSelect)
-        yield defaultLayoutRow onUseDefaultLayout
-        yield
-          TextBlock()
-            .Name("DefaultLayoutNotice")
-            .Classes(Theme.name Theme.Muted)
-            .Margin(Thickness(16.0, 2.0, 12.0, 8.0))
-            .TextWrapping(TextWrapping.Wrap)
-            .Text("Settings open in the default layout.")
-      |]
-    )
+  StackPanel().Spacing(2.0).Children [|
+    for row in model.Rows do
+      refButton(model.Selected, row, onSelect)
+    defaultLayoutRow onUseDefaultLayout
+  |]
 
 let statusText(model: StatusModel) =
   let fetched =

@@ -111,9 +111,10 @@ type Model = {
   LiveSearch: int
 }
 
-/// The host's messages: ref and checkout selections, the staging flag
-/// and its draft, post, schedule, and queue messages, the open thread
-/// and its back request, the repository home and its people-list
+/// The host's messages: ref and checkout selections, the reply
+/// request that checks out with the composer focused, the staging
+/// flag and its draft, post, schedule, and queue messages, the open
+/// thread and its back request, the repository home and its people-list
 /// report, the notifications and search surfaces, the fold, the clock
 /// and session, the history place report, and the host's open,
 /// external, and quote requests.
@@ -121,6 +122,7 @@ type Model = {
 type Msg =
   | RefSelected of ref: Ref
   | CheckoutSet of commitId: string option
+  | ReplyRequested of commitId: string
   | OpenThread of commitId: string
   | ThreadClosed
   | StagingToggled

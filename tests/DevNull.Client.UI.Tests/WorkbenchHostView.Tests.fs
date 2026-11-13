@@ -208,7 +208,8 @@ let private repositoryViewOf(env: TestEnv) : RepositoryHome.View =
       Info = TimeZoneInfo.Utc
       Label = "UTC"
     }
-    OnOpenThread = ignore
+    OnOpened = ignore
+    OnReply = ignore
     OnQuote = ignore
     OnOpenExternal = ignore
     OnOpenRepository = ignore
@@ -291,6 +292,7 @@ let private inspectorViewOf(env: TestEnv) : Control =
     Pinning = None
     PollChoices = Map.empty
     Now = now
+    FocusComposer = false
   }
 
   let props: Inspector.Props<TestEnv> = {
@@ -312,7 +314,7 @@ let private inspectorViewOf(env: TestEnv) : Control =
     OnOpenAuthor = ignore
     OnOpenExternal = ignore
     OnQuote = ignore
-    OnOpenThread = ignore
+    FocusComposer = false
     OnClose = ignore
     OnDialog = ignore
   }

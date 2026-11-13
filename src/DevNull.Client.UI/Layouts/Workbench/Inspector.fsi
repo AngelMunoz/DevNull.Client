@@ -3,6 +3,7 @@ module DevNull.Client.Workbench.Inspector
 open System
 open Avalonia.Controls
 open MVUish.Avalonia
+open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
@@ -17,9 +18,9 @@ open DevNull.Client.UserSettingsStore
 
 /// One inspector's state: the checked-out commit and its parent chain,
 /// the replies and their cursor, the show and replies failures, the
-/// clock, and the in-flight star or pastel action. The checkout id is
-/// fixed by the props, so no message clears the checkout as a side
-/// effect.
+/// clock, the in-flight star or pastel action, and the reply composer's
+/// focus request. The checkout id is fixed by the props, so no message
+/// clears the checkout as a side effect.
 type Model = {
   CommitId: string
   Loading: bool
@@ -35,16 +36,18 @@ type Model = {
   Pinning: string option
   PollChoices: Map<string, string>
   Now: DateTimeOffset
+  FocusComposer: bool
 }
 
-/// One inspector's messages: the checkout read, the replies pages, the
-/// clock, the star and pastel actions, and the parent, author, and
-/// quote intents.
+/// One inspector's messages: the checkout read, the replies pages and
+/// the posted reply, the clock, the star and pastel actions, and the
+/// parent, author, quote, and reply intents.
 type Msg =
   | Shown of Result<CommitPage, AppError>
   | RepliesFetched of Result<Page<CommitNode>, AppError>
   | MoreRepliesRequested
   | RepliesAppended of Result<Page<CommitNode>, AppError>
+  | ReplyPosted of commit: Commit
   | ClockTicked of moment: DateTimeOffset
   | StarToggled of Commit
   | StarDone of Result<Commit, AppError>
@@ -66,8 +69,9 @@ type Msg =
 
 /// What one inspector needs from its host: the protocol workers, the
 /// signed key file and viewer, the pastéis flag, the image cache, the
-/// clock ticks, the time zone, and the host's parent, child, author,
-/// external, and quote sinks. `CommitId` is the checkout: it never
+/// clock ticks, the time zone, the host's parent, child, author,
+/// external, and quote sinks, and whether the reply composer takes
+/// focus when the checkout mounts. `CommitId` is the checkout: it never
 /// changes through a message.
 type Props<'env
   when 'env :> IProvideClock
@@ -75,6 +79,8 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideAttachmentSources
   and 'env :> IProvideProfiles
   and 'env :> IProvideTranslations
   and 'env :> IProvideUserSettings
@@ -94,7 +100,7 @@ type Props<'env
   OnOpenAuthor: string -> unit
   OnOpenExternal: string -> unit
   OnQuote: Commit -> unit
-  OnOpenThread: Commit -> unit
+  FocusComposer: bool
   OnClose: unit -> unit
   OnDialog: RowActions.Dialog -> unit
 }
@@ -109,7 +115,8 @@ val update: props: Props<'env> * msg: Msg * model: Model -> Model * Cmd<Msg>
 val subscribe: props: Props<'env> -> model: Model -> Sub<Msg>
 
 /// The inspector's view: the checkout header, the author block, the
-/// checked-out card, the parent walk, and the replies block.
+/// checked-out card, the parent walk, the replies block, and the reply
+/// composer.
 val view:
   props: Props<'env> ->
   model: IObservable<Model> ->

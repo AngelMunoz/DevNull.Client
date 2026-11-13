@@ -158,8 +158,8 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | MoreRequested ->
     match model.Cursor with
     | Some cursor when not model.More && not model.Loading ->
-      ({ model with More = true; Error = None },
-       Cmd.OfAsync.perform fetch (props, Some cursor) Appended)
+      { model with More = true; Error = None },
+      Cmd.OfAsync.perform fetch (props, Some cursor) Appended
     | _ -> model, Cmd.none
   | Appended result ->
     match result with
@@ -189,7 +189,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             Error = None
       },
       Cmd.OfAsync.perform fetch (props, None) Fetched
-  | ClockTicked moment -> ({ model with Now = moment }, Cmd.none)
+  | ClockTicked moment -> { model with Now = moment }, Cmd.none
   | Opened notification ->
     match commitOf notification with
     | Some commit -> model, Cmd.ofAction(fun () -> props.OnCheckout commit.Id)

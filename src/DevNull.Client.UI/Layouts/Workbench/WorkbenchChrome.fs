@@ -56,7 +56,9 @@ let refButton(selected: Ref, row: RefRow, onSelect: Ref -> unit) : Control =
     TextBlock()
       .Classes(Theme.name Theme.Mono)
       .HorizontalAlignment(HorizontalAlignment.Right)
-      .Margin(Thickness(8.0, 0.0, 0.0, 0.0))
+      .TextAlignment(TextAlignment.Right)
+      .MinWidth(28.0)
+      .Margin(Thickness(12.0, 0.0, 0.0, 0.0))
       .Text(row.Count |> Option.map string |> Option.defaultValue "")
 
   let grid = Grid()

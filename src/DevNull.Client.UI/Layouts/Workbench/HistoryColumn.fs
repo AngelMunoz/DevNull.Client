@@ -74,7 +74,7 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp> = {
   Env: 'env
-  Log: LogKind
+  Source: HistorySource
   KeyFile: string
   ViewerId: string
   Pasteis: bool
@@ -82,6 +82,7 @@ type Props<'env
   Now: IObservable<DateTimeOffset>
   Refresh: IObservable<unit>
   Zone: Zone
+  LastVisit: DateTimeOffset option
   OnOpenExternal: string -> unit
   OnOpened: Commit -> unit
   OnQuote: Commit -> unit
@@ -121,30 +122,57 @@ let insertLate(late: Commit, items: CommitNode list) =
 let fetch
   (props: Props<'env>, cursor: string option)
   : Async<Result<LogPage, AppError>> =
-  Logs.get(
-    props.Env,
-    {
-      KeyFile = props.KeyFile
-      Log = props.Log
-      Since = None
-      Cursor = cursor
-      Arrived = []
-      Pending = []
-      Everything = false
-      Through = []
+  match props.Source with
+  | LogSource log ->
+    Logs.get(
+      props.Env,
+      {
+        KeyFile = props.KeyFile
+        Log = log
+        Since = None
+        Cursor = cursor
+        Arrived = []
+        Pending = []
+        Everything = false
+        Through = []
+      }
+    )
+  | SavedSource -> async {
+      let! result =
+        Stars.index(
+          props.Env,
+          {
+            KeyFile = props.KeyFile
+            Cursor = cursor
+          }
+        )
+
+      return
+        result
+        |> Result.map(fun page -> {
+          Page = page
+          Log = Following
+          IsRanked = false
+          NewCommitsCount = None
+          Suggestions = []
+        })
     }
-  )
 
 let checkNew
   (props: Props<'env>, model: Model, head: string)
   : Async<Result<LogPage, AppError>> =
   let ids = liveIds model.Items
 
+  let log =
+    match props.Source with
+    | LogSource log -> log
+    | SavedSource -> Following
+
   Logs.get(
     props.Env,
     {
       KeyFile = props.KeyFile
-      Log = props.Log
+      Log = log
       Since = Some head
       Cursor = None
       Arrived = if model.Ranked then [] else model.HeardIds
@@ -160,10 +188,11 @@ let star(props: Props<'env>, commit: Commit) : Async<Result<Commit, AppError>> =
     CommitId = commit.Id
   }
 
-  if commit.Starred = Some true then
+  match props.Source with
+  | SavedSource -> Stars.unstar(props.Env, request)
+  | LogSource _ when commit.Starred = Some true ->
     Stars.unstar(props.Env, request)
-  else
-    Stars.star(props.Env, request)
+  | LogSource _ -> Stars.star(props.Env, request)
 
 let givePastel
   (props: Props<'env>, commit: Commit)
@@ -207,7 +236,10 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     Head = props.Restore |> Option.bind _.Head
     NewCount = None
     Ranked = false
-    Polling = true
+    Polling =
+      match props.Source with
+      | LogSource _ -> true
+      | SavedSource -> false
     Now = DateTimeOffset.UtcNow
     FetchedAt = None
     Busy = None
@@ -262,8 +294,8 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
        Cmd.none)
     | Error error -> ({ model with Error = Some error }, Cmd.none)
   | CheckNew ->
-    match model.Head, model.Ranked with
-    | Some head, false ->
+    match props.Source, model.Head, model.Ranked with
+    | LogSource _, Some head, false ->
       model, Cmd.OfAsync.perform checkNew (props, model, head) NewChecked
     | _ -> model, Cmd.none
   | NewChecked result ->
@@ -379,9 +411,19 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | StarDone result ->
     match result with
     | Ok updated ->
+      let items =
+        match props.Source with
+        | LogSource _ -> replaceNode(model.Items, updated)
+        | SavedSource ->
+          model.Items
+          |> List.filter(function
+            | LiveCommit commit -> commit.Id <> updated.Id
+            | Tombstone _ -> true)
+
       ({
         model with
-            Items = replaceNode(model.Items, updated)
+            Items = items
+            Head = headOf items
             Busy = None
        },
        Cmd.none)
@@ -463,10 +505,94 @@ let subscribe (props: Props<'env>) (model: Model) : Sub<Msg> =
       "refresh"
       (props.Refresh |> Observable.map(fun () -> RefreshRequested))
 
-    if model.Polling then
+    match props.Source with
+    | LogSource _ when model.Polling ->
       Sub.interval "since-poll" (TimeSpan.FromMinutes 1.0) (fun () -> CheckNew)
+    | _ -> ()
   ]
   |> Sub.batch
+
+type TimelineRow =
+  | DayRow of label: string
+  | LastVisitRow
+  | NodeRow of node: CommitNode
+
+let timelineKey(row: TimelineRow) : string =
+  match row with
+  | DayRow label -> "day:" + label
+  | LastVisitRow -> "last-visit"
+  | NodeRow node -> FeedParts.nodeKey node
+
+let timelineRows
+  (
+    items: CommitNode list,
+    ranked: bool,
+    lastVisit: DateTimeOffset option,
+    now: DateTimeOffset
+  ) : TimelineRow list =
+  let commitOf(node: CommitNode) =
+    match node with
+    | LiveCommit commit -> Some commit
+    | Tombstone _ -> None
+
+  let start: TimelineRow list * bool * bool * DateTimeOffset option =
+    ([], false, false, None)
+
+  let rows, _, _, _ =
+    items
+    |> List.fold
+      (fun (rows, seenNewer, placed, previousDay) node ->
+        let commit = commitOf node
+
+        let day: DateTimeOffset option =
+          commit |> Option.map(fun current -> current.CreatedAt)
+
+        let dayRows =
+          if ranked then
+            []
+          else
+            match day, previousDay with
+            | Some(at: DateTimeOffset), Some(before: DateTimeOffset) when
+                at.DateTime.Date <> before.DateTime.Date
+                ->
+                [ DayRow(dayLabel(now, at)) ]
+            | Some(at: DateTimeOffset), None -> [ DayRow(dayLabel(now, at)) ]
+            | _ -> []
+
+        let marker, placed =
+          match lastVisit, commit, seenNewer, placed with
+          | Some visit, Some current, true, false when
+            current.CreatedAt < visit
+            ->
+            [ LastVisitRow ], true
+          | _ -> [], placed
+
+        let seenNewer =
+          match lastVisit, commit with
+          | Some visit, Some current -> seenNewer || current.CreatedAt > visit
+          | _ -> seenNewer
+
+        let additions = [ yield! dayRows; yield! marker; yield NodeRow node ]
+
+        let nextDay =
+          match day with
+          | Some _ -> day
+          | None -> previousDay
+
+        (List.rev additions @ rows, seenNewer, placed, nextDay))
+      start
+
+  List.rev rows
+
+let historyHeader(source: HistorySource) : string =
+  match source with
+  | LogSource log -> "HEAD -> " + Ref.label(Build.history log)
+  | SavedSource -> "Saved"
+
+let historyEmpty(source: HistorySource) : string =
+  match source with
+  | LogSource _ -> "Nothing here yet. Commit something."
+  | SavedSource -> "Nothing saved yet."
 
 let view
   (props: Props<'env>)
@@ -542,7 +668,7 @@ let view
               .Children(
                 TextBlock()
                   .Classes(Theme.name Theme.Mono)
-                  .Text("HEAD -> " + Ref.label(Build.history props.Log)),
+                  .Text(historyHeader props.Source),
                 TextBlock().Classes(Theme.name Theme.Mono).Text(fetchedLine)
               )
           )
@@ -554,7 +680,7 @@ let view
       match current.Loading, current.Error, current.Items with
       | true, _, _ -> "Loading the history…"
       | false, Some error, _ -> describe error
-      | false, None, [] -> "Nothing here yet. Commit something."
+      | false, None, [] -> historyEmpty props.Source
       | false, None, _ -> "")
 
   let statusLine =
@@ -567,9 +693,23 @@ let view
 
   let feed =
     Feed.view {
-      Items = model |> Observable.map _.Items
-      KeyOf = FeedParts.nodeKey
-      Row = fun node -> CommitCard.feedRow rowProps node
+      Items =
+        model
+        |> Observable.map(fun current ->
+          timelineRows(
+            current.Items,
+            current.Ranked,
+            props.LastVisit,
+            current.Now
+          ))
+      KeyOf = timelineKey
+
+      Row =
+        function
+        | DayRow label -> FeedParts.dayRow label
+        | LastVisitRow -> FeedParts.lastVisitRow()
+        | NodeRow node -> CommitCard.feedRow rowProps node
+
       Footer =
         ValueSome(
           PageChrome.loadMore(hasMore, fun () -> dispatch MoreRequested)

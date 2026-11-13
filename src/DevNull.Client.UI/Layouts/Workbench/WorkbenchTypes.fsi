@@ -12,6 +12,12 @@ type Ref =
   | NotificationsRef
   | RepositoryRef of handle: string
 
+/// The list a history program reads: one log, or the signed user's
+/// starred commits, which are the app's saved list.
+type HistorySource =
+  | LogSource of LogKind
+  | SavedSource
+
 /// One checked-out commit: its id always, the page once the inspector
 /// has read it.
 type Checkout = private {
@@ -40,6 +46,9 @@ module Ref =
   /// The log behind a history ref, when the ref is one.
   val log: ref: Ref -> LogKind option
 
+  /// The center list behind a ref, when the ref has one.
+  val source: ref: Ref -> HistorySource option
+
   /// The handle behind a repository ref, when the ref is one.
   val repository: ref: Ref -> string option
 
@@ -49,18 +58,18 @@ module Ref =
 module Checkout =
 
   /// The checked-out commit's id.
-  val inline commitId: checkout: Checkout -> string
+  val commitId: checkout: Checkout -> string
 
   /// The commit page once the inspector has read it, or none.
-  val inline page: checkout: Checkout -> CommitPage option
+  val page: checkout: Checkout -> CommitPage option
 
 module WorkbenchState =
 
   /// The selected ref.
-  val inline refOf: state: WorkbenchState -> Ref
+  val refOf: state: WorkbenchState -> Ref
 
   /// The checked-out commit id, or none.
-  val inline checkoutId: state: WorkbenchState -> string option
+  val checkoutId: state: WorkbenchState -> string option
 
 module internal Build =
 

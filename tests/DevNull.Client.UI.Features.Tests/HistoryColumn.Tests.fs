@@ -58,7 +58,7 @@ let images = {
 
 let props(log: LogKind) : HistoryColumn.Props<WorkbenchEnv> = {
   Env = WorkbenchEnv()
-  Log = log
+  Source = LogSource log
   KeyFile = "/tmp/devnull-test-id_ed25519"
   ViewerId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
   Pasteis = true
@@ -69,6 +69,7 @@ let props(log: LogKind) : HistoryColumn.Props<WorkbenchEnv> = {
     Info = TimeZoneInfo.Utc
     Label = "UTC"
   }
+  LastVisit = None
   OnOpenExternal = ignore
   OnOpened = ignore
   OnQuote = ignore

@@ -82,7 +82,7 @@ let private rowProps(commit: Commit) : RowProps = {
 
 let private historyProps(env: TestEnv) : HistoryColumn.Props<TestEnv> = {
   Env = env
-  Log = Following
+  Source = LogSource Following
   KeyFile = "/tmp/devnull-test-id_ed25519"
   ViewerId = "01a151db-7fee-727b-a7ce-c911a7556242"
   Pasteis = false
@@ -96,6 +96,7 @@ let private historyProps(env: TestEnv) : HistoryColumn.Props<TestEnv> = {
     Info = TimeZoneInfo.Utc
     Label = "UTC"
   }
+  LastVisit = None
   OnOpenExternal = ignore
   OnOpened = ignore
   OnQuote = ignore
@@ -123,6 +124,7 @@ let private inspectorProps(env: TestEnv) : Inspector.Props<TestEnv> = {
   OnOpenAuthor = ignore
   OnOpenExternal = ignore
   OnQuote = ignore
+  OnClose = ignore
 }
 
 let tests =
@@ -525,6 +527,59 @@ let inspectorViewTests =
 
         Expect.isTrue (fst actions) "the star action never rendered"
         Expect.isTrue (snd actions) "the pastel action never rendered"
+
+        let! rowsSeparate =
+          probeUiAsync(fun () ->
+            let author = controlByName(window, "CardAuthor")
+            let time = controlByName(window, "CardTime")
+
+            match author, time with
+            | Some author, Some time ->
+              match
+                Option.ofNullable(
+                  author.TranslatePoint(Point(0.0, 0.0), window)
+                ),
+                Option.ofNullable(time.TranslatePoint(Point(0.0, 0.0), window))
+              with
+              | Some start, Some moment ->
+                moment.X >= start.X + author.Bounds.Width - 0.5
+              | _ -> false
+            | _ -> false)
+
+        Expect.isTrue
+          rowsSeparate
+          "the author name and the time share a column and can collide"
+
+        do!
+          onUiAsync(fun () ->
+            subject.OnNext(
+              {
+                subject.Value with
+                    Replies = []
+                    RepliesCursor = None
+                    RepliesLoading = false
+              }
+            ))
+
+        let! emptyReplies =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "No replies yet.")
+          )
+
+        Expect.isTrue emptyReplies "the empty replies state never spoke"
+
+        let! repliesHeight =
+          probeUiAsync(fun () ->
+            controlByName(window, "InspectorReplies")
+            |> Option.map(fun control -> control.Bounds.Height)
+            |> Option.defaultValue 1000.0)
+
+        Expect.isLessThan
+          repliesHeight
+          120.0
+          "the empty replies section kept a dead band"
 
         do!
           onUiAsync(fun () ->

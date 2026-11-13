@@ -340,11 +340,13 @@ let view
 
   let notice =
     TextBlock()
+      .Name("NotificationsNotice")
       .Classes(Theme.name Theme.Muted)
+      .TextWrapping(TextWrapping.Wrap)
       .Text("Read state stays with the server.")
 
   let loadingLine =
-    PageChrome.messagePanel(
+    PageChrome.collapsingMessagePanel(
       model
       |> Observable.map(fun current ->
         if current.Loading && current.Items.IsEmpty then
@@ -357,7 +359,7 @@ let view
     )
 
   let emptyLine =
-    PageChrome.messagePanel(
+    PageChrome.collapsingMessagePanel(
       model
       |> Observable.map(fun current ->
         if

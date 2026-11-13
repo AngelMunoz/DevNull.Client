@@ -5,8 +5,11 @@ open System.Reactive.Subjects
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
+open Avalonia.Input
+open Avalonia.Media
 open Avalonia.Threading
 open Avalonia.Layout
+open Avalonia.VisualTree
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
@@ -20,6 +23,8 @@ open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.LastVisitStore
+open DevNull.Client.Shortcuts
 open DevNull.Client.Stores
 open DevNull.Client.Theme
 
@@ -150,6 +155,7 @@ type Props<'env
   and 'env :> IProvideSession
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLastVisit
   and 'env :> IProvideLogging> = {
   Env: 'env
   Initial: WorkbenchState
@@ -310,6 +316,7 @@ type HistoryStart = {
   KeyFile: string
   ViewerId: string
   Pasteis: bool
+  Handle: string
 }
 
 [<Struct>]
@@ -395,14 +402,20 @@ let fetchQueue(props: Props<'env>) : Async<Result<ScheduledPage, AppError>> =
 let startHistory
   (props: Props<'env>, dispatch: Msg -> unit, start: HistoryStart)
   : HistoryChild option =
-  match Ref.log start.Ref with
+  match Ref.source start.Ref with
   | None -> None
-  | Some log ->
+  | Some source ->
     let refresh = new System.Reactive.Subjects.Subject<unit>()
+
+    let lastVisit =
+      match source, Ref.log start.Ref with
+      | LogSource _, Some log ->
+        props.Env.LastVisit.LastVisit(start.Handle, LogKinds.wire log)
+      | _ -> None
 
     let childProps: HistoryColumn.Props<'env> = {
       Env = props.Env
-      Log = log
+      Source = source
       KeyFile = start.KeyFile
       ViewerId = start.ViewerId
       Pasteis = start.Pasteis
@@ -410,6 +423,7 @@ let startHistory
       Now = props.Now
       Refresh = refresh :> IObservable<unit>
       Zone = props.Zone
+      LastVisit = lastVisit
       OnOpenExternal = fun url -> dispatch(OpenExternal url)
       OnOpened = fun commit -> dispatch(OpenThread commit.Id)
       OnQuote = fun commit -> dispatch(Quote commit)
@@ -780,6 +794,7 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     KeyFile = data.KeyFile
     ViewerId = data.ViewerId
     Pasteis = data.Pasteis
+    Handle = data.Handle
   }
 
   let refStart =
@@ -881,6 +896,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         KeyFile = data.KeyFile
         ViewerId = data.ViewerId
         Pasteis = data.Pasteis
+        Handle = data.Handle
       }
 
       cleared,
@@ -1247,6 +1263,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             KeyFile = data.KeyFile
             ViewerId = data.ViewerId
             Pasteis = data.Pasteis
+            Handle = data.Handle
           }
         )
       | _ -> Cmd.none
@@ -1369,11 +1386,21 @@ let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
   ]
   |> Sub.batch
 
+let isTextEntry(source: obj) : bool =
+  match source with
+  | :? TextBox -> true
+  | :? Control as control ->
+    control.GetVisualAncestors()
+    |> Seq.exists(function
+      | :? TextBox -> true
+      | _ -> false)
+  | _ -> false
+
 let historyPlaceholder(selected: Ref) : Control =
   let words =
-    match Ref.log selected with
+    match Ref.source selected with
     | Some _ -> "Loading the history…"
-    | None -> "This ref opens in a later phase."
+    | None -> "Loading…"
 
   TextBlock()
     .Classes(Theme.name Theme.Muted)
@@ -1743,6 +1770,8 @@ let view
   let statusLine =
     TextBlock()
       .Classes(Theme.name Theme.Mono)
+      .TextWrapping(TextWrapping.NoWrap)
+      .TextTrimming(TextTrimming.CharacterEllipsis)
       .Text(
         model
         |> Observable.map(fun current ->
@@ -1764,16 +1793,43 @@ let view
   statusBar.Padding <- Thickness(16.0, 8.0, 16.0, 8.0)
   statusBar.Child <- statusLine
 
+  let helpOpen = new BehaviorSubject<bool>(false)
+
+  let helpLayer =
+    Border()
+      .Name("WorkbenchHelp")
+      .Classes(Theme.name Theme.ScrimBack)
+      .IsVisible(helpOpen |> _.ToBinding())
+      .Child(
+        Border()
+          .HorizontalAlignment(HorizontalAlignment.Center)
+          .VerticalAlignment(VerticalAlignment.Center)
+          .Child(helpCard props.Env.Dispatcher)
+      )
+
   let root = Grid().Name("WorkbenchRoot")
 
   root.RowDefinitions <- RowDefinitions("*,Auto,Auto")
   root.ColumnDefinitions <- ColumnDefinitions("240,*")
 
+  root.OnKeyDownHandler(fun _ args ->
+    if
+      args.Key = Key.OemQuestion
+      && args.KeyModifiers.HasFlag KeyModifiers.Shift
+      && not(isTextEntry args.Source)
+    then
+      args.Handled <- true
+      helpOpen.OnNext true
+    elif args.Key = Key.Escape && helpOpen.Value then
+      args.Handled <- true
+      helpOpen.OnNext false)
+
   root.Children(
     refsRegion.Column(0).Row(0),
     main.Column(1).Row(0),
     staging.Row(1).ColumnSpan(2),
-    statusBar.Row(2).ColumnSpan(2)
+    statusBar.Row(2).ColumnSpan(2),
+    helpLayer.RowSpan(3).ColumnSpan(2)
   )
   |> ignore
 

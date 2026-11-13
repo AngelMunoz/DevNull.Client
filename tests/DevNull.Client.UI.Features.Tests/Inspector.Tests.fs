@@ -91,6 +91,7 @@ let props(env: WorkbenchEnv, sinks: Sinks) : Inspector.Props<WorkbenchEnv> = {
   OnOpenAuthor = sinks.Author
   OnOpenExternal = sinks.External
   OnQuote = sinks.Quote
+  OnClose = ignore
 }
 
 let showPage =

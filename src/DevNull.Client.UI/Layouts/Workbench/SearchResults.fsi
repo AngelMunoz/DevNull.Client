@@ -25,6 +25,7 @@ type Model = {
 type Msg =
   | Fetched of Result<CommitNode list, AppError>
   | RefreshRequested
+  | FirstResultRequested
   | ClockTicked of moment: DateTimeOffset
   | Opened of Commit
   | QuoteRequested of Commit

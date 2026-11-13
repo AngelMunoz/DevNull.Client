@@ -1915,7 +1915,11 @@ let emptyQueueJson =
 /// from a canned answer, so a request count sees the workbench alone.
 let workbenchApi() =
   FakeApi(fun request ->
-    if request.Target.StartsWith "/api/v1/scheduled-commits" then
+    if request.Target.StartsWith "/api/v1/starred" then
+      ok logPageJson
+    elif request.Target.EndsWith "/star" then
+      ok commitJson
+    elif request.Target.StartsWith "/api/v1/scheduled-commits" then
       ok emptyQueueJson
     elif request.Target.StartsWith "/api/v1/notifications" then
       ok groupedInboxJson

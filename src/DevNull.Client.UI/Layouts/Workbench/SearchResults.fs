@@ -6,6 +6,7 @@ open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
 open Avalonia.Controls.Templates
+open Avalonia.Input
 open Avalonia.Layout
 open NXUI.Extensions
 open FSharp.Control.Reactive
@@ -34,6 +35,7 @@ type Model = {
 type Msg =
   | Fetched of Result<CommitNode list, AppError>
   | RefreshRequested
+  | FirstResultRequested
   | ClockTicked of moment: DateTimeOffset
   | Opened of Commit
   | QuoteRequested of Commit
@@ -108,6 +110,15 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             Error = None
        },
        Cmd.OfAsync.perform fetch props Fetched)
+  | FirstResultRequested ->
+    match
+      model.Results
+      |> List.tryPick(function
+        | LiveCommit commit -> Some commit
+        | Tombstone _ -> None)
+    with
+    | Some commit -> model, Cmd.ofAction(fun () -> props.OnOpenThread commit)
+    | None -> model, Cmd.none
   | ClockTicked moment -> ({ model with Now = moment }, Cmd.none)
   | Opened commit -> model, Cmd.ofAction(fun () -> props.OnOpenThread commit)
   | QuoteRequested commit -> model, Cmd.ofAction(fun () -> props.OnQuote commit)
@@ -177,26 +188,37 @@ let view
     Button()
       .Name("SearchRefresh")
       .Classes(Theme.name Theme.GhostButton)
-      .Content("Refresh")
+      .Content(Icons.iconAt(Icons.Glyph.Refresh, 12.0))
       .OnClickHandler(fun _ _ -> dispatch RefreshRequested)
+
+  ToolTip.SetTip(refresh, "Refresh results")
 
   let close =
     Button()
       .Name("SearchClose")
       .Classes(Theme.name Theme.GhostButton)
-      .Content("Close")
+      .Content(Icons.iconAt(Icons.Glyph.Close, 12.0))
       .OnClickHandler(fun _ _ -> dispatch CloseRequested)
 
-  let head = DockPanel().LastChildFill(true)
+  ToolTip.SetTip(close, "Close search")
 
-  head.Children(
-    close.DockRight(),
+  let head =
+    DockPanel()
+      .LastChildFill(true)
+      .Children(
+        close.DockRight(),
+        refresh.DockRight().Margin(Thickness(0.0, 0.0, 4.0, 0.0)),
+        TextBlock()
+          .Name("SearchSection")
+          .Classes(Theme.name Theme.Mono)
+          .Text("COMMITS")
+      )
+
+  let summary =
     TextBlock()
       .Name("SearchHeader")
-      .Classes(Theme.name Theme.Mono)
+      .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
       .Text("Search · manual refresh")
-  )
-  |> ignore
 
   let term =
     TextBlock()
@@ -204,7 +226,7 @@ let view
       .Text("term: " + props.Term)
 
   let loadingLine =
-    PageChrome.messagePanel(
+    PageChrome.collapsingMessagePanel(
       model
       |> Observable.map(fun current ->
         if current.Loading then "Searching commits…" else ""),
@@ -212,7 +234,7 @@ let view
     )
 
   let emptyLine =
-    PageChrome.messagePanel(
+    PageChrome.collapsingMessagePanel(
       model
       |> Observable.map(fun current ->
         if
@@ -229,10 +251,15 @@ let view
   let errorLine = PageChrome.errorPanel(model |> Observable.map _.Error)
 
   let header =
-    StackPanel()
-      .Spacing(6.0)
-      .Margin(Thickness(16.0, 16.0, 16.0, 8.0))
-      .Children(head, term, refresh, loadingLine, emptyLine, errorLine)
+    Border()
+      .Classes(Theme.name Theme.Hairline)
+      .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
+      .Padding(Thickness(16.0, 12.0, 16.0, 10.0))
+      .Child(
+        StackPanel()
+          .Spacing(4.0)
+          .Children(head, summary, term, loadingLine, emptyLine, errorLine)
+      )
 
   let body =
     ScrollViewer()
@@ -245,7 +272,22 @@ let view
 
   grid.Children(header.Row(0), body.Row(1)) |> ignore
 
-  Border().Name("SearchCenter").Child(grid)
+  let center =
+    Border()
+      .Name("SearchCenter")
+      .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
+      .Focusable(true)
+      .OnKeyDownHandler(fun _ args ->
+        if args.Key = Key.Enter && args.KeyModifiers = KeyModifiers.None then
+          args.Handled <- true
+          dispatch FirstResultRequested
+        elif args.Key = Key.Escape then
+          args.Handled <- true
+          dispatch CloseRequested)
+      .Child(grid)
+
+  center.AttachedToVisualTree.Add(fun _ -> center.Focus() |> ignore)
+  center
 
 let program(props: Props<'env>) =
   Program.mkProgram

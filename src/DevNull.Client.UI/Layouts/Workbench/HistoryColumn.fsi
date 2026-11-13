@@ -70,17 +70,18 @@ type Msg =
   | PollVoteRequested of Commit
   | PollVotedDone of Result<Commit, AppError>
 
-/// What one history column needs from its host: the protocol workers,
-/// the signed key file and viewer, the pastéis flag, the image cache,
-/// the clock ticks, the named refresh requests, the time zone, and the
-/// host's open, quote, and external-link sinks.
+/// What one history column needs from its host: the source list, the
+/// protocol workers, the signed key file and viewer, the pastéis flag,
+/// the image cache, the clock ticks, the named refresh requests, the
+/// time zone, the last-visit marker the log draws, and the host's open,
+/// quote, and external-link sinks.
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp> = {
   Env: 'env
-  Log: LogKind
+  Source: HistorySource
   KeyFile: string
   ViewerId: string
   Pasteis: bool
@@ -89,6 +90,8 @@ type Props<'env
   /// One request to read the first page again, such as after a post.
   Refresh: IObservable<unit>
   Zone: Zone
+  /// The newest commit time the last visit saw, when the log has one.
+  LastVisit: DateTimeOffset option
   OnOpenExternal: string -> unit
   OnOpened: Commit -> unit
   OnQuote: Commit -> unit
@@ -107,7 +110,8 @@ val update: props: Props<'env> * msg: Msg * model: Model -> Model * Cmd<Msg>
 val subscribe: props: Props<'env> -> model: Model -> Sub<Msg>
 
 /// The column's view: the ref header, the fetch and new-count line,
-/// the status line, and the virtualized feed of dense cards.
+/// the status line, the day separators and last-visit marker, and the
+/// virtualized feed of dense cards.
 val view:
   props: Props<'env> ->
   model: IObservable<Model> ->

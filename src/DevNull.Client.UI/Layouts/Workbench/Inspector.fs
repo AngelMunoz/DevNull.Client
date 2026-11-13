@@ -394,7 +394,7 @@ let view
       )
 
   let busyLine =
-    PageChrome.messagePanel(
+    PageChrome.collapsingMessagePanel(
       model
       |> Observable.map(fun current ->
         if current.Loading then
@@ -475,14 +475,20 @@ let view
 
   let repliesBlock =
     StackPanel()
+      .Name("InspectorReplies")
       .Spacing(6.0)
       .Children(
         TextBlock().Classes(Theme.name Theme.Mono).Text("REPLIES"),
         repliesRows,
-        PageChrome.messagePanel(
+        PageChrome.collapsingMessagePanel(
           model
           |> Observable.map(fun current ->
-            if current.RepliesLoading then "Loading replies…" else ""),
+            if current.RepliesLoading then
+              "Loading replies…"
+            elif current.Replies.IsEmpty && current.RepliesError.IsNone then
+              "No replies yet."
+            else
+              ""),
           Theme.Muted
         ),
         PageChrome.errorPanel(model |> Observable.map _.RepliesError),

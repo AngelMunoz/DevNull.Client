@@ -432,7 +432,7 @@ let view
               && current.Replies.IsEmpty
               && not current.RepliesLoading)
           ),
-        PageChrome.messagePanel(
+        PageChrome.collapsingMessagePanel(
           model
           |> Observable.map(fun current ->
             if current.RepliesLoading then "Loading replies…" else ""),
@@ -460,7 +460,7 @@ let view
       .Margin(Thickness(16.0))
       .Children(
         back,
-        PageChrome.messagePanel(
+        PageChrome.collapsingMessagePanel(
           model
           |> Observable.map(fun current ->
             if current.Loading then "Reading the thread…" else ""),

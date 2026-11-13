@@ -18,7 +18,11 @@ let tests =
   testList "editor panel" [
     testCase "the panel opens and closes on each tab" (fun () ->
       for tab in
-        [ EditorPanel.Problems; EditorPanel.Output; EditorPanel.Terminal ] do
+        [
+          EditorPanel.Notifications
+          EditorPanel.Activity
+          EditorPanel.Terminal
+        ] do
         let opened = EditorPanel.toggle(tab, EditorPanel.closed)
 
         Expect.isTrue opened.Open $"the {tab} tab did not open"

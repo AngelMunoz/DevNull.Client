@@ -8,6 +8,10 @@ module TabId =
 
   let history = TabId "history"
 
+  let saved = TabId "saved"
+
+  let queue = TabId "queue"
+
   let ordinary(key: string) = TabId key
 
   let thread(commitId: string) = TabId commitId
@@ -17,6 +21,12 @@ module TabId =
   let key(TabId key) = key
 
   let isHistory id = id = history
+
+  let isSaved id = id = saved
+
+  let isQueue id = id = queue
+
+  let isList id = isSaved id || isQueue id
 
   let isRepo id = key id |> _.StartsWith("repo:")
 

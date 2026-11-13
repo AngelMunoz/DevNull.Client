@@ -3,6 +3,7 @@ module DevNull.Client.Editor.TabStrip
 open System
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Input
 open Avalonia.Layout
 open NXUI.Extensions
 open DevNull.Client
@@ -91,6 +92,14 @@ let tabButton(props: Props, tab: EditorTab) : Control =
     button
       .Content(tabContent(props, tab))
       .OnClickHandler(fun _ _ -> props.OnSelect(EditorTab.id tab))
+
+  button.PointerPressed.Add(fun args ->
+    if
+      not(EditorTab.isPinned tab)
+      && args.GetCurrentPoint(button).Properties.IsMiddleButtonPressed
+    then
+      args.Handled <- true
+      props.OnClose(EditorTab.id tab))
 
   button.Name <- $"EditorTab-{TabId.key(EditorTab.id tab)}"
   button

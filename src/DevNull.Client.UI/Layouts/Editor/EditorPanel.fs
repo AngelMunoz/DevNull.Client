@@ -15,8 +15,8 @@ open DevNull.Client.Errors
 open DevNull.Client.Formatting
 
 type Tab =
-  | Problems
-  | Output
+  | Notifications
+  | Activity
   | Terminal
 
 type State = { Open: bool; Tab: Tab }
@@ -47,7 +47,7 @@ type Props = {
 
 let height = 280.0
 
-let closed = { Open = false; Tab = Problems }
+let closed = { Open = false; Tab = Notifications }
 
 let openOn(tab: Tab, state: State) = { state with Open = true; Tab = tab }
 
@@ -141,14 +141,14 @@ let actionOf(kind: NotificationKind) =
 
 let tabLabel(tab: Tab) =
   match tab with
-  | Problems -> "PROBLEMS"
-  | Output -> "OUTPUT"
+  | Notifications -> "NOTIFICATIONS"
+  | Activity -> "ACTIVITY"
   | Terminal -> "TERMINAL"
 
 let tabName(tab: Tab) =
   match tab with
-  | Problems -> "Problems"
-  | Output -> "Output"
+  | Notifications -> "Notifications"
+  | Activity -> "Activity"
   | Terminal -> "Terminal"
 
 let tabButton(props: Props, current: Tab, tab: Tab) : Control =
@@ -173,8 +173,8 @@ let tabStrip(props: Props, current: Tab) : Control =
   strip.ColumnDefinitions <- ColumnDefinitions("Auto,Auto,Auto,*,Auto")
 
   strip.Children(
-    tabButton(props, current, Problems).Column(0),
-    tabButton(props, current, Output).Column(1),
+    tabButton(props, current, Notifications).Column(0),
+    tabButton(props, current, Activity).Column(1),
     tabButton(props, current, Terminal).Column(2),
     Button()
       .Name("EditorPanelClose")
@@ -335,7 +335,7 @@ let view(props: Props) : Control =
         |> _.ToBinding()
       )
       .IsVisible(
-        props.State |> Observable.map(fun state -> state.Tab = Problems)
+        props.State |> Observable.map(fun state -> state.Tab = Notifications)
       )
 
   let outputHost =
@@ -344,7 +344,9 @@ let view(props: Props) : Control =
         rebuildOn(props.Output, (fun lines -> lines), outputView)
         |> _.ToBinding()
       )
-      .IsVisible(props.State |> Observable.map(fun state -> state.Tab = Output))
+      .IsVisible(
+        props.State |> Observable.map(fun state -> state.Tab = Activity)
+      )
 
   let terminalHost =
     ContentControl()

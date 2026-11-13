@@ -1,7 +1,10 @@
 module DevNull.Client.UI.Tests.EditorPanel
 
 open System
+open Avalonia
 open Avalonia.Controls
+open Avalonia.Headless
+open Avalonia.Input
 open Avalonia.VisualTree
 open Expecto
 open FSharp.Control.Reactive
@@ -62,6 +65,31 @@ let twoNotificationsJson =
     notificationJson
     unlinkedNotification
 
+let scheduledListJson =
+  """{"data":[{"id":"018f5a1e-6f8a-7c3a-9b2d-5e6f7a8b9c0e","body":"Queue me","body_segments":[],"preview_segments":null,"poll_options":null,"image_count":0,"scheduled_at":"2026-12-20T05:00:00+00:00","submitted_at":null,"status":"scheduled"}],"links":{},"meta":{"current_page":1,"from":1,"last_page":1,"path":"","per_page":20,"to":1,"total":1}}"""
+
+let savedListJson =
+  sprintf
+    """{"data":[%s],"links":{},"meta":{"per_page":20,"next_cursor":null,"prev_cursor":null}}"""
+    commitJson
+
+let listApi() =
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/scheduled-commits" then
+      ok scheduledListJson
+    elif request.Target.StartsWith "/api/v1/starred" then
+      ok savedListJson
+    elif request.Target.Contains "/replies" then
+      ok repliesPageJson
+    elif request.Target.StartsWith "/api/v1/commits/" then
+      ok threadPageJson
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
 let panelApi(notifications: string, total: int) =
   FakeApi(fun request ->
     if request.Target.StartsWith "/api/v1/scheduled-commits" then
@@ -96,6 +124,29 @@ let mountAt
       window.Show()
       window, handle)
 }
+
+let pressMiddle(window: Window, name: string) : Async<unit> =
+  onUiAsync(fun () ->
+    controlByName(window, name)
+    |> Option.iter(fun control ->
+      let center =
+        control.TranslatePoint(
+          Point(control.Bounds.Width / 2.0, control.Bounds.Height / 2.0),
+          window
+        )
+
+      if center.HasValue then
+        window.MouseDown(
+          center.Value,
+          MouseButton.Middle,
+          RawInputModifiers.None
+        )
+
+        window.MouseUp(
+          center.Value,
+          MouseButton.Middle,
+          RawInputModifiers.None
+        )))
 
 let close(window: Window, handle: IDisposable) : Async<unit> =
   onUiAsync(fun () ->
@@ -140,6 +191,156 @@ let tests =
           )
 
         Expect.isTrue count "the queue count never reached three"
+
+        do! close(window, handle)
+      })
+
+    testCaseAsync
+      "the saved and queue rows open closable deduped list tabs"
+      (async {
+        let api = listApi()
+        let! window, handle = mountAt(1600.0, 900.0, api)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history never rendered"
+
+        do! clickName(window, "ExplorerOpen-SAVED")
+
+        let! saved =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> visible(root, "EditorListTab-SAVED")
+          )
+
+        Expect.isTrue saved "the saved list did not open"
+
+        let! savedRows =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue savedRows "the saved rows never rendered"
+
+        let! savedTabs =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.filter(fun visual ->
+              match visual with
+              | :? Button as button -> button.Name = "EditorTab-saved"
+              | _ -> false)
+            |> Seq.length)
+
+        Expect.equal savedTabs 1 "the saved list tab was not deduped"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "It was DNS.") |> Option.iter click)
+
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, $"EditorTab-{commitId}")),
+            Option.isSome
+          )
+
+        Expect.isTrue opened "the saved row did not open its thread"
+
+        do! clickName(window, "EditorTabClose-saved")
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> not(visible(root, "EditorListTab-SAVED"))
+          )
+
+        Expect.isTrue closed "the saved list tab did not close"
+
+        do! clickName(window, "ExplorerOpen-QUEUE")
+
+        let! queued =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> visible(root, "EditorListTab-QUEUE")
+          )
+
+        Expect.isTrue queued "the queue list did not open"
+
+        let! queuedRows =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "Queue me")
+          )
+
+        Expect.isTrue queuedRows "the scheduled row never rendered"
+
+        let! status = probeUiAsync(fun () -> textOf(window, "ScheduledStatus"))
+
+        Expect.equal status "Scheduled" "the queue row lost its status"
+
+        do! close(window, handle)
+      })
+
+    testCaseAsync
+      "middle-click closes a non-pinned tab and leaves the pinned tab"
+      (async {
+        let api = panelApi("", 0)
+        let! window, handle = mountAt(1600.0, 900.0, api)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history never rendered"
+
+        do! pressMiddle(window, "EditorTab-history")
+
+        let! pinned =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "EditorTab-history")),
+            Option.isSome
+          )
+
+        Expect.isTrue pinned "the pinned tab closed on a middle click"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "It was DNS.") |> Option.iter click)
+
+        let! thread =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, $"EditorTab-{commitId}")),
+            Option.isSome
+          )
+
+        Expect.isTrue thread "the thread tab never opened"
+
+        do! pressMiddle(window, $"EditorTab-{commitId}")
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> not(visible(root, $"EditorTab-{commitId}"))
+          )
+
+        Expect.isTrue closed "the non-pinned tab ignored the middle click"
 
         do! close(window, handle)
       })

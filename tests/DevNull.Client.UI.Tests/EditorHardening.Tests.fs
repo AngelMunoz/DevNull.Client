@@ -256,14 +256,20 @@ let tests =
       })
 
     testCaseAsync
-      "the help overlay and queue notice name the default layout"
+      "the help overlay and default layout affordance name the way back"
       (async {
         let api = threadApi()
         let env = TestEnv(signedInStore(), api :> IHttp)
+        let asked = ref false
+
+        let props = {
+          EditorFrame.props env with
+              OnUseDefaultLayout = fun () -> asked.Value <- true
+        }
 
         let! window, handle =
           probeUiAsync(fun () ->
-            let control, handle = EditorRoot.mount(ui, EditorFrame.props env)
+            let control, handle = EditorRoot.mount(ui, props)
 
             let window =
               Window(Width = 1600.0, Height = 900.0, Content = control)
@@ -280,14 +286,17 @@ let tests =
 
         Expect.isTrue shown "the history never rendered"
 
-        let! notice =
+        let! queueRow =
           waitForAsync(
             5000,
             (fun () -> window),
-            fun root -> hasText(root, "The queue opens in the default layout.")
+            fun root -> visible(window, "ExplorerOpen-QUEUE")
           )
 
-        Expect.isTrue notice "the queue fallback never rendered"
+        Expect.isTrue queueRow "the queue row never appeared"
+
+        do! clickName(window, "EditorDefaultLayout")
+        Expect.isTrue asked.Value "the default layout affordance did nothing"
 
         let! helpButton = probeUiAsync(fun () -> visible(window, "EditorHelp"))
         Expect.isTrue helpButton "the help control never appeared"
@@ -307,7 +316,7 @@ let tests =
             fun root ->
               hasText(
                 root,
-                "The remotes pane is in the default layout. The More menu is in the default layout. Translations are in the default layout. The scheduled queue's link is in the default layout."
+                "The remotes pane is in the default layout. The More menu is in the default layout. Translations are in the default layout. The scheduled queue opens from the explorer."
               )
           )
 

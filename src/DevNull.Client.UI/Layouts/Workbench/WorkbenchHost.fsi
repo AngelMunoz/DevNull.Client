@@ -180,6 +180,7 @@ type Props<'env
   OnOpenAuthor: string -> unit
   OnOpenExternal: string -> unit
   OnStateChanged: WorkbenchState -> unit
+  OnUseDefaultLayout: unit -> unit
 }
 
 /// One child program handle the mount wrapper tracks. The wrapper

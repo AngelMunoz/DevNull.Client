@@ -47,6 +47,7 @@ type Msg =
   | ChildOpened of commitId: string
   | AuthorOpened of handle: string
   | QuoteRequested of Commit
+  | CloseRequested
 
 /// What one inspector needs from its host: the protocol workers, the
 /// signed key file and viewer, the pastéis flag, the image cache, the
@@ -71,6 +72,7 @@ type Props<'env
   OnOpenAuthor: string -> unit
   OnOpenExternal: string -> unit
   OnQuote: Commit -> unit
+  OnClose: unit -> unit
 }
 
 /// The inspector's first state and its checkout read.

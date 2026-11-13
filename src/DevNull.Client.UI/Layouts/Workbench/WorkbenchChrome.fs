@@ -1,8 +1,10 @@
 module DevNull.Client.Workbench.WorkbenchChrome
 
 open System
+open Avalonia
 open Avalonia.Controls
 open Avalonia.Layout
+open Avalonia.Media
 open NXUI.Extensions
 open DevNull.Client
 open DevNull.Client.Formatting
@@ -42,7 +44,6 @@ let refButton(selected: Ref, row: RefRow, onSelect: Ref -> unit) : Control =
   let marker =
     TextBlock()
       .Classes(Theme.name Theme.Mono)
-      .Width(42.0)
       .Text(if isSelected then "HEAD" else "")
 
   let label = TextBlock().Text(Ref.label row.Ref)
@@ -54,22 +55,26 @@ let refButton(selected: Ref, row: RefRow, onSelect: Ref -> unit) : Control =
   let count =
     TextBlock()
       .Classes(Theme.name Theme.Mono)
+      .HorizontalAlignment(HorizontalAlignment.Right)
+      .Margin(Thickness(8.0, 0.0, 0.0, 0.0))
       .Text(row.Count |> Option.map string |> Option.defaultValue "")
+
+  let grid = Grid()
+
+  grid.ColumnDefinitions <- ColumnDefinitions("42,*,Auto")
+
+  grid.Children(
+    marker.Column(0),
+    label.Column(1),
+    count.Column(2).VerticalAlignment(VerticalAlignment.Center)
+  )
+  |> ignore
 
   let button =
     Button()
       .Classes(Theme.name Theme.NavItem)
-      .Content(
-        DockPanel()
-          .LastChildFill(true)
-          .Children(
-            count.DockRight(),
-            StackPanel()
-              .Orientation(Orientation.Horizontal)
-              .Spacing(6.0)
-              .Children(marker, label)
-          )
-      )
+      .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+      .Content(grid)
       .OnClickHandler(fun _ _ -> onSelect row.Ref)
 
   if isSelected then
@@ -77,11 +82,31 @@ let refButton(selected: Ref, row: RefRow, onSelect: Ref -> unit) : Control =
 
   button
 
-let refs(model: RefsModel, onSelect: Ref -> unit) : Control =
+let defaultLayoutRow(onUseDefaultLayout: unit -> unit) : Control =
+  Button()
+    .Name("UseDefaultLayout")
+    .Classes(Theme.name Theme.NavItem)
+    .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+    .Content(TextBlock().Text("Default layout"))
+    .OnClickHandler(fun _ _ -> onUseDefaultLayout())
+
+let refs
+  (model: RefsModel, onSelect: Ref -> unit, onUseDefaultLayout: unit -> unit)
+  : Control =
   StackPanel()
     .Spacing(2.0)
     .Children(
-      [| for row in model.Rows -> refButton(model.Selected, row, onSelect) |]
+      [|
+        for row in model.Rows -> refButton(model.Selected, row, onSelect)
+        yield defaultLayoutRow onUseDefaultLayout
+        yield
+          TextBlock()
+            .Name("DefaultLayoutNotice")
+            .Classes(Theme.name Theme.Muted)
+            .Margin(Thickness(16.0, 2.0, 12.0, 8.0))
+            .TextWrapping(TextWrapping.Wrap)
+            .Text("Settings open in the default layout.")
+      |]
     )
 
 let statusText(model: StatusModel) =

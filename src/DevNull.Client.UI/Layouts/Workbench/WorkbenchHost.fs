@@ -159,6 +159,7 @@ type Props<'env
   OnOpenAuthor: string -> unit
   OnOpenExternal: string -> unit
   OnStateChanged: WorkbenchState -> unit
+  OnUseDefaultLayout: unit -> unit
 }
 
 [<Sealed>]
@@ -446,6 +447,7 @@ let startInspector
     OnOpenAuthor = fun handle -> dispatch(OpenAuthor handle)
     OnOpenExternal = fun url -> dispatch(OpenExternal url)
     OnQuote = fun commit -> dispatch(Quote commit)
+    OnClose = fun () -> dispatch(CheckoutSet None)
   }
 
   let view, rawHandle =
@@ -1397,7 +1399,8 @@ let view
           Rows = WorkbenchChrome.rows(saved, scheduled, unread)
           Selected = selected
         },
-        fun ref -> dispatch(RefSelected ref)
+        (fun ref -> dispatch(RefSelected ref)),
+        (fun () -> props.OnUseDefaultLayout())
       ))
 
   let refsHost = ContentControl().Content(refsSlice |> _.ToBinding())

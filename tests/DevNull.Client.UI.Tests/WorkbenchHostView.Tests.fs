@@ -4,6 +4,8 @@ open System
 open System.Reactive.Subjects
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Input
+open Avalonia.Interactivity
 open Avalonia.Media
 open Avalonia.VisualTree
 open Expecto
@@ -270,49 +272,6 @@ let private notificationsViewOf(env: TestEnv) : Control =
     (subject :> IObservable<NotificationsCenter.Model>)
     (fun (_: NotificationsCenter.Msg) -> ())
 
-let private searchResults =
-  match SearchCommits.decode(sprintf "{\"data\":[%s]}" commitJson) with
-  | Ok results -> results
-  | Error failure ->
-    failwith $"the canned search never decoded: {failure.Message}"
-
-let private searchViewOf(env: TestEnv) : Control =
-  let model: SearchResults.Model = {
-    Term = "dns"
-    Loading = false
-    Error = None
-    Results = searchResults
-    PollChoices = Map.empty
-    Now = now
-  }
-
-  let props: SearchResults.Props<TestEnv> = {
-    Env = env
-    Session = None
-    KeyFile = "/tmp/devnull-test-id_ed25519"
-    ViewerId = "01a151db-0000-0000-0000-000000000000"
-    Pasteis = true
-    Images = images
-    Now = Observable.single now
-    Zone = {
-      Info = TimeZoneInfo.Utc
-      Label = "UTC"
-    }
-    Term = "dns"
-    OnOpenThread = ignore
-    OnQuote = ignore
-    OnOpenExternal = ignore
-    OnClose = ignore
-    OnDialog = ignore
-  }
-
-  let subject = new BehaviorSubject<SearchResults.Model>(model)
-
-  SearchResults.view
-    props
-    (subject :> IObservable<SearchResults.Model>)
-    (fun (_: SearchResults.Msg) -> ())
-
 let private inspectorViewOf(env: TestEnv) : Control =
   let model: Inspector.Model = {
     CommitId = threadPage.Commit.Id
@@ -569,44 +528,6 @@ let private buildNotificationsAsync
       window, subject)
 }
 
-let private buildSearchAsync
-  ()
-  : Async<Window * BehaviorSubject<WorkbenchHost.Model>> = async {
-  return!
-    probeUiAsync(fun () ->
-      let env = TestEnv(signedInStore(), FakeApi("{}") :> IHttp)
-      let props = hostProps env
-      let searchView = searchViewOf env
-
-      let model = {
-        modelOf(false, false) with
-            CheckoutId = None
-            Inspector = None
-            SearchTerm = Some "dns"
-            Search =
-              Some {
-                Term = "dns"
-                View = searchView
-                Handle = fakeHandle
-              }
-            LiveInspector = 0
-            LiveSearch = 1
-      }
-
-      let subject = new BehaviorSubject<WorkbenchHost.Model>(model)
-
-      let view =
-        WorkbenchHost.view
-          props
-          (subject :> IObservable<WorkbenchHost.Model>)
-          (fun (_: WorkbenchHost.Msg) -> ())
-
-      let window = Window(Width = 1600.0, Height = 900.0, Content = view)
-
-      window.Show()
-      window, subject)
-}
-
 let private widthOf(window: Window, name: string) : float =
   controlByName(window, name)
   |> Option.map(fun control -> control.Bounds.Width)
@@ -616,6 +537,12 @@ let private heightOf(window: Window, name: string) : float =
   controlByName(window, name)
   |> Option.map(fun control -> control.Bounds.Height)
   |> Option.defaultValue 0.0
+
+let private textBoxByName(root: Control, name: string) : TextBox option =
+  root.GetVisualDescendants()
+  |> Seq.tryPick(function
+    | :? TextBox as box when box.Name = name -> Some box
+    | _ -> None)
 
 let private buttonWithText(root: Control, text: string) : Button option =
   root.GetVisualDescendants()
@@ -1203,48 +1130,193 @@ let tests =
       })
 
     testCaseAsync
-      "the search center at 1600 px reads as a manual list"
+      "the hosted search dialog searches and opens the mapped commit route"
       (async {
-        let! window, subject = buildSearchAsync()
+        let api = workbenchApi()
+        let env = TestEnv(signedInStore(), api :> IHttp)
+        let props = hostProps env
 
-        let! shown =
+        let! window, handle =
+          probeUiAsync(fun () ->
+            let view, handle = WorkbenchHost.mount(ui, props)
+
+            let window = Window(Width = 1600.0, Height = 900.0, Content = view)
+
+            window.Show()
+            window, handle)
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "SearchEntry")
+            |> Option.iter(function
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! input =
           waitForAsync(
-            5000,
-            (fun () -> window),
-            fun root ->
-              hasText(root, "Search · manual refresh")
-              && hasText(root, "term: dns")
-              && hasText(root, "It was DNS.")
-              && (controlByName(root, "SearchRefresh") |> Option.isSome)
-              && (controlByName(root, "SearchClose") |> Option.isSome)
-              && (controlByName(root, "SearchEntry") |> Option.isSome)
+            8000,
+            (fun () -> textBoxByName(window, "SearchInput")),
+            Option.isSome
           )
 
-        Expect.isTrue shown "the search center never rendered its results"
+        Expect.isTrue input "the hosted search dialog never opened"
 
-        do! pumpAsync()
+        do!
+          onUiAsync(fun () ->
+            textBoxByName(window, "SearchInput")
+            |> Option.iter(fun box -> box.Text <- "dns server"))
 
-        let! centerWidth, historyVisible, searchVisible =
+        let! results =
+          waitForAsync(
+            8000,
+            (fun () -> controlByName(window, "SearchDialogCard")),
+            fun card ->
+              card
+              |> Option.exists(fun root -> hasTextFragment(root, "It was DNS."))
+          )
+
+        Expect.isTrue results "the hosted search dialog never rendered results"
+
+        Expect.exists
+          api.Requests
+          (fun request ->
+            request.Target.StartsWith(
+              "/api/v1/search/commits?q=dns%20server",
+              StringComparison.Ordinal
+            ))
+          "the hosted search dialog never searched commits"
+
+        do!
+          onUiAsync(fun () ->
+            textBoxByName(window, "SearchInput")
+            |> Option.iter(fun box ->
+              box.RaiseEvent(
+                KeyEventArgs(
+                  RoutedEvent = InputElement.KeyDownEvent,
+                  Key = Key.Enter
+                )
+              )))
+
+        let! opened =
+          waitForAsync(
+            8000,
+            (fun () -> controlByName(window, "ThreadCenter")),
+            Option.isSome
+          )
+
+        Expect.isTrue opened "Enter did not open the mapped commit thread"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            (handle :> IDisposable).Dispose())
+      })
+
+    testCaseAsync
+      "the hosted search center reuses the dialog with the committed term"
+      (async {
+        let env = TestEnv(signedInStore(), workbenchApi() :> IHttp)
+        let props = hostProps env
+
+        let! window, mounted =
           probeUiAsync(fun () ->
-            widthOf(window, "SearchCenter"),
-            controlByName(window, "HistoryRegion")
-            |> Option.map _.IsVisible
-            |> Option.defaultValue false,
-            controlByName(window, "SearchRegion")
-            |> Option.map _.IsVisible
-            |> Option.defaultValue false)
+            let view, handle = WorkbenchHost.mount(ui, props)
 
-        Expect.isTrue
-          (centerWidth > 1300.0 && centerWidth < 1400.0)
-          $"the search center lost the free width: {centerWidth}"
+            let window = Window(Width = 1600.0, Height = 900.0, Content = view)
 
-        Expect.isFalse
-          historyVisible
-          "the history stayed visible over the search"
+            window.Show()
+            window, handle :?> WorkbenchHost.MountedHost)
 
-        Expect.isTrue searchVisible "the search region is not visible"
+        do!
+          onUiAsync(fun () ->
+            mounted.Send(WorkbenchHost.SearchCommitted "dns server"))
 
-        do! closeAsync(window, subject)
+        let! center =
+          waitForAsync(
+            8000,
+            (fun () -> controlByName(window, "SearchRegion")),
+            fun region ->
+              region |> Option.exists(fun control -> control.IsVisible)
+              && (controlByName(window, "SearchPaletteRegion")
+                  |> Option.exists(fun control -> not control.IsVisible))
+          )
+
+        Expect.isTrue center "the search center never opened"
+
+        let! seeded =
+          waitForAsync(
+            8000,
+            (fun () -> textBoxByName(window, "SearchInput")),
+            fun input ->
+              input
+              |> Option.exists(fun box ->
+                box.Text = "dns server"
+                && hasTextFragment(window, "It was DNS."))
+          )
+
+        Expect.isTrue seeded "the search center lost the committed term"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            (mounted :> IDisposable).Dispose())
+      })
+
+    testCaseAsync
+      "Escape closes the hosted search palette"
+      (async {
+        let env = TestEnv(signedInStore(), workbenchApi() :> IHttp)
+        let props = hostProps env
+
+        let! window, handle =
+          probeUiAsync(fun () ->
+            let view, handle = WorkbenchHost.mount(ui, props)
+
+            let window = Window(Width = 1600.0, Height = 900.0, Content = view)
+
+            window.Show()
+            window, handle)
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "SearchEntry")
+            |> Option.iter(function
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! input =
+          waitForAsync(
+            8000,
+            (fun () -> textBoxByName(window, "SearchInput")),
+            Option.isSome
+          )
+
+        Expect.isTrue input "the hosted search dialog never opened"
+
+        do!
+          onUiAsync(fun () ->
+            textBoxByName(window, "SearchInput")
+            |> Option.iter(fun box ->
+              box.RaiseEvent(
+                KeyEventArgs(
+                  RoutedEvent = InputElement.KeyDownEvent,
+                  Key = Key.Escape
+                )
+              )))
+
+        let! closed =
+          waitForAsync(
+            8000,
+            (fun () -> controlByName(window, "SearchDialogCard")),
+            Option.isNone
+          )
+
+        Expect.isTrue closed "Escape did not close the hosted search palette"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            (handle :> IDisposable).Dispose())
       })
 
     testCaseAsync

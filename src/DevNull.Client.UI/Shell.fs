@@ -959,6 +959,7 @@ type Shell<'env
           Searches = searches
           Recents = (env :> IProvideRecentSearches).RecentSearches
           Nav = router
+          InitialTerm = None
           OpenCompose = fun () -> composeOpen.OnNext true
           Close = closeSearch
         }

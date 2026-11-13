@@ -15,8 +15,10 @@ open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
 open DevNull.Client.Profiles
+open DevNull.Client.RecentSearchStore
 open DevNull.Client.Remotes
 open DevNull.Client.Stores
+open DevNull.Client.UiClock
 open DevNull.Client.TranslationCache
 open DevNull.Client.UserSettingsStore
 
@@ -122,6 +124,7 @@ type Msg =
   | OpenThread of commitId: string
   | ThreadClosed
   | StagingToggled
+  | ComposeRequested
   | DraftChanged of text: string
   | StagingPosted of commit: Commit
   | StagingScheduled of entry: ScheduledCommit
@@ -142,6 +145,7 @@ type Msg =
   | NotificationsReady of view: Control * handle: IDisposable
   | NotificationsStopped
   | SearchPaletteToggled
+  | EscapeRequested
   | SearchPaletteClosed
   | SearchPaletteReady of view: Control * handle: IDisposable
   | SearchPaletteStopped
@@ -184,8 +188,10 @@ type Props<'env
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLastVisit
   and 'env :> IProvideProfiles
+  and 'env :> IProvideRecentSearches
   and 'env :> IProvideRemotes
   and 'env :> IProvideTranslations
+  and 'env :> IProvideUiClock
   and 'env :> IProvideUserSettings
   and 'env :> IProvideLogging> = {
   Env: 'env

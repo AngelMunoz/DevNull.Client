@@ -1,7 +1,10 @@
 module DevNull.Client.Workbench.WorkbenchHost
 
 open System
+open System.Reactive.Disposables
 open System.Reactive.Subjects
+open System.Threading
+open System.Threading.Tasks
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
@@ -11,6 +14,7 @@ open Avalonia.Threading
 open Avalonia.Layout
 open Avalonia.VisualTree
 open NXUI.Extensions
+open Microsoft.Extensions.Logging
 open FSharp.Control.Reactive
 open MVUish.Avalonia
 open DevNull.Client
@@ -26,12 +30,16 @@ open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
 open DevNull.Client.Profiles
+open DevNull.Client.RecentSearchStore
 open DevNull.Client.Remotes
+open DevNull.Client.Search
 open DevNull.Client.Shortcuts
 open DevNull.Client.Stores
 open DevNull.Client.Theme
 open DevNull.Client.TranslationCache
+open DevNull.Client.UiClock
 open DevNull.Client.UserSettingsStore
+open Navs
 
 type HistoryChild = {
   Ref: Ref
@@ -110,6 +118,7 @@ type Msg =
   | OpenThread of commitId: string
   | ThreadClosed
   | StagingToggled
+  | ComposeRequested
   | DraftChanged of text: string
   | StagingPosted of commit: Commit
   | StagingScheduled of entry: ScheduledCommit
@@ -130,6 +139,7 @@ type Msg =
   | NotificationsReady of view: Control * handle: IDisposable
   | NotificationsStopped
   | SearchPaletteToggled
+  | EscapeRequested
   | SearchPaletteClosed
   | SearchPaletteReady of view: Control * handle: IDisposable
   | SearchPaletteStopped
@@ -167,8 +177,10 @@ type Props<'env
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLastVisit
   and 'env :> IProvideProfiles
+  and 'env :> IProvideRecentSearches
   and 'env :> IProvideRemotes
   and 'env :> IProvideTranslations
+  and 'env :> IProvideUiClock
   and 'env :> IProvideUserSettings
   and 'env :> IProvideLogging> = {
   Env: 'env
@@ -181,6 +193,16 @@ type Props<'env
   OnStateChanged: WorkbenchState -> unit
   OnUseDefaultLayout: unit -> unit
 }
+
+[<Sealed>]
+type WeakDisposable(targetToDispose: IDisposable) =
+  let target = WeakReference targetToDispose
+
+  interface IDisposable with
+    member _.Dispose() =
+      match target.Target with
+      | :? IDisposable as disposable -> disposable.Dispose()
+      | _ -> ()
 
 [<Sealed>]
 type TrackedHandle(raw: IDisposable) =
@@ -587,54 +609,116 @@ let startNotifications
     Handle = TrackedHandle(rawHandle) :> IDisposable
   }
 
+let private searchSession
+  (props: Props<'env>, session: SignedInSession, limit: int option)
+  =
+  let log = props.Env.LoggerFactory.CreateLogger "DevNull.Client.SearchDialog"
+
+  new Search.Session(
+    (fun term ->
+      Search.profiles(
+        props.Env,
+        {
+          KeyFile = session.KeyFile
+          Term = term
+        }
+      )),
+    (fun term ->
+      Search.commits(
+        props.Env,
+        {
+          KeyFile = session.KeyFile
+          Term = term
+          Limit = limit
+        }
+      )),
+    log
+  )
+
+let private navFor(props: Props<'env>, dispatch: Msg -> unit) =
+  let log = props.Env.LoggerFactory.CreateLogger "DevNull.Client.Workbench.Nav"
+  let ok = Task.FromResult(Ok Unchecked.defaultof<NavigationResult>)
+
+  {
+    new INavigable with
+      member _.Navigate(url: string) =
+        fun (_: CancellationToken) -> task {
+          let after(prefix: string) =
+            Uri.UnescapeDataString(url.Substring prefix.Length)
+
+          if url.StartsWith("/profile/", StringComparison.Ordinal) then
+            dispatch(RefSelected(Build.repository(after "/profile/")))
+          elif url.StartsWith("/org/", StringComparison.Ordinal) then
+            dispatch(RefSelected(Build.repository(after "/org/")))
+          elif url.StartsWith("/commit/", StringComparison.Ordinal) then
+            dispatch(OpenThread(after "/commit/"))
+          elif url.StartsWith("/search/", StringComparison.Ordinal) then
+            dispatch(SearchCommitted(after "/search/"))
+          else
+            log.LogWarning("The workbench has no route for {Url}.", url)
+
+          return Ok Unchecked.defaultof<NavigationResult>
+        }
+
+      member _.NavigateByName(_name: string, _parameters: RouteParams) =
+        fun (_: CancellationToken) -> ok
+
+      member _.Back() = fun (_: CancellationToken) -> ok
+
+      member _.Forward() = fun (_: CancellationToken) -> ok
+  }
+
 let startSearchPalette
   (props: Props<'env>, dispatch: Msg -> unit, start: SearchPaletteStart)
   : SearchPaletteChild =
-  let childProps: SearchPalette.Props<'env> = {
-    Env = props.Env
-    KeyFile = start.KeyFile
-    Images = props.Images
-    OnOpenRepository =
-      fun handle -> dispatch(RefSelected(Build.repository handle))
-    OnSearchCommits = fun term -> dispatch(SearchCommitted term)
-    OnClose = fun () -> dispatch SearchPaletteClosed
-  }
+  let view, handle =
+    match sessionData props with
+    | { Session = Some session } ->
+      let page =
+        SearchDialog.Page {
+          Env = props.Env
+          SignedIn = session
+          Searches = searchSession(props, session, Some 5)
+          Recents = (props.Env :> IProvideRecentSearches).RecentSearches
+          Nav = navFor(props, dispatch)
+          InitialTerm = None
+          OpenCompose = fun () -> dispatch ComposeRequested
+          Close = fun () -> dispatch SearchPaletteClosed
+        }
 
-  let view, rawHandle =
-    Programs.runPage(props.Env.Dispatcher, SearchPalette.program childProps)
+      page :> Control, WeakDisposable(page) :> IDisposable
+    | _ -> Panel() :> Control, Disposable.Empty
 
   {
     View = view
-    Handle = TrackedHandle(rawHandle) :> IDisposable
+    Handle = TrackedHandle(handle) :> IDisposable
   }
 
 let startSearch
   (props: Props<'env>, dispatch: Msg -> unit, start: SearchStart)
   : SearchChild =
-  let childProps: SearchResults.Props<'env> = {
-    Env = props.Env
-    Session = start.Session
-    KeyFile = start.KeyFile
-    ViewerId = start.ViewerId
-    Pasteis = start.Pasteis
-    Images = props.Images
-    Now = props.Now
-    Zone = props.Zone
-    Term = start.Term
-    OnOpenThread = fun commit -> dispatch(OpenThread commit.Id)
-    OnQuote = fun commit -> dispatch(Quote commit)
-    OnOpenExternal = fun url -> dispatch(OpenExternal url)
-    OnClose = fun () -> dispatch SearchClosed
-    OnDialog = DialogRequested >> dispatch
-  }
+  let view, handle =
+    match start.Session with
+    | Some session ->
+      let page =
+        SearchDialog.Page {
+          Env = props.Env
+          SignedIn = session
+          Searches = searchSession(props, session, None)
+          Recents = (props.Env :> IProvideRecentSearches).RecentSearches
+          Nav = navFor(props, dispatch)
+          InitialTerm = Some start.Term
+          OpenCompose = fun () -> dispatch ComposeRequested
+          Close = fun () -> dispatch SearchClosed
+        }
 
-  let view, rawHandle =
-    Programs.runPage(props.Env.Dispatcher, SearchResults.program childProps)
+      page :> Control, WeakDisposable(page) :> IDisposable
+    | None -> Panel() :> Control, Disposable.Empty
 
   {
     Term = start.Term
     View = view
-    Handle = TrackedHandle(rawHandle) :> IDisposable
+    Handle = TrackedHandle(handle) :> IDisposable
   }
 
 let startHistoryCmd
@@ -1019,6 +1103,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
           StagingOpen = not model.StagingOpen
     },
     Cmd.none
+  | ComposeRequested -> { model with StagingOpen = true }, Cmd.none
   | DraftChanged text ->
     {
       model with
@@ -1183,6 +1268,13 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
        Cmd.none)
     else
       childHandle.Dispose()
+      model, Cmd.none
+  | EscapeRequested ->
+    if model.SearchPalette.IsSome then
+      model, Cmd.ofMsg SearchPaletteClosed
+    elif model.Search.IsSome then
+      model, Cmd.ofMsg SearchClosed
+    else
       model, Cmd.none
   | SearchPaletteToggled ->
     let data = sessionData props
@@ -1936,7 +2028,10 @@ let view
       helpOpen.OnNext true
     elif args.Key = Key.Escape && helpOpen.Value then
       args.Handled <- true
-      helpOpen.OnNext false)
+      helpOpen.OnNext false
+    elif args.Key = Key.Escape then
+      args.Handled <- true
+      dispatch EscapeRequested)
 
   root.Children(
     refsRegion.Column(0).Row(0),

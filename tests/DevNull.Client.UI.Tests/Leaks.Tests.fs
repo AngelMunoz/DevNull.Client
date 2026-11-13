@@ -706,8 +706,8 @@ let tests =
         let! searchRows =
           waitForAsync(
             8000,
-            (fun () -> window),
-            fun root -> hasTextFragment(root, "Search · manual refresh")
+            (fun () -> controlByName(window, "SearchDialogCard")),
+            Option.isSome
           )
 
         Expect.isTrue searchRows "the search center never rendered"

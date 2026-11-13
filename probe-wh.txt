@@ -1,3 +1,0 @@
-[37m[[37m23:55:57 [37mINF[37m] [37mEXPECTO? Running tests...[37m [37m<[37mExpecto[37m>[37m
-[0m[1000D[?25h[37m[[37m23:56:00 [37mINF[37m] [37mEXPECTO! [36m9[37m tests run in [32m00:00:02.9867043[37m for [36mdevnull client ui.workbench hardening[37m – [36m9[37m passed, [36m0[37m ignored, [36m0[37m failed, [36m0[37m errored. [36mSuccess![37m [37m<[37mExpecto[37m>[37m
-[0m

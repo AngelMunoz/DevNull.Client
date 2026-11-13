@@ -84,8 +84,7 @@ type Props<'env
   OnOpenThread: Commit -> unit
   OnOpenExternal: string -> unit
   OnQuote: Commit -> unit
-  OnReportCommit: Commit -> unit
-  OnShare: Commit -> unit
+  OnDialog: RowActions.Dialog -> unit
 }
 
 [<Struct>]
@@ -336,8 +335,7 @@ let view
       OfferBasicActions = true
       OnUpdated = CommitUpdated >> dispatch
       OnDeleted = CommitDeleted >> dispatch
-      OnReport = props.OnReportCommit
-      OnShare = props.OnShare
+      OnDialog = props.OnDialog
     }
 
   let busy = actions.Busy

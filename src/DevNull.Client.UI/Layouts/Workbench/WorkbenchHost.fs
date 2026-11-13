@@ -15,6 +15,7 @@ open FSharp.Control.Reactive
 open MVUish.Avalonia
 open DevNull.Client
 open DevNull.Client.AttachmentSources
+open DevNull.Client.Components
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
@@ -25,6 +26,7 @@ open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
 open DevNull.Client.Profiles
+open DevNull.Client.Remotes
 open DevNull.Client.Shortcuts
 open DevNull.Client.Stores
 open DevNull.Client.Theme
@@ -81,6 +83,8 @@ type Model = {
   SearchPalette: SearchPaletteChild option
   Search: SearchChild option
   SearchTerm: string option
+  ShareOpen: Commit option
+  ReportOpen: Commit option
   Handle: string
   FetchedAt: DateTimeOffset option
   SavedCount: int
@@ -133,6 +137,9 @@ type Msg =
   | SearchClosed
   | SearchReady of term: string * view: Control * handle: IDisposable
   | SearchStopped
+  | DialogRequested of RowActions.Dialog
+  | ShareClosed
+  | ReportClosed
   | HistoryReady of
     ref: Ref *
     restore: HistoryColumn.Place option *
@@ -160,6 +167,7 @@ type Props<'env
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLastVisit
   and 'env :> IProvideProfiles
+  and 'env :> IProvideRemotes
   and 'env :> IProvideTranslations
   and 'env :> IProvideUserSettings
   and 'env :> IProvideLogging> = {
@@ -172,8 +180,6 @@ type Props<'env
   OnOpenExternal: string -> unit
   OnStateChanged: WorkbenchState -> unit
   OnUseDefaultLayout: unit -> unit
-  OnReportCommit: Commit -> unit
-  OnShare: Commit -> unit
 }
 
 [<Sealed>]
@@ -445,8 +451,7 @@ let startHistory
       OnQuote = fun commit -> dispatch(Quote commit)
       Restore = start.Place
       OnReport = fun report -> dispatch(HistoryReported(start.Ref, report))
-      OnReportCommit = props.OnReportCommit
-      OnShare = props.OnShare
+      OnDialog = DialogRequested >> dispatch
     }
 
     let view, rawHandle =
@@ -482,8 +487,7 @@ let startInspector
     OnQuote = fun commit -> dispatch(Quote commit)
     OnOpenThread = fun commit -> dispatch(OpenThread commit.Id)
     OnClose = fun () -> dispatch(CheckoutSet None)
-    OnReportCommit = props.OnReportCommit
-    OnShare = props.OnShare
+    OnDialog = DialogRequested >> dispatch
   }
 
   let view, rawHandle =
@@ -514,8 +518,7 @@ let startThread
     OnOpenThread = fun commit -> dispatch(OpenThread commit.Id)
     OnOpenExternal = fun url -> dispatch(OpenExternal url)
     OnQuote = fun commit -> dispatch(Quote commit)
-    OnReportCommit = props.OnReportCommit
-    OnShare = props.OnShare
+    OnDialog = DialogRequested >> dispatch
   }
 
   let view, rawHandle =
@@ -548,8 +551,7 @@ let startRepository
     OnOpenRepository =
       fun handle -> dispatch(RefSelected(Build.repository handle))
     OnListChanged = fun open' -> dispatch(RepositoryListChanged open')
-    OnReportCommit = props.OnReportCommit
-    OnShare = props.OnShare
+    OnDialog = DialogRequested >> dispatch
   }
 
   let view, rawHandle =
@@ -623,8 +625,7 @@ let startSearch
     OnQuote = fun commit -> dispatch(Quote commit)
     OnOpenExternal = fun url -> dispatch(OpenExternal url)
     OnClose = fun () -> dispatch SearchClosed
-    OnReportCommit = props.OnReportCommit
-    OnShare = props.OnShare
+    OnDialog = DialogRequested >> dispatch
   }
 
   let view, rawHandle =
@@ -801,6 +802,8 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     SearchPalette = None
     Search = None
     SearchTerm = None
+    ShareOpen = None
+    ReportOpen = None
     Handle = data.Handle
     FetchedAt = None
     SavedCount = 0
@@ -872,6 +875,8 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
           SearchPalette = None
           Search = None
           SearchTerm = None
+          ShareOpen = None
+          ReportOpen = None
     }
 
     let common = [
@@ -1256,6 +1261,22 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
          }
        )
      ])
+  | DialogRequested(RowActions.Share commit) ->
+    {
+      model with
+          ShareOpen = Some commit
+          ReportOpen = None
+    },
+    Cmd.none
+  | DialogRequested(RowActions.Report commit) ->
+    {
+      model with
+          ReportOpen = Some commit
+          ShareOpen = None
+    },
+    Cmd.none
+  | ShareClosed -> { model with ShareOpen = None }, Cmd.none
+  | ReportClosed -> { model with ReportOpen = None }, Cmd.none
   | SearchStopped ->
     ({
       model with
@@ -1311,6 +1332,8 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
       model with
           Search = None
           SearchTerm = None
+          ShareOpen = None
+          ReportOpen = None
      },
      Cmd.batch [
        startSearchCmd(props, model.Search |> Option.map _.Handle, None)
@@ -1846,6 +1869,58 @@ let view
           .Child(helpCard props.Env.Dispatcher)
       )
 
+  let dialogLayer
+    (name: string)
+    (openState: IObservable<Commit option>)
+    (build: SignedInSession -> Commit -> Control)
+    =
+    Border()
+      .Name(name)
+      .Classes(Theme.name Theme.ScrimBack)
+      .IsVisible(openState |> Observable.map Option.isSome |> _.ToBinding())
+      .Child(
+        ContentControl()
+          .HorizontalAlignment(HorizontalAlignment.Center)
+          .VerticalAlignment(VerticalAlignment.Center)
+          .Content(
+            openState
+            |> Observable.distinctUntilChanged
+            |> Observable.map(function
+              | Some commit ->
+                match sessionData props with
+                | { Session = Some session } -> build session commit
+                | _ -> Panel() :> Control
+              | None -> Panel() :> Control)
+            |> _.ToBinding()
+          )
+      )
+
+  let shareOpen = model |> Observable.map _.ShareOpen |> Slices.share
+
+  let reportOpen = model |> Observable.map _.ReportOpen |> Slices.share
+
+  let shareLayer =
+    dialogLayer "ShareDialogLayer" shareOpen (fun session commit ->
+      ShareDialog.Page {
+        Env = props.Env
+        Session = session
+        Commit = commit
+        Sent = fun _ -> dispatch ShareClosed
+        Close = fun () -> dispatch ShareClosed
+      }
+      :> Control)
+
+  let reportLayer =
+    dialogLayer "ReportDialogLayer" reportOpen (fun session commit ->
+      ReportDialog.Page {
+        Env = props.Env
+        Session = session
+        Commit = commit
+        Sent = fun () -> dispatch ReportClosed
+        Close = fun () -> dispatch ReportClosed
+      }
+      :> Control)
+
   let root = Grid().Name("WorkbenchRoot")
 
   root.RowDefinitions <- RowDefinitions("*,Auto,Auto")
@@ -1868,6 +1943,8 @@ let view
     main.Column(1).Row(0),
     staging.Row(1).ColumnSpan(2),
     statusBar.Row(2).ColumnSpan(2),
+    shareLayer.RowSpan(3).ColumnSpan(2),
+    reportLayer.RowSpan(3).ColumnSpan(2),
     helpLayer.RowSpan(3).ColumnSpan(2)
   )
   |> ignore

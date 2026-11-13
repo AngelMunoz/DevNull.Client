@@ -117,8 +117,7 @@ let private threadViewOf(env: TestEnv) : ThreadMode.View =
     OnOpenThread = ignore
     OnOpenExternal = ignore
     OnQuote = ignore
-    OnReportCommit = ignore
-    OnShare = ignore
+    OnDialog = ignore
   }
 
   let subject = new BehaviorSubject<ThreadMode.Model>(model)
@@ -141,8 +140,6 @@ let private hostProps(env: TestEnv) : WorkbenchHost.Props<TestEnv> = {
   OnOpenExternal = ignore
   OnStateChanged = ignore
   OnUseDefaultLayout = ignore
-  OnReportCommit = ignore
-  OnShare = ignore
 }
 
 let private repositoryProfile =
@@ -211,8 +208,7 @@ let private repositoryViewOf(env: TestEnv) : RepositoryHome.View =
     OnOpenExternal = ignore
     OnOpenRepository = ignore
     OnListChanged = ignore
-    OnReportCommit = ignore
-    OnShare = ignore
+    OnDialog = ignore
   }
 
   let subject = new BehaviorSubject<RepositoryHome.Model>(model)
@@ -307,8 +303,7 @@ let private searchViewOf(env: TestEnv) : Control =
     OnQuote = ignore
     OnOpenExternal = ignore
     OnClose = ignore
-    OnReportCommit = ignore
-    OnShare = ignore
+    OnDialog = ignore
   }
 
   let subject = new BehaviorSubject<SearchResults.Model>(model)
@@ -356,8 +351,7 @@ let private inspectorViewOf(env: TestEnv) : Control =
     OnQuote = ignore
     OnOpenThread = ignore
     OnClose = ignore
-    OnReportCommit = ignore
-    OnShare = ignore
+    OnDialog = ignore
   }
 
   let subject = new BehaviorSubject<Inspector.Model>(model)
@@ -405,6 +399,8 @@ let private modelOf(folded: bool, stagingOpen: bool) : WorkbenchHost.Model =
     SearchPalette = None
     Search = None
     SearchTerm = None
+    ShareOpen = None
+    ReportOpen = None
     Handle = "octocat"
     FetchedAt = Some(now.AddMinutes -12.0)
     SavedCount = 4
@@ -620,6 +616,64 @@ let private heightOf(window: Window, name: string) : float =
   controlByName(window, name)
   |> Option.map(fun control -> control.Bounds.Height)
   |> Option.defaultValue 0.0
+
+let private buttonWithText(root: Control, text: string) : Button option =
+  root.GetVisualDescendants()
+  |> Seq.tryPick(function
+    | :? Button as button ->
+      match button.Content with
+      | :? string as label when label = text -> Some button
+      | _ -> None
+    | _ -> None)
+
+let private menuContentOf(root: Control) : Control option =
+  controlByName(root, "CommitMenuFlyout")
+  |> Option.bind(function
+    | :? Avalonia.Controls.Primitives.Popup as popup -> Option.ofObj popup.Child
+    | _ -> None)
+
+let private menuRowOf(window: Window, label: string) : Button option =
+  menuContentOf window
+  |> Option.bind(fun content -> buttonWithText(content, label))
+
+let private envWithRemotes() : TestEnv =
+  let api = workbenchApi()
+  let store = signedInStore()
+
+  match store.Current with
+  | SignedIn current ->
+    store.Refresh {
+      current.Session with
+          Remotes =
+            Some {
+              From = FromEveryone
+              PullReceipts = true
+              Requests = true
+              Everyone = true
+              UnreadCount = 0
+            }
+    }
+  | SignedOut -> ()
+
+  TestEnv(store, api :> IHttp)
+
+let private openFirstMenu(window: Window) = async {
+  let! trigger =
+    waitForAsync(
+      8000,
+      (fun () -> controlByName(window, "CommitMenuButton")),
+      Option.isSome
+    )
+
+  Expect.isTrue trigger "the card offered no menu trigger"
+
+  do!
+    onUiAsync(fun () ->
+      controlByName(window, "CommitMenuButton")
+      |> Option.iter(function
+        | :? Button as button -> click button
+        | _ -> ()))
+}
 
 let private hasTextFragment(root: Control, fragment: string) : bool =
   root.GetVisualDescendants()
@@ -1191,5 +1245,128 @@ let tests =
         Expect.isTrue searchVisible "the search region is not visible"
 
         do! closeAsync(window, subject)
+      })
+
+    testCaseAsync
+      "a card menu opens the share dialog when remotes are on"
+      (async {
+        let env = envWithRemotes()
+        do! pumpAsync()
+        let props = hostProps env
+
+        let! window, handle =
+          probeUiAsync(fun () ->
+            let view, handle = WorkbenchHost.mount(ui, props)
+
+            let window = Window(Width = 1600.0, Height = 900.0, Content = view)
+
+            window.Show()
+            window, handle)
+
+        do! openFirstMenu window
+
+        let! shareRow =
+          waitForAsync(
+            5000,
+            (fun () -> menuRowOf(window, "Send in Remotes")),
+            Option.isSome
+          )
+
+        Expect.isTrue shareRow "the card menu offered no Remotes row"
+
+        do!
+          onUiAsync(fun () ->
+            menuRowOf(window, "Send in Remotes") |> Option.iter click)
+
+        let! dialog =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "ShareDialog")),
+            Option.isSome
+          )
+
+        Expect.isTrue dialog "the share dialog never opened"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "ShareDialog")
+            |> Option.bind(fun dialog -> buttonWithText(dialog, "Cancel"))
+            |> Option.iter click)
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "ShareDialog")),
+            Option.isNone
+          )
+
+        Expect.isTrue closed "the share dialog did not close on Cancel"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            (handle :> IDisposable).Dispose())
+      })
+
+    testCaseAsync
+      "a card menu opens the report dialog on another author's commit"
+      (async {
+        let env = envWithRemotes()
+        do! pumpAsync()
+        let props = hostProps env
+
+        let! window, handle =
+          probeUiAsync(fun () ->
+            let view, handle = WorkbenchHost.mount(ui, props)
+
+            let window = Window(Width = 1600.0, Height = 900.0, Content = view)
+
+            window.Show()
+            window, handle)
+
+        do! openFirstMenu window
+
+        let! reportRow =
+          waitForAsync(
+            5000,
+            (fun () -> menuRowOf(window, "Report commit")),
+            Option.isSome
+          )
+
+        Expect.isTrue reportRow "the card menu offered no report row"
+
+        do!
+          onUiAsync(fun () ->
+            menuRowOf(window, "Report commit") |> Option.iter click)
+
+        let! dialog =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "ReportDialog")),
+            Option.isSome
+          )
+
+        Expect.isTrue dialog "the report dialog never opened"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "ReportCancel")
+            |> Option.iter(function
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "ReportDialog")),
+            Option.isNone
+          )
+
+        Expect.isTrue closed "the report dialog did not close on Cancel"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            (handle :> IDisposable).Dispose())
       })
   ]

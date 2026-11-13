@@ -112,8 +112,7 @@ let props(env: WorkbenchEnv, sinks: Sinks) : Inspector.Props<WorkbenchEnv> = {
   OnQuote = sinks.Quote
   OnClose = ignore
   OnOpenThread = ignore
-  OnReportCommit = ignore
-  OnShare = ignore
+  OnDialog = ignore
 }
 
 let showPage =

@@ -76,8 +76,7 @@ type Props<'env
   OnQuote: Commit -> unit
   OnOpenExternal: string -> unit
   OnClose: unit -> unit
-  OnReportCommit: Commit -> unit
-  OnShare: Commit -> unit
+  OnDialog: RowActions.Dialog -> unit
 }
 
 let replaceNode(items: CommitNode list, updated: Commit) =
@@ -232,8 +231,7 @@ let view
         OfferBasicActions = true
         OnUpdated = CommitUpdated >> dispatch
         OnDeleted = CommitDeleted >> dispatch
-        OnReport = props.OnReportCommit
-        OnShare = props.OnShare
+        OnDialog = props.OnDialog
       })
 
   let busy =

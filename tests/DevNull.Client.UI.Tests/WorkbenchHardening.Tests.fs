@@ -58,8 +58,7 @@ let private historyProps(env: TestEnv) : HistoryColumn.Props<TestEnv> = {
   OnQuote = ignore
   Restore = None
   OnReport = ignore
-  OnReportCommit = ignore
-  OnShare = ignore
+  OnDialog = ignore
 }
 
 let private hostProps
@@ -74,8 +73,6 @@ let private hostProps
   OnOpenExternal = ignore
   OnStateChanged = ignore
   OnUseDefaultLayout = ignore
-  OnReportCommit = ignore
-  OnShare = ignore
 }
 
 let private getCount(api: FakeApi, path: string) : int =
@@ -979,8 +976,7 @@ let tests =
           OnQuote = ignore
           OnOpenExternal = ignore
           OnClose = fun () -> closed.Add(())
-          OnReportCommit = ignore
-          OnShare = ignore
+          OnDialog = ignore
         }
 
         let resultSubject =

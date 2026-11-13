@@ -92,8 +92,7 @@ type Props<'env
   OnQuote: Commit -> unit
   OnOpenThread: Commit -> unit
   OnClose: unit -> unit
-  OnReportCommit: Commit -> unit
-  OnShare: Commit -> unit
+  OnDialog: RowActions.Dialog -> unit
 }
 
 let show(props: Props<'env>) : Async<Result<CommitPage, AppError>> =
@@ -429,8 +428,7 @@ let view
         OfferBasicActions = false
         OnUpdated = CommitUpdated >> dispatch
         OnDeleted = CommitDeleted >> dispatch
-        OnReport = props.OnReportCommit
-        OnShare = props.OnShare
+        OnDialog = props.OnDialog
       })
 
   let translation =

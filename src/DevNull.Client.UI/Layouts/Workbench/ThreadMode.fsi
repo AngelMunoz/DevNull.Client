@@ -82,8 +82,7 @@ type Props<'env
   OnOpenThread: Commit -> unit
   OnOpenExternal: string -> unit
   OnQuote: Commit -> unit
-  OnReportCommit: Commit -> unit
-  OnShare: Commit -> unit
+  OnDialog: RowActions.Dialog -> unit
 }
 
 /// The thread's two regions: the center thread and the PARENTS chain

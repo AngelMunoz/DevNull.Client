@@ -110,8 +110,7 @@ type Props<'env
   OnQuote: Commit -> unit
   Restore: Place option
   OnReport: Report -> unit
-  OnReportCommit: Commit -> unit
-  OnShare: Commit -> unit
+  OnDialog: RowActions.Dialog -> unit
 }
 
 /// The column's first state and its first page fetch.

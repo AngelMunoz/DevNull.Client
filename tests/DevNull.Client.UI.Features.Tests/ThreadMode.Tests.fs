@@ -59,8 +59,7 @@ let props(env: TestEnv, sinks: Sinks) : ThreadMode.Props<TestEnv> = {
   OnOpenThread = sinks.Thread
   OnOpenExternal = sinks.External
   OnQuote = sinks.Quote
-  OnReportCommit = ignore
-  OnShare = ignore
+  OnDialog = ignore
 }
 
 let threadPage =

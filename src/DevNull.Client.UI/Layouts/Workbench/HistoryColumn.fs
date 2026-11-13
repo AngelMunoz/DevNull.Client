@@ -101,8 +101,7 @@ type Props<'env
   OnQuote: Commit -> unit
   Restore: Place option
   OnReport: Report -> unit
-  OnReportCommit: Commit -> unit
-  OnShare: Commit -> unit
+  OnDialog: RowActions.Dialog -> unit
 }
 
 let headOf(items: CommitNode list) =
@@ -650,8 +649,7 @@ let view
         OfferBasicActions = false
         OnUpdated = CommitUpdated >> dispatch
         OnDeleted = CommitDeleted >> dispatch
-        OnReport = props.OnReportCommit
-        OnShare = props.OnShare
+        OnDialog = props.OnDialog
       })
 
   let rowProps: RowProps = {

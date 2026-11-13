@@ -12,10 +12,15 @@ open DevNull.Client.Stores
 open DevNull.Client.TranslationCache
 open DevNull.Client.UserSettingsStore
 
+/// The dialog one shared menu row asks the host to open.
+type Dialog =
+  | Share of Commit
+  | Report of Commit
+
 /// What one workbench surface gives the shared commit actions: the
 /// protocol workers, the signed session, the clock ticks, whether the
 /// surface offers star and pastel, the update and delete answers, and
-/// the report and share sinks the host owns.
+/// the host's dialog request.
 type SurfaceProps<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
@@ -32,8 +37,7 @@ type SurfaceProps<'env
   OfferBasicActions: bool
   OnUpdated: Commit -> unit
   OnDeleted: string -> unit
-  OnReport: Commit -> unit
-  OnShare: Commit -> unit
+  OnDialog: Dialog -> unit
 }
 
 /// The slots and event handling one shared action set offers a row:

@@ -141,8 +141,6 @@ let workbenchProps(env: TestEnv) : WorkbenchHost.Props<TestEnv> = {
   OnOpenExternal = ignore
   OnStateChanged = ignore
   OnUseDefaultLayout = ignore
-  OnReportCommit = ignore
-  OnShare = ignore
 }
 
 let hasTextFragment(root: Control, fragment: string) : bool =

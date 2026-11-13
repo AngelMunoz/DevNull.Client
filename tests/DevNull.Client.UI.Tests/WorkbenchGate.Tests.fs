@@ -103,8 +103,7 @@ let private historyProps(env: TestEnv) : HistoryColumn.Props<TestEnv> = {
   OnQuote = ignore
   Restore = None
   OnReport = ignore
-  OnReportCommit = ignore
-  OnShare = ignore
+  OnDialog = ignore
 }
 
 let private inspectorProps(env: TestEnv) : Inspector.Props<TestEnv> = {
@@ -130,8 +129,7 @@ let private inspectorProps(env: TestEnv) : Inspector.Props<TestEnv> = {
   OnQuote = ignore
   OnClose = ignore
   OnOpenThread = ignore
-  OnReportCommit = ignore
-  OnShare = ignore
+  OnDialog = ignore
 }
 
 let tests =

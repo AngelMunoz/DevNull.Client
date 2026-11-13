@@ -69,8 +69,7 @@ type Props<'env
   OnQuote: Commit -> unit
   OnOpenExternal: string -> unit
   OnClose: unit -> unit
-  OnReportCommit: Commit -> unit
-  OnShare: Commit -> unit
+  OnDialog: RowActions.Dialog -> unit
 }
 
 /// The search center's first state and its one manual commit read.

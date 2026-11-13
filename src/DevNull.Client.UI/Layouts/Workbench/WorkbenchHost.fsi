@@ -5,6 +5,7 @@ open Avalonia.Controls
 open Avalonia.Threading
 open MVUish.Avalonia
 open DevNull.Client.AttachmentSources
+open DevNull.Client.Components
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
@@ -14,6 +15,7 @@ open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
 open DevNull.Client.Profiles
+open DevNull.Client.Remotes
 open DevNull.Client.Stores
 open DevNull.Client.TranslationCache
 open DevNull.Client.UserSettingsStore
@@ -87,6 +89,8 @@ type Model = {
   SearchPalette: SearchPaletteChild option
   Search: SearchChild option
   SearchTerm: string option
+  ShareOpen: Commit option
+  ReportOpen: Commit option
   Handle: string
   FetchedAt: DateTimeOffset option
   SavedCount: int
@@ -145,6 +149,9 @@ type Msg =
   | SearchClosed
   | SearchReady of term: string * view: Control * handle: IDisposable
   | SearchStopped
+  | DialogRequested of RowActions.Dialog
+  | ShareClosed
+  | ReportClosed
   | HistoryReady of
     ref: Ref *
     restore: HistoryColumn.Place option *
@@ -177,6 +184,7 @@ type Props<'env
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLastVisit
   and 'env :> IProvideProfiles
+  and 'env :> IProvideRemotes
   and 'env :> IProvideTranslations
   and 'env :> IProvideUserSettings
   and 'env :> IProvideLogging> = {
@@ -189,8 +197,6 @@ type Props<'env
   OnOpenExternal: string -> unit
   OnStateChanged: WorkbenchState -> unit
   OnUseDefaultLayout: unit -> unit
-  OnReportCommit: Commit -> unit
-  OnShare: Commit -> unit
 }
 
 /// One child program handle the mount wrapper tracks. The wrapper

@@ -95,8 +95,7 @@ type Props<'env
   OnQuote: Commit -> unit
   OnOpenThread: Commit -> unit
   OnClose: unit -> unit
-  OnReportCommit: Commit -> unit
-  OnShare: Commit -> unit
+  OnDialog: RowActions.Dialog -> unit
 }
 
 /// The inspector's first state and its checkout read.

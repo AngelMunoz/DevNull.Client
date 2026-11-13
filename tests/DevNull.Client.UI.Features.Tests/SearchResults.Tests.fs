@@ -58,8 +58,7 @@ let props(env: TestEnv, sinks: Sinks) : SearchResults.Props<TestEnv> = {
   OnQuote = sinks.Quote
   OnOpenExternal = sinks.External
   OnClose = sinks.Close
-  OnReportCommit = ignore
-  OnShare = ignore
+  OnDialog = ignore
 }
 
 let initialModel(sinks: Sinks) =

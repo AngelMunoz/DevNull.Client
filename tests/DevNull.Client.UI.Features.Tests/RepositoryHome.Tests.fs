@@ -61,8 +61,7 @@ let props(env: TestEnv, sinks: Sinks) : RepositoryHome.Props<TestEnv> = {
   OnOpenExternal = sinks.External
   OnOpenRepository = sinks.Repository
   OnListChanged = sinks.Lists
-  OnReportCommit = ignore
-  OnShare = ignore
+  OnDialog = ignore
 }
 
 let profileDetails =

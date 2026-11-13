@@ -21,6 +21,10 @@ open DevNull.Client.UserSettingsStore
 open DevNull.Client.Views
 open DevNull.Client.Views.TranslationModel
 
+type Dialog =
+  | Share of Commit
+  | Report of Commit
+
 type SurfaceProps<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
@@ -37,8 +41,7 @@ type SurfaceProps<'env
   OfferBasicActions: bool
   OnUpdated: Commit -> unit
   OnDeleted: string -> unit
-  OnReport: Commit -> unit
-  OnShare: Commit -> unit
+  OnDialog: Dialog -> unit
 }
 
 type SurfaceView = {
@@ -359,10 +362,10 @@ let create(props: SurfaceProps<'env>) : SurfaceView =
   let menu: MenuSlot = {
     Share =
       if props.Session.Session.Remotes.IsSome then
-        ValueSome props.OnShare
+        ValueSome(fun commit -> props.OnDialog(Share commit))
       else
         ValueNone
-    Report = ValueSome props.OnReport
+    Report = ValueSome(fun commit -> props.OnDialog(Report commit))
     Delete = ValueSome delete
     ToggleFollow = toggleFollow
     ToggleMute = toggleMute

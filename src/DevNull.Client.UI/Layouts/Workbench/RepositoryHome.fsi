@@ -105,8 +105,7 @@ type Props<'env
   OnOpenExternal: string -> unit
   OnOpenRepository: string -> unit
   OnListChanged: bool -> unit
-  OnReportCommit: Commit -> unit
-  OnShare: Commit -> unit
+  OnDialog: RowActions.Dialog -> unit
 }
 
 /// The home's two regions: the center profile page and the people list

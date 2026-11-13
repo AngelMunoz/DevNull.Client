@@ -94,8 +94,7 @@ let props(log: LogKind) : HistoryColumn.Props<WorkbenchEnv> = {
   OnQuote = ignore
   Restore = None
   OnReport = ignore
-  OnReportCommit = ignore
-  OnShare = ignore
+  OnDialog = ignore
 }
 
 let pageOf(json: string) =

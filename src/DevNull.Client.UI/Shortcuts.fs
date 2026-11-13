@@ -125,6 +125,13 @@ let install(props: Props) : unit =
         | _, Key.OemQuestion ->
           args.Handled <- true
           props.Help()
+        // Spanish and several other layouts put ? on the apostrophe
+        // key with Shift; the plain apostrophe stays a typable key.
+        | _, Key.OemQuotes when
+          args.KeyModifiers &&& KeyModifiers.Shift <> KeyModifiers.None
+          ->
+          args.Handled <- true
+          props.Help()
         | _ -> ()),
     RoutingStrategies.Tunnel
   )

@@ -30,6 +30,18 @@ let pressKey(source: Interactive, key: Key) : unit =
     KeyEventArgs(RoutedEvent = InputElement.KeyDownEvent, Key = key)
   )
 
+/// Presses one key with modifiers through the routed event.
+let pressKeyWith
+  (source: Interactive, key: Key, modifiers: KeyModifiers)
+  : unit =
+  source.RaiseEvent(
+    KeyEventArgs(
+      RoutedEvent = InputElement.KeyDownEvent,
+      Key = key,
+      KeyModifiers = modifiers
+    )
+  )
+
 /// The test layout: one focusable root with its name on it, every
 /// action and intent recorded, and its dispose counted in the same
 /// tape.
@@ -367,6 +379,108 @@ let tests =
             (layout :> IDisposable).Dispose()
             true)
           |> Async.Ignore
+      })
+
+    testCaseAsync
+      "the workbench cheatsheet answers the question mark on both keys"
+      (async {
+        let! window = Leaks.startShell(signedInStore(), logApi() :> IHttp)
+
+        let! shown =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "The Octocat"))
+          )
+
+        Expect.isTrue shown "the log never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            window.Width <- 1600.0
+            window.Height <- 900.0)
+
+        do!
+          onUiAsync(fun () ->
+            (window :?> Shell<TestEnv>).SwitchLayout "workbench")
+
+        let! mounted =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            (fun root -> hasText(root, "HEAD -> Following"))
+          )
+
+        Expect.isTrue mounted "the workbench never mounted"
+
+        // A plain apostrophe is a typable character, not the sheet.
+        do! onUiAsync(fun () -> pressKey(window, Key.OemQuotes))
+
+        let! apostropheQuiet =
+          probeUiAsync(fun () -> not(hasText(window, "Keyboard shortcuts")))
+
+        Expect.isTrue apostropheQuiet "a plain apostrophe opened the cheatsheet"
+
+        // Spanish and several other layouts put ? on Shift+OemQuotes.
+        do!
+          onUiAsync(fun () ->
+            pressKeyWith(window, Key.OemQuotes, KeyModifiers.Shift))
+
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "open the staging composer"))
+          )
+
+        Expect.isTrue
+          opened
+          "the workbench rows never showed on Shift+OemQuotes"
+
+        let! defaultRowsGone =
+          probeUiAsync(fun () -> not(hasText(window, "Show this list")))
+
+        Expect.isTrue
+          defaultRowsGone
+          "the retired website rows stayed in the sheet"
+
+        do! onUiAsync(fun () -> pressKey(window, Key.Escape))
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> not(hasText(root, "Keyboard shortcuts")))
+          )
+
+        Expect.isTrue closed "the sheet never closed on Escape"
+
+        // The US layout's own question-mark key still answers.
+        do!
+          onUiAsync(fun () ->
+            pressKeyWith(window, Key.OemQuestion, KeyModifiers.Shift))
+
+        let! reopened =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "open the staging composer"))
+          )
+
+        Expect.isTrue
+          reopened
+          "the workbench rows never showed on Shift+OemQuestion"
+
+        do! onUiAsync(fun () -> pressKey(window, Key.Escape))
+
+        let! closedAgain =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> not(hasText(root, "Keyboard shortcuts")))
+          )
+
+        Expect.isTrue closedAgain "the sheet never closed after the US key"
       })
 
     testCaseAsync

@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Workbench:** a second layout for wide screens — the feed as a source-control workbench with a refs tree, one history in the center, the checked-out commit in an inspector pane, a staging area for writing, and a status bar naming the ref, the lane, and the signing key. Pick it in Settings under Appearance; the change applies at once, and the default layout is one click back. Remotes, the More menu, and translations stay in the default layout.
-- **Editor:** a third layout for wide screens — the feed as an editor: a pinned history tab, one tab per open thread with dirty dots, a problems/output/terminal panel, a command palette, and profiles as repository tabs with shields and contribution graphs. Pick it in Settings; the window's keyboard shortcuts and tray verbs reach it fully with its next integration.
+- **Editor:** a third layout for wide screens — the feed as an editor: a pinned history tab, one tab per open thread with dirty dots, a notifications/activity/terminal panel, a command palette, and profiles as repository tabs with shields and contribution graphs. Pick it in Settings; the window's keyboard shortcuts and tray verbs reach it fully with its next integration.
+- **Layouts:** the help key opens a keyboard cheatsheet in every layout, listing the keys the mounted layout answers; Escape closes it first.
 - **Settings:** an Appearance row names the layout the window shows; a pick changes it at once, with no restart. The site's own layout is the default.
 
 ### Changed

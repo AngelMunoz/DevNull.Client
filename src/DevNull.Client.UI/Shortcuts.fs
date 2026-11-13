@@ -17,17 +17,19 @@ open DevNull.Client.Theme
 type Actions = {
   Compose: unit -> unit
   Search: unit -> unit
-  Help: unit -> unit
   Escape: unit -> unit
   Navigate: string -> unit
   ToggleFullScreen: unit -> unit
   WalkCards: int -> unit
 }
 
+type CheatsheetItem = { Keys: string list; Words: string }
+
 [<Struct>]
 type Props = {
   Root: Window
   Actions: Actions
+  Help: unit -> unit
   OverlayOpen: unit -> bool
 }
 
@@ -122,7 +124,7 @@ let install(props: Props) : unit =
           props.Actions.Compose()
         | _, Key.OemQuestion ->
           args.Handled <- true
-          props.Actions.Help()
+          props.Help()
         | _ -> ()),
     RoutingStrategies.Tunnel
   )
@@ -288,24 +290,6 @@ let moveCardFocus(dispatcher: IDispatcher, root: Window, step: int) : unit =
         )
     | None -> ()
 
-// The bindings the window answers, as the list shows them.
-let bindings: (string * string array) array = [|
-  "Next commit", [| "J" |]
-  "Previous commit", [| "K" |]
-  "Open the focused commit", [| "Enter" |]
-  "Copy the focused commit's link", [| "Y" |]
-  "Reply to the focused commit", [| "R" |]
-  "Quote the focused commit", [| "Q" |]
-  "Write a commit", [| "C" |]
-  "Search", [| "Ctrl K" |]
-  "Go to your log", [| "G"; "L" |]
-  "Go to trending", [| "G"; "E" |]
-  "Go to your profile", [| "G"; "P" |]
-  "Go to settings", [| "G"; "S" |]
-  "Show this list", [| "?" |]
-  "Fullscreen", [| "F11" |]
-|]
-
 // One key chip of a row.
 let chip(key: string) : Control =
   Border()
@@ -316,14 +300,14 @@ let chip(key: string) : Control =
     .Child(TextBlock().Classes(Theme.name Theme.Mono).FontSize(12.0).Text(key))
 
 // One row of the list: the action on the left, its keys on the right.
-let row(label: string, keys: string array) : Control =
+let row(item: CheatsheetItem) : Control =
   let grid = Grid()
 
   grid.ColumnDefinitions <- ColumnDefinitions("*,Auto")
 
   grid.Children(
     TextBlock()
-      .Text(label)
+      .Text(item.Words)
       .TextWrapping(TextWrapping.Wrap)
       .VerticalAlignment(VerticalAlignment.Center)
       .Column(0),
@@ -332,10 +316,10 @@ let row(label: string, keys: string array) : Control =
       .Spacing(4.0)
       .VerticalAlignment(VerticalAlignment.Center)
       .Column(1)
-      .Children([| for key in keys -> chip key |])
+      .Children([| for key in item.Keys -> chip key |])
   )
 
-let helpCard(dispatcher: IDispatcher) : Control =
+let helpCard(dispatcher: IDispatcher, items: CheatsheetItem list) : Control =
   let card =
     Border()
       .Name("ShortcutsCard")
@@ -356,10 +340,7 @@ let helpCard(dispatcher: IDispatcher) : Control =
                 TextBlock()
                   .Classes(Theme.name Theme.Muted)
                   .Text("They work anywhere except while you're typing."),
-                StackPanel()
-                  .Children(
-                    [| for label, keys in bindings -> row(label, keys) |]
-                  )
+                StackPanel().Children([| for item in items -> row item |])
               )
           )
       )

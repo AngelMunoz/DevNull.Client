@@ -314,6 +314,24 @@ type Shell<'env
         mountOf(layoutString settings.Current.Layout)
       )
 
+    // The host's help layer: one card over the content slot, built
+    // from the active layout's cheatsheet each time it opens. The
+    // website's builder and placement are reused, so the default look
+    // does not change, and every layout gets the same key.
+    let helpOpen = new BehaviorSubject<bool>(false)
+
+    let closeCheatsheet() = helpOpen.OnNext false
+
+    let helpLayer =
+      DialogChrome.layer {
+        Open = helpOpen :> IObservable<bool>
+        Content =
+          fun () -> Shortcuts.helpCard(env.Dispatcher, mounted.Value.Cheatsheet)
+        Scrim = true
+        OnScrimClick = ValueSome closeCheatsheet
+        Place = DialogChrome.Center
+      }
+
     // The terms gate: while the signed account has not accepted the
     // terms in force, one dialog blocks the panes. Only the session's
     // own refresh closes it, so the poller can clear it as surely as
@@ -381,7 +399,8 @@ type Shell<'env
 
     // The window's one tree: the content slot under the terms gate and
     // the band, so every layout inherits the gate and the chrome.
-    let content = Panel().Children(mounted.Value.Root, termsLayer, bandPanel)
+    let content =
+      Panel().Children(mounted.Value.Root, termsLayer, helpLayer, bandPanel)
 
     this.Content <- content
 
@@ -391,6 +410,7 @@ type Shell<'env
     // the window, the gates, the band, and the loops never rebuild.
     let switchTo(name: string) : unit =
       if name <> mounted.Value.Name then
+        closeCheatsheet()
         let retired = mounted.Value
 
         retired.Dispose()
@@ -494,13 +514,18 @@ type Shell<'env
       Actions = {
         Compose = fun () -> mounted.Value.Actions.Compose()
         Search = fun () -> mounted.Value.Actions.Search()
-        Help = fun () -> mounted.Value.Actions.Help()
-        Escape = fun () -> mounted.Value.Actions.Escape()
+        Escape =
+          fun () ->
+            if helpOpen.Value then
+              closeCheatsheet()
+            else
+              mounted.Value.Actions.Escape()
         Navigate = fun url -> mounted.Value.Actions.Navigate url
         ToggleFullScreen = fun () -> mounted.Value.Actions.ToggleFullScreen()
         WalkCards = fun step -> mounted.Value.Actions.WalkCards step
       }
-      OverlayOpen = fun () -> mounted.Value.OverlayOpen()
+      Help = fun () -> helpOpen.OnNext true
+      OverlayOpen = fun () -> helpOpen.Value || mounted.Value.OverlayOpen()
     }
 
     match callback with

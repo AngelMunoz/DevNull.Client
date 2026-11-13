@@ -1797,43 +1797,16 @@ let view
   statusBar.Padding <- Thickness(16.0, 8.0, 16.0, 8.0)
   statusBar.Child <- statusLine
 
-  let helpOpen = new BehaviorSubject<bool>(false)
-
-  let helpLayer =
-    Border()
-      .Name("WorkbenchHelp")
-      .Classes(Theme.name Theme.ScrimBack)
-      .IsVisible(helpOpen |> _.ToBinding())
-      .Child(
-        Border()
-          .HorizontalAlignment(HorizontalAlignment.Center)
-          .VerticalAlignment(VerticalAlignment.Center)
-          .Child(helpCard props.Env.Dispatcher)
-      )
-
   let root = Grid().Name("WorkbenchRoot")
 
   root.RowDefinitions <- RowDefinitions("*,Auto,Auto")
   root.ColumnDefinitions <- ColumnDefinitions("240,*")
 
-  root.OnKeyDownHandler(fun _ args ->
-    if
-      args.Key = Key.OemQuestion
-      && args.KeyModifiers.HasFlag KeyModifiers.Shift
-      && not(isTextEntry args.Source)
-    then
-      args.Handled <- true
-      helpOpen.OnNext true
-    elif args.Key = Key.Escape && helpOpen.Value then
-      args.Handled <- true
-      helpOpen.OnNext false)
-
   root.Children(
     refsRegion.Column(0).Row(0),
     main.Column(1).Row(0),
     staging.Row(1).ColumnSpan(2),
-    statusBar.Row(2).ColumnSpan(2),
-    helpLayer.RowSpan(3).ColumnSpan(2)
+    statusBar.Row(2).ColumnSpan(2)
   )
   |> ignore
 

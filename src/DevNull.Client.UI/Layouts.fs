@@ -52,6 +52,8 @@ type ILayout =
 
   abstract Actions: Actions
 
+  abstract Cheatsheet: CheatsheetItem list
+
   abstract OverlayOpen: unit -> bool
 
   abstract Navigate: url: string -> unit
@@ -103,6 +105,7 @@ let builtIn
         member _.Name = "current"
         member _.Root = site.Root
         member _.Actions = site.Actions
+        member _.Cheatsheet = site.Cheatsheet
         member _.OverlayOpen() = site.OverlayOpen()
         member _.Navigate(url) = site.Navigate url
         member _.Narrow = site.Narrow
@@ -149,6 +152,45 @@ let builtIn
         surface.Window.WindowState <- WindowState.Normal
       | _ -> surface.Window.WindowState <- WindowState.FullScreen
 
+  // Each wide layout's real keys, for the host's cheatsheet.
+  let workbenchCheatsheet = [
+    {
+      Keys = [ "c" ]
+      Words = "open the staging composer"
+    }
+    {
+      Keys = [ "Ctrl"; "K" ]
+      Words = "open the search palette"
+    }
+    {
+      Keys = [ "Esc" ]
+      Words = "close the top overlay"
+    }
+    {
+      Keys = [ "F11" ]
+      Words = "fullscreen"
+    }
+  ]
+
+  let editorCheatsheet = [
+    {
+      Keys = [ "c" ]
+      Words = "open the terminal"
+    }
+    {
+      Keys = [ "Ctrl"; "K" ]
+      Words = "open the command palette"
+    }
+    {
+      Keys = [ "Esc" ]
+      Words = "close the top overlay"
+    }
+    {
+      Keys = [ "F11" ]
+      Words = "fullscreen"
+    }
+  ]
+
   // A layout without its own sign-in surface holds one line and the
   // switch back; the host's sign-in surface stays the site's (gap
   // H-0d).
@@ -176,7 +218,6 @@ let builtIn
         member _.Actions = {
           Compose = ignore
           Search = ignore
-          Help = ignore
           Escape = ignore
           Navigate = ignore
           ToggleFullScreen = fullscreenOf surface
@@ -188,6 +229,7 @@ let builtIn
         member _.Narrow = Observable.single false
         member _.ToggleDrawer() = ()
         member _.Handle _ = ()
+        member _.Cheatsheet = []
 
       interface IDisposable with
         member _.Dispose() = ()
@@ -245,7 +287,6 @@ let builtIn
               fun () -> mountedWorkbench.Send WorkbenchHost.StagingToggled
             Search =
               fun () -> mountedWorkbench.Send WorkbenchHost.SearchPaletteToggled
-            Help = ignore
             Escape = fun () -> mountedWorkbench.Escape()
             Navigate = ignore
             ToggleFullScreen = fullscreenOf surface
@@ -253,6 +294,7 @@ let builtIn
           }
 
           member _.OverlayOpen() = mountedWorkbench.OverlayOpen()
+          member _.Cheatsheet = workbenchCheatsheet
           member _.Navigate _ = ()
           member _.Narrow = Observable.single false
           member _.ToggleDrawer() = ()
@@ -315,7 +357,6 @@ let builtIn
           member _.Actions = {
             Compose = fun () -> mounted.Send EditorRoot.OpenTerminal
             Search = fun () -> mounted.Send EditorRoot.OpenPalette
-            Help = ignore
             Escape = fun () -> mounted.Send EditorRoot.Escape
             Navigate = ignore
             ToggleFullScreen = fullscreenOf surface
@@ -323,6 +364,7 @@ let builtIn
           }
 
           member _.OverlayOpen() = mounted.OverlayOpen()
+          member _.Cheatsheet = editorCheatsheet
           member _.Navigate _ = ()
           member _.Narrow = Observable.single false
           member _.ToggleDrawer() = ()

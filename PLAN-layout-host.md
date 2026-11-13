@@ -111,7 +111,8 @@ still persists: the stored layout is the one the next start mounts.
 |---|---|---|
 | Window, band, captions, min size, fullscreen | host | window duty |
 | Width bands, sidebar `SplitView`, aside | default layout | website arrangement |
-| Compose / search / help / undo layers | default layout | default layout chrome (gap H-A) |
+| Compose / search / undo layers | default layout | default layout chrome (gap H-A) |
+| Help layer (the cheatsheet) | host | one layer from the active layout's list (gap H-1c) |
 | Terms layer, signed-out sign-in screen | host | gates every layout the same way |
 | Callback finish (`DeviceAuth.finish`) | host | once, not per layout |
 | Unread poll, settings refresh, remotes watcher, window-active | host | app loops, layout-free |
@@ -157,7 +158,13 @@ type ILayout =
   abstract ToggleDrawer: unit -> unit
   /// Answers a window-level intent, or ignores it.
   abstract Handle: intent: LayoutIntent -> unit
+  /// The keys this layout answers, for the host's cheatsheet.
+  abstract Cheatsheet: CheatsheetItem list
 ```
+
+`CheatsheetItem` is a small record — `Keys: string list` (a chord
+splits into its keys) and `Words: string` — because the shared card
+draws chord rows as separate chips.
 
 `IDisposable` is the unmount: the layout disposes every program handle
 it created and drops nothing else. The host calls it exactly once per
@@ -278,8 +285,8 @@ second layout.
 
 - **H-A (blocks Phase 0) The overlay layers are default chrome.** The
   compose, search, help, and undo layers are built in `Shell` today.
-  Ruling: they move with the default layout. No other layout inherits
-  them: each layout plan already builds its own compose surface
+  Ruling: they move with the default layout. The help layer does not:
+  H-1c makes it the host's. No other layout inherits the rest: each layout plan already builds its own compose surface
   (workbench staging, editor terminal). The tray's Compose intent is
   the only window-level reach, and it goes through `LayoutIntent`.
 - **H-B (behavior) The undo toast stays with the default layout.**
@@ -341,6 +348,16 @@ second layout.
   screen.** No host sign-in screen existed to keep; the website layout
   keeps `/signin` in its outlet. The host cover for non-website
   layouts is decided when the first one ships (decision 1).
+- **H-1c (behavior) The cheatsheet is host-owned.** The help overlay
+  belongs to the host, not the website arrangement: the host renders
+  one help layer over the content slot from the active layout's
+  `Cheatsheet` list, reusing the website's builder and placement, so
+  the default overlay's look does not change. `Actions.Help` leaves
+  the layout contract; the Help key opens the host layer, and
+  `Escape` closes it in the host's overlay order — host help first,
+  then H-D's order. Every layout declares its list; a layout with no
+  keys returns an empty list. A switch closes the host layer, so the
+  next open reads the mounted layout's keys.
 - **H-0e (closed) Terms sit above the layout root, so the undo toast
   now draws under the terms layer.** A user the terms gate holds
   cannot act, so no undo toast can exist under it. Accepted.

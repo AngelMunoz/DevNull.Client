@@ -46,6 +46,11 @@ type ILayout =
   /// verbs, with the window's fullscreen pair filled in.
   abstract Actions: Actions
 
+  /// The keys the layout answers, in the order its help card shows
+  /// them. The host builds the one help layer from the active
+  /// layout's list.
+  abstract Cheatsheet: CheatsheetItem list
+
   /// True while one of the layout's modal overlays holds the window.
   abstract OverlayOpen: unit -> bool
 

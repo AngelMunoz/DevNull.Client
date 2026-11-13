@@ -99,6 +99,7 @@ type Props<'env
   ViewerId: string
   Pasteis: bool
   Images: ImageCacheService
+  Flyout: DevNull.Client.Components.UserFlyout.Source voption
   Now: IObservable<DateTimeOffset>
   /// One request to read the first page again, such as after a post.
   Refresh: IObservable<unit>

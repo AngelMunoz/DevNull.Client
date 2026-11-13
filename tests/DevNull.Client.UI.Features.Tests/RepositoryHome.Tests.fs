@@ -51,6 +51,7 @@ let props(env: TestEnv, sinks: Sinks) : RepositoryHome.Props<TestEnv> = {
   ViewerId = viewerId
   Pasteis = true
   Images = images
+  Flyout = ValueNone
   Now = Observable.single(DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero))
   Zone = {
     Info = TimeZoneInfo.Utc

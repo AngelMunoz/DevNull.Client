@@ -91,6 +91,7 @@ let private historyProps(env: TestEnv) : HistoryColumn.Props<TestEnv> = {
     new ImageCacheService with
       member _.Get(_url: string) = async { return None }
   }
+  Flyout = ValueNone
   Now = Observable.single(DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero))
   Refresh = Observable.empty
   Zone = {
@@ -117,6 +118,7 @@ let private inspectorProps(env: TestEnv) : Inspector.Props<TestEnv> = {
     new ImageCacheService with
       member _.Get(_url: string) = async { return None }
   }
+  Flyout = ValueNone
   Now = Observable.single(DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero))
   Zone = {
     Info = TimeZoneInfo.Utc

@@ -4,6 +4,7 @@ open System
 open System.Reactive.Subjects
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Headless
 open Avalonia.Input
 open Avalonia.Interactivity
 open Avalonia.Media
@@ -110,6 +111,7 @@ let private threadViewOf(env: TestEnv) : ThreadMode.View =
     ViewerId = "01a151db-0000-0000-0000-000000000000"
     Pasteis = true
     Images = images
+    Flyout = ValueNone
     Now = Observable.single now
     Zone = {
       Info = TimeZoneInfo.Utc
@@ -200,6 +202,7 @@ let private repositoryViewOf(env: TestEnv) : RepositoryHome.View =
     ViewerId = "01a151db-0000-0000-0000-000000000000"
     Pasteis = true
     Images = images
+    Flyout = ValueNone
     Now = Observable.single now
     Zone = {
       Info = TimeZoneInfo.Utc
@@ -298,6 +301,7 @@ let private inspectorViewOf(env: TestEnv) : Control =
     ViewerId = "01a151db-0000-0000-0000-000000000000"
     Pasteis = true
     Images = images
+    Flyout = ValueNone
     Now = Observable.single now
     Zone = {
       Info = TimeZoneInfo.Utc
@@ -1312,6 +1316,90 @@ let tests =
           )
 
         Expect.isTrue closed "Escape did not close the hosted search palette"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            (handle :> IDisposable).Dispose())
+      })
+
+    testCaseAsync
+      "the workbench avatar flyout opens the repository home"
+      (async {
+        let env = TestEnv(signedInStore(), workbenchApi() :> IHttp)
+        let props = hostProps env
+
+        let! window, handle =
+          probeUiAsync(fun () ->
+            let view, handle = WorkbenchHost.mount(ui, props)
+
+            let window = Window(Width = 1600.0, Height = 900.0, Content = view)
+
+            window.Show()
+            window, handle)
+
+        let! avatar =
+          waitForAsync(
+            8000,
+            (fun () -> controlByName(window, "AuthorAvatar")),
+            Option.isSome
+          )
+
+        Expect.isTrue avatar "the history never rendered an author avatar"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "AuthorAvatar")
+            |> Option.iter(function
+              | :? Button as button ->
+                let center =
+                  Point(button.Bounds.Width / 2.0, button.Bounds.Height / 2.0)
+
+                let moved = button.TranslatePoint(center, window)
+
+                if moved.HasValue then
+                  window.MouseMove moved.Value
+              | _ -> ()))
+
+        let! flyout =
+          waitForAsync(
+            8000,
+            (fun () -> controlByName(window, "UserFlyout")),
+            Option.isSome
+          )
+
+        Expect.isTrue flyout "the avatar never opened its flyout"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "UserFlyout")
+            |> Option.iter(function
+              | :? ContentControl as host ->
+                match host.Content with
+                | :? Button as openCard -> click openCard
+                | _ -> ()
+              | _ -> ()))
+
+        let! opened =
+          waitForAsync(
+            8000,
+            (fun () -> controlByName(window, "RepositoryRegion")),
+            fun region ->
+              region |> Option.exists(fun control -> control.IsVisible)
+          )
+
+        Expect.isTrue opened "the flyout profile entry did not open the home"
+
+        let! identity =
+          waitForAsync(
+            8000,
+            (fun () -> controlByName(window, "RepositoryIdentity")),
+            fun control ->
+              control
+              |> Option.exists(fun root -> hasTextFragment(root, "@octocat"))
+          )
+
+        Expect.isTrue identity "the flyout opened a home for another handle"
 
         do!
           onUiAsync(fun () ->

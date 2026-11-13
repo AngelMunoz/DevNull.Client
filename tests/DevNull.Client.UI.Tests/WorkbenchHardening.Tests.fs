@@ -49,6 +49,7 @@ let private historyProps(env: TestEnv) : HistoryColumn.Props<TestEnv> = {
   ViewerId = "01a151db-0000-0000-0000-000000000000"
   Pasteis = false
   Images = images
+  Flyout = ValueNone
   Now = Observable.single now
   Refresh = Observable.empty
   Zone = zone

@@ -86,6 +86,7 @@ type Props<'env
   ViewerId: string
   Pasteis: bool
   Images: ImageCacheService
+  Flyout: DevNull.Client.Components.UserFlyout.Source voption
   Now: IObservable<DateTimeOffset>
   Zone: Zone
   OnCheckoutParent: string -> unit

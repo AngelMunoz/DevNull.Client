@@ -442,6 +442,18 @@ let fetchQueue(props: Props<'env>) : Async<Result<ScheduledPage, AppError>> =
     }
   )
 
+let flyoutOf
+  (props: Props<'env>, dispatch: Msg -> unit)
+  : DevNull.Client.Components.UserFlyout.Source voption =
+  ValueSome {
+    Fetch = fun handle -> props.Env.Profiles.Fetch handle
+    OnOpen = fun handle -> dispatch(RefSelected(Build.repository handle))
+    // The workbench has no organization destination yet.
+    OnOpenOrg = ignore
+    OnOpenTag = fun tag -> dispatch(SearchCommitted tag)
+    Cache = props.Env.ImageCache
+  }
+
 let startHistory
   (props: Props<'env>, dispatch: Msg -> unit, start: HistoryStart)
   : HistoryChild option =
@@ -464,6 +476,7 @@ let startHistory
       ViewerId = start.ViewerId
       Pasteis = start.Pasteis
       Images = props.Images
+      Flyout = flyoutOf(props, dispatch)
       Now = props.Now
       Refresh = refresh :> IObservable<unit>
       Zone = props.Zone
@@ -500,6 +513,7 @@ let startInspector
     ViewerId = start.ViewerId
     Pasteis = start.Pasteis
     Images = props.Images
+    Flyout = flyoutOf(props, dispatch)
     Now = props.Now
     Zone = props.Zone
     OnCheckoutParent = fun commitId -> dispatch(CheckoutSet(Some commitId))
@@ -534,6 +548,7 @@ let startThread
     ViewerId = start.ViewerId
     Pasteis = start.Pasteis
     Images = props.Images
+    Flyout = flyoutOf(props, dispatch)
     Now = props.Now
     Zone = props.Zone
     OnBack = fun () -> dispatch ThreadClosed
@@ -565,6 +580,7 @@ let startRepository
     ViewerId = start.ViewerId
     Pasteis = start.Pasteis
     Images = props.Images
+    Flyout = flyoutOf(props, dispatch)
     Now = props.Now
     Zone = props.Zone
     OnOpenThread = fun commit -> dispatch(OpenThread commit.Id)
@@ -609,7 +625,7 @@ let startNotifications
     Handle = TrackedHandle(rawHandle) :> IDisposable
   }
 
-let private searchSession
+let searchSession
   (props: Props<'env>, session: SignedInSession, limit: int option)
   =
   let log = props.Env.LoggerFactory.CreateLogger "DevNull.Client.SearchDialog"
@@ -635,7 +651,7 @@ let private searchSession
     log
   )
 
-let private navFor(props: Props<'env>, dispatch: Msg -> unit) =
+let navFor(props: Props<'env>, dispatch: Msg -> unit) =
   let log = props.Env.LoggerFactory.CreateLogger "DevNull.Client.Workbench.Nav"
   let ok = Task.FromResult(Ok Unchecked.defaultof<NavigationResult>)
 
@@ -648,8 +664,6 @@ let private navFor(props: Props<'env>, dispatch: Msg -> unit) =
 
           if url.StartsWith("/profile/", StringComparison.Ordinal) then
             dispatch(RefSelected(Build.repository(after "/profile/")))
-          elif url.StartsWith("/org/", StringComparison.Ordinal) then
-            dispatch(RefSelected(Build.repository(after "/org/")))
           elif url.StartsWith("/commit/", StringComparison.Ordinal) then
             dispatch(OpenThread(after "/commit/"))
           elif url.StartsWith("/search/", StringComparison.Ordinal) then

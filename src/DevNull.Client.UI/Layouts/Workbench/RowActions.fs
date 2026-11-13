@@ -8,6 +8,7 @@ open Microsoft.Extensions.Logging
 open FSharp.Control.Reactive
 open DevNull.Client.Components.CommitCard
 open DevNull.Client.Components.CommitMenu
+open DevNull.Client.Components.UserFlyout
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
@@ -42,6 +43,7 @@ type SurfaceProps<'env
   OnUpdated: Commit -> unit
   OnDeleted: string -> unit
   OnDialog: Dialog -> unit
+  Flyout: Source voption
 }
 
 type SurfaceView = {
@@ -51,6 +53,7 @@ type SurfaceView = {
   Menu: MenuSlot voption
   Translation: IObservable<Commit -> TranslationView voption>
   Busy: IObservable<string option>
+  Flyout: Source voption
   Handle: Event -> unit
 }
 
@@ -442,5 +445,6 @@ let create(props: SurfaceProps<'env>) : SurfaceView =
     Menu = ValueSome menu
     Translation = translation
     Busy = busy :> IObservable<string option>
+    Flyout = props.Flyout
     Handle = handle
   }

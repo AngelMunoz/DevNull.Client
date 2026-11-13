@@ -98,6 +98,7 @@ type Props<'env
   ViewerId: string
   Pasteis: bool
   Images: ImageCacheService
+  Flyout: DevNull.Client.Components.UserFlyout.Source voption
   Now: IObservable<DateTimeOffset>
   Zone: Zone
   OnOpenThread: Commit -> unit
@@ -547,6 +548,7 @@ let view
         OnUpdated = CommitUpdated >> dispatch
         OnDeleted = CommitDeleted >> dispatch
         OnDialog = props.OnDialog
+        Flyout = props.Flyout
       })
 
   let busy =
@@ -569,7 +571,7 @@ let view
     PollChoices = polls
     Dense = true
     Images = props.Images
-    Flyout = ValueNone
+    Flyout = actions |> Option.map _.Flyout |> Option.defaultValue ValueNone
     Pin = ValueNone
     Star =
       match actions with

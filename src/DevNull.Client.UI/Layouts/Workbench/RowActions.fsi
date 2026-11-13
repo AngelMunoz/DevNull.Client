@@ -3,6 +3,7 @@ module DevNull.Client.Workbench.RowActions
 open System
 open DevNull.Client.Components.CommitCard
 open DevNull.Client.Components.CommitMenu
+open DevNull.Client.Components.UserFlyout
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
@@ -38,6 +39,7 @@ type SurfaceProps<'env
   OnUpdated: Commit -> unit
   OnDeleted: string -> unit
   OnDialog: Dialog -> unit
+  Flyout: Source voption
 }
 
 /// The slots and event handling one shared action set offers a row:
@@ -50,6 +52,7 @@ type SurfaceView = {
   Menu: MenuSlot voption
   Translation: IObservable<Commit -> TranslationView voption>
   Busy: IObservable<string option>
+  Flyout: Source voption
   Handle: Event -> unit
 }
 

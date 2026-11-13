@@ -82,6 +82,7 @@ let props(log: LogKind) : HistoryColumn.Props<WorkbenchEnv> = {
   ViewerId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
   Pasteis = true
   Images = images
+  Flyout = ValueNone
   Now = Observable.single(DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero))
   Refresh = Observable.empty
   Zone = {

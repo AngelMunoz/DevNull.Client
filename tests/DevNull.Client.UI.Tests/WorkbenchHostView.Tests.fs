@@ -815,6 +815,7 @@ let tests =
               OnDraftChanged = ignore
               OnPosted = ignore
               OnScheduled = ignore
+              OnClearQuote = ignore
             }
 
             let subject = new BehaviorSubject<Staging.View>(model)

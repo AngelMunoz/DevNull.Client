@@ -61,6 +61,7 @@ type Props<'env
   OnDraftChanged: string -> unit
   OnPosted: Commit -> unit
   OnScheduled: ScheduledCommit -> unit
+  OnClearQuote: unit -> unit
 }
 
 let initial: Model = {
@@ -201,33 +202,48 @@ let strip(props: Props<'env>, model: IObservable<View>) : Control =
 let composerFor
   (props: Props<'env>, current: View, openQueue: unit -> unit)
   : Control =
-  match props.Session with
-  | None ->
-    TextBlock()
-      .Classes(Theme.name Theme.Muted)
-      .Text("Sign in to stage a commit.")
-  | Some session ->
-    let target =
-      current.Quote
-      |> Option.map(fun commit -> Composer.Quoting commit.Id)
-      |> Option.defaultValue Composer.Fresh
+  let editor: Control =
+    match props.Session with
+    | None ->
+      TextBlock()
+        .Classes(Theme.name Theme.Muted)
+        .Text("Sign in to stage a commit.")
+    | Some session ->
+      let target =
+        current.Quote
+        |> Option.map(fun commit -> Composer.Quoting commit.Id)
+        |> Option.defaultValue Composer.Fresh
 
-    Composer.Page {
-      Env = props.Env
-      Session = session
-      Target = target
-      Participants = ValueNone
-      OnCommitted = props.OnPosted
-      OnScheduled = ValueSome props.OnScheduled
-      OnOpenQueue = ValueSome openQueue
-      Draft =
-        ValueSome {
-          Seed = current.Draft
-          Changed = props.OnDraftChanged
-        }
-      OnBodyReady = ValueNone
-    }
+      Composer.Page {
+        Env = props.Env
+        Session = session
+        Target = target
+        Participants = ValueNone
+        OnCommitted = props.OnPosted
+        OnScheduled = ValueSome props.OnScheduled
+        OnOpenQueue = ValueSome openQueue
+        Draft =
+          ValueSome {
+            Seed = current.Draft
+            Changed = props.OnDraftChanged
+          }
+        OnBodyReady = ValueNone
+      }
+      :> Control
+
+  match current.Quote with
+  | Some quoted ->
+    StackPanel()
+      .Spacing(6.0)
+      .Children(
+        Composer.targetStrip(
+          Composer.targetLabel("Quoting", quoted),
+          ValueSome props.OnClearQuote
+        ),
+        editor
+      )
     :> Control
+  | None -> editor
 
 let openArea(props: Props<'env>, model: IObservable<View>) : Control =
   let queueView = queue model

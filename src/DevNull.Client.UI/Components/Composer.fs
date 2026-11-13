@@ -4,6 +4,7 @@ open System
 open System.Runtime
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Layout
 open Avalonia.Media
 open Avalonia.Threading
 open NXUI.Extensions
@@ -1110,6 +1111,38 @@ let view
           picker.Layer
         )
     )
+
+// The composer's target line: who the draft answers or what it
+// quotes, with the commit's short hash. A host shows it directly
+// above the composer so a stale draft never hides its target.
+let targetLabel(verb: string, commit: Commit) : string =
+  $"{verb} @{Author.handle commit.Author} · {commit.ShortHash}"
+
+// The target line with its cancel button: the button stands only
+// while the host passes a clear sink.
+let targetStrip(label: string, onClear: (unit -> unit) voption) : Control =
+  let line =
+    TextBlock()
+      .Name("ComposerTarget")
+      .Classes(Theme.name Theme.Mono)
+      .Text(label)
+      .TextWrapping(TextWrapping.Wrap)
+
+  match onClear with
+  | ValueNone -> line :> Control
+  | ValueSome clear ->
+    DockPanel()
+      .LastChildFill(true)
+      .Children(
+        Button()
+          .Name("ComposerTargetClear")
+          .Classes(Theme.name Theme.GhostButton)
+          .Content("×")
+          .OnClickHandler(fun _ _ -> clear())
+          .DockRight(),
+        line
+      )
+    :> Control
 
 type Page<'env
   when 'env :> IProvideClock

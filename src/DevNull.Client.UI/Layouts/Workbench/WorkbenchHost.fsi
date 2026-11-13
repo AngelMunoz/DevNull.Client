@@ -112,17 +112,19 @@ type Model = {
 }
 
 /// The host's messages: ref and checkout selections, the reply
-/// request that checks out with the composer focused, the staging
-/// flag and its draft, post, schedule, and queue messages, the open
-/// thread and its back request, the repository home and its people-list
-/// report, the notifications and search surfaces, the fold, the clock
-/// and session, the history place report, and the host's open,
-/// external, and quote requests.
+/// request that checks out with the composer focused, the quote
+/// target the staging strip clears, the staging flag and its draft,
+/// post, schedule, and queue messages, the open thread and its back
+/// request, the repository home and its people-list report, the
+/// notifications and search surfaces, the fold, the clock and session,
+/// the history place report, and the host's open, external, and quote
+/// requests.
 [<NoComparison>]
 type Msg =
   | RefSelected of ref: Ref
   | CheckoutSet of commitId: string option
   | ReplyRequested of commitId: string
+  | QuoteCleared
   | OpenThread of commitId: string
   | ThreadClosed
   | StagingToggled

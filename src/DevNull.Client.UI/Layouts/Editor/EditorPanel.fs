@@ -45,9 +45,18 @@ type Props = {
   OnClose: unit -> unit
   OnOpenCommit: Commit -> unit
   OnLoadMore: unit -> unit
+  Height: IObservable<float>
 }
 
-let height = 280.0
+/// The drawer height for a host of the given height: the docked
+/// 280 otherwise, taller while the terminal quotes, so a large
+/// quoted card scrolls above a visible composer. The taller drawer
+/// never eats the list above it below 240 pixels.
+let heightOf(total: float, quoting: bool) =
+  if quoting then
+    min 480.0 (max 280.0 (total - 240.0))
+  else
+    280.0
 
 let closed = { Open = false; Tab = Activity }
 
@@ -446,7 +455,7 @@ let view(props: Props) : Control =
     .Name("EditorPanel")
     .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
     .BorderThickness(Thickness(1.0))
-    .Height(height)
+    .Height(props.Height)
     .HorizontalAlignment(HorizontalAlignment.Stretch)
     .VerticalAlignment(VerticalAlignment.Bottom)
     .IsVisible(props.State |> Observable.map(fun state -> state.Open))

@@ -60,6 +60,15 @@ type Props<'env
   OnBodyReady: (TextBox -> unit) voption
 }
 
+/// The composer's target line: who the draft answers or what it
+/// quotes, with the commit's short hash. A host shows it directly
+/// above the composer so a stale draft never hides its target.
+val targetLabel: verb: string * commit: Commit -> string
+
+/// The target line with its cancel button: the button stands only
+/// while the host passes a clear sink.
+val targetStrip: label: string * onClear: (unit -> unit) voption -> Control
+
 /// One composer, self-contained: mounts the MVUish program. It is
 /// replace-only: a host builds one and never re-shows it, and the first
 /// detach ends the program.

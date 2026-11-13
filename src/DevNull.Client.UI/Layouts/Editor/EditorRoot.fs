@@ -84,6 +84,7 @@ type Runtime = {
   CloseList: string -> unit
   Threads: IObservable<Map<string, Control>>
   Terminal: Control
+  TerminalQuote: IObservable<bool>
   ShowTerminal: TerminalRequest -> unit
   RefreshHistory: unit -> unit
   OpenRepo: string -> unit
@@ -1050,6 +1051,20 @@ let view(args: ViewArgs<'env>) : Control =
 
   let content = ContentControl().Content(activeContent |> _.ToBinding())
 
+  let contentArea = Grid()
+
+  contentArea.RowDefinitions <- RowDefinitions("*,Auto")
+
+  let panelHeight =
+    Observable.combineLatest
+      (contentArea.GetObservable(Visual.BoundsProperty)
+       |> Observable.map(fun bounds -> bounds.Height))
+      args.Runtime.TerminalQuote
+    |> Observable.map(fun (total, quoting) ->
+      EditorPanel.heightOf(total, quoting))
+    |> Observable.distinctUntilChanged
+    |> Slices.share
+
   let panel =
     EditorPanel.view {
       State = model |> Observable.map(fun current -> current.Panel)
@@ -1061,11 +1076,12 @@ let view(args: ViewArgs<'env>) : Control =
       OnClose = fun () -> dispatch PanelClosed
       OnOpenCommit = fun commit -> dispatch(OpenThread commit)
       OnLoadMore = fun () -> dispatch ProblemsMoreRequested
+      Height = panelHeight
     }
 
   let spacer =
     Border()
-      .Height(EditorPanel.height)
+      .Height(panelHeight)
       .IsVisible(
         model
         |> Observable.map(fun current ->
@@ -1106,9 +1122,6 @@ let view(args: ViewArgs<'env>) : Control =
       .IsVisible(model |> Observable.map(fun current -> current.PaletteOpen))
       .Child(args.Runtime.PaletteHost)
 
-  let contentArea = Grid()
-
-  contentArea.RowDefinitions <- RowDefinitions("*,Auto")
   Grid.SetRowSpan(dim, 2)
   Grid.SetRowSpan(panel, 2)
 
@@ -1283,6 +1296,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
 
   let content = ContentControl()
   let term = ContentControl()
+  let terminalQuote = new BehaviorSubject<bool>(false)
   let quoteLifetime = new SerialDisposable()
   let historyLifetime = new SerialDisposable()
 
@@ -1298,7 +1312,14 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
   let commandPath = new System.Reactive.Subjects.Subject<Msg>()
   let current = new BehaviorSubject<Model option>(None)
 
-  let showTerminal(request: TerminalRequest) =
+  let rec showTerminal(request: TerminalRequest) =
+    terminalQuote.OnNext(
+      match request with
+      | QuoteTerm _ -> true
+      | FreshTerm
+      | ReplyTerm _ -> false
+    )
+
     let target, quoted, participants =
       match request with
       | FreshTerm -> DevNull.Client.Components.Composer.Fresh, None, ValueNone
@@ -1310,6 +1331,18 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
         DevNull.Client.Components.Composer.ReplyTo commit.Id,
         None,
         ValueSome rows
+
+    let stripFor(verb: string, commit: Commit) : Control =
+      DevNull.Client.Components.Composer.targetStrip(
+        DevNull.Client.Components.Composer.targetLabel(verb, commit),
+        ValueSome(fun () -> showTerminal FreshTerm)
+      )
+
+    let strip: Control voption =
+      match request with
+      | FreshTerm -> ValueNone
+      | QuoteTerm commit -> ValueSome(stripFor("Quoting", commit))
+      | ReplyTerm(commit, _) -> ValueSome(stripFor("Replying to", commit))
 
     let composer =
       DevNull.Client.Components.Composer.Page {
@@ -1325,7 +1358,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
         OnBodyReady = ValueSome(fun body -> body.Focus() |> ignore)
       }
 
-    let parts: Control array =
+    let card: Control voption =
       match quoted with
       | Some commit ->
         let view, handle =
@@ -1345,12 +1378,36 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
           )
 
         quoteLifetime.Disposable <- handle
-        [| view; composer |]
+        ValueSome view
       | None ->
         quoteLifetime.Disposable <- Disposable.Empty
-        [| composer |]
+        ValueNone
 
-    term.Content <- StackPanel().Spacing(8.0).Children(parts)
+    let scroller =
+      ScrollViewer()
+        .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
+        .VerticalScrollBarVisibility(ScrollBarVisibility.Auto)
+        .Content(
+          match card with
+          | ValueSome quoted -> quoted
+          | ValueNone -> Panel() :> Control
+        )
+        .Row(0)
+
+    let bottom: Control array = [|
+      match strip with
+      | ValueSome bar -> bar
+      | ValueNone -> ()
+
+      composer
+    |]
+
+    let layout =
+      Grid(RowDefinitions = RowDefinitions "*,Auto")
+        .Children(scroller, StackPanel().Spacing(8.0).Children(bottom).Row(1))
+
+
+    term.Content <- layout
 
   let show(log: LogKind, place: EditorPlace) =
     selected.OnNext log
@@ -1587,6 +1644,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
     CloseList = closeList
     Threads = threads
     Terminal = term
+    TerminalQuote = terminalQuote
     ShowTerminal = showTerminal
     RefreshHistory = fun () -> historyRefresh.OnNext()
     OpenRepo = openRepo

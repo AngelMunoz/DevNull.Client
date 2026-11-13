@@ -761,6 +761,24 @@ let view
         )
       )
 
+  let targetHost =
+    ContentControl()
+      .Content(
+        PageChrome.rebuildOn(
+          model,
+          composerKey,
+          fun current ->
+            match current.Commit with
+            | Some commit ->
+              Composer.targetStrip(
+                Composer.targetLabel("Replying to", commit),
+                ValueNone
+              )
+            | None -> Panel() :> Control
+        )
+        |> _.ToBinding()
+      )
+
   let composerHost =
     ContentControl()
       .Name("InspectorComposer")
@@ -782,6 +800,7 @@ let view
           cardHost,
           parentsBlock,
           repliesBlock,
+          targetHost,
           composerHost
         )
     )

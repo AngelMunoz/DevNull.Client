@@ -33,7 +33,8 @@ type OutputLine = {
   At: DateTimeOffset
 }
 
-/// What the panel host renders: its state and the three bodies.
+/// What the panel host renders: its state, the three bodies, and
+/// the height the root derives from its own bounds.
 type Props = {
   State: IObservable<State>
   Problems: IObservable<ProblemsState>
@@ -44,10 +45,14 @@ type Props = {
   OnClose: unit -> unit
   OnOpenCommit: Commit -> unit
   OnLoadMore: unit -> unit
+  Height: IObservable<float>
 }
 
-/// The panel height the root reserves when the panel is docked.
-val height: float
+/// The drawer height for a host of the given height: the docked
+/// 280 otherwise, taller while the terminal quotes, so a large
+/// quoted card scrolls above a visible composer. The taller drawer
+/// never eats the list above it below 240 pixels.
+val heightOf: total: float * quoting: bool -> float
 
 /// The panel with no tab in front and no panel shown.
 val closed: State

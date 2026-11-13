@@ -40,7 +40,8 @@ type View = {
 }
 
 /// What staging needs from the host: the composer's environment and
-/// session, and the host's toggle, draft, post, and schedule callbacks.
+/// session, and the host's toggle, draft, post, schedule, and
+/// quote-clear callbacks.
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
@@ -56,6 +57,7 @@ type Props<'env
   OnDraftChanged: string -> unit
   OnPosted: Commit -> unit
   OnScheduled: ScheduledCommit -> unit
+  OnClearQuote: unit -> unit
 }
 
 /// The empty staging state: no draft, no quote, and an unread queue.

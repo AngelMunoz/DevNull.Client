@@ -116,6 +116,7 @@ type Msg =
   | RefSelected of ref: Ref
   | CheckoutSet of commitId: string option
   | ReplyRequested of commitId: string
+  | QuoteCleared
   | OpenThread of commitId: string
   | ThreadClosed
   | StagingToggled
@@ -1228,6 +1229,12 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
           }
     },
     Cmd.none
+  | QuoteCleared ->
+    {
+      model with
+          Staging = { model.Staging with Quote = None }
+    },
+    Cmd.none
   | HistoryStopped ->
     {
       model with
@@ -1915,6 +1922,7 @@ let view
     OnDraftChanged = fun text -> dispatch(DraftChanged text)
     OnPosted = fun commit -> dispatch(StagingPosted commit)
     OnScheduled = fun entry -> dispatch(StagingScheduled entry)
+    OnClearQuote = fun () -> dispatch QuoteCleared
   }
 
   let staging =

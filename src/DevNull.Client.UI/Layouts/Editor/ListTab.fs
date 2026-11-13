@@ -11,16 +11,23 @@ open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
 open DevNull.Client
+open DevNull.Client.Editor
+open DevNull.Client.AttachmentSources
 open DevNull.Client.Components.CommitCard
 open DevNull.Client.Components.PageChrome
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.Profiles
+open DevNull.Client.Remotes
 open DevNull.Client.Stores
+open DevNull.Client.TranslationCache
+open DevNull.Client.UserSettingsStore
 open DevNull.Client.UiClock
 
 type Kind =
@@ -33,13 +40,23 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideUiClock
-  and 'env :> IProvideImageCache> = {
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideRemotes
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideBrowser> = {
   Env: 'env
   Session: SignedInSession
   Kind: Kind
   Zone: Zone
   Now: unit -> DateTimeOffset
   OnOpenThread: Commit -> unit
+  OnReply: Commit -> unit
+  OnQuote: Commit -> unit
+  OnOpenRepo: string -> unit
 }
 
 let title(kind: Kind) =
@@ -57,6 +74,7 @@ module State =
     Queue: ScheduledCommit list
     QueuePage: int
     QueueLast: int
+    Cards: EditorCards.State
     Now: DateTimeOffset
   }
 
@@ -67,6 +85,7 @@ module State =
     | QueueAppended of Result<ScheduledPage, AppError>
     | MoreSaved
     | MoreQueue
+    | CardMsg of EditorCards.Msg
 
   let initial(now: DateTimeOffset) = {
     Loading = true
@@ -76,6 +95,7 @@ module State =
     Queue = []
     QueuePage = 1
     QueueLast = 1
+    Cards = EditorCards.empty
     Now = now
   }
 
@@ -93,8 +113,33 @@ module State =
     Page = page
   }
 
+  let replaceSaved(items: CommitNode list, updated: Commit) =
+    items
+    |> List.map(function
+      | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
+      | node -> node)
+
+  let tombstoneOf(commit: Commit) : Tombstone = {
+    Id = commit.Id
+    ParentId = commit.ParentId
+    DeletedAt = DateTimeOffset.UtcNow
+    RepliesCount = commit.RepliesCount
+  }
+
+  let cardsProps(props: Props<'env>) : EditorCards.Props<'env> = {
+    Env = props.Env
+    Session = props.Session
+    Zone = props.Zone
+    Surface = EditorCards.Saved
+    Now = props.Now
+    OnOpenRepo = props.OnOpenRepo
+  }
+
   let init(props: Props<'env>) =
-    let model = initial(props.Now())
+    let model = {
+      initial(props.Now()) with
+          Cards = EditorCards.initial(cardsProps props)
+    }
 
     match props.Kind with
     | Saved ->
@@ -204,6 +249,33 @@ module State =
           QueueAppended
       else
         model, Cmd.none
+    | CardMsg msg ->
+      let cards, cmd, effects =
+        EditorCards.update(cardsProps props, msg, model.Cards)
+
+      let next =
+        effects
+        |> List.fold
+          (fun current effect ->
+            match effect with
+            | EditorCards.CommitChanged updated -> {
+                current with
+                    Saved = replaceSaved(current.Saved, updated)
+              }
+            | EditorCards.CommitDeleted commitId ->
+              let saved =
+                current.Saved
+                |> List.map(function
+                  | LiveCommit commit when commit.Id = commitId ->
+                    Tombstone(tombstoneOf commit)
+                  | node -> node)
+
+              { current with Saved = saved }
+            | EditorCards.PinChanged _ -> current
+            | EditorCards.Failed error -> { current with Error = Some error })
+          { model with Cards = cards }
+
+      next, EditorCards.mapCmd(CardMsg, cmd)
 
   let status(now: DateTimeOffset, entry: ScheduledCommit) =
     match entry.Status with
@@ -262,28 +334,24 @@ let queueRow
 let savedView
   (props: Props<'env>, model: State.Model, dispatch: Dispatch<State.Msg>)
   : Control =
-  let rowProps: RowProps = {
-    OnEvent =
-      function
-      | Opened commit -> props.OnOpenThread commit
-      | _ -> ()
-    OnOpenExternal = ignore
-    ViewerId = props.Session.Session.User.Id
-    Pasteis = Observable.single props.Session.Session.PasteisMode
-    Now = Observable.single model.Now
-    PollChoices = Observable.single(Map.empty<string, string>)
-    Dense = true
-    Images = props.Env.ImageCache
-    Flyout = ValueNone
-    Pin = ValueNone
-    Star = ValueNone
-    Stars = ValueNone
-    Vote = ValueNone
-    Pastel = ValueNone
-    Menu = ValueNone
-    Translation = Observable.single(fun _ -> ValueNone)
-    Zone = props.Zone
-  }
+  let cardDispatch msg = dispatch(State.CardMsg msg)
+
+  let fallback =
+    function
+    | Opened commit -> props.OnOpenThread commit
+    | ReplyToggled commit -> props.OnReply commit
+    | QuoteRequested commit -> props.OnQuote commit
+    | MoreRepliesRequested commit -> props.OnOpenThread commit
+    | _ -> ()
+
+  let rowProps =
+    EditorCards.row {
+      Props = State.cardsProps props
+      State = Observable.single model.Cards
+      Dispatch = cardDispatch
+      OnEvent = EditorCards.event(cardDispatch, fallback)
+    }
+    |> fun row -> { row with Dense = true }
 
   let rows = [|
     for node in model.Saved do
@@ -374,13 +442,26 @@ let view
         | Queue -> queueView(props, current, dispatch)
     )
 
-  ScrollViewer()
-    .Name($"EditorListTab-{title props.Kind}")
-    .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
-    .Content(
-      ContentControl()
-        .Content(body |> _.ToBinding())
-        .Margin(Thickness(16.0, 12.0))
+  let cardDispatch msg = dispatch(State.CardMsg msg)
+
+  let content =
+    ScrollViewer()
+      .Name($"EditorListTab-{title props.Kind}")
+      .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
+      .Content(
+        ContentControl()
+          .Content(body |> _.ToBinding())
+          .Margin(Thickness(16.0, 12.0))
+      )
+
+  Grid()
+    .Children(
+      content,
+      EditorCards.layer(
+        State.cardsProps props,
+        model |> Observable.map _.Cards,
+        cardDispatch
+      )
     )
 
 let program
@@ -390,6 +471,12 @@ let program
     (fun () -> State.init props)
     (fun msg model -> State.update(props, msg, model))
     (fun model dispatch -> view(props, model, dispatch))
+  |> Program.withSubscription(fun _ ->
+    Sub.fromObservable
+      "card-clock"
+      (props.Env.UiClock.Minute
+       |> Observable.map(fun tick ->
+         State.CardMsg(EditorCards.ClockTicked tick))))
 
 let mount(dispatcher: IDispatcher, props: Props<'env>) =
   DevNull.Client.Programs.runPage(dispatcher, program props)

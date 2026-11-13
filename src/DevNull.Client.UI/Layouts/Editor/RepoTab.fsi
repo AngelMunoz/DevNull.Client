@@ -1,17 +1,23 @@
 module DevNull.Client.Editor.RepoTab
 
 open System
+open DevNull.Client.Editor
 open Avalonia.Controls
 open Avalonia.Threading
+open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.ApiTypes
+open DevNull.Client.Env
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.Profiles
+open DevNull.Client.Remotes
 open DevNull.Client.Stores
+open DevNull.Client.TranslationCache
 open DevNull.Client.UiClock
+open DevNull.Client.UserSettingsStore
 open MVUish.Avalonia
 
 /// Which list a profile's count opens.
@@ -40,6 +46,7 @@ type Model = {
   CommitsError: AppError option
   List: ListState
   FollowBusy: bool
+  Cards: EditorCards.State
   Now: DateTimeOffset
 }
 
@@ -55,6 +62,7 @@ type Msg =
   | ListFetched of FollowedList * Result<Page<User>, AppError>
   | ListAppended of FollowedList * Result<Page<User>, AppError>
   | MoreListRequested
+  | CardMsg of EditorCards.Msg
   | ClockTicked of moment: DateTimeOffset
 
 /// What one repository tab needs from its host: the signed workers,
@@ -67,13 +75,21 @@ type Props<'env
   and 'env :> IProvideHttp
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
-  and 'env :> IProvideProfiles> = {
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideRemotes
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideBrowser> = {
   Env: 'env
   Session: SignedInSession
   Handle: string
   Zone: Zone
   Now: unit -> DateTimeOffset
   OnOpenCommit: Commit -> unit
+  OnReply: Commit -> unit
+  OnQuote: Commit -> unit
   OnOpenRepo: string -> unit
 }
 

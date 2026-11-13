@@ -13,6 +13,8 @@ open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
 open DevNull.Client
+open DevNull.Client.Editor
+open DevNull.Client.AttachmentSources
 open DevNull.Client.Components
 open DevNull.Client.Components.CommitCard
 open DevNull.Client.Components.UserFlyout
@@ -20,11 +22,15 @@ open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.Profiles
+open DevNull.Client.Remotes
 open DevNull.Client.Stores
+open DevNull.Client.TranslationCache
+open DevNull.Client.UserSettingsStore
 open DevNull.Client.UiClock
 
 type FollowedList =
@@ -49,6 +55,7 @@ type Model = {
   CommitsError: AppError option
   List: ListState
   FollowBusy: bool
+  Cards: EditorCards.State
   Now: DateTimeOffset
 }
 
@@ -63,6 +70,7 @@ type Msg =
   | ListFetched of FollowedList * Result<Page<User>, AppError>
   | ListAppended of FollowedList * Result<Page<User>, AppError>
   | MoreListRequested
+  | CardMsg of EditorCards.Msg
   | ClockTicked of moment: DateTimeOffset
 
 type Props<'env
@@ -72,13 +80,21 @@ type Props<'env
   and 'env :> IProvideHttp
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
-  and 'env :> IProvideProfiles> = {
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideRemotes
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideBrowser> = {
   Env: 'env
   Session: SignedInSession
   Handle: string
   Zone: Zone
   Now: unit -> DateTimeOffset
   OnOpenCommit: Commit -> unit
+  OnReply: Commit -> unit
+  OnQuote: Commit -> unit
   OnOpenRepo: string -> unit
 }
 
@@ -100,6 +116,7 @@ let initial = {
   CommitsError = None
   List = emptyList
   FollowBusy = false
+  Cards = EditorCards.empty
   Now = DateTimeOffset.MinValue
 }
 
@@ -151,8 +168,34 @@ let follow
   else
     Users.follow(props.Env, request)
 
+let cardsProps(props: Props<'env>) : EditorCards.Props<'env> = {
+  Env = props.Env
+  Session = props.Session
+  Zone = props.Zone
+  Surface = EditorCards.Profile
+  Now = props.Now
+  OnOpenRepo = props.OnOpenRepo
+}
+
+let replaceNode(items: CommitNode list, updated: Commit) =
+  items
+  |> List.map(function
+    | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
+    | node -> node)
+
+let tombstoneOf(commit: Commit) : Tombstone = {
+  Id = commit.Id
+  ParentId = commit.ParentId
+  DeletedAt = DateTimeOffset.UtcNow
+  RepliesCount = commit.RepliesCount
+}
+
 let init(props: Props<'env>) =
-  { initial with Now = props.Now() },
+  {
+    initial with
+        Cards = EditorCards.initial(cardsProps props)
+        Now = props.Now()
+  },
   Cmd.batch [
     Cmd.OfAsync.perform fetchProfile props ProfileFetched
     Cmd.OfAsync.perform fetchCommits (props, None) CommitsFetched
@@ -352,6 +395,80 @@ let update(props: Props<'env>, msg: Msg, model: Model) =
       Cmd.OfAsync.perform fetchList (props, kind, Some cursor) (fun result ->
         ListAppended(kind, result))
     | _ -> model, Cmd.none
+  | CardMsg msg ->
+    let cards, cmd, effects =
+      EditorCards.update(cardsProps props, msg, model.Cards)
+
+    let next =
+      effects
+      |> List.fold
+        (fun current effect ->
+          match effect with
+          | EditorCards.CommitChanged updated -> {
+              current with
+                  Commits = replaceNode(current.Commits, updated)
+                  Details =
+                    current.Details
+                    |> Option.map(fun details ->
+                      if
+                        details.PinnedCommit
+                        |> Option.exists(fun node ->
+                          match node with
+                          | LiveCommit commit -> commit.Id = updated.Id
+                          | Tombstone tombstone -> tombstone.Id = updated.Id)
+                      then
+                        {
+                          details with
+                              PinnedCommit = Some(LiveCommit updated)
+                        }
+                      else
+                        details)
+            }
+          | EditorCards.CommitDeleted commitId ->
+            let tombstone(node: CommitNode) =
+              match node with
+              | LiveCommit commit when commit.Id = commitId ->
+                Tombstone(tombstoneOf commit)
+              | node -> node
+
+            {
+              current with
+                  Commits = current.Commits |> List.map tombstone
+                  Details =
+                    current.Details
+                    |> Option.map(fun details -> {
+                      details with
+                          PinnedCommit =
+                            details.PinnedCommit |> Option.map tombstone
+                    })
+            }
+          | EditorCards.PinChanged(pinned, updated) -> {
+              current with
+                  Commits = replaceNode(current.Commits, updated)
+                  Details =
+                    current.Details
+                    |> Option.map(fun details -> {
+                      details with
+                          PinnedCommit =
+                            if pinned then
+                              Some(LiveCommit updated)
+                            elif
+                              details.PinnedCommit
+                              |> Option.exists(fun node ->
+                                match node with
+                                | LiveCommit commit -> commit.Id = updated.Id
+                                | Tombstone tombstone ->
+                                  tombstone.Id = updated.Id)
+                            then
+                              None
+                            else
+                              details.PinnedCommit
+                    })
+            }
+          | EditorCards.Failed error -> { current with Error = Some error })
+        { model with Cards = cards }
+
+    next, EditorCards.mapCmd(CardMsg, cmd)
   | ClockTicked moment ->
     let next = { model with Now = moment }
 
@@ -362,6 +479,11 @@ let subscribe(props: Props<'env>, _model: Model) : Sub<Msg> =
     Sub.fromObservable
       "clock"
       (props.Env.UiClock.Minute |> Observable.map ClockTicked)
+
+    Sub.fromObservable
+      "card-clock"
+      (props.Env.UiClock.Minute
+       |> Observable.map(fun tick -> CardMsg(EditorCards.ClockTicked tick)))
   ]
   |> Sub.batch
 
@@ -762,36 +884,23 @@ let commitsView(model: Model, rowProps: CommitCard.RowProps) : Control =
 let view
   (props: Props<'env>, model: IObservable<Model>, dispatch: Dispatch<Msg>)
   : Control =
-  let flyout: UserFlyout.Source = {
-    Fetch = props.Env.Profiles.Fetch
-    OnOpen = props.OnOpenRepo
-    OnOpenOrg = ignore
-    OnOpenTag = ignore
-    Cache = props.Env.ImageCache
-  }
+  let cardDispatch msg = dispatch(CardMsg msg)
 
-  let rowProps: CommitCard.RowProps = {
-    OnEvent =
-      function
-      | Opened commit -> props.OnOpenCommit commit
-      | _ -> ()
-    OnOpenExternal = ignore
-    ViewerId = props.Session.Session.User.Id
-    Pasteis = Observable.single props.Session.Session.PasteisMode
-    Now = model |> Observable.map(fun current -> current.Now)
-    PollChoices = Observable.single(Map.empty<string, string>)
-    Dense = false
-    Images = props.Env.ImageCache
-    Flyout = ValueSome flyout
-    Pin = ValueNone
-    Star = ValueNone
-    Stars = ValueNone
-    Vote = ValueNone
-    Pastel = ValueNone
-    Menu = ValueNone
-    Translation = Observable.single(fun _ -> ValueNone)
-    Zone = props.Zone
-  }
+  let fallback =
+    function
+    | Opened commit -> props.OnOpenCommit commit
+    | ReplyToggled commit -> props.OnReply commit
+    | QuoteRequested commit -> props.OnQuote commit
+    | MoreRepliesRequested commit -> props.OnOpenCommit commit
+    | _ -> ()
+
+  let rowProps =
+    EditorCards.row {
+      Props = cardsProps props
+      State = model |> Observable.map _.Cards
+      Dispatch = cardDispatch
+      OnEvent = EditorCards.event(cardDispatch, fallback)
+    }
 
   let headerHost =
     let header =
@@ -851,23 +960,34 @@ let view
     button.Name <- "RepoMoreCommits"
     button
 
-  ScrollViewer()
-    .Name("RepoTab")
-    .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
-    .Content(
-      StackPanel()
-        .Spacing(12.0)
-        .Margin(Thickness(16.0, 12.0))
-        .Children(
-          headerHost,
-          listHost,
-          bodyHost,
-          TextBlock()
-            .Text($"HISTORY @{props.Handle}")
-            .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted),
-          commitsHost,
-          more
-        )
+  let content =
+    ScrollViewer()
+      .Name("RepoTab")
+      .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
+      .Content(
+        StackPanel()
+          .Spacing(12.0)
+          .Margin(Thickness(16.0, 12.0))
+          .Children(
+            headerHost,
+            listHost,
+            bodyHost,
+            TextBlock()
+              .Text($"HISTORY @{props.Handle}")
+              .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted),
+            commitsHost,
+            more
+          )
+      )
+
+  Grid()
+    .Children(
+      content,
+      EditorCards.layer(
+        cardsProps props,
+        model |> Observable.map _.Cards,
+        cardDispatch
+      )
     )
 
 let program(props: Props<'env>) : Program<unit, Model, Msg, Control> =

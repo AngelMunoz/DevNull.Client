@@ -1,15 +1,22 @@
 module DevNull.Client.Editor.ListTab
 
 open System
+open DevNull.Client.Editor
 open Avalonia.Controls
 open Avalonia.Threading
+open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
+open DevNull.Client.Env
 open DevNull.Client.Core.Http
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.Profiles
+open DevNull.Client.Remotes
 open DevNull.Client.Stores
+open DevNull.Client.TranslationCache
 open DevNull.Client.UiClock
+open DevNull.Client.UserSettingsStore
 
 /// The two ordinary list tabs the explorer opens: the saved commits
 /// and the scheduled queue.
@@ -26,13 +33,23 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideUiClock
-  and 'env :> IProvideImageCache> = {
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideRemotes
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideBrowser> = {
   Env: 'env
   Session: SignedInSession
   Kind: Kind
   Zone: Zone
   Now: unit -> DateTimeOffset
   OnOpenThread: Commit -> unit
+  OnReply: Commit -> unit
+  OnQuote: Commit -> unit
+  OnOpenRepo: string -> unit
 }
 
 /// The strip title of one list tab.

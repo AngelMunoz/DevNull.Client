@@ -5,13 +5,19 @@ open Avalonia.Controls
 open Avalonia.VisualTree
 open Expecto
 open FSharp.Control.Reactive
+open DevNull.Client.AttachmentSources
 open DevNull.Client.Components.CommitCard
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.Env
 open DevNull.Client.ImageCache
 open DevNull.Client.Editor
+open DevNull.Client.Editor
 open DevNull.Client.Profiles
+open DevNull.Client.Remotes
+open DevNull.Client.TranslationCache
+open DevNull.Client.UserSettingsStore
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
 open DevNull.Client.UI.Tests.Fixtures
@@ -57,6 +63,30 @@ type FakeEnv(http: IHttp) =
       new IProfiles with
         member _.Fetch(_: string) = async { return None }
     }
+
+  interface IProvideDispatcher with
+    member _.Dispatcher =
+      (TestEnv(signedInStore(), http) :> IProvideDispatcher).Dispatcher
+
+  interface IProvideRemotes with
+    member _.Remotes =
+      (TestEnv(signedInStore(), http) :> IProvideRemotes).Remotes
+
+  interface IProvideTranslations with
+    member _.Translations =
+      (TestEnv(signedInStore(), http) :> IProvideTranslations).Translations
+
+  interface IProvideUserSettings with
+    member _.UserSettings =
+      (TestEnv(signedInStore(), http) :> IProvideUserSettings).UserSettings
+
+  interface IProvideAttachmentSources with
+    member _.Attachments =
+      (TestEnv(signedInStore(), http) :> IProvideAttachmentSources).Attachments
+
+  interface IProvideBrowser with
+    member _.Browser =
+      (TestEnv(signedInStore(), http) :> IProvideBrowser).Browser
 
 let session: SignedInSession = {
   Session = {
@@ -205,6 +235,71 @@ let tests =
       Expect.isTrue
         snapshot.Participants.Head.IsAuthor
         "the author is not first")
+
+    testCase "the card row carries the web action slots per surface" (fun () ->
+      let env = FakeEnv(unusedHttp)
+
+      let cardProps surface : EditorCards.Props<FakeEnv> = {
+        Env = env
+        Session = session
+        Zone = {
+          Info = TimeZoneInfo.Utc
+          Label = "UTC"
+        }
+        Surface = surface
+        Now = fun () -> DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero)
+        OnOpenRepo = ignore
+      }
+
+      let rowOf surface =
+        let props = cardProps surface
+
+        EditorCards.row {
+          Props = props
+          State = Observable.single(EditorCards.initial props)
+          Dispatch = fun _ -> ()
+          OnEvent = ignore
+        }
+
+      let detail = rowOf EditorCards.Detail
+
+      let isSome(value: 'a voption) =
+        match value with
+        | ValueSome _ -> true
+        | ValueNone -> false
+
+      let isNone(value: 'a voption) =
+        match value with
+        | ValueSome _ -> false
+        | ValueNone -> true
+
+      Expect.isTrue (isSome detail.Star) "the detail star slot"
+      Expect.isTrue (isSome detail.Vote) "the detail vote slot"
+      Expect.isTrue (isSome detail.Pastel) "the detail pastel slot"
+      Expect.isTrue (isSome detail.Menu) "the detail menu slot"
+      Expect.isTrue (isSome detail.Pin) "the detail pin slot"
+
+      let profile = rowOf EditorCards.Profile
+      Expect.isTrue (isSome profile.Pin) "the profile pin slot"
+
+      Expect.isTrue (isSome profile.Menu) "the profile menu slot"
+
+      profile.Menu
+      |> ValueOption.iter(fun menu ->
+        Expect.isTrue (isNone menu.Share) "the profile share slot"
+        Expect.isTrue (isNone menu.Report) "the profile report slot")
+
+      let saved = rowOf EditorCards.Saved
+      Expect.isTrue (isNone saved.Pin) "the saved pin slot"
+      Expect.isTrue (isSome saved.Menu) "the saved menu slot"
+
+      saved.Menu
+      |> ValueOption.iter(fun menu ->
+        Expect.isTrue (isNone menu.Share) "the saved share slot")
+
+      let feed = rowOf EditorCards.Feed
+      Expect.isTrue (isNone feed.Pin) "the feed pin slot"
+      Expect.isTrue (isSome feed.Menu) "the feed menu slot")
 
     testCase "the replies append by cursor" (fun () ->
       let first, _ =

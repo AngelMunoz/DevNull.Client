@@ -19,7 +19,7 @@ let tests =
     testCase "the panel opens and closes on each tab" (fun () ->
       for tab in
         [
-          EditorPanel.Notifications
+          EditorPanel.Kind NotificationKind.Replied
           EditorPanel.Activity
           EditorPanel.Terminal
         ] do
@@ -49,7 +49,7 @@ let tests =
         (EditorPanel.overlay Trimmed)
         "the trimmed band does not overlay")
 
-    testCase "problems group by kind" (fun () ->
+    testCase "notification kinds become tabs in their display order" (fun () ->
       let replied = {
         sample with
             Type = NotificationKind.Replied
@@ -65,25 +65,34 @@ let tests =
             Type = NotificationKind.Rejected
       }
 
-      let groups =
-        EditorPanel.problemGroups [ replied; approved; replied; rejected ]
-
-      Expect.equal groups.Length 3 "the kind count"
+      let items = [ replied; approved; replied; rejected ]
 
       Expect.equal
-        (groups |> List.map(fun (kind, _) -> kind))
+        (EditorPanel.kindsOf items)
         [
           NotificationKind.Replied
           NotificationKind.Approved
           NotificationKind.Rejected
         ]
-        "the group order"
+        "the kind order"
 
-      let countOf kind =
-        groups |> List.find(fun (held, _) -> held = kind) |> snd |> List.length
+      Expect.equal
+        (EditorPanel.notificationsOf(items, NotificationKind.Replied)).Length
+        2
+        "the reply rows"
 
-      Expect.equal (countOf NotificationKind.Replied) 2 "the reply rows"
-      Expect.equal (countOf NotificationKind.Approved) 1 "the approval rows")
+      Expect.equal
+        (EditorPanel.notificationsOf(items, NotificationKind.Approved)).Length
+        1
+        "the approval rows"
+
+      Expect.equal
+        (EditorPanel.effectiveTab(
+          items,
+          EditorPanel.Kind NotificationKind.Quoted
+        ))
+        (EditorPanel.Kind NotificationKind.Replied)
+        "a missing kind did not fall to the first kind")
 
     testCase "only approved and rejected carry a mark" (fun () ->
       Expect.equal

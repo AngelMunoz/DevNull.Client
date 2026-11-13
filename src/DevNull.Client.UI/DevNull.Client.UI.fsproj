@@ -170,12 +170,12 @@
     <Compile Include="Components\LiveNow.fs" />
     <Compile Include="Components\ThreadVoice.fsi" />
     <Compile Include="Components\ThreadVoice.fs" />
-    <Compile Include="Views\CommitActions.fsi" />
-    <Compile Include="Views\CommitActions.fs" />
+    <Compile Include="Components\CommitActions.fsi" />
+    <Compile Include="Components\CommitActions.fs" />
+    <Compile Include="Components\TranslationModel.fsi" />
+    <Compile Include="Components\TranslationModel.fs" />
     <Compile Include="Views\CommitRows.fsi" />
     <Compile Include="Views\CommitRows.fs" />
-    <Compile Include="Views\TranslationModel.fsi" />
-    <Compile Include="Views\TranslationModel.fs" />
     <Compile Include="Views\SignInView.fsi" />
     <Compile Include="Views\SignInView.fs" />
     <Compile Include="Views\LogView.fsi" />
@@ -250,6 +250,10 @@
     <Compile Include="Layouts\Workbench\SearchResults.fs" />
     <Compile Include="Layouts\Workbench\WorkbenchHost.fsi" />
     <Compile Include="Layouts\Workbench\WorkbenchHost.fs" />
+    <Compile Include="Layouts\Editor\EditorCards.fsi" />
+    <Compile Include="Layouts\Editor\EditorCards.fs" />
+    <Compile Include="Layouts\Editor\QuoteCard.fsi" />
+    <Compile Include="Layouts\Editor\QuoteCard.fs" />
     <Compile Include="Layouts\Editor\EditorTypes.fsi" />
     <Compile Include="Layouts\Editor\EditorTypes.fs" />
     <Compile Include="Layouts\Editor\EditorSettings.fsi" />

@@ -1,4 +1,4 @@
-﻿module DevNull.Client.Views.TranslationModel
+module DevNull.Client.Components.TranslationModel
 
 open System
 open System.Globalization

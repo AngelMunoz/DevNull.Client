@@ -6,28 +6,19 @@ open Avalonia.Threading
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
-open DevNull.Client.Errors
+open DevNull.Client.Env
 open DevNull.Client.ImageCache
+open DevNull.Client.Profiles
+open DevNull.Client.RecentSearchStore
 open DevNull.Client.Stores
-open MVUish.Avalonia
+open DevNull.Client.UiClock
 
-/// One real command the palette offers. The host routes every case to
-/// the same action its own control runs.
+/// One command-only action the palette keeps outside the search dialog.
 type Command =
   | SwitchRef of LogKind
+  | OpenNotifications
   | OpenPanel of EditorPanel.Tab
   | UseDefaultLayout
-
-/// The terms one raw query sends to the two search reads. A term is
-/// absent when the server's own normalization leaves nothing to send.
-[<Struct>]
-type SearchPlan = {
-  People: string option
-  Commits: string option
-}
-
-/// Shapes a raw query into the two search terms.
-val plan: raw: string -> SearchPlan
 
 /// Every command the palette lists, in display order.
 val commands: Command list
@@ -35,71 +26,39 @@ val commands: Command list
 /// The label one command shows.
 val label: command: Command -> string
 
-/// What one palette needs from its host: the signed workers, the
-/// session, the image cache, the four intents a result or command
-/// sends, and the close control.
+/// What the palette shell needs from the editor: the signed workers and
+/// session, the routes its dialog can emit, the panel and ref actions,
+/// the compose surface, and the close control.
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
-  and 'env :> IProvideImageCache> = {
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideLogging
+  and 'env :> IProvideRecentSearches> = {
   Env: 'env
   Session: SignedInSession
+  /// Opens a profile repository tab.
   OnOpenRepo: string -> unit
-  OnOpenThread: Commit -> unit
+  /// Opens a commit thread tab by id.
+  OnOpenCommit: string -> unit
+  /// The editor has no organization tab; the callback keeps the route
+  /// explicit instead of dropping it in the adapter.
+  OnOpenOrg: string -> unit
+  /// The editor has no search-results tab; the callback keeps the route
+  /// explicit instead of dropping it in the adapter.
+  OnOpenSearch: string -> unit
   OnSelectRef: LogKind -> unit
+  OnOpenNotifications: unit -> unit
   OnOpenPanel: EditorPanel.Tab -> unit
   OnUseDefaultLayout: unit -> unit
+  OnOpenCompose: unit -> unit
   OnClose: unit -> unit
 }
 
-/// The palette's state logic, exported so the result tests stay data
-/// tests without a running page.
-module State =
-
-  /// The raw query, its normalized term, and the two search answers.
-  type Model = {
-    Query: string
-    Term: string
-    People: User list
-    Commits: Commit list
-    PeopleLoading: bool
-    CommitsLoading: bool
-    PeopleError: AppError option
-    CommitsError: AppError option
-  }
-
-  /// The messages of one palette.
-  type Msg =
-    | QueryChanged of raw: string
-    | PeopleFetched of term: string * Result<ProfileMatches, AppError>
-    | CommitsFetched of term: string * Result<CommitNode list, AppError>
-    | PersonPicked of User
-    | CommitPicked of Commit
-    | CommandChosen of Command
-    | Close
-
-  /// The empty query, no results, and no read in flight.
-  val initial: Model
-
-/// Applies one message.
-val update:
-  props: Props<'env> * msg: State.Msg * model: State.Model ->
-    State.Model * Cmd<State.Msg>
-
-/// The palette card: the query, the two result sections, and the command
-/// list.
-val view:
-  props: Props<'env> *
-  model: IObservable<State.Model> *
-  dispatch: Dispatch<State.Msg> ->
-    Control
-
-/// The palette program, with its update loop bound to the caller's
-/// dispatcher.
-val program:
-  props: Props<'env> -> Program<unit, State.Model, State.Msg, Control>
-
-/// Mounts one palette. The returned handle disposes the program once.
+/// Hosts the web search dialog over a thin command strip.
 val mount: dispatcher: IDispatcher * props: Props<'env> -> Control * IDisposable

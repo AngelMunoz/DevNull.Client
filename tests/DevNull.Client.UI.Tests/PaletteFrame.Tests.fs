@@ -3,6 +3,7 @@ module DevNull.Client.UI.Tests.PaletteFrame
 open System
 open Avalonia.Controls
 open Avalonia.Input
+open Avalonia.Interactivity
 open Avalonia.VisualTree
 open Expecto
 open DevNull.Client.Core.Http
@@ -21,6 +22,16 @@ let visible(root: Control, name: string) =
   controlByName(root, name)
   |> Option.exists(fun control -> control.IsEffectivelyVisible)
 
+let rowHasText(root: Control, name: string, text: string) =
+  controlByName(root, name)
+  |> Option.exists(fun row ->
+    row.GetVisualDescendants()
+    |> Seq.choose(fun visual ->
+      match visual with
+      | :? TextBlock as block -> block.Text |> Option.ofObj
+      | _ -> None)
+    |> Seq.exists(fun value -> value.Contains text))
+
 let clickName(root: Control, name: string) : Async<unit> =
   onUiAsync(fun () ->
     controlByName(root, name)
@@ -31,25 +42,24 @@ let clickName(root: Control, name: string) : Async<unit> =
 
 let typeQuery(window: Window, text: string) : Async<unit> =
   onUiAsync(fun () ->
-    controlByName(window, "PaletteQuery")
+    controlByName(window, "SearchInput")
     |> Option.iter(fun control ->
       match control with
       | :? TextBox as box -> box.Text <- text
       | _ -> ()))
 
-let escapePalette(window: Window) : Async<unit> =
+let pressEnter(window: Window) : Async<unit> =
   onUiAsync(fun () ->
-    controlByName(window, "PaletteQuery")
+    controlByName(window, "SearchInput")
     |> Option.iter(fun control ->
       control.RaiseEvent(
-        KeyEventArgs(
-          RoutedEvent = InputElement.KeyDownEvent,
-          Key = Key.Escape
-        )
+        KeyEventArgs(RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter)
       )))
 
-let mountAt1600() : Async<Window * IDisposable> = async {
-  let env = TestEnv(signedInStore(), searchApi(false, false) :> IHttp)
+
+
+let mountAt1600(api: FakeApi) : Async<Window * IDisposable> = async {
+  let env = TestEnv(signedInStore(), api :> IHttp)
   let props = EditorFrame.props env
 
   return!
@@ -70,9 +80,10 @@ let close(window: Window, handle: IDisposable) : Async<unit> =
 let tests =
   testList "editor palette headless" [
     testCaseAsync
-      "E4: the palette lands people and commits at 1600 and opens picked tabs"
+      "E4: the dialog renders and maps enter to a repo or thread"
       (async {
-        let! window, handle = mountAt1600()
+        let api = searchApi(false, false)
+        let! window, handle = mountAt1600(api)
 
         let! shown =
           waitForAsync(
@@ -89,34 +100,10 @@ let tests =
           waitForAsync(
             5000,
             (fun () -> window),
-            fun root -> visible(root, "PaletteQuery")
+            fun root -> visible(root, "SearchInput")
           )
 
-        Expect.isTrue opened "the header search never opened the palette"
-
-        do! typeQuery(window, "kai kou")
-
-        let! people =
-          waitForAsync(
-            5000,
-            (fun () -> window),
-            fun root -> visible(root, "PalettePerson-kai-kou")
-          )
-
-        Expect.isTrue people "the people result never landed"
-
-        let! commits =
-          waitForAsync(
-            5000,
-            (fun () -> window),
-            fun root ->
-              visible(
-                root,
-                "PaletteCommit-018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
-              )
-          )
-
-        Expect.isTrue commits "the commit result never landed"
+        Expect.isTrue opened "the header search never opened the web dialog"
 
         let! commands =
           waitForAsync(
@@ -125,48 +112,32 @@ let tests =
             fun root -> visible(root, "PaletteCommand-0")
           )
 
-        Expect.isTrue commands "the command list never rendered"
+        Expect.isTrue commands "the command strip never rendered"
 
-        let! tabsBefore = probeUiAsync(fun () -> tabCount window)
+        do! typeQuery(window, "kai")
 
-        do! escapePalette(window)
-
-        let! closed =
+        let! peopleSearched =
           waitForAsync(
-            3000,
-            (fun () -> window),
-            fun root -> not(visible(root, "PaletteQuery"))
+            5000,
+            (fun () -> api.Requests),
+            fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Target.StartsWith "/api/v1/search/profiles")
           )
 
-        Expect.isTrue closed "Escape never closed the palette"
+        Expect.isTrue peopleSearched "the people search never ran"
 
-        let! tabsAfter = probeUiAsync(fun () -> tabCount window)
-
-        Expect.equal tabsAfter tabsBefore "Escape changed the tab strip"
-
-        do! clickName(window, "EditorSearch")
-
-        let! reopened =
+        let! person =
           waitForAsync(
             5000,
             (fun () -> window),
-            fun root -> visible(root, "PaletteQuery")
+            fun root -> visible(root, "SearchRow0")
           )
 
-        Expect.isTrue reopened "the palette never reopened"
+        Expect.isTrue person "the people result never landed"
 
-        do! typeQuery(window, "kai kou")
-
-        let! picked =
-          waitForAsync(
-            5000,
-            (fun () -> window),
-            fun root -> visible(root, "PalettePerson-kai-kou")
-          )
-
-        Expect.isTrue picked "the people result never returned"
-
-        do! clickName(window, "PalettePerson-kai-kou")
+        do! pressEnter(window)
 
         let! repo =
           waitForAsync(
@@ -175,41 +146,50 @@ let tests =
             fun root -> visible(root, "RepoTab")
           )
 
-        Expect.isTrue repo "the person pick never opened the repository tab"
+        Expect.isTrue repo "enter on a person never opened the repository tab"
 
         do! clickName(window, "EditorSearch")
 
-        let! reopenedForCommit =
+        let! reopened =
           waitForAsync(
             5000,
             (fun () -> window),
-            fun root -> visible(root, "PaletteQuery")
+            fun root -> visible(root, "SearchInput")
           )
 
-        Expect.isTrue
-          reopenedForCommit
-          "the palette never reopened for a commit"
+        Expect.isTrue reopened "the search dialog never reopened"
 
         do! typeQuery(window, "kai kou")
+
+        let! commitsSearched =
+          waitForAsync(
+            5000,
+            (fun () -> api.Requests),
+            fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Target.StartsWith "/api/v1/search/commits")
+          )
+
+        Expect.isTrue commitsSearched "the commit search never ran"
+
+        Expect.isTrue
+          (api.Requests
+           |> List.exists(fun request ->
+             request.Target.StartsWith "/api/v1/search/commits"
+             && request.Target.Contains "limit=5"))
+          "the hosted dialog did not use its web limit"
 
         let! commit =
           waitForAsync(
             5000,
             (fun () -> window),
-            fun root ->
-              visible(
-                root,
-                "PaletteCommit-018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
-              )
+            fun root -> rowHasText(root, "SearchRow0", "It was DNS.")
           )
 
-        Expect.isTrue commit "the commit result never returned"
+        Expect.isTrue commit "the commit result never landed"
 
-        do!
-          clickName(
-            window,
-            "PaletteCommit-018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
-          )
+        do! pressEnter(window)
 
         let! thread =
           waitForAsync(
@@ -218,7 +198,7 @@ let tests =
             fun root -> hasText(root, "REPLIES 3")
           )
 
-        Expect.isTrue thread "the commit pick never opened the thread tab"
+        Expect.isTrue thread "enter on a commit never opened the thread tab"
 
         do! close(window, handle)
       })

@@ -11,6 +11,7 @@ open MVUish.Avalonia
 open Navs
 open DevNull.Client
 open DevNull.Client.Components
+open DevNull.Client.Components.CommitActions
 open DevNull.Client.Components.SearchParts
 open DevNull.Client.Components.UserFlyout
 open DevNull.Client.Core.Api

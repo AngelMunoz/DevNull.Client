@@ -3,6 +3,8 @@ module DevNull.Client.UI.Tests.EditorHardening
 open System
 open System.Reactive.Subjects
 open Avalonia.Controls
+open Avalonia.Input
+open Avalonia.Interactivity
 open Avalonia.VisualTree
 open Expecto
 open FSharp.Control.Reactive
@@ -25,14 +27,20 @@ let visible(root: Control, name: string) =
 let clickName(root: Control, name: string) : Async<unit> =
   onUiAsync(fun () ->
     controlByName(root, name)
-    |> Option.iter(fun control ->
+    |> Option.bind(fun control ->
       match control with
-      | :? Button as button -> click button
-      | _ -> ()))
+      | :? Button as button -> Some button
+      | _ ->
+        control.GetVisualAncestors()
+        |> Seq.tryPick(fun visual ->
+          match visual with
+          | :? Button as button -> Some button
+          | _ -> None))
+    |> Option.iter click)
 
 let typeQuery(window: Window, text: string) : Async<unit> =
   onUiAsync(fun () ->
-    controlByName(window, "PaletteQuery")
+    controlByName(window, "SearchInput")
     |> Option.iter(fun control ->
       match control with
       | :? TextBox as box -> box.Text <- text
@@ -209,7 +217,47 @@ let tests =
           )
 
         Expect.isTrue panel "the terminal panel never opened"
-        Expect.isTrue (mounted.OverlayOpen()) "the panel did not hold the frame"
+
+        Expect.isFalse
+          (mounted.OverlayOpen())
+          "the docked panel masked the host keys"
+
+        let hostHits = ResizeArray<string>()
+
+        do!
+          onUiAsync(fun () ->
+            DevNull.Client.Shortcuts.install {
+              Root = window
+              Actions = {
+                Compose = fun () -> hostHits.Add "compose"
+                Search = fun () -> ()
+                Escape = fun () -> ()
+                Navigate = fun _ -> ()
+                ToggleFullScreen = fun () -> ()
+                WalkCards = fun _ -> ()
+              }
+              Help = fun () -> hostHits.Add "help"
+              OverlayOpen = mounted.OverlayOpen
+            }
+
+            window.RaiseEvent(
+              KeyEventArgs(
+                RoutedEvent = InputElement.KeyDownEvent,
+                Key = Key.OemQuestion
+              )
+            )
+
+            window.RaiseEvent(
+              KeyEventArgs(
+                RoutedEvent = InputElement.KeyDownEvent,
+                Key = Key.C
+              )
+            ))
+
+        Expect.sequenceEqual
+          hostHits
+          [ "help"; "compose" ]
+          "the docked panel swallowed host keys"
 
         do! onUiAsync(fun () -> mounted.Send EditorRoot.OpenPalette)
 
@@ -217,7 +265,7 @@ let tests =
           waitForAsync(
             5000,
             (fun () -> window),
-            fun root -> visible(root, "PaletteQuery")
+            fun root -> visible(root, "SearchInput")
           )
 
         Expect.isTrue palette "the palette never opened over the panel"
@@ -228,14 +276,14 @@ let tests =
           waitForAsync(
             5000,
             (fun () -> window),
-            fun root -> not(visible(root, "PaletteQuery"))
+            fun root -> not(visible(root, "SearchInput"))
           )
 
         Expect.isTrue paletteClosed "Escape did not close the palette first"
 
-        Expect.isTrue
+        Expect.isFalse
           (mounted.OverlayOpen())
-          "the panel did not stay under the palette"
+          "the panel still counted as an overlay"
 
         do! onUiAsync(fun () -> mounted.Send EditorRoot.Escape)
 
@@ -256,7 +304,7 @@ let tests =
       })
 
     testCaseAsync
-      "the help overlay and default layout affordance name the way back"
+      "the default layout affordance is the status strip's way back"
       (async {
         let api = threadApi()
         let env = TestEnv(signedInStore(), api :> IHttp)
@@ -298,29 +346,12 @@ let tests =
         do! clickName(window, "EditorDefaultLayout")
         Expect.isTrue asked.Value "the default layout affordance did nothing"
 
-        let! helpButton = probeUiAsync(fun () -> visible(window, "EditorHelp"))
-        Expect.isTrue helpButton "the help control never appeared"
+        let! privateHelp =
+          probeUiAsync(fun () ->
+            visible(window, "EditorHelp")
+            || visible(window, "EditorHelpOverlay"))
 
-        do! clickName(window, "EditorHelp")
-        do! settleAsync()
-
-        let! overlay =
-          probeUiAsync(fun () -> visible(window, "EditorHelpOverlay"))
-
-        Expect.isTrue overlay "the help overlay never opened"
-
-        let! help =
-          waitForAsync(
-            5000,
-            (fun () -> window),
-            fun root ->
-              hasText(
-                root,
-                "The remotes pane is in the default layout. The More menu is in the default layout. Translations are in the default layout. The scheduled queue opens from the explorer."
-              )
-          )
-
-        Expect.isTrue help "the help flyout never rendered"
+        Expect.isFalse privateHelp "the editor kept its own help overlay"
 
         do!
           onUiAsync(fun () ->
@@ -390,22 +421,24 @@ let tests =
           do! clickName(window, "EditorSearch")
 
           let! opened =
-            waitForAsync(5000, (fun () -> visible(window, "PaletteQuery")), id)
+            waitForAsync(5000, (fun () -> visible(window, "SearchInput")), id)
 
           Expect.isTrue opened "the palette never opened"
 
           do! typeQuery(window, "three")
 
+          let index = List.findIndex ((=) handle) handles
+
           let! row =
             waitForAsync(
               5000,
-              (fun () -> visible(window, $"PalettePerson-{handle}")),
+              (fun () -> visible(window, $"SearchRow{index}")),
               id
             )
 
           Expect.isTrue row "the repository result never landed"
 
-          do! clickName(window, $"PalettePerson-{handle}")
+          do! clickName(window, $"SearchRow{index}")
 
           let! repo =
             waitForAsync(
@@ -415,6 +448,15 @@ let tests =
             )
 
           Expect.isTrue repo "the repository program never started"
+
+          let! paletteClosed =
+            waitForAsync(
+              5000,
+              (fun () -> window),
+              fun root -> not(visible(root, "SearchInput"))
+            )
+
+          Expect.isTrue paletteClosed "the search dialog stayed attached"
 
         Expect.equal (ThreadTab.Live.current()) 0 "a thread program remained"
         Expect.equal (RepoTab.Live.current()) 3 "a repository program remained"

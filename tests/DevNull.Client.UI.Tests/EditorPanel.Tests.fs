@@ -3,6 +3,7 @@ module DevNull.Client.UI.Tests.EditorPanel
 open System
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.Primitives
 open Avalonia.Headless
 open Avalonia.Input
 open Avalonia.VisualTree
@@ -64,6 +65,33 @@ let twoNotificationsJson =
     """{"data":[%s,%s],"links":{},"meta":{"per_page":20,"next_cursor":null,"prev_cursor":null},"filters":{"type":"all"},"read_at":"2026-10-20T04:20:00Z"}"""
     notificationJson
     unlinkedNotification
+
+let manyKindsJson =
+  let kinds = [
+    "followed"
+    "replied"
+    "quoted"
+    "starred"
+    "mentioned"
+    "leveled_up"
+    "approved"
+    "rejected"
+    "first_commit"
+  ]
+
+  let row (index: int) (kind: string) =
+    notificationJson
+      .Replace(
+        "01a15752-d17c-7065-b076-99e5bdad596d",
+        sprintf "01a15752-d17c-7065-b076-99e5bdad59%02x" index
+      )
+      .Replace("\"type\":\"replied\"", sprintf "\"type\":\"%s\"" kind)
+
+  let rows = kinds |> List.mapi row |> String.concat ","
+
+  sprintf
+    """{"data":[%s],"links":{},"meta":{"per_page":20,"next_cursor":null,"prev_cursor":null},"filters":{"type":"all"},"read_at":"2026-10-20T04:20:00Z"}"""
+    rows
 
 let scheduledListJson =
   """{"data":[{"id":"018f5a1e-6f8a-7c3a-9b2d-5e6f7a8b9c0e","body":"Queue me","body_segments":[],"preview_segments":null,"poll_options":null,"image_count":0,"scheduled_at":"2026-12-20T05:00:00+00:00","submitted_at":null,"status":"scheduled"}],"links":{},"meta":{"current_page":1,"from":1,"last_page":1,"path":"","per_page":20,"to":1,"total":1}}"""
@@ -168,6 +196,66 @@ let openProblems(window: Window) : Async<unit> = async {
 
 let tests =
   testList "editor panel headless" [
+    testCaseAsync
+      "all notification kinds become scrollable tabs at 380 px"
+      (async {
+        let api = panelApi(manyKindsJson, 0)
+        let! window, handle = mountAt(380.0, 900.0, api)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history never rendered"
+        do! openProblems(window)
+
+        let! tabs =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root ->
+              [
+                "FOLLOWS"
+                "REPLIES"
+                "QUOTES"
+                "STARS"
+                "MENTIONS"
+                "LEVELS"
+                "APPROVED"
+                "REJECTED"
+                "FIRST COMMITS"
+              ]
+              |> List.forall(fun label ->
+                controlByName(root, $"EditorPanelTab-{label}") |> Option.isSome)
+          )
+
+        Expect.isTrue tabs "a notification kind tab never appeared"
+
+        let! scroll =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              controlByName(root, "EditorPanelTabs")
+              |> Option.bind(function
+                | :? ScrollViewer as view ->
+                  Some(
+                    view.HorizontalScrollBarVisibility =
+                      ScrollBarVisibility.Auto
+                    && view.Extent.Width > view.Viewport.Width
+                  )
+                | _ -> None)
+              |> Option.defaultValue false
+          )
+
+        Expect.isTrue scroll "the tab row did not scroll at 380 px"
+
+        do! close(window, handle)
+      })
+
     testCaseAsync
       "the queue count reads the scheduled index"
       (async {
@@ -341,6 +429,66 @@ let tests =
           )
 
         Expect.isTrue closed "the non-pinned tab ignored the middle click"
+
+        do! close(window, handle)
+      })
+
+    testCaseAsync
+      "a long terminal draft keeps the commit action in view"
+      (async {
+        let api = panelApi("", 0)
+        let! window, handle = mountAt(1600.0, 900.0, api)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history never rendered"
+        do! openProblems(window)
+        do! clickName(window, "EditorPanelTab-Terminal")
+
+        let! box =
+          waitForAsync(
+            5000,
+            (fun () -> textBoxWithWatermark(window, "What did you ship?")),
+            Option.isSome
+          )
+
+        Expect.isTrue box "the terminal composer never showed"
+
+        do!
+          onUiAsync(fun () ->
+            textBoxWithWatermark(window, "What did you ship?")
+            |> Option.iter(fun body -> body.Text <- String('x', 4000)))
+
+        do! settleAsync()
+
+        let! inView =
+          probeUiAsync(fun () ->
+            match
+              controlByName(window, "ComposerBody"),
+              buttonWithText(window, "Commit")
+            with
+            | Some body, Some submit ->
+              let point =
+                submit.TranslatePoint(
+                  Point(submit.Bounds.Width / 2.0, submit.Bounds.Height / 2.0),
+                  window
+                )
+
+              body.Bounds.Height <= 181.0
+              && submit.IsEffectivelyVisible
+              && point.HasValue
+              && point.Value.Y > 0.0
+              && point.Value.Y < window.ClientSize.Height
+            | _ -> false)
+
+        Expect.isTrue
+          inView
+          "the long draft pushed the commit action out of view"
 
         do! close(window, handle)
       })

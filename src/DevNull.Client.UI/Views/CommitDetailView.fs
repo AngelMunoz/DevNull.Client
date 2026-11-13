@@ -19,7 +19,9 @@ open Navs
 open DevNull.Client
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Components
+open DevNull.Client.Components.CommitActions
 open DevNull.Client.Components.CommitCard
+open DevNull.Client.Components.TranslationModel
 open DevNull.Client.Components.UserFlyout
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes

@@ -1,9 +1,12 @@
 module DevNull.Client.Editor.ThreadTab
 
 open System
+open DevNull.Client.Editor
 open Avalonia.Controls
 open Avalonia.Threading
+open DevNull.Client.AttachmentSources
 open DevNull.Client.Components.CommitCard
+open DevNull.Client.Env
 open DevNull.Client.Components.ReplyPicker
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
@@ -12,8 +15,11 @@ open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.Profiles
+open DevNull.Client.Remotes
 open DevNull.Client.Stores
+open DevNull.Client.TranslationCache
 open DevNull.Client.UiClock
+open DevNull.Client.UserSettingsStore
 open MVUish.Avalonia
 
 /// What the frame reads from one thread tab: the commit, the replies
@@ -41,7 +47,13 @@ type Props<'env
   and 'env :> IProvideHttp
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
-  and 'env :> IProvideProfiles> = {
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideRemotes
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideBrowser> = {
   Env: 'env
   Session: SignedInSession
   CommitId: string
@@ -76,6 +88,10 @@ module State =
     Now: DateTimeOffset
     /// The last breadcrumb peek read: one commit id and its page.
     Peek: (string * CommitPage) option
+    /// The card actions and their dialogs.
+    Cards: EditorCards.State
+    /// The commit the page shows as deleted, when its delete landed.
+    Deleted: string option
   }
 
   /// The messages of one thread tab.
@@ -92,6 +108,7 @@ module State =
     | CardEvent of Event
     | PeekRequested of commitId: string
     | Peeked of commitId: string * Result<CommitPage, AppError>
+    | CardMsg of EditorCards.Msg
     | ClockTicked of moment: DateTimeOffset
 
   /// The fresh state: the commit and its first replies page are on

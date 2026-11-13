@@ -1077,34 +1077,38 @@ let view
   // No box: the composer rides the rail plain, the way the site's does
   // on the log and the thread; a host that wants a card wraps it. The
   // audience dialog rides the same frame, above the composer's rail.
-  Grid()
-    .Children(
-      StackPanel()
-        .Margin(0.0, 0.0, 0.0, 12.0)
-        .Spacing(8.0)
+  Border()
+    .Padding(Thickness(12.0, 4.0, 12.0, 0.0))
+    .Child(
+      Grid()
         .Children(
-          match picker.Trigger with
-          | ValueSome trigger -> [|
-              trigger
-              body
-              completion
-              emoji
-              strip
-              poll
-              schedule
-              toolbar.Row
-            |]
-          | ValueNone -> [|
-              body
-              completion
-              emoji
-              strip
-              poll
-              schedule
-              toolbar.Row
-            |]
-        ),
-      picker.Layer
+          StackPanel()
+            .Margin(0.0, 0.0, 0.0, 12.0)
+            .Spacing(8.0)
+            .Children(
+              match picker.Trigger with
+              | ValueSome trigger -> [|
+                  trigger
+                  body
+                  completion
+                  emoji
+                  strip
+                  poll
+                  schedule
+                  toolbar.Row
+                |]
+              | ValueNone -> [|
+                  body
+                  completion
+                  emoji
+                  strip
+                  poll
+                  schedule
+                  toolbar.Row
+                |]
+            ),
+          picker.Layer
+        )
     )
 
 type Page<'env

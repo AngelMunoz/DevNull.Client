@@ -135,6 +135,14 @@ let tests =
 
         Expect.isTrue fetched "the history tab never fetched its first page"
 
+        let! topInset =
+          probeUiAsync(fun () -> (window.Content :?> Control).Margin.Top)
+
+        Expect.equal
+          topInset
+          Theme.bandHeight
+          "the band still covers the tab strip"
+
         do! settleAsync()
 
         let! fullStatus = probeUiAsync(fun () -> statusText window)

@@ -9,14 +9,16 @@ type Props = {
   Selected: LogKind
   Saved: int
   Queue: int
-  /// The fallback line when the frame has no queue link.
+  /// An optional line under the queue branch.
   QueueHint: string option
   Viewer: string
   OnSelectRef: LogKind -> unit
+  OnOpenSaved: unit -> unit
+  OnOpenQueue: unit -> unit
   OnOpenViewer: unit -> unit
 }
 
-/// The side bar: the three refs with HEAD on the selected one, the
-/// saved and queue counts, and the signed-in user's repository row,
-/// which opens that account's repository tab.
+/// The side bar as a file tree: the history refs indented under their
+/// group header, the saved and queue branches, and the signed-in
+/// user's repository row.
 val view: props: Props -> Control

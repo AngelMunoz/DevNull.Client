@@ -1,4 +1,4 @@
-﻿module DevNull.Client.UI.Tests.App
+module DevNull.Client.UI.Tests.App
 
 // The shell checks: the boot route follows the session, the timeline
 // renders through the signed API with fakes, the sidebar navigates, and
@@ -788,17 +788,17 @@ let tests =
              detail) =
           bounds
 
-        // The box ends one card inset in from the column edge, the same
-        // 16px the cards keep on the right.
+        // The box ends one card inset plus the composer's own side
+        // gutter in from the column edge.
         Expect.isLessThan
-          (abs((rowRight - boxRight) - 16.0))
+          (abs((rowRight - boxRight) - 28.0))
           0.5
           $"the composer box misses the right inset ({detail})"
 
-        // The box starts on the content column's left edge, the same
-        // line the day header labels start on.
+        // The box starts inside the content column by the composer's
+        // own left gutter, so its edge is not flush with the day row.
         Expect.isLessThan
-          (abs(boxLeft - labelLeft))
+          (abs((boxLeft - labelLeft) - 12.0))
           0.5
           "the composer box is offset"
 

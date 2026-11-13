@@ -12,6 +12,12 @@ module TabId =
   /// The pinned history tab's identity.
   val history: TabId
 
+  /// The saved list tab's identity.
+  val saved: TabId
+
+  /// The scheduled queue list tab's identity.
+  val queue: TabId
+
   /// The identity of one ordinary tab, from its stable key.
   val ordinary: key: string -> TabId
 
@@ -26,6 +32,15 @@ module TabId =
 
   /// Whether this is the pinned history tab's identity.
   val isHistory: id: TabId -> bool
+
+  /// Whether this is the saved list tab's identity.
+  val isSaved: id: TabId -> bool
+
+  /// Whether this is the scheduled queue list tab's identity.
+  val isQueue: id: TabId -> bool
+
+  /// Whether this is one of the two list tabs.
+  val isList: id: TabId -> bool
 
   /// Whether this is a repository tab's identity.
   val isRepo: id: TabId -> bool

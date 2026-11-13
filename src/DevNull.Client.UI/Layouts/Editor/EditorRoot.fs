@@ -73,12 +73,16 @@ type Runtime = {
   SwitchRef: LogKind * EditorPlace -> unit
   OpenThread: string -> unit
   CloseThread: string -> unit
+  CloseList: string -> unit
   Threads: IObservable<Map<string, Control>>
   Terminal: Control
   ShowTerminal: TerminalRequest -> unit
   RefreshHistory: unit -> unit
   OpenRepo: string -> unit
   Repos: IObservable<Map<string, Control>>
+  OpenSaved: unit -> unit
+  OpenQueue: unit -> unit
+  Lists: IObservable<Map<string, Control>>
   PaletteHost: Control
   OpenPalette: unit -> unit
   ClosePalette: unit -> unit
@@ -127,6 +131,8 @@ type Msg =
   | ReplyRequested of Commit
   | ComposerChanged of ComposerEvent
   | OpenRepo of string
+  | OpenSaved
+  | OpenQueue
   | PaletteToggled
   | PaletteClosed
 
@@ -352,6 +358,22 @@ let openRepo(args: UpdateArgs<'env>, handle: string, model: Model) =
 
   next, Cmd.ofAction(fun () -> args.Runtime.OpenRepo handle)
 
+let openList(args: UpdateArgs<'env>, kind: ListTab.Kind, model: Model) =
+  let id, title, start =
+    match kind with
+    | ListTab.Saved -> TabId.saved, "SAVED", args.Runtime.OpenSaved
+    | ListTab.Queue -> TabId.queue, "QUEUE", args.Runtime.OpenQueue
+
+  let tab = EditorTab.ordinary(id, title)
+
+  let next = {
+    model with
+        Frame = EditorState.openTab(tab, model.Frame)
+        FlyoutOpen = false
+  }
+
+  next, Cmd.ofAction start
+
 let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
   match msg with
   | RefSelected log ->
@@ -432,7 +454,9 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
     }
 
     let cmd =
-      if closed then
+      if closed && TabId.isList id then
+        Cmd.ofAction(fun () -> args.Runtime.CloseList(TabId.key id))
+      elif closed then
         Cmd.ofAction(fun () -> args.Runtime.CloseThread(TabId.key id))
       else
         Cmd.none
@@ -519,8 +543,8 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
   | ActivitySelected activity ->
     match activity with
     | ActivityBar.Problems ->
-      let panel = EditorPanel.toggle(EditorPanel.Problems, model.Panel)
-      let openProblems = panel.Open && panel.Tab = EditorPanel.Problems
+      let panel = EditorPanel.toggle(EditorPanel.Notifications, model.Panel)
+      let openProblems = panel.Open && panel.Tab = EditorPanel.Notifications
 
       let next = {
         model with
@@ -570,6 +594,8 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
 
       next, Cmd.none
   | OpenRepo handle -> openRepo(args, handle, model)
+  | OpenSaved -> openList(args, ListTab.Saved, model)
+  | OpenQueue -> openList(args, ListTab.Queue, model)
   | PaletteToggled ->
     if model.PaletteOpen then
       { model with PaletteOpen = false },
@@ -586,7 +612,7 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
     Cmd.ofAction(fun () -> args.Runtime.ClosePalette())
   | PanelToggled tab ->
     let panel = EditorPanel.toggle(tab, model.Panel)
-    let openProblems = panel.Open && panel.Tab = EditorPanel.Problems
+    let openProblems = panel.Open && panel.Tab = EditorPanel.Notifications
 
     let next = {
       model with
@@ -609,7 +635,7 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
     next, cmd
   | PanelSelected tab ->
     let panel = EditorPanel.select(tab, model.Panel)
-    let openProblems = tab = EditorPanel.Problems
+    let openProblems = tab = EditorPanel.Notifications
 
     let next = {
       model with
@@ -812,9 +838,11 @@ let view(args: ViewArgs<'env>) : Control =
           Selected = EditorState.selectedRef current.Frame
           Saved = current.Saved
           Queue = current.Queue
-          QueueHint = Some "The queue opens in the default layout."
+          QueueHint = None
           Viewer = props.Session.Session.User.Handle
           OnSelectRef = fun log -> dispatch(RefSelected log)
+          OnOpenSaved = fun () -> dispatch OpenSaved
+          OnOpenQueue = fun () -> dispatch OpenQueue
           OnOpenViewer =
             fun () -> dispatch(OpenRepo props.Session.Session.User.Handle)
         })
@@ -875,14 +903,18 @@ let view(args: ViewArgs<'env>) : Control =
   let activeContent =
     Observable.combineLatest
       (Observable.combineLatest
-        (model |> Observable.map(fun current -> current.Frame))
-        args.Runtime.Threads)
-      args.Runtime.Repos
-    |> Observable.map(fun ((frame, threads), repos) ->
+        (Observable.combineLatest
+          (model |> Observable.map(fun current -> current.Frame))
+          args.Runtime.Threads)
+        args.Runtime.Repos)
+      args.Runtime.Lists
+    |> Observable.map(fun (((frame, threads), repos), lists) ->
       let id = EditorState.activeTab frame
 
       if id = TabId.history then
         args.Runtime.History
+      elif TabId.isList id then
+        lists |> Map.tryFind(TabId.key id) |> Option.defaultValue loading
       elif TabId.isRepo id then
         repos |> Map.tryFind(TabId.key id) |> Option.defaultValue loading
       else
@@ -994,7 +1026,7 @@ let view(args: ViewArgs<'env>) : Control =
     TextBlock()
       .Name("EditorHelpText")
       .Text(
-        "The remotes pane is in the default layout. The More menu is in the default layout. Translations are in the default layout. The scheduled queue's link is in the default layout."
+        "The remotes pane is in the default layout. The More menu is in the default layout. Translations are in the default layout. The scheduled queue opens from the explorer."
       )
       .TextWrapping(TextWrapping.Wrap)
       .MaxWidth(420.0)
@@ -1044,17 +1076,34 @@ let view(args: ViewArgs<'env>) : Control =
           )
       )
 
+  let defaultLayoutButton =
+    Button()
+      .Name("EditorDefaultLayout")
+      .Classes(Theme.name Theme.GhostButton)
+      .Padding(Thickness(8.0, 2.0))
+      .Content("default layout")
+
+  defaultLayoutButton.Click.Add(fun _ -> props.OnUseDefaultLayout())
+  ToolTip.SetTip(defaultLayoutButton, "Use the default layout")
+
   let statusRow = Grid()
-  statusRow.ColumnDefinitions <- ColumnDefinitions("*,Auto")
-  statusRow.Children(statusBar.Column(0), helpButton.Column(1)) |> ignore
+  statusRow.ColumnDefinitions <- ColumnDefinitions("*,Auto,Auto")
+
+  statusRow.Children(
+    statusBar.Column(0),
+    helpButton.Column(1),
+    defaultLayoutButton.Column(2)
+  )
+  |> ignore
 
   editor.Children(helpOverlay.Row(0).RowSpan(2)) |> ignore
 
   let root = Grid()
 
   root.Name <- "EditorRoot"
+  root.Margin <- Thickness(0.0, Theme.bandHeight, 0.0, 0.0)
   root.RowDefinitions <- RowDefinitions("*,Auto")
-  root.ColumnDefinitions <- ColumnDefinitions("48,Auto,*")
+  root.ColumnDefinitions <- ColumnDefinitions("52,Auto,*")
 
   root.Children(
     activityControl.Column(0),
@@ -1185,6 +1234,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
   let entries = new BehaviorSubject<Map<string, ThreadEntry>>(Map.empty)
 
   let repoEntries = new BehaviorSubject<Map<string, ThreadEntry>>(Map.empty)
+  let listEntries = new BehaviorSubject<Map<string, ThreadEntry>>(Map.empty)
 
   let content = ContentControl()
   let term = ContentControl()
@@ -1309,6 +1359,47 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
     |> Observable.map(fun map -> map |> Map.map(fun _ entry -> entry.View))
     |> Slices.share
 
+  let lists =
+    listEntries
+    |> Observable.map(fun map -> map |> Map.map(fun _ entry -> entry.View))
+    |> Slices.share
+
+  let openList(kind: ListTab.Kind) =
+    let id =
+      match kind with
+      | ListTab.Saved -> TabId.saved
+      | ListTab.Queue -> TabId.queue
+
+    let key = TabId.key id
+
+    if not(Map.containsKey key listEntries.Value) then
+      let view, lifetime =
+        ListTab.mount(
+          dispatcher,
+          {
+            Env = props.Env
+            Session = props.Session
+            Kind = kind
+            Zone = props.Zone
+            Now = props.Now
+            OnOpenThread = fun commit -> opens.OnNext commit
+          }
+        )
+
+      listEntries.OnNext(
+        listEntries.Value.Add(key, { View = view; Lifetime = lifetime })
+      )
+
+  let openSaved() = openList ListTab.Saved
+  let openQueue() = openList ListTab.Queue
+
+  let closeList(key: string) =
+    match Map.tryFind key listEntries.Value with
+    | Some entry ->
+      listEntries.OnNext(listEntries.Value.Remove key)
+      entry.Lifetime.Dispose()
+    | None -> ()
+
   let openThread(commitId: string) =
     if not(Map.containsKey commitId entries.Value) then
       let view, lifetime =
@@ -1365,12 +1456,16 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
     SwitchRef = show
     OpenThread = openThread
     CloseThread = closeThread
+    CloseList = closeList
     Threads = threads
     Terminal = term
     ShowTerminal = showTerminal
     RefreshHistory = fun () -> historyRefresh.OnNext()
     OpenRepo = openRepo
     Repos = repos
+    OpenSaved = openSaved
+    OpenQueue = openQueue
+    Lists = lists
     PaletteHost = paletteHost
     OpenPalette = openPalette
     ClosePalette = closePalette
@@ -1410,6 +1505,14 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
 
       entries.OnCompleted()
       entries.Dispose())
+
+  let listsCleanup =
+    Disposable.Create(fun () ->
+      for KeyValue(_, entry) in listEntries.Value do
+        entry.Lifetime.Dispose()
+
+      listEntries.OnCompleted()
+      listEntries.Dispose())
 
   let reposCleanup =
     Disposable.Create(fun () ->
@@ -1459,6 +1562,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
   handles.Add frameHandle
   handles.Add historyLifetime
   handles.Add threadsCleanup
+  handles.Add listsCleanup
   handles.Add reposCleanup
   handles.Add paletteLifetime
   handles.Add subjectCleanup
@@ -1468,7 +1572,8 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
     | Some model ->
       match command with
       | OpenTerminal -> commandPath.OnNext(PanelSelected EditorPanel.Terminal)
-      | OpenProblems -> commandPath.OnNext(PanelSelected EditorPanel.Problems)
+      | OpenProblems ->
+        commandPath.OnNext(PanelSelected EditorPanel.Notifications)
       | OpenPalette ->
         if not model.PaletteOpen then
           commandPath.OnNext PaletteToggled

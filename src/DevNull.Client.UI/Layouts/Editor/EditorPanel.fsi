@@ -7,8 +7,8 @@ open DevNull.Client.Errors
 
 /// Which panel tab is in front.
 type Tab =
-  | Problems
-  | Output
+  | Notifications
+  | Activity
   | Terminal
 
 /// The panel's own state: whether it is open and which tab is in front.

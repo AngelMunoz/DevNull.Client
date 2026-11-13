@@ -60,8 +60,8 @@ let tests =
           "switch ref: Latest"
           "switch ref: Following"
           "switch ref: Trending"
-          "open panel: PROBLEMS"
-          "open panel: OUTPUT"
+          "open panel: NOTIFICATIONS"
+          "open panel: ACTIVITY"
           "open panel: TERMINAL"
           "use default layout"
         ]

@@ -42,8 +42,8 @@ let commands = [
   SwitchRef LogKind.Latest
   SwitchRef LogKind.Following
   SwitchRef LogKind.Trending
-  OpenPanel EditorPanel.Problems
-  OpenPanel EditorPanel.Output
+  OpenPanel EditorPanel.Notifications
+  OpenPanel EditorPanel.Activity
   OpenPanel EditorPanel.Terminal
   UseDefaultLayout
 ]
@@ -54,8 +54,8 @@ let label(command: Command) =
   | OpenPanel tab ->
     let name =
       match tab with
-      | EditorPanel.Problems -> "PROBLEMS"
-      | EditorPanel.Output -> "OUTPUT"
+      | EditorPanel.Notifications -> "NOTIFICATIONS"
+      | EditorPanel.Activity -> "ACTIVITY"
       | EditorPanel.Terminal -> "TERMINAL"
 
     $"open panel: {name}"

@@ -77,8 +77,9 @@ let activityButton(props: Props, activity: Activity) : Control =
 
   let button =
     button
-      .Width(40.0)
-      .Height(40.0)
+      .Width(36.0)
+      .Height(36.0)
+      .HorizontalAlignment(HorizontalAlignment.Center)
       .Padding(Thickness(0.0))
       .Content(content)
       .OnClickHandler(fun _ _ -> props.OnSelect activity)
@@ -98,11 +99,11 @@ let view(props: Props) : Control =
     .Name("EditorActivityBar")
     .Classes(Theme.name Theme.SurfaceBack, Theme.name Theme.Hairline)
     .BorderThickness(Thickness(0.0, 0.0, 1.0, 0.0))
-    .Width(48.0)
-    .Padding(Thickness(4.0, 8.0))
+    .Width(52.0)
+    .Padding(Thickness(8.0, 12.0))
     .Child(
       StackPanel()
         .Orientation(Orientation.Vertical)
-        .Spacing(6.0)
+        .Spacing(10.0)
         .Children(children)
     )

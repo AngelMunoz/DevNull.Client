@@ -7,8 +7,13 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
+open DevNull.Client.Env
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.Profiles
+open DevNull.Client.Stores
+open DevNull.Client.TranslationCache
+open DevNull.Client.UserSettingsStore
 
 /// One people list a repository home opens in the inspector's place.
 type PeopleKind =
@@ -41,6 +46,7 @@ type Model = {
   FollowBusy: bool
   FollowError: AppError option
   People: PeopleList option
+  PollChoices: Map<string, string>
   Now: DateTimeOffset
 }
 
@@ -64,6 +70,11 @@ type Msg =
   | Opened of Commit
   | QuoteRequested of Commit
   | ExternalOpened of url: string
+  | PollChoiceChanged of Commit * PollOption * chosen: bool
+  | PollVoteRequested of Commit
+  | PollVotedDone of Result<Commit, AppError>
+  | CommitUpdated of Commit
+  | CommitDeleted of string
   | ClockTicked of moment: DateTimeOffset
 
 /// What one repository home needs from its host: the protocol workers,
@@ -74,13 +85,20 @@ type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
-  and 'env :> IProvideHttp> = {
+  and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideLogging> = {
   Env: 'env
+  Session: SignedInSession option
   Handle: string
   KeyFile: string
   ViewerId: string
   Pasteis: bool
   Images: ImageCacheService
+  Flyout: DevNull.Client.Components.UserFlyout.Source voption
   Now: IObservable<DateTimeOffset>
   Zone: Zone
   OnOpenThread: Commit -> unit
@@ -88,6 +106,7 @@ type Props<'env
   OnOpenExternal: string -> unit
   OnOpenRepository: string -> unit
   OnListChanged: bool -> unit
+  OnDialog: RowActions.Dialog -> unit
 }
 
 /// The home's two regions: the center profile page and the people list

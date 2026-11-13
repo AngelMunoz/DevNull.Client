@@ -2,17 +2,23 @@ module DevNull.Client.UI.Tests.WorkbenchHostViewTests
 
 open System
 open System.Reactive.Subjects
+open Avalonia
 open Avalonia.Controls
+open Avalonia.Headless
+open Avalonia.Input
+open Avalonia.Interactivity
 open Avalonia.Media
 open Avalonia.VisualTree
 open Expecto
 open FSharp.Control.Reactive
 
+open DevNull.Client
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Http
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.Stores
+open DevNull.Client.Theme
 open DevNull.Client.Workbench
 open DevNull.Client.UI.Tests.Fixtures
 open DevNull.Client.UI.Tests.Harness
@@ -93,6 +99,7 @@ let private threadViewOf(env: TestEnv) : ThreadMode.View =
     RepliesCursor = Some "next"
     RepliesLoading = false
     RepliesError = None
+    PollChoices = Map.empty
     Now = now
   }
 
@@ -104,6 +111,7 @@ let private threadViewOf(env: TestEnv) : ThreadMode.View =
     ViewerId = "01a151db-0000-0000-0000-000000000000"
     Pasteis = true
     Images = images
+    Flyout = ValueNone
     Now = Observable.single now
     Zone = {
       Info = TimeZoneInfo.Utc
@@ -113,6 +121,7 @@ let private threadViewOf(env: TestEnv) : ThreadMode.View =
     OnOpenThread = ignore
     OnOpenExternal = ignore
     OnQuote = ignore
+    OnDialog = ignore
   }
 
   let subject = new BehaviorSubject<ThreadMode.Model>(model)
@@ -181,16 +190,19 @@ let private repositoryViewOf(env: TestEnv) : RepositoryHome.View =
         Items = repositoryFollowers.Items
         Cursor = Some "next"
       }
+    PollChoices = Map.empty
     Now = now
   }
 
   let props: RepositoryHome.Props<TestEnv> = {
     Env = env
+    Session = None
     Handle = "octocat"
     KeyFile = "/tmp/devnull-test-id_ed25519"
     ViewerId = "01a151db-0000-0000-0000-000000000000"
     Pasteis = true
     Images = images
+    Flyout = ValueNone
     Now = Observable.single now
     Zone = {
       Info = TimeZoneInfo.Utc
@@ -201,6 +213,7 @@ let private repositoryViewOf(env: TestEnv) : RepositoryHome.View =
     OnOpenExternal = ignore
     OnOpenRepository = ignore
     OnListChanged = ignore
+    OnDialog = ignore
   }
 
   let subject = new BehaviorSubject<RepositoryHome.Model>(model)
@@ -262,45 +275,54 @@ let private notificationsViewOf(env: TestEnv) : Control =
     (subject :> IObservable<NotificationsCenter.Model>)
     (fun (_: NotificationsCenter.Msg) -> ())
 
-let private searchResults =
-  match SearchCommits.decode(sprintf "{\"data\":[%s]}" commitJson) with
-  | Ok results -> results
-  | Error failure ->
-    failwith $"the canned search never decoded: {failure.Message}"
-
-let private searchViewOf(env: TestEnv) : Control =
-  let model: SearchResults.Model = {
-    Term = "dns"
+let private inspectorViewOf(env: TestEnv) : Control =
+  let model: Inspector.Model = {
+    CommitId = threadPage.Commit.Id
     Loading = false
     Error = None
-    Results = searchResults
+    Commit = Some threadPage.Commit
+    Ancestors = []
+    ReplyParticipants = []
+    Replies = []
+    RepliesCursor = None
+    RepliesLoading = false
+    RepliesError = None
+    Busy = None
+    Pinning = None
+    PollChoices = Map.empty
     Now = now
   }
 
-  let props: SearchResults.Props<TestEnv> = {
+  let props: Inspector.Props<TestEnv> = {
     Env = env
+    Session = None
+    CommitId = threadPage.Commit.Id
     KeyFile = "/tmp/devnull-test-id_ed25519"
     ViewerId = "01a151db-0000-0000-0000-000000000000"
     Pasteis = true
     Images = images
+    Flyout = ValueNone
     Now = Observable.single now
     Zone = {
       Info = TimeZoneInfo.Utc
       Label = "UTC"
     }
-    Term = "dns"
-    OnOpenThread = ignore
-    OnQuote = ignore
+    OnCheckoutParent = ignore
+    OnCheckoutChild = ignore
+    OnOpenAuthor = ignore
     OnOpenExternal = ignore
+    OnQuote = ignore
+    OnOpenThread = ignore
     OnClose = ignore
+    OnDialog = ignore
   }
 
-  let subject = new BehaviorSubject<SearchResults.Model>(model)
+  let subject = new BehaviorSubject<Inspector.Model>(model)
 
-  SearchResults.view
+  Inspector.view
     props
-    (subject :> IObservable<SearchResults.Model>)
-    (fun (_: SearchResults.Msg) -> ())
+    (subject :> IObservable<Inspector.Model>)
+    (fun (_: Inspector.Msg) -> ())
 
 let private controlByName(root: Control, name: string) : Control option =
   root.GetVisualDescendants()
@@ -340,6 +362,8 @@ let private modelOf(folded: bool, stagingOpen: bool) : WorkbenchHost.Model =
     SearchPalette = None
     Search = None
     SearchTerm = None
+    ShareOpen = None
+    ReportOpen = None
     Handle = "octocat"
     FetchedAt = Some(now.AddMinutes -12.0)
     SavedCount = 4
@@ -508,48 +532,79 @@ let private buildNotificationsAsync
       window, subject)
 }
 
-let private buildSearchAsync
-  ()
-  : Async<Window * BehaviorSubject<WorkbenchHost.Model>> = async {
-  return!
-    probeUiAsync(fun () ->
-      let env = TestEnv(signedInStore(), FakeApi("{}") :> IHttp)
-      let props = hostProps env
-      let searchView = searchViewOf env
-
-      let model = {
-        modelOf(false, false) with
-            CheckoutId = None
-            Inspector = None
-            SearchTerm = Some "dns"
-            Search =
-              Some {
-                Term = "dns"
-                View = searchView
-                Handle = fakeHandle
-              }
-            LiveInspector = 0
-            LiveSearch = 1
-      }
-
-      let subject = new BehaviorSubject<WorkbenchHost.Model>(model)
-
-      let view =
-        WorkbenchHost.view
-          props
-          (subject :> IObservable<WorkbenchHost.Model>)
-          (fun (_: WorkbenchHost.Msg) -> ())
-
-      let window = Window(Width = 1600.0, Height = 900.0, Content = view)
-
-      window.Show()
-      window, subject)
-}
-
 let private widthOf(window: Window, name: string) : float =
   controlByName(window, name)
   |> Option.map(fun control -> control.Bounds.Width)
   |> Option.defaultValue 0.0
+
+let private heightOf(window: Window, name: string) : float =
+  controlByName(window, name)
+  |> Option.map(fun control -> control.Bounds.Height)
+  |> Option.defaultValue 0.0
+
+let private textBoxByName(root: Control, name: string) : TextBox option =
+  root.GetVisualDescendants()
+  |> Seq.tryPick(function
+    | :? TextBox as box when box.Name = name -> Some box
+    | _ -> None)
+
+let private buttonWithText(root: Control, text: string) : Button option =
+  root.GetVisualDescendants()
+  |> Seq.tryPick(function
+    | :? Button as button ->
+      match button.Content with
+      | :? string as label when label = text -> Some button
+      | _ -> None
+    | _ -> None)
+
+let private menuContentOf(root: Control) : Control option =
+  controlByName(root, "CommitMenuFlyout")
+  |> Option.bind(function
+    | :? Avalonia.Controls.Primitives.Popup as popup -> Option.ofObj popup.Child
+    | _ -> None)
+
+let private menuRowOf(window: Window, label: string) : Button option =
+  menuContentOf window
+  |> Option.bind(fun content -> buttonWithText(content, label))
+
+let private envWithRemotes() : TestEnv =
+  let api = workbenchApi()
+  let store = signedInStore()
+
+  match store.Current with
+  | SignedIn current ->
+    store.Refresh {
+      current.Session with
+          Remotes =
+            Some {
+              From = FromEveryone
+              PullReceipts = true
+              Requests = true
+              Everyone = true
+              UnreadCount = 0
+            }
+    }
+  | SignedOut -> ()
+
+  TestEnv(store, api :> IHttp)
+
+let private openFirstMenu(window: Window) = async {
+  let! trigger =
+    waitForAsync(
+      8000,
+      (fun () -> controlByName(window, "CommitMenuButton")),
+      Option.isSome
+    )
+
+  Expect.isTrue trigger "the card offered no menu trigger"
+
+  do!
+    onUiAsync(fun () ->
+      controlByName(window, "CommitMenuButton")
+      |> Option.iter(function
+        | :? Button as button -> click button
+        | _ -> ()))
+}
 
 let private hasTextFragment(root: Control, fragment: string) : bool =
   root.GetVisualDescendants()
@@ -720,6 +775,111 @@ let tests =
           $"the history lost its free width on staging: {historyWidth}"
 
         do! closeAsync(window, subject)
+      })
+
+    testCaseAsync
+      "the open staging zone stays under 45 percent of a 900 px window"
+      (async {
+        let! window, subject =
+          probeUiAsync(fun () ->
+            let env = TestEnv(signedInStore(), FakeApi("{}") :> IHttp)
+
+            let entries = [
+              for index in 1..12 ->
+                {
+                  queueEntry with
+                      Id = "018f5a1e-0001-7c3a-9b2d-0000000000" + string index
+                      Body = Some $"Queued commit {index}."
+                      BodySegments = [ TextSegment $"Queued commit {index}." ]
+                }
+            ]
+
+            let model: Staging.View = {
+              Open = true
+              Draft = "release notes"
+              Quote = None
+              Queue = {
+                Items = entries
+                Total = entries.Length
+                Loading = false
+                Error = None
+              }
+            }
+
+            let props: Staging.Props<TestEnv> = {
+              Env = env
+              Session = Some(sessionOf env)
+              OnToggle = ignore
+              OnDraftChanged = ignore
+              OnPosted = ignore
+              OnScheduled = ignore
+            }
+
+            let subject = new BehaviorSubject<Staging.View>(model)
+
+            let view =
+              Staging.view props (subject :> IObservable<Staging.View>)
+
+            let window = Window(Width = 1600.0, Height = 900.0, Content = view)
+            window.Show()
+            window, subject)
+
+        do! pumpAsync()
+
+        let! stagingHeight =
+          probeUiAsync(fun () -> heightOf(window, "StagingRegion"))
+
+        Expect.isTrue
+          (stagingHeight > 0.0 && stagingHeight < 405.0)
+          $"the open staging zone took {stagingHeight} of 900 px"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            subject.OnCompleted()
+            subject.Dispose())
+      })
+
+    testCaseAsync
+      "the inspector close clears the window chrome band and the right edge"
+      (async {
+        let! window =
+          probeUiAsync(fun () ->
+            let env = TestEnv(signedInStore(), FakeApi("{}") :> IHttp)
+
+            let window =
+              Window(
+                Width = 1600.0,
+                Height = 900.0,
+                Content = inspectorViewOf env
+              )
+
+            window.Show()
+            window)
+
+        do! pumpAsync()
+
+        let! top, rightGap =
+          probeUiAsync(fun () ->
+            match controlByName(window, "InspectorClose") with
+            | Some close ->
+              let origin = close.TranslatePoint(Point(0.0, 0.0), window)
+
+              origin.Value.Y,
+              window.Bounds.Width - (origin.Value.X + close.Bounds.Width)
+            | None -> 0.0, 0.0)
+
+        Expect.isGreaterThanOrEqual
+          top
+          (Theme.bandHeight + 8.0)
+          "the inspector close entered the window chrome band"
+
+        Expect.isGreaterThanOrEqual
+          rightGap
+          40.0
+          "the inspector close crowded the window close button"
+
+        do! onUiAsync(fun () -> window.Close())
       })
 
     testCaseAsync
@@ -974,47 +1134,399 @@ let tests =
       })
 
     testCaseAsync
-      "the search center at 1600 px reads as a manual list"
+      "the hosted search dialog searches and opens the mapped commit route"
       (async {
-        let! window, subject = buildSearchAsync()
+        let api = workbenchApi()
+        let env = TestEnv(signedInStore(), api :> IHttp)
+        let props = hostProps env
 
-        let! shown =
+        let! window, handle =
+          probeUiAsync(fun () ->
+            let view, handle = WorkbenchHost.mount(ui, props)
+
+            let window = Window(Width = 1600.0, Height = 900.0, Content = view)
+
+            window.Show()
+            window, handle)
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "SearchEntry")
+            |> Option.iter(function
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! input =
           waitForAsync(
-            5000,
-            (fun () -> window),
-            fun root ->
-              hasText(root, "Search · manual refresh")
-              && hasText(root, "term: dns")
-              && hasText(root, "It was DNS.")
-              && (controlByName(root, "SearchRefresh") |> Option.isSome)
-              && (controlByName(root, "SearchClose") |> Option.isSome)
-              && (controlByName(root, "SearchEntry") |> Option.isSome)
+            8000,
+            (fun () -> textBoxByName(window, "SearchInput")),
+            Option.isSome
           )
 
-        Expect.isTrue shown "the search center never rendered its results"
+        Expect.isTrue input "the hosted search dialog never opened"
 
-        do! pumpAsync()
+        do!
+          onUiAsync(fun () ->
+            textBoxByName(window, "SearchInput")
+            |> Option.iter(fun box -> box.Text <- "dns server"))
 
-        let! centerWidth, historyVisible, searchVisible =
+        let! results =
+          waitForAsync(
+            8000,
+            (fun () -> controlByName(window, "SearchDialogCard")),
+            fun card ->
+              card
+              |> Option.exists(fun root -> hasTextFragment(root, "It was DNS."))
+          )
+
+        Expect.isTrue results "the hosted search dialog never rendered results"
+
+        Expect.exists
+          api.Requests
+          (fun request ->
+            request.Target.StartsWith(
+              "/api/v1/search/commits?q=dns%20server",
+              StringComparison.Ordinal
+            ))
+          "the hosted search dialog never searched commits"
+
+        do!
+          onUiAsync(fun () ->
+            textBoxByName(window, "SearchInput")
+            |> Option.iter(fun box ->
+              box.RaiseEvent(
+                KeyEventArgs(
+                  RoutedEvent = InputElement.KeyDownEvent,
+                  Key = Key.Enter
+                )
+              )))
+
+        let! opened =
+          waitForAsync(
+            8000,
+            (fun () -> controlByName(window, "ThreadCenter")),
+            Option.isSome
+          )
+
+        Expect.isTrue opened "Enter did not open the mapped commit thread"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            (handle :> IDisposable).Dispose())
+      })
+
+    testCaseAsync
+      "the hosted search center reuses the dialog with the committed term"
+      (async {
+        let env = TestEnv(signedInStore(), workbenchApi() :> IHttp)
+        let props = hostProps env
+
+        let! window, mounted =
           probeUiAsync(fun () ->
-            widthOf(window, "SearchCenter"),
-            controlByName(window, "HistoryRegion")
-            |> Option.map _.IsVisible
-            |> Option.defaultValue false,
-            controlByName(window, "SearchRegion")
-            |> Option.map _.IsVisible
-            |> Option.defaultValue false)
+            let view, handle = WorkbenchHost.mount(ui, props)
 
-        Expect.isTrue
-          (centerWidth > 1300.0 && centerWidth < 1400.0)
-          $"the search center lost the free width: {centerWidth}"
+            let window = Window(Width = 1600.0, Height = 900.0, Content = view)
 
-        Expect.isFalse
-          historyVisible
-          "the history stayed visible over the search"
+            window.Show()
+            window, handle :?> WorkbenchHost.MountedHost)
 
-        Expect.isTrue searchVisible "the search region is not visible"
+        do!
+          onUiAsync(fun () ->
+            mounted.Send(WorkbenchHost.SearchCommitted "dns server"))
 
-        do! closeAsync(window, subject)
+        let! center =
+          waitForAsync(
+            8000,
+            (fun () -> controlByName(window, "SearchRegion")),
+            fun region ->
+              region |> Option.exists(fun control -> control.IsVisible)
+              && (controlByName(window, "SearchPaletteRegion")
+                  |> Option.exists(fun control -> not control.IsVisible))
+          )
+
+        Expect.isTrue center "the search center never opened"
+
+        let! seeded =
+          waitForAsync(
+            8000,
+            (fun () -> textBoxByName(window, "SearchInput")),
+            fun input ->
+              input
+              |> Option.exists(fun box ->
+                box.Text = "dns server"
+                && hasTextFragment(window, "It was DNS."))
+          )
+
+        Expect.isTrue seeded "the search center lost the committed term"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            (mounted :> IDisposable).Dispose())
+      })
+
+    testCaseAsync
+      "Escape closes the hosted search palette"
+      (async {
+        let env = TestEnv(signedInStore(), workbenchApi() :> IHttp)
+        let props = hostProps env
+
+        let! window, handle =
+          probeUiAsync(fun () ->
+            let view, handle = WorkbenchHost.mount(ui, props)
+
+            let window = Window(Width = 1600.0, Height = 900.0, Content = view)
+
+            window.Show()
+            window, handle)
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "SearchEntry")
+            |> Option.iter(function
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! input =
+          waitForAsync(
+            8000,
+            (fun () -> textBoxByName(window, "SearchInput")),
+            Option.isSome
+          )
+
+        Expect.isTrue input "the hosted search dialog never opened"
+
+        do!
+          onUiAsync(fun () ->
+            textBoxByName(window, "SearchInput")
+            |> Option.iter(fun box ->
+              box.RaiseEvent(
+                KeyEventArgs(
+                  RoutedEvent = InputElement.KeyDownEvent,
+                  Key = Key.Escape
+                )
+              )))
+
+        let! closed =
+          waitForAsync(
+            8000,
+            (fun () -> controlByName(window, "SearchDialogCard")),
+            Option.isNone
+          )
+
+        Expect.isTrue closed "Escape did not close the hosted search palette"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            (handle :> IDisposable).Dispose())
+      })
+
+    testCaseAsync
+      "the workbench avatar flyout opens the repository home"
+      (async {
+        let env = TestEnv(signedInStore(), workbenchApi() :> IHttp)
+        let props = hostProps env
+
+        let! window, handle =
+          probeUiAsync(fun () ->
+            let view, handle = WorkbenchHost.mount(ui, props)
+
+            let window = Window(Width = 1600.0, Height = 900.0, Content = view)
+
+            window.Show()
+            window, handle)
+
+        let! avatar =
+          waitForAsync(
+            8000,
+            (fun () -> controlByName(window, "AuthorAvatar")),
+            Option.isSome
+          )
+
+        Expect.isTrue avatar "the history never rendered an author avatar"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "AuthorAvatar")
+            |> Option.iter(function
+              | :? Button as button ->
+                let center =
+                  Point(button.Bounds.Width / 2.0, button.Bounds.Height / 2.0)
+
+                let moved = button.TranslatePoint(center, window)
+
+                if moved.HasValue then
+                  window.MouseMove moved.Value
+              | _ -> ()))
+
+        let! flyout =
+          waitForAsync(
+            8000,
+            (fun () -> controlByName(window, "UserFlyout")),
+            Option.isSome
+          )
+
+        Expect.isTrue flyout "the avatar never opened its flyout"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "UserFlyout")
+            |> Option.iter(function
+              | :? ContentControl as host ->
+                match host.Content with
+                | :? Button as openCard -> click openCard
+                | _ -> ()
+              | _ -> ()))
+
+        let! opened =
+          waitForAsync(
+            8000,
+            (fun () -> controlByName(window, "RepositoryRegion")),
+            fun region ->
+              region |> Option.exists(fun control -> control.IsVisible)
+          )
+
+        Expect.isTrue opened "the flyout profile entry did not open the home"
+
+        let! identity =
+          waitForAsync(
+            8000,
+            (fun () -> controlByName(window, "RepositoryIdentity")),
+            fun control ->
+              control
+              |> Option.exists(fun root -> hasTextFragment(root, "@octocat"))
+          )
+
+        Expect.isTrue identity "the flyout opened a home for another handle"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            (handle :> IDisposable).Dispose())
+      })
+
+    testCaseAsync
+      "a card menu opens the share dialog when remotes are on"
+      (async {
+        let env = envWithRemotes()
+        do! pumpAsync()
+        let props = hostProps env
+
+        let! window, handle =
+          probeUiAsync(fun () ->
+            let view, handle = WorkbenchHost.mount(ui, props)
+
+            let window = Window(Width = 1600.0, Height = 900.0, Content = view)
+
+            window.Show()
+            window, handle)
+
+        do! openFirstMenu window
+
+        let! shareRow =
+          waitForAsync(
+            5000,
+            (fun () -> menuRowOf(window, "Send in Remotes")),
+            Option.isSome
+          )
+
+        Expect.isTrue shareRow "the card menu offered no Remotes row"
+
+        do!
+          onUiAsync(fun () ->
+            menuRowOf(window, "Send in Remotes") |> Option.iter click)
+
+        let! dialog =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "ShareDialog")),
+            Option.isSome
+          )
+
+        Expect.isTrue dialog "the share dialog never opened"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "ShareDialog")
+            |> Option.bind(fun dialog -> buttonWithText(dialog, "Cancel"))
+            |> Option.iter click)
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "ShareDialog")),
+            Option.isNone
+          )
+
+        Expect.isTrue closed "the share dialog did not close on Cancel"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            (handle :> IDisposable).Dispose())
+      })
+
+    testCaseAsync
+      "a card menu opens the report dialog on another author's commit"
+      (async {
+        let env = envWithRemotes()
+        do! pumpAsync()
+        let props = hostProps env
+
+        let! window, handle =
+          probeUiAsync(fun () ->
+            let view, handle = WorkbenchHost.mount(ui, props)
+
+            let window = Window(Width = 1600.0, Height = 900.0, Content = view)
+
+            window.Show()
+            window, handle)
+
+        do! openFirstMenu window
+
+        let! reportRow =
+          waitForAsync(
+            5000,
+            (fun () -> menuRowOf(window, "Report commit")),
+            Option.isSome
+          )
+
+        Expect.isTrue reportRow "the card menu offered no report row"
+
+        do!
+          onUiAsync(fun () ->
+            menuRowOf(window, "Report commit") |> Option.iter click)
+
+        let! dialog =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "ReportDialog")),
+            Option.isSome
+          )
+
+        Expect.isTrue dialog "the report dialog never opened"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "ReportCancel")
+            |> Option.iter(function
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "ReportDialog")),
+            Option.isNone
+          )
+
+        Expect.isTrue closed "the report dialog did not close on Cancel"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            (handle :> IDisposable).Dispose())
       })
   ]

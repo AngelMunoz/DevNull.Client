@@ -22,8 +22,11 @@ open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.Profiles
 open DevNull.Client.Stores
 open DevNull.Client.Theme
+open DevNull.Client.TranslationCache
+open DevNull.Client.UserSettingsStore
 
 type Model = {
   CommitId: string
@@ -36,6 +39,7 @@ type Model = {
   RepliesCursor: string option
   RepliesLoading: bool
   RepliesError: AppError option
+  PollChoices: Map<string, string>
   Now: DateTimeOffset
 }
 
@@ -49,6 +53,11 @@ type Msg =
   | BackRequested
   | Opened of Commit
   | QuoteRequested of Commit
+  | PollChoiceChanged of Commit * PollOption * chosen: bool
+  | PollVoteRequested of Commit
+  | PollVotedDone of Result<Commit, AppError>
+  | CommitUpdated of Commit
+  | CommitDeleted of string
 
 type Props<'env
   when 'env :> IProvideClock
@@ -58,6 +67,9 @@ type Props<'env
   and 'env :> IProvideDispatcher
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
@@ -66,12 +78,14 @@ type Props<'env
   ViewerId: string
   Pasteis: bool
   Images: ImageCacheService
+  Flyout: DevNull.Client.Components.UserFlyout.Source voption
   Now: IObservable<DateTimeOffset>
   Zone: Zone
   OnBack: unit -> unit
   OnOpenThread: Commit -> unit
   OnOpenExternal: string -> unit
   OnQuote: Commit -> unit
+  OnDialog: RowActions.Dialog -> unit
 }
 
 [<Struct>]
@@ -99,8 +113,20 @@ let fetchReplies
     }
   )
 
+let vote
+  (props: Props<'env>, commit: Commit, option: PollOption)
+  : Async<Result<Commit, AppError>> =
+  Commits.vote(
+    props.Env,
+    {
+      KeyFile = props.KeyFile
+      CommitId = commit.Id
+      OptionId = option.Id
+    }
+  )
+
 let init(props: Props<'env>) : Model * Cmd<Msg> =
-  {
+  ({
     CommitId = props.CommitId
     Loading = true
     Error = None
@@ -111,16 +137,17 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     RepliesCursor = None
     RepliesLoading = false
     RepliesError = None
+    PollChoices = Map.empty
     Now = DateTimeOffset.UtcNow
-  },
-  Cmd.OfAsync.perform show props Shown
+   },
+   Cmd.OfAsync.perform show props Shown)
 
 let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   match msg with
   | Shown result ->
     match result with
     | Ok page ->
-      {
+      ({
         model with
             Loading = false
             Error = None
@@ -129,64 +156,64 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             ReplyParticipants = page.ReplyParticipants
             RepliesLoading = true
             RepliesError = None
-      },
-      Cmd.OfAsync.perform fetchReplies (props, None) RepliesFetched
+       },
+       Cmd.OfAsync.perform fetchReplies (props, None) RepliesFetched)
     | Error error ->
-      {
+      ({
         model with
             Loading = false
             Error = Some error
-      },
-      Cmd.none
+       },
+       Cmd.none)
   | RepliesFetched result ->
     match result with
     | Ok page ->
-      {
+      ({
         model with
             Replies = page.Items
             RepliesCursor = page.NextCursor
             RepliesLoading = false
             RepliesError = None
-      },
-      Cmd.none
+       },
+       Cmd.none)
     | Error error ->
-      {
+      ({
         model with
             RepliesLoading = false
             RepliesError = Some error
-      },
-      Cmd.none
+       },
+       Cmd.none)
   | MoreRepliesRequested ->
     match model.RepliesCursor with
     | Some _ ->
-      {
+      ({
         model with
             RepliesLoading = true
             RepliesError = None
-      },
-      Cmd.OfAsync.perform
-        fetchReplies
-        (props, model.RepliesCursor)
-        RepliesAppended
+       },
+       Cmd.OfAsync.perform
+         fetchReplies
+         (props, model.RepliesCursor)
+         RepliesAppended)
     | None -> model, Cmd.none
   | RepliesAppended result ->
     match result with
     | Ok page ->
-      {
+      ({
         model with
             Replies = model.Replies @ page.Items
             RepliesCursor = page.NextCursor
             RepliesLoading = false
             RepliesError = None
-      },
-      Cmd.none
+       },
+       Cmd.none)
     | Error error ->
-      {
+      ({
         model with
             RepliesLoading = false
             RepliesError = Some error
-      },
-      Cmd.none
+       },
+       Cmd.none)
   | Posted reply ->
     let replies =
       model.Replies
@@ -206,13 +233,56 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
               |> Option.orElse(Some 1)
       })
 
-    {
+    ({
       model with
           Commit = commit
           Replies = replies
           RepliesError = None
-    },
-    Cmd.none
+     },
+     Cmd.none)
+  | PollChoiceChanged(commit, option, chosen) ->
+    ({
+      model with
+          PollChoices =
+            CommitCard.choose {
+              Choices = model.PollChoices
+              CommitId = commit.Id
+              OptionId = option.Id
+              Chosen = chosen
+            }
+     },
+     Cmd.none)
+  | PollVoteRequested commit ->
+    match CommitCard.selectedOption(model.PollChoices, commit) with
+    | Some option ->
+      ({ model with Error = None },
+       Cmd.OfAsync.perform vote (props, commit, option) PollVotedDone)
+    | None -> model, Cmd.none
+  | PollVotedDone result ->
+    match result with
+    | Ok updated ->
+      ({
+        model with
+            Commit =
+              model.Commit
+              |> Option.map(fun current ->
+                if current.Id = updated.Id then updated else current)
+            PollChoices = model.PollChoices |> Map.remove updated.Id
+       },
+       Cmd.none)
+    | Error error -> ({ model with Error = Some error }, Cmd.none)
+  | CommitUpdated updated ->
+    ({
+      model with
+          Commit =
+            model.Commit
+            |> Option.map(fun current ->
+              if current.Id = updated.Id then updated else current)
+     },
+     Cmd.none)
+  | CommitDeleted commitId when commitId = model.CommitId ->
+    model, Cmd.ofAction(fun () -> props.OnBack())
+  | CommitDeleted _ -> model, Cmd.none
   | ClockTicked moment -> ({ model with Now = moment }, Cmd.none)
   | BackRequested -> model, Cmd.ofAction(fun () -> props.OnBack())
   | Opened commit -> model, Cmd.ofAction(fun () -> props.OnOpenThread commit)
@@ -256,11 +326,30 @@ let view
   : View =
   let now = model |> Observable.map _.Now |> Slices.share
   let pasteis = Observable.single props.Pasteis
-  let polls = Observable.single(Map.empty: Map<string, string>)
-  let translation = Observable.single(fun (_: Commit) -> ValueNone)
+  let polls = model |> Observable.map _.PollChoices |> Slices.share
+
+  let actions =
+    RowActions.create {
+      Env = props.Env
+      Session = props.Session
+      Now = props.Now
+      OfferBasicActions = true
+      OnUpdated = CommitUpdated >> dispatch
+      OnDeleted = CommitDeleted >> dispatch
+      OnDialog = props.OnDialog
+      Flyout = props.Flyout
+    }
+
+  let busy = actions.Busy
+
+  let inline slot(command: Commit -> unit) : ActionSlot voption =
+    ValueSome { Command = command; Busy = busy }
 
   let rowProps(onEvent: Event -> unit) : RowProps = {
-    OnEvent = onEvent
+    OnEvent =
+      fun event ->
+        actions.Handle event
+        onEvent event
     OnOpenExternal = props.OnOpenExternal
     ViewerId = props.ViewerId
     Pasteis = pasteis
@@ -268,21 +357,24 @@ let view
     PollChoices = polls
     Dense = true
     Images = props.Images
-    Flyout = ValueNone
+    Flyout = actions.Flyout
     Pin = ValueNone
-    Star = ValueNone
+    Star = actions.Star
     Stars = ValueNone
-    Vote = ValueNone
-    Pastel = ValueNone
-    Menu = ValueNone
-    Translation = translation
+    Vote = slot(fun commit -> dispatch(PollVoteRequested commit))
+    Pastel = actions.Pastel
+    Menu = actions.Menu
+    Translation = actions.Translation
     Zone = props.Zone
   }
 
   let cardProps = {
     rowProps(fun event ->
       match event with
+      | CommitCard.ReplyToggled commit -> dispatch(Opened commit)
       | CommitCard.QuoteRequested commit -> dispatch(QuoteRequested commit)
+      | CommitCard.PollChoiceChanged(commit, option, chosen) ->
+        dispatch(PollChoiceChanged(commit, option, chosen))
       | _ -> ()) with
         Dense = false
   }
@@ -291,7 +383,10 @@ let view
     rowProps(fun event ->
       match event with
       | CommitCard.Opened commit -> dispatch(Opened commit)
+      | CommitCard.ReplyToggled commit -> dispatch(Opened commit)
       | CommitCard.QuoteRequested commit -> dispatch(QuoteRequested commit)
+      | CommitCard.PollChoiceChanged(commit, option, chosen) ->
+        dispatch(PollChoiceChanged(commit, option, chosen))
       | _ -> ())
 
   let chainOf(commit: Commit) : ChainCtx = {

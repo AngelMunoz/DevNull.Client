@@ -1,0 +1,11 @@
+[37m[[37m00:46:09 [37mINF[37m] [37mEXPECTO? Running tests...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[37m[[37m00:46:19 [31mERR[37m] [36mdevnull client ui.memory leaks.the workbench mount releases every child root it drops[37m failed in [32m00:00:04.9290000[37m. [36m
+a closed search root survived.
+[32mexpected[36m: [32m0[36m
+[31m  actual[36m: [31m1[36m
+   at DevNull.Client.UI.Tests.Leaks.tests@730-237.Invoke(Unit _arg89) in E:\DevNull.Client\tests\DevNull.Client.UI.Tests\Leaks.Tests.fs:line 749
+   at Microsoft.FSharp.Control.AsyncPrimitives.CallThenInvokeNoHijackCheck[a,b](AsyncActivation`1 ctxt, b result1, FSharpFunc`2 userCode) in F:\1\s\src\fsharp\src\FSharp.Core\async.fs:line 527
+   at DevNull.Client.UI.Tests.Harness.settleAsync@103-3.Invoke(AsyncActivation`1 ctxt)
+   at DevNull.Client.UI.Tests.Harness.onUiAsync@71-4.Invoke(AsyncActivation`1 ctxt)
+   at Microsoft.FSharp.Control.Trampoline.Execute(FSharpFunc`2 firstAction) in F:\1\s\src\fsharp\src\FSharp.Core\async.fs:line 112[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h

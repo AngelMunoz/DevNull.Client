@@ -230,6 +230,8 @@
     <Compile Include="Layouts\Workbench\WorkbenchTypes.fs" />
     <Compile Include="Layouts\Workbench\WorkbenchSettings.fsi" />
     <Compile Include="Layouts\Workbench\WorkbenchSettings.fs" />
+    <Compile Include="Layouts\Workbench\RowActions.fsi" />
+    <Compile Include="Layouts\Workbench\RowActions.fs" />
     <Compile Include="Layouts\Workbench\HistoryColumn.fsi" />
     <Compile Include="Layouts\Workbench\HistoryColumn.fs" />
     <Compile Include="Layouts\Workbench\Inspector.fsi" />
@@ -244,10 +246,6 @@
     <Compile Include="Layouts\Workbench\RepositoryHome.fs" />
     <Compile Include="Layouts\Workbench\NotificationsCenter.fsi" />
     <Compile Include="Layouts\Workbench\NotificationsCenter.fs" />
-    <Compile Include="Layouts\Workbench\SearchPalette.fsi" />
-    <Compile Include="Layouts\Workbench\SearchPalette.fs" />
-    <Compile Include="Layouts\Workbench\SearchResults.fsi" />
-    <Compile Include="Layouts\Workbench\SearchResults.fs" />
     <Compile Include="Layouts\Workbench\WorkbenchHost.fsi" />
     <Compile Include="Layouts\Workbench\WorkbenchHost.fs" />
     <Compile Include="Layouts\Editor\EditorCards.fsi" />

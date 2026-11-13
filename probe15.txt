@@ -1,0 +1,2 @@
+[37m[[37m00:29:25 [37mINF[37m] [37mEXPECTO? Running tests...[37m [37m<[37mExpecto[37m>[37m
+[0m

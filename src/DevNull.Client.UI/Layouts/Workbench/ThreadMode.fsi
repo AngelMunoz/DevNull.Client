@@ -11,7 +11,10 @@ open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.Profiles
 open DevNull.Client.Stores
+open DevNull.Client.TranslationCache
+open DevNull.Client.UserSettingsStore
 
 /// One thread's state: the checked-out commit and its parent chain, the
 /// replies and their cursor, the show and replies failures, the clock,
@@ -28,6 +31,7 @@ type Model = {
   RepliesCursor: string option
   RepliesLoading: bool
   RepliesError: AppError option
+  PollChoices: Map<string, string>
   Now: DateTimeOffset
 }
 
@@ -43,6 +47,11 @@ type Msg =
   | BackRequested
   | Opened of Commit
   | QuoteRequested of Commit
+  | PollChoiceChanged of Commit * PollOption * chosen: bool
+  | PollVoteRequested of Commit
+  | PollVotedDone of Result<Commit, AppError>
+  | CommitUpdated of Commit
+  | CommitDeleted of string
 
 /// What one thread needs from its host: the protocol workers, the
 /// signed key file and viewer, the pastéis flag, the image cache, the
@@ -56,6 +65,9 @@ type Props<'env
   and 'env :> IProvideDispatcher
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
@@ -64,12 +76,14 @@ type Props<'env
   ViewerId: string
   Pasteis: bool
   Images: ImageCacheService
+  Flyout: DevNull.Client.Components.UserFlyout.Source voption
   Now: IObservable<DateTimeOffset>
   Zone: Zone
   OnBack: unit -> unit
   OnOpenThread: Commit -> unit
   OnOpenExternal: string -> unit
   OnQuote: Commit -> unit
+  OnDialog: RowActions.Dialog -> unit
 }
 
 /// The thread's two regions: the center thread and the PARENTS chain

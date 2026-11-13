@@ -881,6 +881,7 @@ let mount(props: Props<'env>) : Mount =
         Searches = searches
         Recents = (env :> IProvideRecentSearches).RecentSearches
         Nav = router
+        InitialTerm = None
         OpenCompose = fun () -> composeOpen.OnNext true
         Close = closeSearch
       }

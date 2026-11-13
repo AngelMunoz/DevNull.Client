@@ -32,6 +32,8 @@ type Props<'env
   Searches: Session
   Recents: RecentSearchStore
   Nav: INavigable
+  /// The term a center host opens with; the palette leaves it empty.
+  InitialTerm: string option
   OpenCompose: unit -> unit
   Close: unit -> unit
 }
@@ -50,3 +52,6 @@ type Page<'env
   and 'env :> IProvideLogging> =
   new: props: Props<'env> -> Page<'env>
   inherit UserControl
+  /// Releases the dialog's program and search session when its host
+  /// closes it or it leaves the visual tree.
+  interface System.IDisposable

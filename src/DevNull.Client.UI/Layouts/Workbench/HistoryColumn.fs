@@ -14,10 +14,15 @@ open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.Profiles
+open DevNull.Client.Stores
 open DevNull.Client.Theme
+open DevNull.Client.TranslationCache
+open DevNull.Client.UserSettingsStore
 
 type Model = {
   Loading: bool
@@ -67,18 +72,27 @@ type Msg =
   | PollChoiceChanged of Commit * PollOption * chosen: bool
   | PollVoteRequested of Commit
   | PollVotedDone of Result<Commit, AppError>
+  | CommitUpdated of Commit
+  | CommitDeleted of string
 
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
-  and 'env :> IProvideHttp> = {
+  and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideLogging> = {
   Env: 'env
+  Session: SignedInSession option
   Source: HistorySource
   KeyFile: string
   ViewerId: string
   Pasteis: bool
   Images: ImageCacheService
+  Flyout: DevNull.Client.Components.UserFlyout.Source voption
   Now: IObservable<DateTimeOffset>
   Refresh: IObservable<unit>
   Zone: Zone
@@ -88,6 +102,7 @@ type Props<'env
   OnQuote: Commit -> unit
   Restore: Place option
   OnReport: Report -> unit
+  OnDialog: RowActions.Dialog -> unit
 }
 
 let headOf(items: CommitNode list) =
@@ -228,7 +243,7 @@ let report(props: Props<'env>, model: Model) : Cmd<Msg> =
     })
 
 let init(props: Props<'env>) : Model * Cmd<Msg> =
-  {
+  ({
     Loading = true
     Error = None
     Items = []
@@ -247,8 +262,8 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     Pasteis = props.Pasteis
     HeardIds = []
     Offset = props.Restore |> Option.map _.Offset |> Option.defaultValue 0.0
-  },
-  Cmd.OfAsync.perform fetch (props, None) Fetched
+   },
+   Cmd.OfAsync.perform fetch (props, None) Fetched)
 
 let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   match msg with
@@ -270,12 +285,12 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
 
       next, report(props, next)
     | Error error ->
-      {
+      ({
         model with
             Loading = false
             Error = Some error
-      },
-      Cmd.none
+       },
+       Cmd.none)
   | MoreRequested ->
     match model.NextCursor with
     | Some _ ->
@@ -284,14 +299,14 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | Appended result ->
     match result with
     | Ok page ->
-      {
+      ({
         model with
             Error = None
             Items = model.Items @ page.Page.Items
             NextCursor = page.Page.NextCursor
             FetchedAt = Some model.Now
-      },
-      Cmd.none
+       },
+       Cmd.none)
     | Error error -> ({ model with Error = Some error }, Cmd.none)
   | CheckNew ->
     match props.Source, model.Head, model.Ranked with
@@ -301,12 +316,12 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | NewChecked result ->
     match result with
     | Ok page when model.Ranked ->
-      {
+      ({
         model with
             NewCount =
               page.NewCommitsCount |> Option.filter(fun count -> count > 0)
-      },
-      Cmd.none
+       },
+       Cmd.none)
     | Ok page ->
       let loaded =
         model.Items
@@ -358,14 +373,14 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         |> List.filter(fun id -> not(Set.contains id mergedLoaded))
         |> List.truncate 100
 
-      {
+      ({
         model with
             Items = merged
             NewCount =
               page.NewCommitsCount |> Option.filter(fun count -> count > 0)
             HeardIds = heard
-      },
-      Cmd.none
+       },
+       Cmd.none)
     | Error _ -> model, Cmd.none
   | NewRequested ->
     ({ model with NewCount = None },
@@ -388,13 +403,13 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
     | Error error -> ({ model with Error = Some error }, Cmd.none)
   | ClockTicked moment -> ({ model with Now = moment }, Cmd.none)
   | RefreshRequested ->
-    {
+    ({
       model with
           Loading = true
           Error = None
           NewCount = None
-    },
-    Cmd.OfAsync.perform fetch (props, None) Fetched
+     },
+     Cmd.OfAsync.perform fetch (props, None) Fetched)
   | PollingChanged active -> ({ model with Polling = active }, Cmd.none)
   | Scrolled offset ->
     let next = { model with Offset = offset }
@@ -402,12 +417,12 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | Opened commit -> model, Cmd.ofAction(fun () -> props.OnOpened commit)
   | QuoteRequested commit -> model, Cmd.ofAction(fun () -> props.OnQuote commit)
   | StarToggled commit ->
-    {
+    ({
       model with
           Error = None
           Busy = Some commit.Id
-    },
-    Cmd.OfAsync.perform star (props, commit) StarDone
+     },
+     Cmd.OfAsync.perform star (props, commit) StarDone)
   | StarDone result ->
     match result with
     | Ok updated ->
@@ -420,45 +435,45 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             | LiveCommit commit -> commit.Id <> updated.Id
             | Tombstone _ -> true)
 
-      {
+      ({
         model with
             Items = items
             Head = headOf items
             Busy = None
-      },
-      Cmd.none
+       },
+       Cmd.none)
     | Error error ->
-      {
+      ({
         model with
             Error = Some error
             Busy = None
-      },
-      Cmd.none
+       },
+       Cmd.none)
   | PastelGiven commit ->
-    {
+    ({
       model with
           Error = None
           Busy = Some commit.Id
-    },
-    Cmd.OfAsync.perform givePastel (props, commit) PastelDone
+     },
+     Cmd.OfAsync.perform givePastel (props, commit) PastelDone)
   | PastelDone result ->
     match result with
     | Ok pastel ->
-      {
+      ({
         model with
             Items = replaceNode(model.Items, pastel.Commit)
             Busy = None
-      },
-      Cmd.none
+       },
+       Cmd.none)
     | Error error ->
-      {
+      ({
         model with
             Error = Some error
             Busy = None
-      },
-      Cmd.none
+       },
+       Cmd.none)
   | PollChoiceChanged(commit, option, chosen) ->
-    {
+    ({
       model with
           PollChoices =
             CommitCard.choose {
@@ -467,35 +482,56 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
               OptionId = option.Id
               Chosen = chosen
             }
-    },
-    Cmd.none
+     },
+     Cmd.none)
   | PollVoteRequested commit ->
     match CommitCard.selectedOption(model.PollChoices, commit) with
     | Some option ->
-      {
+      ({
         model with
             Error = None
             Busy = Some commit.Id
-      },
-      Cmd.OfAsync.perform vote (props, commit, option) PollVotedDone
+       },
+       Cmd.OfAsync.perform vote (props, commit, option) PollVotedDone)
     | None -> model, Cmd.none
   | PollVotedDone result ->
     match result with
     | Ok updated ->
-      {
+      ({
         model with
             Items = replaceNode(model.Items, updated)
             Busy = None
             PollChoices = model.PollChoices |> Map.remove updated.Id
-      },
-      Cmd.none
+       },
+       Cmd.none)
     | Error error ->
-      {
+      ({
         model with
             Error = Some error
             Busy = None
-      },
-      Cmd.none
+       },
+       Cmd.none)
+  | CommitUpdated updated ->
+    ({
+      model with
+          Items = replaceNode(model.Items, updated)
+     },
+     Cmd.none)
+  | CommitDeleted commitId ->
+    ({
+      model with
+          Items =
+            model.Items
+            |> List.filter(function
+              | LiveCommit commit -> commit.Id <> commitId
+              | Tombstone _ -> true)
+          Head =
+            model.Items
+            |> List.tryPick(function
+              | LiveCommit commit when commit.Id <> commitId -> Some commit.Id
+              | _ -> None)
+     },
+     Cmd.none)
 
 let subscribe (props: Props<'env>) (model: Model) : Sub<Msg> =
   [
@@ -604,14 +640,32 @@ let view
   let inline slot(command: Commit -> unit) : ActionSlot voption =
     ValueSome { Command = command; Busy = busy }
 
+  let actions =
+    props.Session
+    |> Option.map(fun session ->
+      RowActions.create {
+        Env = props.Env
+        Session = session
+        Now = props.Now
+        OfferBasicActions = false
+        OnUpdated = CommitUpdated >> dispatch
+        OnDeleted = CommitDeleted >> dispatch
+        OnDialog = props.OnDialog
+        Flyout = props.Flyout
+      })
+
   let rowProps: RowProps = {
     OnEvent =
-      function
-      | CommitCard.Opened commit -> dispatch(Opened commit)
-      | CommitCard.QuoteRequested commit -> dispatch(QuoteRequested commit)
-      | CommitCard.PollChoiceChanged(commit, option, chosen) ->
-        dispatch(PollChoiceChanged(commit, option, chosen))
-      | _ -> ()
+      fun event ->
+        actions |> Option.iter(fun current -> current.Handle event)
+
+        match event with
+        | CommitCard.Opened commit -> dispatch(Opened commit)
+        | CommitCard.ReplyToggled commit -> dispatch(Opened commit)
+        | CommitCard.QuoteRequested commit -> dispatch(QuoteRequested commit)
+        | CommitCard.PollChoiceChanged(commit, option, chosen) ->
+          dispatch(PollChoiceChanged(commit, option, chosen))
+        | _ -> ()
     OnOpenExternal = props.OnOpenExternal
     ViewerId = props.ViewerId
     Pasteis = model |> Observable.map _.Pasteis |> Slices.share
@@ -619,14 +673,20 @@ let view
     PollChoices = model |> Observable.map _.PollChoices |> Slices.share
     Dense = true
     Images = props.Images
-    Flyout = ValueNone
+    Flyout = actions |> Option.map _.Flyout |> Option.defaultValue ValueNone
     Pin = ValueNone
     Star = slot(fun commit -> dispatch(StarToggled commit))
     Stars = ValueNone
     Vote = slot(fun commit -> dispatch(PollVoteRequested commit))
     Pastel = slot(fun commit -> dispatch(PastelGiven commit))
-    Menu = ValueNone
-    Translation = Observable.single(fun (_: Commit) -> ValueNone)
+    Menu =
+      match actions with
+      | Some current -> current.Menu
+      | None -> ValueNone
+    Translation =
+      actions
+      |> Option.map _.Translation
+      |> Option.defaultValue(Observable.single(fun (_: Commit) -> ValueNone))
     Zone = props.Zone
   }
 

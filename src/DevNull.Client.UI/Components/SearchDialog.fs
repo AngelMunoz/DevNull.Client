@@ -1,6 +1,7 @@
 module DevNull.Client.Components.SearchDialog
 
 open System
+open System.Reactive.Disposables
 open System.Text.RegularExpressions
 open Avalonia
 open Avalonia.Controls
@@ -44,6 +45,7 @@ type Props<'env
   Searches: Session
   Recents: RecentSearchStore
   Nav: INavigable
+  InitialTerm: string option
   OpenCompose: unit -> unit
   Close: unit -> unit
 }
@@ -86,8 +88,10 @@ module State =
     | ClockTicked of moment: DateTimeOffset
 
   let initial (props: Props<'env>) () : Model * Cmd<Msg> =
+    let term = props.InitialTerm |> Option.defaultValue ""
+
     let model = {
-      Term = ""
+      Term = term
       Active = 0
       Profiles = ValueNone
       Commits = ValueNone
@@ -96,7 +100,13 @@ module State =
       Remembered = ""
     }
 
-    model, Cmd.none
+    let seed =
+      if term.Trim() = "" then
+        Cmd.none
+      else
+        Cmd.ofAction(fun () -> props.Searches.Set term)
+
+    model, seed
 
   let inline trimmed(model: Model) = model.Term.Trim()
 
@@ -755,16 +765,31 @@ type Page<'env
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 
+  let program =
+    Program.mkProgram (State.initial props) (State.update props) (view props)
+    |> Program.withSubscription(State.subscribe props)
+
+  let root, component =
+    Programs.runComponent(this, props.Env.Dispatcher, program)
+
+  let lifetime =
+    Disposable.Create(fun () ->
+      this.Tag <- null
+      this.Content <- null
+      (props.Searches :> IDisposable).Dispose()
+      component.Dispose())
+
   do
-    let program =
-      Program.mkProgram (State.initial props) (State.update props) (view props)
-      |> Program.withSubscription(State.subscribe props)
-
-    let root, _ = Programs.runComponent(this, props.Env.Dispatcher, program)
-
     this.Content <- root
+
+    // The close path reads the top-level back from Tag; the page itself
+    // does not otherwise use it.
+    this.AttachedToVisualTree.Add(fun _ ->
+      this.Tag <- TopLevel.GetTopLevel(this))
 
     // The overlay's content is released on close; the session's pipes
     // go with it.
-    this.DetachedFromVisualTree.Add(fun _ ->
-      (props.Searches :> IDisposable).Dispose())
+    this.DetachedFromVisualTree.Add(fun _ -> lifetime.Dispose())
+
+  interface IDisposable with
+    member _.Dispose() = lifetime.Dispose()

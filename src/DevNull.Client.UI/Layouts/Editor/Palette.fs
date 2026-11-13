@@ -169,6 +169,7 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) : Control * IDisposable =
       Env = props.Env
       SignedIn = props.Session
       Searches = searches
+      InitialTerm = None
       Recents = (props.Env :> IProvideRecentSearches).RecentSearches
       Nav = searchNav props
       OpenCompose = props.OnOpenCompose

@@ -51,6 +51,24 @@ type WorkbenchEnv() =
   interface IProvideHttp with
     member _.Http = http
 
+  interface DevNull.Client.Env.IProvideDispatcher with
+    member _.Dispatcher = Unchecked.defaultof<Avalonia.Threading.IDispatcher>
+
+  interface DevNull.Client.Profiles.IProvideProfiles with
+    member _.Profiles = Unchecked.defaultof<DevNull.Client.Profiles.IProfiles>
+
+  interface DevNull.Client.TranslationCache.IProvideTranslations with
+    member _.Translations =
+      Unchecked.defaultof<DevNull.Client.TranslationCache.TranslationCache>
+
+  interface DevNull.Client.UserSettingsStore.IProvideUserSettings with
+    member _.UserSettings =
+      Unchecked.defaultof<DevNull.Client.UserSettingsStore.UserSettingsStore>
+
+  interface DevNull.Client.Env.IProvideLogging with
+    member _.LoggerFactory =
+      Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance
+
 let images = {
   new ImageCacheService with
     member _.Get(_url: string) = async { return None }
@@ -58,11 +76,13 @@ let images = {
 
 let props(log: LogKind) : HistoryColumn.Props<WorkbenchEnv> = {
   Env = WorkbenchEnv()
+  Session = None
   Source = LogSource log
   KeyFile = "/tmp/devnull-test-id_ed25519"
   ViewerId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
   Pasteis = true
   Images = images
+  Flyout = ValueNone
   Now = Observable.single(DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero))
   Refresh = Observable.empty
   Zone = {
@@ -75,6 +95,7 @@ let props(log: LogKind) : HistoryColumn.Props<WorkbenchEnv> = {
   OnQuote = ignore
   Restore = None
   OnReport = ignore
+  OnDialog = ignore
 }
 
 let pageOf(json: string) =

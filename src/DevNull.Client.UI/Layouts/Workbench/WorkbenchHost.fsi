@@ -5,6 +5,7 @@ open Avalonia.Controls
 open Avalonia.Threading
 open MVUish.Avalonia
 open DevNull.Client.AttachmentSources
+open DevNull.Client.Components
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
@@ -13,7 +14,13 @@ open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
+open DevNull.Client.Profiles
+open DevNull.Client.RecentSearchStore
+open DevNull.Client.Remotes
 open DevNull.Client.Stores
+open DevNull.Client.UiClock
+open DevNull.Client.TranslationCache
+open DevNull.Client.UserSettingsStore
 
 /// One live history program: the ref it shows, the place it restored,
 /// its root view, the handle that ends it, and the named refresh inlet
@@ -84,6 +91,8 @@ type Model = {
   SearchPalette: SearchPaletteChild option
   Search: SearchChild option
   SearchTerm: string option
+  ShareOpen: Commit option
+  ReportOpen: Commit option
   Handle: string
   FetchedAt: DateTimeOffset option
   SavedCount: int
@@ -115,6 +124,7 @@ type Msg =
   | OpenThread of commitId: string
   | ThreadClosed
   | StagingToggled
+  | ComposeRequested
   | DraftChanged of text: string
   | StagingPosted of commit: Commit
   | StagingScheduled of entry: ScheduledCommit
@@ -135,6 +145,7 @@ type Msg =
   | NotificationsReady of view: Control * handle: IDisposable
   | NotificationsStopped
   | SearchPaletteToggled
+  | EscapeRequested
   | SearchPaletteClosed
   | SearchPaletteReady of view: Control * handle: IDisposable
   | SearchPaletteStopped
@@ -142,6 +153,9 @@ type Msg =
   | SearchClosed
   | SearchReady of term: string * view: Control * handle: IDisposable
   | SearchStopped
+  | DialogRequested of RowActions.Dialog
+  | ShareClosed
+  | ReportClosed
   | HistoryReady of
     ref: Ref *
     restore: HistoryColumn.Place option *
@@ -173,6 +187,12 @@ type Props<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLastVisit
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideRecentSearches
+  and 'env :> IProvideRemotes
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideUserSettings
   and 'env :> IProvideLogging> = {
   Env: 'env
   Initial: WorkbenchState
@@ -198,7 +218,6 @@ type internal TrackedHandle =
 [<Sealed>]
 type internal MountedHost =
   member Send: msg: Msg -> unit
-  member CurrentModel: Model option
   member Created: TrackedHandle list
   member LiveHistory: int
   member LiveInspector: int
@@ -244,23 +263,3 @@ val program: props: Props<'env> -> Program<unit, Model, Msg, Control>
 /// Disposing it ends the host program and every live child program it
 /// recorded, exactly once.
 val mount: dispatcher: IDispatcher * props: Props<'env> -> Control * IDisposable
-
-/// One mounted workbench for the layout adapter: the root, the host
-/// message path the window's key tunnel and tray reach, the overlay
-/// probe and the escape order its own model decides, and the one
-/// lifetime.
-[<Sealed>]
-type WorkbenchMount =
-  member Root: Control
-  member Send: msg: Msg -> unit
-  /// The tracked host beneath, for the tests' counted asserts.
-  member internal Inner: MountedHost
-  member OverlayOpen: unit -> bool
-  /// Closes the top overlay the model holds: the search center, then
-  /// the palette, then staging. A model with no overlay does nothing.
-  member Escape: unit -> unit
-  interface IDisposable
-
-/// Mounts the host with the adapter's richer surface: the message
-/// path and the overlay order live with the model that owns them.
-val mountFor: dispatcher: IDispatcher * props: Props<'env> -> WorkbenchMount

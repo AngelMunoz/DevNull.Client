@@ -246,13 +246,10 @@ let builtIn
       // The sinks can reach the host's message path only after the
       // mount exists; the slot is filled once, right after the call
       // returns, before any message can run.
-      let mutable mounted: WorkbenchHost.WorkbenchMount option = None
+      let sendToWorkbench: WorkbenchHost.Msg -> unit = ignore
 
-      let sendToWorkbench(msg: WorkbenchHost.Msg) : unit =
-        mounted |> Option.iter(fun host -> host.Send msg)
-
-      let mountedWorkbench =
-        WorkbenchHost.mountFor(
+      let workbenchRoot, workbenchLifetime =
+        WorkbenchHost.mount(
           (env :> IProvideDispatcher).Dispatcher,
           {
             Env = env
@@ -275,50 +272,31 @@ let builtIn
           }
         )
 
-      mounted <- Some mountedWorkbench
-
       {
         new ILayout with
           member _.Name = "workbench"
-          member _.Root = mountedWorkbench.Root
+          member _.Root = workbenchRoot
 
           member _.Actions = {
-            Compose =
-              fun () -> mountedWorkbench.Send WorkbenchHost.StagingToggled
-            Search =
-              fun () -> mountedWorkbench.Send WorkbenchHost.SearchPaletteToggled
-            Escape = fun () -> mountedWorkbench.Escape()
+            Compose = ignore
+            Search = ignore
+            Escape = ignore
             Navigate = ignore
             ToggleFullScreen = fullscreenOf surface
             WalkCards = ignore
           }
 
-          member _.OverlayOpen() = mountedWorkbench.OverlayOpen()
+          member _.OverlayOpen() = false
           member _.Cheatsheet = workbenchCheatsheet
           member _.Navigate _ = ()
           member _.Narrow = Observable.single false
           member _.ToggleDrawer() = ()
 
-          member _.Handle(intent) =
-            match intent with
-            | LayoutIntent.OpenHome ->
-              mountedWorkbench.Send(
-                WorkbenchHost.RefSelected(Build.history Latest)
-              )
-            | LayoutIntent.OpenNotifications ->
-              mountedWorkbench.Send(
-                WorkbenchHost.RefSelected(Build.notifications)
-              )
-            | LayoutIntent.OpenSaved ->
-              mountedWorkbench.Send(WorkbenchHost.RefSelected(Build.saved))
-            | LayoutIntent.ComposeNow ->
-              mountedWorkbench.Send WorkbenchHost.StagingToggled
-            | LayoutIntent.SearchNow ->
-              mountedWorkbench.Send WorkbenchHost.SearchPaletteToggled
+          member _.Handle _ = ()
 
         interface IDisposable with
           member _.Dispose() =
-            (mountedWorkbench :> IDisposable).Dispose()
+            (workbenchLifetime :> IDisposable).Dispose()
       }
 
   // The editor arrangement: the frame mounts as content, and the

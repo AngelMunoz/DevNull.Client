@@ -497,13 +497,12 @@ let tests =
         let! window, mounted =
           probeUiAsync(fun () ->
             let env = TestEnv(signedInStore(), workbenchApi() :> IHttp)
-            let mounted = WorkbenchHost.mountFor(ui, workbenchProps env)
-            let view = mounted.Root
+            let view, handle = WorkbenchHost.mount(ui, workbenchProps env)
 
             let window = Window(Width = 1600.0, Height = 900.0, Content = view)
 
             window.Show()
-            window, mounted.Inner)
+            window, handle :?> WorkbenchHost.MountedHost)
 
         let! firstHistory =
           waitForAsync(
@@ -707,8 +706,8 @@ let tests =
         let! searchRows =
           waitForAsync(
             8000,
-            (fun () -> window),
-            fun root -> hasTextFragment(root, "Search · manual refresh")
+            (fun () -> controlByName(window, "SearchDialogCard")),
+            Option.isSome
           )
 
         Expect.isTrue searchRows "the search center never rendered"

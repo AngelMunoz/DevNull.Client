@@ -43,11 +43,13 @@ let private zone: Zone = {
 
 let private historyProps(env: TestEnv) : HistoryColumn.Props<TestEnv> = {
   Env = env
+  Session = None
   Source = LogSource Following
   KeyFile = "/tmp/devnull-test-id_ed25519"
   ViewerId = "01a151db-0000-0000-0000-000000000000"
   Pasteis = false
   Images = images
+  Flyout = ValueNone
   Now = Observable.single now
   Refresh = Observable.empty
   Zone = zone
@@ -57,6 +59,7 @@ let private historyProps(env: TestEnv) : HistoryColumn.Props<TestEnv> = {
   OnQuote = ignore
   Restore = None
   OnReport = ignore
+  OnDialog = ignore
 }
 
 let private hostProps
@@ -93,13 +96,6 @@ let private controlByName(root: Control, name: string) : Control option =
     | :? Control as control when control.Name = name -> Some control
     | _ -> None)
   |> Seq.tryHead
-
-let private clickName(window: Window, name: string) : Async<unit> =
-  onUiAsync(fun () ->
-    controlByName(window, name)
-    |> Option.iter(function
-      | :? Button as button -> click button
-      | _ -> ()))
 
 let private hasTextFragment(root: Control, fragment: string) : bool =
   root.GetVisualDescendants()
@@ -307,13 +303,12 @@ let tests =
 
         let! window, mounted =
           probeUiAsync(fun () ->
-            let mounted = WorkbenchHost.mountFor(ui, props)
-            let view = mounted.Root
+            let view, handle = WorkbenchHost.mount(ui, props)
 
             let window = Window(Width = 1600.0, Height = 900.0, Content = view)
 
             window.Show()
-            window, mounted.Inner)
+            window, handle :?> WorkbenchHost.MountedHost)
 
         let! history =
           waitForAsync(
@@ -403,11 +398,11 @@ let tests =
         let! results =
           waitForAsync(
             8000,
-            (fun () -> window),
-            fun root -> hasTextFragment(root, "Search · manual refresh")
+            (fun () -> searchCount api),
+            fun count -> count = beforeSearch + 1
           )
 
-        Expect.isTrue results "the search center never rendered"
+        Expect.isTrue results "the search center did not read once on entry"
 
         let afterSearch = searchCount api
 
@@ -424,28 +419,7 @@ let tests =
         Expect.equal
           (searchCount api)
           afterSearch
-          "the search center polled without a refresh"
-
-        do! clickName(window, "SearchRefresh")
-
-        let! refreshed =
-          waitForAsync(
-            8000,
-            (fun () -> searchCount api),
-            fun count -> count = afterSearch + 1
-          )
-
-        Expect.isTrue refreshed "the manual refresh never read"
-
-        for minute in 1..3 do
-          do! onUiAsync(fun () -> clock.OnNext(now.AddMinutes(float minute)))
-
-        do! settleAsync()
-
-        Expect.equal
-          (searchCount api)
-          (afterSearch + 1)
-          "the search center polled after its manual refresh"
+          "the hosted search dialog polled without a query"
 
         do!
           onUiAsync(fun () ->
@@ -504,13 +478,12 @@ let tests =
 
         let! window, mounted =
           probeUiAsync(fun () ->
-            let mounted = WorkbenchHost.mountFor(ui, props)
-            let view = mounted.Root
+            let view, handle = WorkbenchHost.mount(ui, props)
 
             let window = Window(Width = 1600.0, Height = 900.0, Content = view)
 
             window.Show()
-            window, mounted.Inner)
+            window, handle :?> WorkbenchHost.MountedHost)
 
         let! history =
           waitForAsync(
@@ -641,13 +614,12 @@ let tests =
 
         let! window, mounted =
           probeUiAsync(fun () ->
-            let mounted = WorkbenchHost.mountFor(ui, props)
-            let view = mounted.Root
+            let view, handle = WorkbenchHost.mount(ui, props)
 
             let window = Window(Width = 1600.0, Height = 900.0, Content = view)
 
             window.Show()
-            window, mounted.Inner)
+            window, handle :?> WorkbenchHost.MountedHost)
 
         let! inspector =
           waitForAsync(
@@ -779,203 +751,6 @@ let tests =
         Expect.equal count 8 "the refs chrome lost its default layout child"
       })
 
-    testCaseAsync
-      "the search surfaces use workbench rows and no chip buttons"
-      (async {
-        let api = workbenchApi()
-        let env = TestEnv(signedInStore(), api :> IHttp)
-        let pickedPeople = ResizeArray<string>()
-        let pickedCommits = ResizeArray<Commit>()
-        let closed = ResizeArray<unit>()
-
-        let matches =
-          match
-            SearchProfiles.decode(
-              sprintf "{\"users\":[%s],\"organizations\":[]}" apiUserJson
-            )
-          with
-          | Ok matches -> matches
-          | Error failure ->
-            failwith $"the canned people never decoded: {failure.Message}"
-
-        let results =
-          match SearchCommits.decode(sprintf "{\"data\":[%s]}" commitJson) with
-          | Ok results -> results
-          | Error failure ->
-            failwith $"the canned commits never decoded: {failure.Message}"
-
-        let paletteProps: SearchPalette.Props<TestEnv> = {
-          Env = env
-          KeyFile = "/tmp/devnull-test-id_ed25519"
-          Images = images
-          OnOpenRepository = fun handle -> pickedPeople.Add handle
-          OnSearchCommits = ignore
-          OnClose = fun () -> closed.Add(())
-        }
-
-        let paletteSubject =
-          new BehaviorSubject<SearchPalette.Model>(
-            {
-              Term = "octo"
-              Loading = false
-              Error = None
-              People = matches.Users
-              Searched = true
-              Notice = None
-            }
-          )
-
-        let! paletteWindow =
-          probeUiAsync(fun () ->
-            let palette =
-              SearchPalette.view
-                paletteProps
-                (paletteSubject :> IObservable<SearchPalette.Model>)
-                ignore
-
-            let window =
-              Window(Width = 700.0, Height = 700.0, Content = palette)
-
-            window.Show()
-            window)
-
-        let! paletteShown =
-          waitForAsync(
-            8000,
-            (fun () -> paletteWindow),
-            fun root ->
-              hasText(root, "SEARCH")
-              && hasText(root, "PEOPLE")
-              && hasText(root, "COMMITS")
-          )
-
-        Expect.isTrue paletteShown "the workbench palette never rendered"
-
-        let! paletteStyle =
-          probeUiAsync(fun () ->
-            let root =
-              controlByName(paletteWindow, "SearchPalette")
-              |> Option.defaultWith(fun () ->
-                failwith "the palette root disappeared")
-
-            let person =
-              controlByName(paletteWindow, "SearchPersonRow")
-              |> Option.defaultWith(fun () ->
-                failwith "the palette person row disappeared")
-
-            let chips =
-              paletteWindow.GetVisualDescendants()
-              |> Seq.choose(function
-                | :? Button as button -> Some button
-                | _ -> None)
-              |> Seq.filter(fun button ->
-                hasClass(button, "chip") || hasClass(button, "filter-pill"))
-              |> Seq.toList
-
-            hasClass(root, "card-back"),
-            hasClass(root, "hairline"),
-            hasClass(person, "commit-row"),
-            chips.IsEmpty)
-
-        let paletteCard, paletteHairline, paletteCommitRow, paletteChips =
-          paletteStyle
-
-        Expect.isTrue paletteCard "the palette lost its card surface"
-        Expect.isTrue paletteHairline "the palette lost its hairline"
-
-        Expect.isTrue
-          paletteCommitRow
-          "the palette person row is not a workbench row"
-
-        Expect.isTrue paletteChips "the palette kept chip buttons"
-
-        let resultProps: SearchResults.Props<TestEnv> = {
-          Env = env
-          KeyFile = "/tmp/devnull-test-id_ed25519"
-          ViewerId = "01a151db-0000-0000-0000-000000000000"
-          Pasteis = false
-          Images = images
-          Now = Observable.single now
-          Zone = zone
-          Term = "dns"
-          OnOpenThread = fun commit -> pickedCommits.Add commit
-          OnQuote = ignore
-          OnOpenExternal = ignore
-          OnClose = fun () -> closed.Add(())
-        }
-
-        let resultSubject =
-          new BehaviorSubject<SearchResults.Model>(
-            {
-              Term = "dns"
-              Loading = false
-              Error = None
-              Results = results
-              Now = now
-            }
-          )
-
-        let! centerWindow =
-          probeUiAsync(fun () ->
-            let center =
-              SearchResults.view
-                resultProps
-                (resultSubject :> IObservable<SearchResults.Model>)
-                ignore
-
-            let window =
-              Window(Width = 1600.0, Height = 900.0, Content = center)
-
-            window.Show()
-            window)
-
-        let! centerShown =
-          waitForAsync(
-            8000,
-            (fun () -> centerWindow),
-            fun root ->
-              hasText(root, "COMMITS")
-              && hasText(root, "Search · manual refresh")
-              && hasText(root, "It was DNS.")
-          )
-
-        Expect.isTrue centerShown "the workbench search center never rendered"
-
-        let! centerStyle =
-          probeUiAsync(fun () ->
-            let root =
-              controlByName(centerWindow, "SearchCenter")
-              |> Option.defaultWith(fun () ->
-                failwith "the search center root disappeared")
-
-            let chips =
-              centerWindow.GetVisualDescendants()
-              |> Seq.choose(function
-                | :? Button as button -> Some button
-                | _ -> None)
-              |> Seq.filter(fun button ->
-                hasClass(button, "chip") || hasClass(button, "filter-pill"))
-              |> Seq.toList
-
-            hasClass(root, "card-back"),
-            hasClass(root, "hairline"),
-            chips.IsEmpty)
-
-        let centerCard, centerHairline, centerChips = centerStyle
-
-        Expect.isTrue centerCard "the center lost its card surface"
-        Expect.isTrue centerHairline "the center lost its hairline"
-        Expect.isTrue centerChips "the search surfaces kept chip buttons"
-
-        do!
-          onUiAsync(fun () ->
-            paletteWindow.Close()
-            centerWindow.Close()
-            paletteSubject.OnCompleted()
-            paletteSubject.Dispose()
-            resultSubject.OnCompleted()
-            resultSubject.Dispose())
-      })
 
     testCaseAsync
       "an empty message panel collapses to no height"

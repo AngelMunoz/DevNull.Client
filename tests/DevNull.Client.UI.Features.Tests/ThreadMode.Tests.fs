@@ -50,6 +50,7 @@ let props(env: TestEnv, sinks: Sinks) : ThreadMode.Props<TestEnv> = {
   ViewerId = "01a151db-0000-0000-0000-000000000000"
   Pasteis = true
   Images = images
+  Flyout = ValueNone
   Now = Observable.single(DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero))
   Zone = {
     Info = TimeZoneInfo.Utc
@@ -59,6 +60,7 @@ let props(env: TestEnv, sinks: Sinks) : ThreadMode.Props<TestEnv> = {
   OnOpenThread = sinks.Thread
   OnOpenExternal = sinks.External
   OnQuote = sinks.Quote
+  OnDialog = ignore
 }
 
 let threadPage =
@@ -99,6 +101,7 @@ let readyModel: ThreadMode.Model = {
   RepliesCursor = None
   RepliesLoading = false
   RepliesError = None
+  PollChoices = Map.empty
   Now = DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero)
 }
 

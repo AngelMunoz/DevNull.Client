@@ -1,0 +1,94 @@
+[37m[[37m22:56:57 [37mINF[37m] [37mEXPECTO? Running tests...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[37m[[37m22:56:57 DBG[37m] [36mdevnull client ui.natives.a web note sniffs as WebM and carries no samples[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:56:57 DBG[37m] [36mdevnull client ui.natives.a web note sniffs as WebM and carries no samples[37m passed in [32m00:00:00.0170000[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:56:57 DBG[37m] [36mdevnull client ui.natives.a recorded note sniffs as WAV and carries its samples[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:56:57 DBG[37m] [36mdevnull client ui.natives.a recorded note sniffs as WAV and carries its samples[37m passed in [32m00:00:00[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:56:57 DBG[37m] [36mdevnull client ui.natives.anything that is not a WAV rides the platform player[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:56:57 DBG[37m] [36mdevnull client ui.natives.anything that is not a WAV rides the platform player[37m passed in [32m00:00:00[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:56:57 DBG[37m] [36mdevnull client ui.memory leaks.a canceled image load disposes its decoded bitmap[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:56:57 DBG[37m] [36mdevnull client ui.memory leaks.a canceled image load disposes its decoded bitmap[37m passed in [32m00:00:00.2640000[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:56:57 DBG[37m] [36mdevnull client ui.memory leaks.a themed control releases with its tree[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:56:57 DBG[37m] [36mdevnull client ui.memory leaks.a themed control releases with its tree[37m passed in [32m00:00:00.2700000[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:56:57 DBG[37m] [36mdevnull client ui.memory leaks.a feed row releases when its page ends[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:56:59 DBG[37m] [36mdevnull client ui.memory leaks.a feed row releases when its page ends[37m passed in [32m00:00:01.7740000[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:56:59 DBG[37m] [36mdevnull client ui.memory leaks.a scroll soak stays inside its memory budget[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:00 DBG[37m] [36mdevnull client ui.memory leaks.a scroll soak stays inside its memory budget[37m passed in [32m00:00:01.0880000[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:00 DBG[37m] [36mdevnull client ui.memory leaks.the key table releases the page it leaves[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:01 DBG[37m] [36mdevnull client ui.memory leaks.the key table releases the page it leaves[37m passed in [32m00:00:00.5480000[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:01 DBG[37m] [36mdevnull client ui.memory leaks.the bindings list releases its content on close[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:01 DBG[37m] [36mdevnull client ui.memory leaks.the bindings list releases its content on close[37m passed in [32m00:00:00.3760000[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:01 DBG[37m] [36mdevnull client ui.memory leaks.a removed staged image collects on the transition[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:01 DBG[37m] [36mdevnull client ui.memory leaks.a removed staged image collects on the transition[37m passed in [32m00:00:00.4230000[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:01 DBG[37m] [36mdevnull client ui.memory leaks.the workbench mount releases every child root it drops[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:06 DBG[37m] [36mdevnull client ui.memory leaks.the workbench mount releases every child root it drops[37m passed in [32m00:00:04.9810000[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:06 DBG[37m] [36mdevnull client ui.layout host.the layout choice round-trips through the settings store[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:06 DBG[37m] [36mdevnull client ui.layout host.the layout choice round-trips through the settings store[37m passed in [32m00:00:00.0010000[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:06 DBG[37m] [36mdevnull client ui.layout host.the default layout maps the window intents to routes[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:06 DBG[37m] [36mdevnull client ui.layout host.the default layout maps the window intents to routes[37m passed in [32m00:00:00.0590000[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:06 DBG[37m] [36mdevnull client ui.layout host.a switch mounts the new layout and rebinds the key tunnel[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.layout host.a switch mounts the new layout and rebinds the key tunnel[37m passed in [32m00:00:00.2030000[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.layout host.the workbench layout mounts through the registry and returns[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.layout host.the workbench layout mounts through the registry and returns[37m passed in [32m00:00:00.0260000[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.layout host.the workbench cheatsheet answers the question mark on both keys[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.layout host.the workbench cheatsheet answers the question mark on both keys[37m passed in [32m00:00:00.2670000[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.layout host.twenty layout switches retain nothing[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.layout host.twenty layout switches retain nothing[37m was ignored. [36mThe test or one of its parents is marked as Pending[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.feed virtualization.the feed realizes only the rows the viewport shows[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.feed virtualization.the feed realizes only the rows the viewport shows[37m passed in [32m00:00:00.0290000[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor settings.an unknown stored string answers Following[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor settings.an unknown stored string answers Following[37m passed in [32m00:00:00[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor settings.a null stored string answers Following[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor settings.a null stored string answers Following[37m passed in [32m00:00:00[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor settings.a blank stored string answers Following[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor settings.a blank stored string answers Following[37m passed in [32m00:00:00[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor settings.a fresh install reads Following[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor settings.a fresh install reads Following[37m passed in [32m00:00:00[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor settings.each ref round trips through the one string[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor settings.each ref round trips through the one string[37m passed in [32m00:00:00[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor types.the pinned tab cannot close[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor types.the pinned tab cannot close[37m passed in [32m00:00:00[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor types.an ordinary tab closes and the history tab takes the focus[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor types.an ordinary tab closes and the history tab takes the focus[37m passed in [32m00:00:00.0010000[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor types.the width ladder splits at 1000 and 700[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor types.the width ladder splits at 1000 and 700[37m passed in [32m00:00:00[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor types.opening the same thread tab twice keeps one[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor types.opening the same thread tab twice keeps one[37m passed in [32m00:00:00[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor types.a ref switch retitles the pinned tab[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor types.a ref switch retitles the pinned tab[37m passed in [32m00:00:00[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor frame.the frame shows the full anatomy at 1600 and trims at 380[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor frame.the frame shows the full anatomy at 1600 and trims at 380[37m passed in [32m00:00:00.3630000[37m.[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:07 DBG[37m] [36mdevnull client ui.editor frame.a ref switch restores the place with one first-page fetch[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h[1000D[?25h[37m[[37m22:57:08 [31mERR[37m] [36mdevnull client ui.editor frame.a ref switch restores the place with one first-page fetch[37m errored in [32m00:00:00.2930000[37m [37m<[37mExpecto[37m>[37m
+System.InvalidOperationException: The calling thread cannot access this object because a different thread owns it.
+[37m   at Avalonia.Threading.Dispatcher.<VerifyAccess>g__ThrowVerifyAccess|17_0()[37m
+[37m   at Avalonia.StyledElement.Avalonia.Controls.ISetLogicalParent.SetParent(ILogical parent)[37m
+[37m   at Avalonia.StyledElement.SetLogicalParent(IList children)[37m
+[37m   at Avalonia.Visual.LogicalChildrenCollectionChanged(Object sender, NotifyCollectionChangedEventArgs e)[37m
+[37m   at Avalonia.Collections.AvaloniaList`1.Add(T item)[37m
+[37m   at Avalonia.Controls.ContentControl.ContentChanged(AvaloniaPropertyChangedEventArgs e)[37m
+[37m   at Avalonia.Animation.Animatable.OnPropertyChangedCore(AvaloniaPropertyChangedEventArgs change)[37m
+[37m   at Avalonia.PropertyStore.EffectiveValue`1.SetLocalValueAndRaise(ValueStore owner, StyledProperty`1 property, T value)[37m
+[37m   at Avalonia.PropertyStore.EffectiveValue`1.SetLocalValueAndRaise(ValueStore owner, AvaloniaProperty property, Object value)[37m
+[37m   at Avalonia.PropertyStore.ValueStore.SetLocalValue(AvaloniaProperty property, Object value)[37m
+[37m   at Avalonia.PropertyStore.ValueStore.Avalonia.Data.Core.IBindingExpressionSink.OnChanged(UntypedBindingExpressionBase instance, Boolean hasValueChanged, Boolean hasErrorChanged, Object value, BindingError error)[37m
+[37m   at Avalonia.Data.Core.UntypedBindingExpressionBase.<>c__DisplayClass51_0.<PublishValue>b__0()[37m
+[37m   at Avalonia.Threading.DispatcherOperation.InvokeCore()[37m
+[37m   at Avalonia.Threading.DispatcherOperation.<>c.<Execute>b__56_0(Object s)[37m
+[37m   at Avalonia.Threading.CulturePreservingExecutionContext.CallbackWrapper(Object obj)[37m
+[37m   at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)[37m
+--- End of stack trace from previous location ---
+[37m   at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)[37m
+[37m   at Avalonia.Threading.CulturePreservingExecutionContext.Run(CulturePreservingExecutionContext executionContext, ContextCallback callback, Object state)[37m
+[37m   at Avalonia.Threading.DispatcherOperation.Execute()[37m
+[37m   at Avalonia.Threading.Dispatcher.ExecuteJob(DispatcherOperation job)[37m
+[37m   at Avalonia.Threading.Dispatcher.ExecuteJobsCore(Boolean fromExplicitBackgroundProcessingCallback)[37m
+[37m   at Avalonia.Threading.Dispatcher.Signaled()[37m
+[37m   at Avalonia.Controls.Platform.ManagedDispatcherImpl.RunLoop(CancellationToken token)[37m
+[37m   at Avalonia.Threading.DispatcherFrame.Run(IControlledDispatcherImpl impl)[37m
+[37m   at Avalonia.Threading.Dispatcher.PushFrame(DispatcherFrame frame)[37m
+[37m   at DevNull.Client.UI.Tests.Harness.pumpAsync@89.Invoke(Unit unitVar0) in E:\DevNull.Client\tests\DevNull.Client.UI.Tests\Harness.fs:line 98[37m
+[37m   at DevNull.Client.UI.Tests.Harness.onUiAsync@69-1.Invoke()[37m
+[37m   at Avalonia.Headless.HeadlessUnitTestSession.<>c__DisplayClass9_0.<Dispatch>b__0()[37m
+[37m   at Avalonia.Headless.HeadlessUnitTestSession.<>c__DisplayClass12_0`1.<DispatchCore>b__0()[37m
+[0m[1000D[?25h[1000D[?25h[1000D[?25h[37m[[37m22:57:08 DBG[37m] [36mdevnull client ui.editor frame.a thread tab opens beside the pinned tab at 1600 and trims at 380[37m starting...[37m [37m<[37mExpecto[37m>[37m
+[0m[1000D[?25h

@@ -49,6 +49,7 @@ type Msg =
   | ChildOpened of commitId: string
   | AuthorOpened of handle: string
   | QuoteRequested of Commit
+  | CloseRequested
 
 type Props<'env
   when 'env :> IProvideClock
@@ -68,6 +69,7 @@ type Props<'env
   OnOpenAuthor: string -> unit
   OnOpenExternal: string -> unit
   OnQuote: Commit -> unit
+  OnClose: unit -> unit
 }
 
 let show(props: Props<'env>) : Async<Result<CommitPage, AppError>> =
@@ -259,6 +261,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | AuthorOpened handle ->
     model, Cmd.ofAction(fun () -> props.OnOpenAuthor handle)
   | QuoteRequested commit -> model, Cmd.ofAction(fun () -> props.OnQuote commit)
+  | CloseRequested -> model, Cmd.ofAction props.OnClose
 
 let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
   Sub.fromObservable "clock" (props.Now |> Observable.map ClockTicked)
@@ -366,19 +369,33 @@ let view
       .Content(grid)
       .OnClickHandler(fun _ _ -> dispatch(AuthorOpened(Author.handle author)))
 
+  let close =
+    Button()
+      .Name("InspectorClose")
+      .Classes(Theme.name Theme.GhostButton)
+      .Content(Icons.iconAt(Icons.Glyph.Close, 12.0))
+      .OnClickHandler(fun _ _ -> dispatch CloseRequested)
+
+  ToolTip.SetTip(close, "Close checkout")
+
   let header =
-    TextBlock()
-      .Classes(Theme.name Theme.Mono)
-      .Text(
-        model
-        |> Observable.map(fun current ->
-          current.Commit
-          |> Option.map(fun commit -> "CHECKOUT " + commit.ShortHash)
-          |> Option.defaultValue "CHECKOUT")
+    DockPanel()
+      .LastChildFill(true)
+      .Children(
+        close.DockRight(),
+        TextBlock()
+          .Classes(Theme.name Theme.Mono)
+          .Text(
+            model
+            |> Observable.map(fun current ->
+              current.Commit
+              |> Option.map(fun commit -> "CHECKOUT " + commit.ShortHash)
+              |> Option.defaultValue "CHECKOUT")
+          )
       )
 
   let busyLine =
-    PageChrome.messagePanel(
+    PageChrome.collapsingMessagePanel(
       model
       |> Observable.map(fun current ->
         if current.Loading then
@@ -459,14 +476,20 @@ let view
 
   let repliesBlock =
     StackPanel()
+      .Name("InspectorReplies")
       .Spacing(6.0)
       .Children(
         TextBlock().Classes(Theme.name Theme.Mono).Text("REPLIES"),
         repliesRows,
-        PageChrome.messagePanel(
+        PageChrome.collapsingMessagePanel(
           model
           |> Observable.map(fun current ->
-            if current.RepliesLoading then "Loading replies…" else ""),
+            if current.RepliesLoading then
+              "Loading replies…"
+            elif current.Replies.IsEmpty && current.RepliesError.IsNone then
+              "No replies yet."
+            else
+              ""),
           Theme.Muted
         ),
         PageChrome.errorPanel(model |> Observable.map _.RepliesError),

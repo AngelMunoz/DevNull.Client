@@ -3,17 +3,22 @@ module DevNull.Client.UI.Tests.WorkbenchHardening
 open System
 open System.Reactive.Subjects
 open Avalonia.Controls
+open Avalonia.Input
+open Avalonia.Interactivity
 open Avalonia.VisualTree
 open Expecto
 open FSharp.Control.Reactive
 open MVUish.Avalonia
+open NXUI.Extensions
 
+open DevNull.Client.Components
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Http
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.Programs
 open DevNull.Client.Stores
+open DevNull.Client.Theme
 open DevNull.Client.Workbench
 open DevNull.Client.UI.Tests.Fixtures
 open DevNull.Client.UI.Tests.Harness
@@ -38,7 +43,7 @@ let private zone: Zone = {
 
 let private historyProps(env: TestEnv) : HistoryColumn.Props<TestEnv> = {
   Env = env
-  Log = Following
+  Source = LogSource Following
   KeyFile = "/tmp/devnull-test-id_ed25519"
   ViewerId = "01a151db-0000-0000-0000-000000000000"
   Pasteis = false
@@ -46,6 +51,7 @@ let private historyProps(env: TestEnv) : HistoryColumn.Props<TestEnv> = {
   Now = Observable.single now
   Refresh = Observable.empty
   Zone = zone
+  LastVisit = None
   OnOpenExternal = ignore
   OnOpened = ignore
   OnQuote = ignore
@@ -64,6 +70,7 @@ let private hostProps
   OnOpenAuthor = ignore
   OnOpenExternal = ignore
   OnStateChanged = ignore
+  OnUseDefaultLayout = ignore
 }
 
 let private getCount(api: FakeApi, path: string) : int =
@@ -100,6 +107,67 @@ let private hasTextFragment(root: Control, fragment: string) : bool =
     | :? TextBlock as block ->
       block.Text <> null && block.Text.Contains fragment
     | _ -> false)
+
+let private hasVisibleText(root: Control, text: string) : bool =
+  root.GetVisualDescendants()
+  |> Seq.exists(function
+    | :? TextBlock as block -> block.Text = text && block.IsEffectivelyVisible
+    | _ -> false)
+
+let private hasClass(control: Control, name: string) : bool =
+  control.Classes.Contains name
+
+let private pressKey(source: Interactive, key: Key) : unit =
+  source.RaiseEvent(
+    KeyEventArgs(RoutedEvent = InputElement.KeyDownEvent, Key = key)
+  )
+
+let private starInRow(root: Control, body: string) : Button option =
+  root.GetVisualDescendants()
+  |> Seq.tryFind(function
+    | :? TextBlock as block -> block.Text = body
+    | _ -> false)
+  |> Option.bind(fun found ->
+    found.GetVisualAncestors()
+    |> Seq.tryPick(function
+      | :? Button as card when card.Classes.Contains "commit-row" -> Some card
+      | _ -> None))
+  |> Option.bind(fun card ->
+    card.GetVisualDescendants()
+    |> Seq.tryPick(function
+      | :? Button as button when button.Name = "StarButton" -> Some button
+      | _ -> None))
+
+let private savedPageJson(json: string) : string =
+  json
+    .Replace("\"handle\":\"octocat\"", "\"handle\":\"ana\"")
+    .Replace("\"name\":\"The Octocat\"", "\"name\":\"Ana\"")
+    .Replace(
+      "01a151db-7fee-727b-a7ce-c911a7556242",
+      "01a151db-9999-727b-a7ce-c911a7556242"
+    )
+    .Replace("\"starred\":false", "\"starred\":true")
+
+let private savedApi() : FakeApi =
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/starred" then
+      if request.Target.Contains "cursor=next" then
+        ok(savedPageJson secondLogPageJson)
+      else
+        ok(savedPageJson logPageJson)
+    elif request.Target.EndsWith "/star" then
+      ok(
+        sprintf
+          "{\"data\":%s}"
+          ((savedPageJson commitJson)
+            .Replace("\"starred\":true", "\"starred\":false"))
+      )
+    elif request.Target.StartsWith "/api/v1/scheduled-commits" then
+      ok emptyQueueJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
 
 let tests =
   testList "workbench hardening" [
@@ -385,5 +453,726 @@ let tests =
             (mounted :> IDisposable).Dispose()
             clock.OnCompleted()
             clock.Dispose())
+      })
+
+    testCaseAsync
+      "the saved source drops an unstared node"
+      (async {
+        let env = TestEnv(signedInStore(), FakeApi("{}") :> IHttp)
+
+        let props: HistoryColumn.Props<TestEnv> = {
+          historyProps env with
+              Source = SavedSource
+        }
+
+        let page =
+          match LogPage.decode logPageJson with
+          | Ok page -> page
+          | Error failure ->
+            failwith $"the canned saved page never decoded: {failure.Message}"
+
+        let initial, _ = HistoryColumn.init props
+
+        let model, _ =
+          HistoryColumn.update(props, HistoryColumn.Fetched(Ok page), initial)
+
+        let commit =
+          match page.Page.Items with
+          | LiveCommit commit :: _ -> commit
+          | _ -> failwith "the canned saved page carries no commit"
+
+        let model, _ =
+          HistoryColumn.update(
+            props,
+            HistoryColumn.StarDone(Ok { commit with Starred = Some false }),
+            model
+          )
+
+        Expect.isEmpty model.Items "the unstared saved node stayed in the model"
+      })
+
+    testCaseAsync
+      "the saved center lists the starred commits and removes an unstared row"
+      (async {
+        let api = savedApi()
+        let env = TestEnv(signedInStore(), api :> IHttp)
+
+        let props = {
+          hostProps(env, Observable.single now) with
+              Initial = WorkbenchSettings.parse "saved"
+        }
+
+        let! window, mounted =
+          probeUiAsync(fun () ->
+            let view, handle = WorkbenchHost.mount(ui, props)
+
+            let window = Window(Width = 1600.0, Height = 900.0, Content = view)
+
+            window.Show()
+            window, handle :?> WorkbenchHost.MountedHost)
+
+        let! history =
+          waitForAsync(
+            8000,
+            (fun () -> mounted.LiveHistory),
+            fun count -> count = 1
+          )
+
+        Expect.isTrue history "the saved history program never started"
+
+        let! firstRow =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root ->
+              hasText(root, "Saved")
+              && hasText(root, "It was DNS.")
+              && not(hasText(root, "This ref opens in a later phase."))
+          )
+
+        Expect.isTrue firstRow "the saved center never rendered its first row"
+
+        Expect.exists
+          api.Requests
+          (fun request -> request.Target.StartsWith "/api/v1/starred")
+          "the saved center never read Stars.index"
+
+        let! more =
+          waitForAsync(
+            5000,
+            (fun () -> buttonWithText(window, "Load more")),
+            Option.isSome
+          )
+
+        Expect.isTrue more "the saved center offered no cursor"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "Load more") |> Option.iter click)
+
+        let! secondRow =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "Second commit.")
+          )
+
+        Expect.isTrue secondRow "the saved cursor page never appended"
+
+        let! star =
+          waitForAsync(
+            5000,
+            (fun () ->
+              starInRow(window, "It was DNS.")
+              |> Option.map(fun button -> button.IsEnabled)
+              |> Option.defaultValue false),
+            id
+          )
+
+        Expect.isTrue star "the saved row carried no enabled star toggle"
+
+        do!
+          onUiAsync(fun () ->
+            starInRow(window, "It was DNS.") |> Option.iter click)
+
+        let! sent =
+          waitForAsync(
+            5000,
+            (fun () ->
+              api.Requests
+              |> List.exists(fun request -> request.Method = "DELETE")),
+            id
+          )
+
+        Expect.isTrue
+          sent
+          (sprintf
+            "the saved row never sent its unstar: %A"
+            (api.Requests
+             |> List.map(fun request -> request.Method, request.Target)))
+
+        Expect.exists
+          api.Requests
+          (fun request ->
+            request.Method = "DELETE"
+            && request.Target.Contains "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d")
+          (sprintf
+            "the saved row unstared the wrong commit: %A"
+            (api.Requests
+             |> List.map(fun request -> request.Method, request.Target)))
+
+        let! removed =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> not(hasVisibleText(root, "It was DNS."))
+          )
+
+        Expect.isTrue removed "the unstared saved row stayed in the center"
+
+        let! stayed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasVisibleText(root, "Second commit.")
+          )
+
+        Expect.isTrue stayed "the unstared row took the wrong row with it"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            (mounted :> IDisposable).Dispose())
+      })
+
+    testCaseAsync
+      "the inspector close control clears the checkout"
+      (async {
+        let api = workbenchApi()
+        let env = TestEnv(signedInStore(), api :> IHttp)
+
+        let checkoutId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+
+        let props = {
+          hostProps(env, Observable.single now) with
+              Initial = WorkbenchSettings.parse $"following|{checkoutId}"
+        }
+
+        let! window, mounted =
+          probeUiAsync(fun () ->
+            let view, handle = WorkbenchHost.mount(ui, props)
+
+            let window = Window(Width = 1600.0, Height = 900.0, Content = view)
+
+            window.Show()
+            window, handle :?> WorkbenchHost.MountedHost)
+
+        let! inspector =
+          waitForAsync(
+            8000,
+            (fun () -> mounted.LiveInspector),
+            fun count -> count = 1
+          )
+
+        Expect.isTrue inspector "the inspector never started"
+
+        let! checkout =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasTextFragment(root, "CHECKOUT")
+          )
+
+        Expect.isTrue checkout "the inspector never rendered its checkout"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "InspectorClose")
+            |> Option.iter(function
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! gone =
+          waitForAsync(
+            8000,
+            (fun () -> mounted.LiveInspector),
+            fun count -> count = 0
+          )
+
+        Expect.isTrue gone "the inspector stayed live after its close control"
+
+        let! empty =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "No commit checked out.")
+          )
+
+        Expect.isTrue empty "the empty inspector state never returned"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            (mounted :> IDisposable).Dispose())
+      })
+
+    testCaseAsync
+      "the default layout row fires the host sink"
+      (async {
+        let api = workbenchApi()
+        let env = TestEnv(signedInStore(), api :> IHttp)
+        let calls = ResizeArray<unit>()
+
+        let props = {
+          hostProps(env, Observable.single now) with
+              OnUseDefaultLayout = fun () -> calls.Add(())
+        }
+
+        let model, _ = WorkbenchHost.init props
+
+        let subject = new BehaviorSubject<WorkbenchHost.Model>(model)
+
+        let! window =
+          probeUiAsync(fun () ->
+            let view =
+              WorkbenchHost.view
+                props
+                (subject :> IObservable<WorkbenchHost.Model>)
+                ignore
+
+            let window = Window(Width = 1600.0, Height = 900.0, Content = view)
+
+            window.Show()
+            window)
+
+        let! refsRows =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              hasText(root, "Saved")
+              && hasText(root, "Notifications")
+              && hasText(root, "Default layout")
+              && hasText(root, "Settings open in the default layout.")
+          )
+
+        Expect.isTrue refsRows "the refs tree never rendered its rows"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "UseDefaultLayout")
+            |> Option.iter(function
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! fired =
+          waitForAsync(5000, (fun () -> calls.Count), fun count -> count = 1)
+
+        Expect.isTrue fired "the default layout row never fired its sink"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            subject.OnCompleted()
+            subject.Dispose())
+      })
+
+    testCaseAsync
+      "the refs chrome carries the default layout row"
+      (async {
+        let! count =
+          probeUiAsync(fun () ->
+            let chrome =
+              WorkbenchChrome.refs(
+                {
+                  Rows = WorkbenchChrome.rows(0, 0, 3)
+                  Selected = following
+                },
+                ignore,
+                ignore
+              )
+
+            (chrome :?> StackPanel).Children.Count)
+
+        Expect.equal count 8 "the refs chrome lost its default layout child"
+      })
+
+    testCaseAsync
+      "the question mark opens the shared workbench cheatsheet"
+      (async {
+        let api = workbenchApi()
+        let env = TestEnv(signedInStore(), api :> IHttp)
+        let props = hostProps(env, Observable.single now)
+        let model, _ = WorkbenchHost.init props
+
+        let subject = new BehaviorSubject<WorkbenchHost.Model>(model)
+
+        let! window =
+          probeUiAsync(fun () ->
+            let view =
+              WorkbenchHost.view
+                props
+                (subject :> IObservable<WorkbenchHost.Model>)
+                ignore
+
+            let window = Window(Width = 1600.0, Height = 900.0, Content = view)
+            window.Show()
+            window)
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "WorkbenchRoot")
+            |> Option.iter(fun root ->
+              root.RaiseEvent(
+                KeyEventArgs(
+                  RoutedEvent = InputElement.KeyDownEvent,
+                  Key = Key.OemQuestion,
+                  KeyModifiers = KeyModifiers.Shift
+                )
+              )))
+
+        let! shown =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root ->
+              hasText(root, "Keyboard shortcuts")
+              && hasText(root, "Fullscreen")
+              && (controlByName(root, "ShortcutsCard") |> Option.isSome)
+          )
+
+        Expect.isTrue shown "the question mark never opened the cheatsheet"
+
+        do!
+          onUiAsync(fun () ->
+            controlByName(window, "WorkbenchRoot")
+            |> Option.iter(fun root ->
+              root.RaiseEvent(
+                KeyEventArgs(
+                  RoutedEvent = InputElement.KeyDownEvent,
+                  Key = Key.Escape
+                )
+              )))
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "WorkbenchHelp")),
+            fun help ->
+              help |> Option.exists(fun control -> not control.IsVisible)
+          )
+
+        Expect.isTrue closed "Escape did not close the workbench cheatsheet"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            subject.OnCompleted()
+            subject.Dispose())
+      })
+
+    testCaseAsync
+      "the search surfaces use workbench rows and no chip buttons"
+      (async {
+        let api = workbenchApi()
+        let env = TestEnv(signedInStore(), api :> IHttp)
+        let pickedPeople = ResizeArray<string>()
+        let pickedCommits = ResizeArray<Commit>()
+        let closed = ResizeArray<unit>()
+
+        let matches =
+          match
+            SearchProfiles.decode(
+              sprintf "{\"users\":[%s],\"organizations\":[]}" apiUserJson
+            )
+          with
+          | Ok matches -> matches
+          | Error failure ->
+            failwith $"the canned people never decoded: {failure.Message}"
+
+        let results =
+          match SearchCommits.decode(sprintf "{\"data\":[%s]}" commitJson) with
+          | Ok results -> results
+          | Error failure ->
+            failwith $"the canned commits never decoded: {failure.Message}"
+
+        let paletteProps: SearchPalette.Props<TestEnv> = {
+          Env = env
+          KeyFile = "/tmp/devnull-test-id_ed25519"
+          Images = images
+          OnOpenRepository = fun handle -> pickedPeople.Add handle
+          OnSearchCommits = ignore
+          OnClose = fun () -> closed.Add(())
+        }
+
+        let paletteSubject =
+          new BehaviorSubject<SearchPalette.Model>(
+            {
+              Term = "octo"
+              Loading = false
+              Error = None
+              People = matches.Users
+              Searched = true
+              Notice = None
+            }
+          )
+
+        let! paletteWindow =
+          probeUiAsync(fun () ->
+            let palette =
+              SearchPalette.view
+                paletteProps
+                (paletteSubject :> IObservable<SearchPalette.Model>)
+                ignore
+
+            let window =
+              Window(Width = 700.0, Height = 700.0, Content = palette)
+
+            window.Show()
+            window)
+
+        let! paletteShown =
+          waitForAsync(
+            8000,
+            (fun () -> paletteWindow),
+            fun root ->
+              hasText(root, "SEARCH")
+              && hasText(root, "PEOPLE")
+              && hasText(root, "COMMITS")
+          )
+
+        Expect.isTrue paletteShown "the workbench palette never rendered"
+
+        let! paletteStyle =
+          probeUiAsync(fun () ->
+            let root =
+              controlByName(paletteWindow, "SearchPalette")
+              |> Option.defaultWith(fun () ->
+                failwith "the palette root disappeared")
+
+            let person =
+              controlByName(paletteWindow, "SearchPersonRow")
+              |> Option.defaultWith(fun () ->
+                failwith "the palette person row disappeared")
+
+            let chips =
+              paletteWindow.GetVisualDescendants()
+              |> Seq.choose(function
+                | :? Button as button -> Some button
+                | _ -> None)
+              |> Seq.filter(fun button ->
+                hasClass(button, "chip") || hasClass(button, "filter-pill"))
+              |> Seq.toList
+
+            hasClass(root, "card-back"),
+            hasClass(root, "hairline"),
+            hasClass(person, "commit-row"),
+            chips.IsEmpty)
+
+        let paletteCard, paletteHairline, paletteCommitRow, paletteChips =
+          paletteStyle
+
+        Expect.isTrue paletteCard "the palette lost its card surface"
+        Expect.isTrue paletteHairline "the palette lost its hairline"
+
+        Expect.isTrue
+          paletteCommitRow
+          "the palette person row is not a workbench row"
+
+        Expect.isTrue paletteChips "the palette kept chip buttons"
+
+        let resultProps: SearchResults.Props<TestEnv> = {
+          Env = env
+          KeyFile = "/tmp/devnull-test-id_ed25519"
+          ViewerId = "01a151db-0000-0000-0000-000000000000"
+          Pasteis = false
+          Images = images
+          Now = Observable.single now
+          Zone = zone
+          Term = "dns"
+          OnOpenThread = fun commit -> pickedCommits.Add commit
+          OnQuote = ignore
+          OnOpenExternal = ignore
+          OnClose = fun () -> closed.Add(())
+        }
+
+        let resultSubject =
+          new BehaviorSubject<SearchResults.Model>(
+            {
+              Term = "dns"
+              Loading = false
+              Error = None
+              Results = results
+              Now = now
+            }
+          )
+
+        let! centerWindow =
+          probeUiAsync(fun () ->
+            let center =
+              SearchResults.view
+                resultProps
+                (resultSubject :> IObservable<SearchResults.Model>)
+                ignore
+
+            let window =
+              Window(Width = 1600.0, Height = 900.0, Content = center)
+
+            window.Show()
+            window)
+
+        let! centerShown =
+          waitForAsync(
+            8000,
+            (fun () -> centerWindow),
+            fun root ->
+              hasText(root, "COMMITS")
+              && hasText(root, "Search · manual refresh")
+              && hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue centerShown "the workbench search center never rendered"
+
+        let! centerStyle =
+          probeUiAsync(fun () ->
+            let root =
+              controlByName(centerWindow, "SearchCenter")
+              |> Option.defaultWith(fun () ->
+                failwith "the search center root disappeared")
+
+            let chips =
+              centerWindow.GetVisualDescendants()
+              |> Seq.choose(function
+                | :? Button as button -> Some button
+                | _ -> None)
+              |> Seq.filter(fun button ->
+                hasClass(button, "chip") || hasClass(button, "filter-pill"))
+              |> Seq.toList
+
+            hasClass(root, "card-back"),
+            hasClass(root, "hairline"),
+            chips.IsEmpty)
+
+        let centerCard, centerHairline, centerChips = centerStyle
+
+        Expect.isTrue centerCard "the center lost its card surface"
+        Expect.isTrue centerHairline "the center lost its hairline"
+        Expect.isTrue centerChips "the search surfaces kept chip buttons"
+
+        do!
+          onUiAsync(fun () ->
+            paletteWindow.Close()
+            centerWindow.Close()
+            paletteSubject.OnCompleted()
+            paletteSubject.Dispose()
+            resultSubject.OnCompleted()
+            resultSubject.Dispose())
+      })
+
+    testCaseAsync
+      "an empty message panel collapses to no height"
+      (async {
+        let! window, empty, words =
+          probeUiAsync(fun () ->
+            let empty =
+              PageChrome.collapsingMessagePanel(Observable.single "", Muted)
+
+            let words =
+              PageChrome.collapsingMessagePanel(
+                Observable.single "Loading…",
+                Muted
+              )
+
+            let window =
+              Window(
+                Width = 400.0,
+                Height = 200.0,
+                Content = StackPanel().Children([| empty; words |])
+              )
+
+            window.Show()
+            window, empty, words)
+
+        let! collapsed =
+          waitForAsync(
+            5000,
+            (fun () -> empty),
+            fun panel -> not panel.IsVisible
+          )
+
+        Expect.isTrue collapsed "the empty message panel stayed visible"
+
+        let! emptyHeight, wordsHeight =
+          probeUiAsync(fun () -> empty.Bounds.Height, words.Bounds.Height)
+
+        Expect.isLessThan
+          emptyHeight
+          0.5
+          "the empty message panel kept a line box"
+
+        Expect.isGreaterThan
+          wordsHeight
+          0.0
+          "the filled message panel lost its line box"
+
+        do! onUiAsync(fun () -> window.Close())
+      })
+
+    testCaseAsync
+      "the history column draws days and the last-visit marker"
+      (async {
+        let env = TestEnv(signedInStore(), FakeApi("{}") :> IHttp)
+
+        let twoDays =
+          sprintf
+            "{\"data\":[%s,%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
+            (datedCommitJson(
+              "0a0a0a0a-0000-0000-0000-000000000001",
+              "aaa1111",
+              "First landing.",
+              "2020-04-03T12:00:00Z"
+            ))
+            (datedCommitJson(
+              "0a0a0a0a-0000-0000-0000-000000000002",
+              "bbb2222",
+              "The week before.",
+              "2020-04-01T12:00:00Z"
+            ))
+
+        let page =
+          match LogPage.decode twoDays with
+          | Ok page -> page
+          | Error failure ->
+            failwith $"the two-day page never decoded: {failure.Message}"
+
+        let props = {
+          historyProps env with
+              LastVisit =
+                Some(DateTimeOffset(2020, 4, 2, 0, 0, 0, TimeSpan.Zero))
+        }
+
+        let initial, _ = HistoryColumn.init props
+
+        let model, _ =
+          HistoryColumn.update(props, HistoryColumn.Fetched(Ok page), initial)
+
+        let model = {
+          model with
+              Now = DateTimeOffset(2020, 4, 3, 12, 0, 0, TimeSpan.Zero)
+        }
+
+        let subject = new BehaviorSubject<HistoryColumn.Model>(model)
+
+        let! window =
+          probeUiAsync(fun () ->
+            let view =
+              HistoryColumn.view
+                props
+                (subject :> IObservable<HistoryColumn.Model>)
+                (fun (_: HistoryColumn.Msg) -> ())
+
+            let window = Window(Width = 1200.0, Height = 700.0, Content = view)
+            window.Show()
+            window)
+
+        let! drawn =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root ->
+              hasText(root, "Today")
+              && hasText(root, "Wed, Apr 1")
+              && hasText(root, "HEAD@{last visit}")
+              && hasText(root, "First landing.")
+              && hasText(root, "The week before.")
+          )
+
+        Expect.isTrue drawn "the history days or last-visit marker never drew"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            subject.OnCompleted()
+            subject.Dispose())
       })
   ]

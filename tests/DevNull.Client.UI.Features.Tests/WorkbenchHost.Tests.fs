@@ -50,6 +50,7 @@ let private hostProps
   OnOpenAuthor = ignore
   OnOpenExternal = ignore
   OnStateChanged = ignore
+  OnUseDefaultLayout = ignore
 }
 
 let private following =

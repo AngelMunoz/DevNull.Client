@@ -3,6 +3,7 @@ module DevNull.Client.UI.Tests.WorkbenchHostViewTests
 open System
 open System.Reactive.Subjects
 open Avalonia.Controls
+open Avalonia.Media
 open Avalonia.VisualTree
 open Expecto
 open FSharp.Control.Reactive
@@ -133,6 +134,7 @@ let private hostProps(env: TestEnv) : WorkbenchHost.Props<TestEnv> = {
   OnOpenAuthor = ignore
   OnOpenExternal = ignore
   OnStateChanged = ignore
+  OnUseDefaultLayout = ignore
 }
 
 let private repositoryProfile =
@@ -918,6 +920,18 @@ let tests =
           )
 
         Expect.isTrue shown "the notifications center never rendered its rows"
+
+        let! notice =
+          probeUiAsync(fun () ->
+            controlByName(window, "NotificationsNotice")
+            |> Option.map(function
+              | :? TextBlock as block -> block.TextWrapping
+              | _ -> TextWrapping.NoWrap))
+
+        Expect.equal
+          notice
+          (Some TextWrapping.Wrap)
+          "the notifications note does not wrap"
 
         do! pumpAsync()
 

@@ -153,13 +153,13 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         model with
             Loading = false
             Error = Some error
-       },
-       Cmd.none
+      },
+      Cmd.none
   | MoreRequested ->
     match model.Cursor with
     | Some cursor when not model.More && not model.Loading ->
-      { model with More = true; Error = None },
-      Cmd.OfAsync.perform fetch (props, Some cursor) Appended
+      ({ model with More = true; Error = None },
+       Cmd.OfAsync.perform fetch (props, Some cursor) Appended)
     | _ -> model, Cmd.none
   | Appended result ->
     match result with
@@ -340,11 +340,13 @@ let view
 
   let notice =
     TextBlock()
+      .Name("NotificationsNotice")
       .Classes(Theme.name Theme.Muted)
+      .TextWrapping(TextWrapping.Wrap)
       .Text("Read state stays with the server.")
 
   let loadingLine =
-    PageChrome.messagePanel(
+    PageChrome.collapsingMessagePanel(
       model
       |> Observable.map(fun current ->
         if current.Loading && current.Items.IsEmpty then
@@ -357,7 +359,7 @@ let view
     )
 
   let emptyLine =
-    PageChrome.messagePanel(
+    PageChrome.collapsingMessagePanel(
       model
       |> Observable.map(fun current ->
         if

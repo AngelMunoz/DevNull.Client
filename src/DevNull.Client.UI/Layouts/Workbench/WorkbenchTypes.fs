@@ -9,6 +9,10 @@ type Ref =
   | NotificationsRef
   | RepositoryRef of handle: string
 
+type HistorySource =
+  | LogSource of LogKind
+  | SavedSource
+
 type Checkout = {
   CommitId: string
   Page: CommitPage option
@@ -41,6 +45,14 @@ module Ref =
     match ref with
     | HistoryRef log -> Some log
     | SavedRef
+    | ScheduledRef
+    | NotificationsRef
+    | RepositoryRef _ -> None
+
+  let source(ref: Ref) =
+    match ref with
+    | HistoryRef log -> Some(LogSource log)
+    | SavedRef -> Some SavedSource
     | ScheduledRef
     | NotificationsRef
     | RepositoryRef _ -> None

@@ -229,6 +229,7 @@ let builtIn
             OnStateChanged =
               fun state ->
                 settings.SetWorkbenchState(WorkbenchSettings.store state)
+            OnUseDefaultLayout = fun () -> surface.Switch "current"
           }
         )
 

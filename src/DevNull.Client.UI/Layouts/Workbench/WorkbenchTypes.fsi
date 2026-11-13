@@ -12,6 +12,12 @@ type Ref =
   | NotificationsRef
   | RepositoryRef of handle: string
 
+/// The list a history program reads: one log, or the signed user's
+/// starred commits, which are the app's saved list.
+type HistorySource =
+  | LogSource of LogKind
+  | SavedSource
+
 /// One checked-out commit: its id always, the page once the inspector
 /// has read it.
 type Checkout = private {
@@ -39,6 +45,9 @@ module Ref =
 
   /// The log behind a history ref, when the ref is one.
   val log: ref: Ref -> LogKind option
+
+  /// The center list behind a ref, when the ref has one.
+  val source: ref: Ref -> HistorySource option
 
   /// The handle behind a repository ref, when the ref is one.
   val repository: ref: Ref -> string option

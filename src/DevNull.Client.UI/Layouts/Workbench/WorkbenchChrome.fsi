@@ -24,8 +24,12 @@ type StatusModel = {
 
 /// Renders the refs tree from its model. A selected row carries the
 /// HEAD marker, mono, and the active nav wash. Selecting a row calls
-/// the host.
-val refs: model: RefsModel * onSelect: (Ref -> unit) -> Control
+/// the host; the last row asks for the default layout.
+val refs:
+  model: RefsModel *
+  onSelect: (Ref -> unit) *
+  onUseDefaultLayout: (unit -> unit) ->
+    Control
 
 /// The refs tree rows in display order: Latest, Following, Trending,
 /// then Saved, Scheduled, and Notifications with their counts.

@@ -12,6 +12,7 @@ open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.LastVisitStore
 open DevNull.Client.Stores
 
 /// One live history program: the ref it shows, the place it restored,
@@ -160,8 +161,8 @@ type Msg =
 /// What the host needs from its integrator: the protocol workers, the
 /// dispatcher that starts child programs, the session store, the image
 /// cache, the attachment sources the composer stages into, the clock
-/// and zone, the outbound sinks, and the stored state the host starts
-/// from.
+/// and zone, the last-visit store, the outbound sinks, the layout
+/// switch, and the stored state the host starts from.
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
@@ -171,6 +172,7 @@ type Props<'env
   and 'env :> IProvideSession
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLastVisit
   and 'env :> IProvideLogging> = {
   Env: 'env
   Initial: WorkbenchState
@@ -180,6 +182,7 @@ type Props<'env
   OnOpenAuthor: string -> unit
   OnOpenExternal: string -> unit
   OnStateChanged: WorkbenchState -> unit
+  OnUseDefaultLayout: unit -> unit
 }
 
 /// One child program handle the mount wrapper tracks. The wrapper

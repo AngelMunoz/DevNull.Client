@@ -6,6 +6,7 @@ open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
 open Avalonia.Controls.Templates
+open Avalonia.Input
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
@@ -35,6 +36,7 @@ type Model = {
 type Msg =
   | TermChanged of text: string
   | PeopleRequested
+  | FirstPersonRequested
   | PeopleFetched of Result<ProfileMatches, AppError>
   | PersonPicked of User
   | CommitsRequested
@@ -74,15 +76,7 @@ let init(_: Props<'env>) : Model * Cmd<Msg> =
   Cmd.none
 
 let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
-  match msg with
-  | TermChanged text ->
-    {
-      model with
-          Term = text
-          Notice = None
-    },
-    Cmd.none
-  | PeopleRequested ->
+  let requestPeople(model: Model) =
     if model.Loading then
       model, Cmd.none
     else
@@ -102,6 +96,21 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
               Searched = false
         },
         Cmd.none
+
+  match msg with
+  | TermChanged text ->
+    {
+      model with
+          Term = text
+          Notice = None
+    },
+    Cmd.none
+  | PeopleRequested -> requestPeople model
+  | FirstPersonRequested ->
+    match model.People with
+    | person :: _ ->
+      model, Cmd.ofAction(fun () -> props.OnOpenRepository person.Handle)
+    | [] -> requestPeople model
   | PeopleFetched result ->
     match result with
     | Ok matches ->
@@ -148,41 +157,46 @@ let view
         let value = box.Text |> Option.ofObj |> Option.defaultValue ""
 
         dispatch(TermChanged value))
-
-  let findPeople =
-    Button()
-      .Name("SearchPeopleButton")
-      .Classes(Theme.name Theme.AccentButton)
-      .Content("Find people")
-      .OnClickHandler(fun _ _ -> dispatch PeopleRequested)
-
-  let searchCommits =
-    Button()
-      .Name("SearchCommitsButton")
-      .Classes(Theme.name Theme.GhostButton)
-      .Content("Search commits")
-      .OnClickHandler(fun _ _ -> dispatch CommitsRequested)
+      .OnKeyDownHandler(fun _ args ->
+        if args.Key = Key.Enter && args.KeyModifiers = KeyModifiers.None then
+          args.Handled <- true
+          dispatch FirstPersonRequested
+        elif args.Key = Key.Escape then
+          args.Handled <- true
+          dispatch CloseRequested)
 
   let close =
     Button()
       .Name("SearchPaletteClose")
       .Classes(Theme.name Theme.GhostButton)
-      .Content("Close")
+      .Content(Icons.iconAt(Icons.Glyph.Close, 12.0))
       .OnClickHandler(fun _ _ -> dispatch CloseRequested)
 
-  let head = DockPanel().LastChildFill(true)
+  ToolTip.SetTip(close, "Close search")
 
-  head.Children(
-    close.DockRight(),
-    TextBlock().Classes(Theme.name Theme.Mono).Text("SEARCH")
-  )
-  |> ignore
+  let head =
+    DockPanel()
+      .LastChildFill(true)
+      .Children(
+        close.DockRight(),
+        TextBlock().Classes(Theme.name Theme.Mono).Text("SEARCH")
+      )
 
-  let buttons =
-    StackPanel()
-      .Orientation(Orientation.Horizontal)
-      .Spacing(8.0)
-      .Children(findPeople, searchCommits)
+  let findPeople =
+    Button()
+      .Name("SearchPeopleButton")
+      .Classes(Theme.name Theme.NavItem)
+      .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+      .Content(TextBlock().Text("Find people"))
+      .OnClickHandler(fun _ _ -> dispatch PeopleRequested)
+
+  let searchCommits =
+    Button()
+      .Name("SearchCommitsButton")
+      .Classes(Theme.name Theme.NavItem)
+      .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+      .Content(TextBlock().Text("Search commits"))
+      .OnClickHandler(fun _ _ -> dispatch CommitsRequested)
 
   let notice =
     TextBlock()
@@ -196,7 +210,7 @@ let view
       )
 
   let loadingLine =
-    PageChrome.messagePanel(
+    PageChrome.collapsingMessagePanel(
       model
       |> Observable.map(fun current ->
         if current.Loading then "Reading people…" else ""),
@@ -204,7 +218,7 @@ let view
     )
 
   let emptyLine =
-    PageChrome.messagePanel(
+    PageChrome.collapsingMessagePanel(
       model
       |> Observable.map(fun current ->
         if
@@ -236,10 +250,11 @@ let view
               Panel() :> Control
             else
               Button()
+                .Name("SearchPersonRow")
                 .Classes(Theme.name Theme.CommitRow)
                 .HorizontalAlignment(HorizontalAlignment.Stretch)
-                .HorizontalContentAlignment(HorizontalAlignment.Left)
-                .Padding(Thickness(8.0))
+                .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+                .Padding(Thickness(12.0, 8.0))
                 .Content(peopleIdentity(rowCtx, user))
                 .OnClickHandler(fun _ _ -> dispatch(PersonPicked user))
               :> Control),
@@ -258,6 +273,13 @@ let view
       .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
       .Content(rows)
 
+  let section(text: string, name: string) =
+    TextBlock()
+      .Name(name)
+      .Classes(Theme.name Theme.Mono)
+      .Margin(Thickness(0.0, 4.0, 0.0, 0.0))
+      .Text(text)
+
   let content =
     StackPanel()
       .Spacing(8.0)
@@ -265,12 +287,15 @@ let view
       .Children(
         head,
         text,
-        buttons,
-        notice,
+        section("PEOPLE", "SearchPalettePeopleHeader"),
+        findPeople,
         loadingLine,
         emptyLine,
         errorLine,
-        peopleScroller
+        notice,
+        peopleScroller,
+        section("COMMITS", "SearchPaletteCommitsHeader"),
+        searchCommits
       )
 
   Border()

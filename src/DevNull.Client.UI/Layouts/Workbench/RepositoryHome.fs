@@ -666,7 +666,7 @@ let view
   let followError = PageChrome.errorPanel(model |> Observable.map _.FollowError)
 
   let profileLoading =
-    PageChrome.messagePanel(
+    PageChrome.collapsingMessagePanel(
       model
       |> Observable.map(fun current ->
         if current.Loading && current.Details.IsNone then
@@ -845,7 +845,7 @@ let view
       )
 
   let loadingLine =
-    PageChrome.messagePanel(
+    PageChrome.collapsingMessagePanel(
       model
       |> Observable.map(fun current ->
         if current.CommitsLoading && current.Commits.IsEmpty then
@@ -856,7 +856,7 @@ let view
     )
 
   let emptyLine =
-    PageChrome.messagePanel(
+    PageChrome.collapsingMessagePanel(
       model
       |> Observable.map(fun current ->
         if not current.CommitsLoading && current.Commits.IsEmpty then
@@ -998,7 +998,7 @@ let view
   peopleHead.Children(peopleClose.DockRight(), peopleTitleLine) |> ignore
 
   let peopleLoadingLine =
-    PageChrome.messagePanel(
+    PageChrome.collapsingMessagePanel(
       model
       |> Observable.map(fun current ->
         match current.People with
@@ -1011,7 +1011,7 @@ let view
     )
 
   let peopleEmptyLine =
-    PageChrome.messagePanel(
+    PageChrome.collapsingMessagePanel(
       model
       |> Observable.map(fun current ->
         match current.People with

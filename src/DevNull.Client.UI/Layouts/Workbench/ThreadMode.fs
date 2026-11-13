@@ -129,15 +129,15 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             ReplyParticipants = page.ReplyParticipants
             RepliesLoading = true
             RepliesError = None
-       },
-       Cmd.OfAsync.perform fetchReplies (props, None) RepliesFetched
+      },
+      Cmd.OfAsync.perform fetchReplies (props, None) RepliesFetched
     | Error error ->
       {
         model with
             Loading = false
             Error = Some error
-       },
-       Cmd.none
+      },
+      Cmd.none
   | RepliesFetched result ->
     match result with
     | Ok page ->
@@ -147,15 +147,15 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             RepliesCursor = page.NextCursor
             RepliesLoading = false
             RepliesError = None
-       },
-       Cmd.none
+      },
+      Cmd.none
     | Error error ->
       {
         model with
             RepliesLoading = false
             RepliesError = Some error
-       },
-       Cmd.none
+      },
+      Cmd.none
   | MoreRepliesRequested ->
     match model.RepliesCursor with
     | Some _ ->
@@ -163,11 +163,11 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         model with
             RepliesLoading = true
             RepliesError = None
-       },
-       Cmd.OfAsync.perform
-         fetchReplies
-         (props, model.RepliesCursor)
-         RepliesAppended
+      },
+      Cmd.OfAsync.perform
+        fetchReplies
+        (props, model.RepliesCursor)
+        RepliesAppended
     | None -> model, Cmd.none
   | RepliesAppended result ->
     match result with
@@ -178,15 +178,15 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             RepliesCursor = page.NextCursor
             RepliesLoading = false
             RepliesError = None
-       },
-       Cmd.none
+      },
+      Cmd.none
     | Error error ->
       {
         model with
             RepliesLoading = false
             RepliesError = Some error
-       },
-       Cmd.none
+      },
+      Cmd.none
   | Posted reply ->
     let replies =
       model.Replies
@@ -211,8 +211,8 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
           Commit = commit
           Replies = replies
           RepliesError = None
-     },
-     Cmd.none
+    },
+    Cmd.none
   | ClockTicked moment -> ({ model with Now = moment }, Cmd.none)
   | BackRequested -> model, Cmd.ofAction(fun () -> props.OnBack())
   | Opened commit -> model, Cmd.ofAction(fun () -> props.OnOpenThread commit)
@@ -432,7 +432,7 @@ let view
               && current.Replies.IsEmpty
               && not current.RepliesLoading)
           ),
-        PageChrome.messagePanel(
+        PageChrome.collapsingMessagePanel(
           model
           |> Observable.map(fun current ->
             if current.RepliesLoading then "Loading replies…" else ""),
@@ -460,7 +460,7 @@ let view
       .Margin(Thickness(16.0))
       .Children(
         back,
-        PageChrome.messagePanel(
+        PageChrome.collapsingMessagePanel(
           model
           |> Observable.map(fun current ->
             if current.Loading then "Reading the thread…" else ""),

@@ -25,6 +25,7 @@ type Model = {
 type Msg =
   | TermChanged of text: string
   | PeopleRequested
+  | FirstPersonRequested
   | PeopleFetched of Result<ProfileMatches, AppError>
   | PersonPicked of User
   | CommitsRequested

@@ -1,4 +1,4 @@
-﻿module DevNull.Client.Components.CommitCard
+module DevNull.Client.Components.CommitCard
 
 open System
 open System.Text.RegularExpressions
@@ -1152,6 +1152,7 @@ module Parts =
   let authorIdentity(commit: Commit, flyout: Source voption) : Control =
     let piece =
       StackPanel()
+        .Name("CardAuthor")
         .Orientation(Orientation.Horizontal)
         .Spacing(6.0)
         .Children(
@@ -1175,29 +1176,41 @@ module Parts =
       }
     | ValueNone -> piece
 
-  // The identity line: name, handle, and time in the site's rhythm,
-  // the short hash docked to the right edge.
+  // The identity line: the author keeps the free column; the time and
+  // short hash take their own right-hand columns. A narrow card trims
+  // the identity instead of letting the trailing fragments cross it.
   let header(props: Props, commit: Commit) : Control =
-    let hash = TextBlock().Classes(Theme.name Theme.Mono).Text(commit.ShortHash)
+    let hash =
+      TextBlock()
+        .Name("CardHash")
+        .Classes(Theme.name Theme.Mono)
+        .Text(commit.ShortHash)
 
-    let identity =
-      StackPanel()
-        .Orientation(Orientation.Horizontal)
-        .Spacing(6.0)
-        .Children(
-          authorIdentity(commit, props.Flyout),
-          TextBlock().Classes(Theme.name Theme.Muted).Text("·"),
-          TextBlock()
-            .Classes(Theme.name Theme.Mono)
-            .Text(
-              props.Now
-              |> Observable.map(fun moment -> timeAgo(moment, commit.CreatedAt))
-            )
+    let identity = authorIdentity(commit, props.Flyout).ClipToBounds(true)
+
+    let time =
+      TextBlock()
+        .Name("CardTime")
+        .Classes(Theme.name Theme.Mono)
+        .Text(
+          props.Now
+          |> Observable.map(fun moment -> timeAgo(moment, commit.CreatedAt))
         )
 
     ToolTip.SetTip(identity, absolute(props.Zone, commit.CreatedAt))
 
-    DockPanel().Children(hash.DockRight(), identity)
+    let line = Grid()
+
+    line.ColumnDefinitions <- ColumnDefinitions("*,Auto,Auto")
+
+    line.Children(
+      identity.Column(0),
+      time.Column(1).Margin(8.0, 0.0, 0.0, 0.0),
+      hash.Column(2).Margin(8.0, 0.0, 0.0, 0.0)
+    )
+    |> ignore
+
+    line
 
   // The "replying to" line under the identity, when the commit answers
   // one.
@@ -1324,19 +1337,23 @@ module Parts =
   let replyIdentity
     (flyout: Source voption, commit: Commit, now: IObservable<DateTimeOffset>)
     : Control =
-    StackPanel()
-      .Orientation(Orientation.Horizontal)
-      .Spacing(6.0)
-      .Children(
-        authorIdentity(commit, flyout),
-        TextBlock().Classes(Theme.name Theme.Muted).Text("·"),
-        TextBlock()
-          .Classes(Theme.name Theme.Mono)
-          .Text(
-            now
-            |> Observable.map(fun moment -> timeAgo(moment, commit.CreatedAt))
-          )
-      )
+    let line = Grid()
+
+    line.ColumnDefinitions <- ColumnDefinitions("*,Auto")
+
+    line.Children(
+      authorIdentity(commit, flyout).ClipToBounds(true).Column(0),
+      TextBlock()
+        .Classes(Theme.name Theme.Mono)
+        .Margin(8.0, 0.0, 0.0, 0.0)
+        .Text(
+          now |> Observable.map(fun moment -> timeAgo(moment, commit.CreatedAt))
+        )
+        .Column(1)
+    )
+    |> ignore
+
+    line
 
   let actions(props: Props) : Control =
     let commit = props.Commit

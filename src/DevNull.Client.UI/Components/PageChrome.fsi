@@ -30,6 +30,10 @@ val rebuildOn:
 /// observable source.
 val inline messagePanel: text: IObservable<string> * fg: StyleClass -> Control
 
+/// One message line that takes no space at all while it has no words.
+val collapsingMessagePanel:
+  text: IObservable<string> * fg: StyleClass -> Control
+
 /// The page's error card: one plain line per failure, in the danger
 /// tone, shown only while the page carries an error.
 val errorPanel: error: IObservable<AppError option> -> Control

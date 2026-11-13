@@ -84,6 +84,15 @@ let rebuildOn
 let inline messagePanel(text: IObservable<string>, fg: StyleClass) : Control =
   Status.panel(text, fg)
 
+/// One message line that takes no space at all while it has no words.
+let collapsingMessagePanel
+  (text: IObservable<string>, fg: StyleClass)
+  : Control =
+  messagePanel(text, fg)
+    .IsVisible(
+      text |> Observable.map(fun words -> not(String.IsNullOrWhiteSpace words))
+    )
+
 /// The page's error card: one plain line per failure, in the danger
 /// tone, shown only while the page carries an error.
 let errorPanel(error: IObservable<AppError option>) : Control =

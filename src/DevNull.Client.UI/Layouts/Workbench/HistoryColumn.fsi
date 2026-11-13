@@ -6,9 +6,14 @@ open MVUish.Avalonia
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.Profiles
+open DevNull.Client.Stores
+open DevNull.Client.TranslationCache
+open DevNull.Client.UserSettingsStore
 
 /// One history column's state: one log's loaded rows, its cursor and
 /// head, the last page fetch, the new-commit count, the poll's gate
@@ -69,18 +74,26 @@ type Msg =
   | PollChoiceChanged of Commit * PollOption * chosen: bool
   | PollVoteRequested of Commit
   | PollVotedDone of Result<Commit, AppError>
+  | CommitUpdated of Commit
+  | CommitDeleted of string
 
 /// What one history column needs from its host: the source list, the
-/// protocol workers, the signed key file and viewer, the pastéis flag,
-/// the image cache, the clock ticks, the named refresh requests, the
-/// time zone, the last-visit marker the log draws, and the host's open,
-/// quote, and external-link sinks.
+/// protocol workers, the signed session, the pastéis flag, the image
+/// cache, the clock ticks, the named refresh requests, the time zone,
+/// the last-visit marker the log draws, and the host's open, quote,
+/// report, share, and external-link sinks.
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
-  and 'env :> IProvideHttp> = {
+  and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideLogging> = {
   Env: 'env
+  Session: SignedInSession option
   Source: HistorySource
   KeyFile: string
   ViewerId: string
@@ -97,6 +110,8 @@ type Props<'env
   OnQuote: Commit -> unit
   Restore: Place option
   OnReport: Report -> unit
+  OnReportCommit: Commit -> unit
+  OnShare: Commit -> unit
 }
 
 /// The column's first state and its first page fetch.

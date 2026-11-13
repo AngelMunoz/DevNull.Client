@@ -14,10 +14,15 @@ open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.Profiles
+open DevNull.Client.Stores
 open DevNull.Client.Theme
+open DevNull.Client.TranslationCache
+open DevNull.Client.UserSettingsStore
 
 type Model = {
   Loading: bool
@@ -67,13 +72,21 @@ type Msg =
   | PollChoiceChanged of Commit * PollOption * chosen: bool
   | PollVoteRequested of Commit
   | PollVotedDone of Result<Commit, AppError>
+  | CommitUpdated of Commit
+  | CommitDeleted of string
 
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
-  and 'env :> IProvideHttp> = {
+  and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideLogging> = {
   Env: 'env
+  Session: SignedInSession option
   Source: HistorySource
   KeyFile: string
   ViewerId: string
@@ -88,6 +101,8 @@ type Props<'env
   OnQuote: Commit -> unit
   Restore: Place option
   OnReport: Report -> unit
+  OnReportCommit: Commit -> unit
+  OnShare: Commit -> unit
 }
 
 let headOf(items: CommitNode list) =
@@ -496,6 +511,27 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             Busy = None
        },
        Cmd.none)
+  | CommitUpdated updated ->
+    ({
+      model with
+          Items = replaceNode(model.Items, updated)
+     },
+     Cmd.none)
+  | CommitDeleted commitId ->
+    ({
+      model with
+          Items =
+            model.Items
+            |> List.filter(function
+              | LiveCommit commit -> commit.Id <> commitId
+              | Tombstone _ -> true)
+          Head =
+            model.Items
+            |> List.tryPick(function
+              | LiveCommit commit when commit.Id <> commitId -> Some commit.Id
+              | _ -> None)
+     },
+     Cmd.none)
 
 let subscribe (props: Props<'env>) (model: Model) : Sub<Msg> =
   [
@@ -604,14 +640,32 @@ let view
   let inline slot(command: Commit -> unit) : ActionSlot voption =
     ValueSome { Command = command; Busy = busy }
 
+  let actions =
+    props.Session
+    |> Option.map(fun session ->
+      RowActions.create {
+        Env = props.Env
+        Session = session
+        Now = props.Now
+        OfferBasicActions = false
+        OnUpdated = CommitUpdated >> dispatch
+        OnDeleted = CommitDeleted >> dispatch
+        OnReport = props.OnReportCommit
+        OnShare = props.OnShare
+      })
+
   let rowProps: RowProps = {
     OnEvent =
-      function
-      | CommitCard.Opened commit -> dispatch(Opened commit)
-      | CommitCard.QuoteRequested commit -> dispatch(QuoteRequested commit)
-      | CommitCard.PollChoiceChanged(commit, option, chosen) ->
-        dispatch(PollChoiceChanged(commit, option, chosen))
-      | _ -> ()
+      fun event ->
+        actions |> Option.iter(fun current -> current.Handle event)
+
+        match event with
+        | CommitCard.Opened commit -> dispatch(Opened commit)
+        | CommitCard.ReplyToggled commit -> dispatch(Opened commit)
+        | CommitCard.QuoteRequested commit -> dispatch(QuoteRequested commit)
+        | CommitCard.PollChoiceChanged(commit, option, chosen) ->
+          dispatch(PollChoiceChanged(commit, option, chosen))
+        | _ -> ()
     OnOpenExternal = props.OnOpenExternal
     ViewerId = props.ViewerId
     Pasteis = model |> Observable.map _.Pasteis |> Slices.share
@@ -625,8 +679,14 @@ let view
     Stars = ValueNone
     Vote = slot(fun commit -> dispatch(PollVoteRequested commit))
     Pastel = slot(fun commit -> dispatch(PastelGiven commit))
-    Menu = ValueNone
-    Translation = Observable.single(fun (_: Commit) -> ValueNone)
+    Menu =
+      match actions with
+      | Some current -> current.Menu
+      | None -> ValueNone
+    Translation =
+      actions
+      |> Option.map _.Translation
+      |> Option.defaultValue(Observable.single(fun (_: Commit) -> ValueNone))
     Zone = props.Zone
   }
 

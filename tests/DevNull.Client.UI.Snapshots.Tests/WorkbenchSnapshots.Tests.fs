@@ -44,6 +44,8 @@ let private hostProps(env: TestEnv) : WorkbenchHost.Props<TestEnv> = {
   OnOpenExternal = ignore
   OnStateChanged = ignore
   OnUseDefaultLayout = ignore
+  OnReportCommit = ignore
+  OnShare = ignore
 }
 
 let private captureWorkbenchAsync(name: string, width: float) : Async<string> =

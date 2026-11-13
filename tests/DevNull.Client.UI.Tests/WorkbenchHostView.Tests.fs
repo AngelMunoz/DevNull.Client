@@ -2,17 +2,20 @@ module DevNull.Client.UI.Tests.WorkbenchHostViewTests
 
 open System
 open System.Reactive.Subjects
+open Avalonia
 open Avalonia.Controls
 open Avalonia.Media
 open Avalonia.VisualTree
 open Expecto
 open FSharp.Control.Reactive
 
+open DevNull.Client
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Http
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.Stores
+open DevNull.Client.Theme
 open DevNull.Client.Workbench
 open DevNull.Client.UI.Tests.Fixtures
 open DevNull.Client.UI.Tests.Harness
@@ -93,6 +96,7 @@ let private threadViewOf(env: TestEnv) : ThreadMode.View =
     RepliesCursor = Some "next"
     RepliesLoading = false
     RepliesError = None
+    PollChoices = Map.empty
     Now = now
   }
 
@@ -113,6 +117,8 @@ let private threadViewOf(env: TestEnv) : ThreadMode.View =
     OnOpenThread = ignore
     OnOpenExternal = ignore
     OnQuote = ignore
+    OnReportCommit = ignore
+    OnShare = ignore
   }
 
   let subject = new BehaviorSubject<ThreadMode.Model>(model)
@@ -135,6 +141,8 @@ let private hostProps(env: TestEnv) : WorkbenchHost.Props<TestEnv> = {
   OnOpenExternal = ignore
   OnStateChanged = ignore
   OnUseDefaultLayout = ignore
+  OnReportCommit = ignore
+  OnShare = ignore
 }
 
 let private repositoryProfile =
@@ -181,11 +189,13 @@ let private repositoryViewOf(env: TestEnv) : RepositoryHome.View =
         Items = repositoryFollowers.Items
         Cursor = Some "next"
       }
+    PollChoices = Map.empty
     Now = now
   }
 
   let props: RepositoryHome.Props<TestEnv> = {
     Env = env
+    Session = None
     Handle = "octocat"
     KeyFile = "/tmp/devnull-test-id_ed25519"
     ViewerId = "01a151db-0000-0000-0000-000000000000"
@@ -201,6 +211,8 @@ let private repositoryViewOf(env: TestEnv) : RepositoryHome.View =
     OnOpenExternal = ignore
     OnOpenRepository = ignore
     OnListChanged = ignore
+    OnReportCommit = ignore
+    OnShare = ignore
   }
 
   let subject = new BehaviorSubject<RepositoryHome.Model>(model)
@@ -274,11 +286,13 @@ let private searchViewOf(env: TestEnv) : Control =
     Loading = false
     Error = None
     Results = searchResults
+    PollChoices = Map.empty
     Now = now
   }
 
   let props: SearchResults.Props<TestEnv> = {
     Env = env
+    Session = None
     KeyFile = "/tmp/devnull-test-id_ed25519"
     ViewerId = "01a151db-0000-0000-0000-000000000000"
     Pasteis = true
@@ -293,6 +307,8 @@ let private searchViewOf(env: TestEnv) : Control =
     OnQuote = ignore
     OnOpenExternal = ignore
     OnClose = ignore
+    OnReportCommit = ignore
+    OnShare = ignore
   }
 
   let subject = new BehaviorSubject<SearchResults.Model>(model)
@@ -301,6 +317,55 @@ let private searchViewOf(env: TestEnv) : Control =
     props
     (subject :> IObservable<SearchResults.Model>)
     (fun (_: SearchResults.Msg) -> ())
+
+let private inspectorViewOf(env: TestEnv) : Control =
+  let model: Inspector.Model = {
+    CommitId = threadPage.Commit.Id
+    Loading = false
+    Error = None
+    Commit = Some threadPage.Commit
+    Ancestors = []
+    ReplyParticipants = []
+    Replies = []
+    RepliesCursor = None
+    RepliesLoading = false
+    RepliesError = None
+    Busy = None
+    Pinning = None
+    PollChoices = Map.empty
+    Now = now
+  }
+
+  let props: Inspector.Props<TestEnv> = {
+    Env = env
+    Session = None
+    CommitId = threadPage.Commit.Id
+    KeyFile = "/tmp/devnull-test-id_ed25519"
+    ViewerId = "01a151db-0000-0000-0000-000000000000"
+    Pasteis = true
+    Images = images
+    Now = Observable.single now
+    Zone = {
+      Info = TimeZoneInfo.Utc
+      Label = "UTC"
+    }
+    OnCheckoutParent = ignore
+    OnCheckoutChild = ignore
+    OnOpenAuthor = ignore
+    OnOpenExternal = ignore
+    OnQuote = ignore
+    OnOpenThread = ignore
+    OnClose = ignore
+    OnReportCommit = ignore
+    OnShare = ignore
+  }
+
+  let subject = new BehaviorSubject<Inspector.Model>(model)
+
+  Inspector.view
+    props
+    (subject :> IObservable<Inspector.Model>)
+    (fun (_: Inspector.Msg) -> ())
 
 let private controlByName(root: Control, name: string) : Control option =
   root.GetVisualDescendants()
@@ -551,6 +616,11 @@ let private widthOf(window: Window, name: string) : float =
   |> Option.map(fun control -> control.Bounds.Width)
   |> Option.defaultValue 0.0
 
+let private heightOf(window: Window, name: string) : float =
+  controlByName(window, name)
+  |> Option.map(fun control -> control.Bounds.Height)
+  |> Option.defaultValue 0.0
+
 let private hasTextFragment(root: Control, fragment: string) : bool =
   root.GetVisualDescendants()
   |> Seq.exists(function
@@ -720,6 +790,111 @@ let tests =
           $"the history lost its free width on staging: {historyWidth}"
 
         do! closeAsync(window, subject)
+      })
+
+    testCaseAsync
+      "the open staging zone stays under 45 percent of a 900 px window"
+      (async {
+        let! window, subject =
+          probeUiAsync(fun () ->
+            let env = TestEnv(signedInStore(), FakeApi("{}") :> IHttp)
+
+            let entries = [
+              for index in 1..12 ->
+                {
+                  queueEntry with
+                      Id = "018f5a1e-0001-7c3a-9b2d-0000000000" + string index
+                      Body = Some $"Queued commit {index}."
+                      BodySegments = [ TextSegment $"Queued commit {index}." ]
+                }
+            ]
+
+            let model: Staging.View = {
+              Open = true
+              Draft = "release notes"
+              Quote = None
+              Queue = {
+                Items = entries
+                Total = entries.Length
+                Loading = false
+                Error = None
+              }
+            }
+
+            let props: Staging.Props<TestEnv> = {
+              Env = env
+              Session = Some(sessionOf env)
+              OnToggle = ignore
+              OnDraftChanged = ignore
+              OnPosted = ignore
+              OnScheduled = ignore
+            }
+
+            let subject = new BehaviorSubject<Staging.View>(model)
+
+            let view =
+              Staging.view props (subject :> IObservable<Staging.View>)
+
+            let window = Window(Width = 1600.0, Height = 900.0, Content = view)
+            window.Show()
+            window, subject)
+
+        do! pumpAsync()
+
+        let! stagingHeight =
+          probeUiAsync(fun () -> heightOf(window, "StagingRegion"))
+
+        Expect.isTrue
+          (stagingHeight > 0.0 && stagingHeight < 405.0)
+          $"the open staging zone took {stagingHeight} of 900 px"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            subject.OnCompleted()
+            subject.Dispose())
+      })
+
+    testCaseAsync
+      "the inspector close clears the window chrome band and the right edge"
+      (async {
+        let! window =
+          probeUiAsync(fun () ->
+            let env = TestEnv(signedInStore(), FakeApi("{}") :> IHttp)
+
+            let window =
+              Window(
+                Width = 1600.0,
+                Height = 900.0,
+                Content = inspectorViewOf env
+              )
+
+            window.Show()
+            window)
+
+        do! pumpAsync()
+
+        let! top, rightGap =
+          probeUiAsync(fun () ->
+            match controlByName(window, "InspectorClose") with
+            | Some close ->
+              let origin = close.TranslatePoint(Point(0.0, 0.0), window)
+
+              origin.Value.Y,
+              window.Bounds.Width - (origin.Value.X + close.Bounds.Width)
+            | None -> 0.0, 0.0)
+
+        Expect.isGreaterThanOrEqual
+          top
+          (Theme.bandHeight + 8.0)
+          "the inspector close entered the window chrome band"
+
+        Expect.isGreaterThanOrEqual
+          rightGap
+          40.0
+          "the inspector close crowded the window close button"
+
+        do! onUiAsync(fun () -> window.Close())
       })
 
     testCaseAsync

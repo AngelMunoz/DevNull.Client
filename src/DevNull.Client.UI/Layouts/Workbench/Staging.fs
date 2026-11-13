@@ -258,7 +258,13 @@ let openArea(props: Props<'env>, model: IObservable<View>) : Control =
     )
     .Child(
       let parts: Control array = [| composer; queueView |]
-      StackPanel().Spacing(10.0).Children(parts)
+
+      ScrollViewer()
+        .Name("StagingAreaScroll")
+        .MaxHeight(320.0)
+        .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
+        .VerticalScrollBarVisibility(ScrollBarVisibility.Auto)
+        .Content(StackPanel().Spacing(10.0).Children(parts))
     )
 
 let view (props: Props<'env>) (model: IObservable<View>) : Control =
@@ -266,6 +272,7 @@ let view (props: Props<'env>) (model: IObservable<View>) : Control =
     .Name("StagingRegion")
     .Classes(Theme.name Theme.Hairline)
     .BorderThickness(Thickness(0.0, 1.0, 0.0, 0.0))
+    .MaxHeight(360.0)
     .Child(
       let parts: Control array = [|
         strip(props, model)

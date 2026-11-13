@@ -82,6 +82,7 @@ let private rowProps(commit: Commit) : RowProps = {
 
 let private historyProps(env: TestEnv) : HistoryColumn.Props<TestEnv> = {
   Env = env
+  Session = None
   Source = LogSource Following
   KeyFile = "/tmp/devnull-test-id_ed25519"
   ViewerId = "01a151db-7fee-727b-a7ce-c911a7556242"
@@ -102,10 +103,13 @@ let private historyProps(env: TestEnv) : HistoryColumn.Props<TestEnv> = {
   OnQuote = ignore
   Restore = None
   OnReport = ignore
+  OnReportCommit = ignore
+  OnShare = ignore
 }
 
 let private inspectorProps(env: TestEnv) : Inspector.Props<TestEnv> = {
   Env = env
+  Session = None
   CommitId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
   KeyFile = "/tmp/devnull-test-id_ed25519"
   ViewerId = "01a151db-0000-0000-0000-000000000000"
@@ -125,6 +129,9 @@ let private inspectorProps(env: TestEnv) : Inspector.Props<TestEnv> = {
   OnOpenExternal = ignore
   OnQuote = ignore
   OnClose = ignore
+  OnOpenThread = ignore
+  OnReportCommit = ignore
+  OnShare = ignore
 }
 
 let tests =
@@ -483,6 +490,8 @@ let inspectorViewTests =
               RepliesLoading = false
               RepliesError = None
               Busy = None
+              Pinning = None
+              PollChoices = Map.empty
               Now = now
             }
           )

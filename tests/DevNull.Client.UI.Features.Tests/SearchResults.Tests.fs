@@ -43,6 +43,7 @@ let noSinks: Sinks = {
 
 let props(env: TestEnv, sinks: Sinks) : SearchResults.Props<TestEnv> = {
   Env = env
+  Session = None
   KeyFile = "/tmp/devnull-test-id_ed25519"
   ViewerId = "01a151db-0000-0000-0000-000000000000"
   Pasteis = true
@@ -57,6 +58,8 @@ let props(env: TestEnv, sinks: Sinks) : SearchResults.Props<TestEnv> = {
   OnQuote = sinks.Quote
   OnOpenExternal = sinks.External
   OnClose = sinks.Close
+  OnReportCommit = ignore
+  OnShare = ignore
 }
 
 let initialModel(sinks: Sinks) =
@@ -124,6 +127,7 @@ let tests =
               Loading = false
               Error = Some refusal
               Results = []
+              PollChoices = Map.empty
               Now = DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero)
             }
 

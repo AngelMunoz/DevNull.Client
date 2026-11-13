@@ -43,6 +43,7 @@ let private zone: Zone = {
 
 let private historyProps(env: TestEnv) : HistoryColumn.Props<TestEnv> = {
   Env = env
+  Session = None
   Source = LogSource Following
   KeyFile = "/tmp/devnull-test-id_ed25519"
   ViewerId = "01a151db-0000-0000-0000-000000000000"
@@ -57,6 +58,8 @@ let private historyProps(env: TestEnv) : HistoryColumn.Props<TestEnv> = {
   OnQuote = ignore
   Restore = None
   OnReport = ignore
+  OnReportCommit = ignore
+  OnShare = ignore
 }
 
 let private hostProps
@@ -71,6 +74,8 @@ let private hostProps
   OnOpenExternal = ignore
   OnStateChanged = ignore
   OnUseDefaultLayout = ignore
+  OnReportCommit = ignore
+  OnShare = ignore
 }
 
 let private getCount(api: FakeApi, path: string) : int =
@@ -962,6 +967,7 @@ let tests =
 
         let resultProps: SearchResults.Props<TestEnv> = {
           Env = env
+          Session = None
           KeyFile = "/tmp/devnull-test-id_ed25519"
           ViewerId = "01a151db-0000-0000-0000-000000000000"
           Pasteis = false
@@ -973,6 +979,8 @@ let tests =
           OnQuote = ignore
           OnOpenExternal = ignore
           OnClose = fun () -> closed.Add(())
+          OnReportCommit = ignore
+          OnShare = ignore
         }
 
         let resultSubject =
@@ -982,6 +990,7 @@ let tests =
               Loading = false
               Error = None
               Results = results
+              PollChoices = Map.empty
               Now = now
             }
           )

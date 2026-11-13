@@ -45,6 +45,7 @@ let sessionOf(env: TestEnv) =
 
 let props(env: TestEnv, sinks: Sinks) : RepositoryHome.Props<TestEnv> = {
   Env = env
+  Session = Some(sessionOf env)
   Handle = "octocat"
   KeyFile = "/tmp/devnull-test-id_ed25519"
   ViewerId = viewerId
@@ -60,6 +61,8 @@ let props(env: TestEnv, sinks: Sinks) : RepositoryHome.Props<TestEnv> = {
   OnOpenExternal = sinks.External
   OnOpenRepository = sinks.Repository
   OnListChanged = sinks.Lists
+  OnReportCommit = ignore
+  OnShare = ignore
 }
 
 let profileDetails =

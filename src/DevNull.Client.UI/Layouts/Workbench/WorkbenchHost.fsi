@@ -13,7 +13,10 @@ open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
+open DevNull.Client.Profiles
 open DevNull.Client.Stores
+open DevNull.Client.TranslationCache
+open DevNull.Client.UserSettingsStore
 
 /// One live history program: the ref it shows, the place it restored,
 /// its root view, the handle that ends it, and the named refresh inlet
@@ -173,6 +176,9 @@ type Props<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLastVisit
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
   and 'env :> IProvideLogging> = {
   Env: 'env
   Initial: WorkbenchState
@@ -183,6 +189,8 @@ type Props<'env
   OnOpenExternal: string -> unit
   OnStateChanged: WorkbenchState -> unit
   OnUseDefaultLayout: unit -> unit
+  OnReportCommit: Commit -> unit
+  OnShare: Commit -> unit
 }
 
 /// One child program handle the mount wrapper tracks. The wrapper

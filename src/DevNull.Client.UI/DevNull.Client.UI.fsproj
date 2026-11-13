@@ -228,6 +228,8 @@
     <Compile Include="Layouts\Workbench\WorkbenchTypes.fs" />
     <Compile Include="Layouts\Workbench\WorkbenchSettings.fsi" />
     <Compile Include="Layouts\Workbench\WorkbenchSettings.fs" />
+    <Compile Include="Layouts\Workbench\RowActions.fsi" />
+    <Compile Include="Layouts\Workbench\RowActions.fs" />
     <Compile Include="Layouts\Workbench\HistoryColumn.fsi" />
     <Compile Include="Layouts\Workbench\HistoryColumn.fs" />
     <Compile Include="Layouts\Workbench\Inspector.fsi" />
@@ -286,5 +288,4 @@
   <ItemGroup>
     <ProjectReference Include="..\DevNull.Client.Core\DevNull.Client.Core.fsproj" />
   </ItemGroup>
-
 </Project>

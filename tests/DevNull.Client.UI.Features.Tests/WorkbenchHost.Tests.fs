@@ -51,6 +51,8 @@ let private hostProps
   OnOpenExternal = ignore
   OnStateChanged = ignore
   OnUseDefaultLayout = ignore
+  OnReportCommit = ignore
+  OnShare = ignore
 }
 
 let private following =

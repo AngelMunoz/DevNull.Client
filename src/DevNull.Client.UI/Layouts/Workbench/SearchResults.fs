@@ -20,15 +20,21 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
+open DevNull.Client.Env
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.Profiles
+open DevNull.Client.Stores
 open DevNull.Client.Theme
+open DevNull.Client.TranslationCache
+open DevNull.Client.UserSettingsStore
 
 type Model = {
   Term: string
   Loading: bool
   Error: AppError option
   Results: CommitNode list
+  PollChoices: Map<string, string>
   Now: DateTimeOffset
 }
 
@@ -40,14 +46,25 @@ type Msg =
   | Opened of Commit
   | QuoteRequested of Commit
   | ExternalOpened of url: string
+  | PollChoiceChanged of Commit * PollOption * chosen: bool
+  | PollVoteRequested of Commit
+  | PollVotedDone of Result<Commit, AppError>
+  | CommitUpdated of Commit
+  | CommitDeleted of string
   | CloseRequested
 
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
-  and 'env :> IProvideHttp> = {
+  and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideLogging> = {
   Env: 'env
+  Session: SignedInSession option
   KeyFile: string
   ViewerId: string
   Pasteis: bool
@@ -59,7 +76,33 @@ type Props<'env
   OnQuote: Commit -> unit
   OnOpenExternal: string -> unit
   OnClose: unit -> unit
+  OnReportCommit: Commit -> unit
+  OnShare: Commit -> unit
 }
+
+let replaceNode(items: CommitNode list, updated: Commit) =
+  items
+  |> List.map(function
+    | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
+    | node -> node)
+
+let removeNode(items: CommitNode list, commitId: string) =
+  items
+  |> List.filter(function
+    | LiveCommit commit -> commit.Id <> commitId
+    | Tombstone _ -> true)
+
+let vote
+  (props: Props<'env>, commit: Commit, option: PollOption)
+  : Async<Result<Commit, AppError>> =
+  Commits.vote(
+    props.Env,
+    {
+      KeyFile = props.KeyFile
+      CommitId = commit.Id
+      OptionId = option.Id
+    }
+  )
 
 let fetch(props: Props<'env>) : Async<Result<CommitNode list, AppError>> =
   Search.commits(
@@ -77,6 +120,7 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     Loading = true
     Error = None
     Results = []
+    PollChoices = Map.empty
     Now = DateTimeOffset.UtcNow
    },
    Cmd.OfAsync.perform fetch props Fetched)
@@ -119,6 +163,46 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
     with
     | Some commit -> model, Cmd.ofAction(fun () -> props.OnOpenThread commit)
     | None -> model, Cmd.none
+  | PollChoiceChanged(commit, option, chosen) ->
+    ({
+      model with
+          PollChoices =
+            CommitCard.choose {
+              Choices = model.PollChoices
+              CommitId = commit.Id
+              OptionId = option.Id
+              Chosen = chosen
+            }
+     },
+     Cmd.none)
+  | PollVoteRequested commit ->
+    match CommitCard.selectedOption(model.PollChoices, commit) with
+    | Some option ->
+      ({ model with Error = None },
+       Cmd.OfAsync.perform vote (props, commit, option) PollVotedDone)
+    | None -> model, Cmd.none
+  | PollVotedDone result ->
+    match result with
+    | Ok updated ->
+      ({
+        model with
+            Results = replaceNode(model.Results, updated)
+            PollChoices = model.PollChoices |> Map.remove updated.Id
+       },
+       Cmd.none)
+    | Error error -> ({ model with Error = Some error }, Cmd.none)
+  | CommitUpdated updated ->
+    ({
+      model with
+          Results = replaceNode(model.Results, updated)
+     },
+     Cmd.none)
+  | CommitDeleted commitId ->
+    ({
+      model with
+          Results = removeNode(model.Results, commitId)
+     },
+     Cmd.none)
   | ClockTicked moment -> ({ model with Now = moment }, Cmd.none)
   | Opened commit -> model, Cmd.ofAction(fun () -> props.OnOpenThread commit)
   | QuoteRequested commit -> model, Cmd.ofAction(fun () -> props.OnQuote commit)
@@ -136,15 +220,41 @@ let view
   : Control =
   let now = model |> Observable.map _.Now |> Slices.share
   let pasteis = Observable.single props.Pasteis
-  let polls = Observable.single(Map.empty: Map<string, string>)
-  let translation = Observable.single(fun (_: Commit) -> ValueNone)
+  let polls = model |> Observable.map _.PollChoices |> Slices.share
+
+  let actions =
+    props.Session
+    |> Option.map(fun session ->
+      RowActions.create {
+        Env = props.Env
+        Session = session
+        Now = props.Now
+        OfferBasicActions = true
+        OnUpdated = CommitUpdated >> dispatch
+        OnDeleted = CommitDeleted >> dispatch
+        OnReport = props.OnReportCommit
+        OnShare = props.OnShare
+      })
+
+  let busy =
+    actions
+    |> Option.map _.Busy
+    |> Option.defaultValue(Observable.single(None: string option))
+
+  let inline slot(command: Commit -> unit) : ActionSlot voption =
+    ValueSome { Command = command; Busy = busy }
 
   let rowProps: RowProps = {
     OnEvent =
       fun event ->
+        actions |> Option.iter(fun current -> current.Handle event)
+
         match event with
         | CommitCard.Opened commit -> dispatch(Opened commit)
+        | CommitCard.ReplyToggled commit -> dispatch(Opened commit)
         | CommitCard.QuoteRequested commit -> dispatch(QuoteRequested commit)
+        | CommitCard.PollChoiceChanged(commit, option, chosen) ->
+          dispatch(PollChoiceChanged(commit, option, chosen))
         | _ -> ()
     OnOpenExternal = fun url -> dispatch(ExternalOpened url)
     ViewerId = props.ViewerId
@@ -155,12 +265,24 @@ let view
     Images = props.Images
     Flyout = ValueNone
     Pin = ValueNone
-    Star = ValueNone
+    Star =
+      match actions with
+      | Some current -> current.Star
+      | None -> ValueNone
     Stars = ValueNone
-    Vote = ValueNone
-    Pastel = ValueNone
-    Menu = ValueNone
-    Translation = translation
+    Vote = slot(fun commit -> dispatch(PollVoteRequested commit))
+    Pastel =
+      match actions with
+      | Some current -> current.Pastel
+      | None -> ValueNone
+    Menu =
+      match actions with
+      | Some current -> current.Menu
+      | None -> ValueNone
+    Translation =
+      actions
+      |> Option.map _.Translation
+      |> Option.defaultValue(Observable.single(fun (_: Commit) -> ValueNone))
     Zone = props.Zone
   }
 

@@ -59,6 +59,8 @@ let props(env: TestEnv, sinks: Sinks) : ThreadMode.Props<TestEnv> = {
   OnOpenThread = sinks.Thread
   OnOpenExternal = sinks.External
   OnQuote = sinks.Quote
+  OnReportCommit = ignore
+  OnShare = ignore
 }
 
 let threadPage =
@@ -99,6 +101,7 @@ let readyModel: ThreadMode.Model = {
   RepliesCursor = None
   RepliesLoading = false
   RepliesError = None
+  PollChoices = Map.empty
   Now = DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero)
 }
 

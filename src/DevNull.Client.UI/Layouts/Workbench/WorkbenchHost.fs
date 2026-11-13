@@ -24,9 +24,12 @@ open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
+open DevNull.Client.Profiles
 open DevNull.Client.Shortcuts
 open DevNull.Client.Stores
 open DevNull.Client.Theme
+open DevNull.Client.TranslationCache
+open DevNull.Client.UserSettingsStore
 
 type HistoryChild = {
   Ref: Ref
@@ -156,6 +159,9 @@ type Props<'env
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLastVisit
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
   and 'env :> IProvideLogging> = {
   Env: 'env
   Initial: WorkbenchState
@@ -166,6 +172,8 @@ type Props<'env
   OnOpenExternal: string -> unit
   OnStateChanged: WorkbenchState -> unit
   OnUseDefaultLayout: unit -> unit
+  OnReportCommit: Commit -> unit
+  OnShare: Commit -> unit
 }
 
 [<Sealed>]
@@ -182,7 +190,7 @@ type TrackedHandle(raw: IDisposable) =
     member this.Dispose() = this.Dispose()
 
 [<Sealed>]
-type MountedHost() =
+type internal MountedHost() =
 
   let subject = new System.Reactive.Subjects.Subject<Msg>()
   let created = ResizeArray<TrackedHandle>()
@@ -302,6 +310,7 @@ type MountedHost() =
 
 [<Struct>]
 type SessionData = {
+  Session: SignedInSession option
   KeyFile: string
   ViewerId: string
   Pasteis: bool
@@ -313,6 +322,7 @@ type SessionData = {
 type HistoryStart = {
   Ref: Ref
   Place: HistoryColumn.Place option
+  Session: SignedInSession option
   KeyFile: string
   ViewerId: string
   Pasteis: bool
@@ -322,6 +332,7 @@ type HistoryStart = {
 [<Struct>]
 type InspectorStart = {
   CommitId: string
+  Session: SignedInSession option
   KeyFile: string
   ViewerId: string
   Pasteis: bool
@@ -339,6 +350,7 @@ type ThreadStart = {
 [<Struct>]
 type RepositoryStart = {
   Handle: string
+  Session: SignedInSession option
   KeyFile: string
   ViewerId: string
   Pasteis: bool
@@ -352,6 +364,7 @@ type SearchPaletteStart = { KeyFile: string }
 
 [<Struct>]
 type SearchStart = {
+  Session: SignedInSession option
   KeyFile: string
   ViewerId: string
   Pasteis: bool
@@ -361,6 +374,7 @@ type SearchStart = {
 let sessionOfState(state: SessionState) : SessionData =
   match state with
   | SignedIn session -> {
+      Session = Some session
       KeyFile = session.KeyFile
       ViewerId = session.Session.User.Id
       Pasteis = session.Session.PasteisMode
@@ -368,6 +382,7 @@ let sessionOfState(state: SessionState) : SessionData =
       Unread = session.Session.UnreadNotificationsCount
     }
   | SignedOut -> {
+      Session = None
       KeyFile = ""
       ViewerId = ""
       Pasteis = false
@@ -415,6 +430,7 @@ let startHistory
 
     let childProps: HistoryColumn.Props<'env> = {
       Env = props.Env
+      Session = start.Session
       Source = source
       KeyFile = start.KeyFile
       ViewerId = start.ViewerId
@@ -429,6 +445,8 @@ let startHistory
       OnQuote = fun commit -> dispatch(Quote commit)
       Restore = start.Place
       OnReport = fun report -> dispatch(HistoryReported(start.Ref, report))
+      OnReportCommit = props.OnReportCommit
+      OnShare = props.OnShare
     }
 
     let view, rawHandle =
@@ -449,6 +467,7 @@ let startInspector
   : InspectorChild =
   let childProps: Inspector.Props<'env> = {
     Env = props.Env
+    Session = start.Session
     CommitId = start.CommitId
     KeyFile = start.KeyFile
     ViewerId = start.ViewerId
@@ -461,7 +480,10 @@ let startInspector
     OnOpenAuthor = fun handle -> dispatch(OpenAuthor handle)
     OnOpenExternal = fun url -> dispatch(OpenExternal url)
     OnQuote = fun commit -> dispatch(Quote commit)
+    OnOpenThread = fun commit -> dispatch(OpenThread commit.Id)
     OnClose = fun () -> dispatch(CheckoutSet None)
+    OnReportCommit = props.OnReportCommit
+    OnShare = props.OnShare
   }
 
   let view, rawHandle =
@@ -492,6 +514,8 @@ let startThread
     OnOpenThread = fun commit -> dispatch(OpenThread commit.Id)
     OnOpenExternal = fun url -> dispatch(OpenExternal url)
     OnQuote = fun commit -> dispatch(Quote commit)
+    OnReportCommit = props.OnReportCommit
+    OnShare = props.OnShare
   }
 
   let view, rawHandle =
@@ -510,6 +534,7 @@ let startRepository
   : RepositoryChild =
   let childProps: RepositoryHome.Props<'env> = {
     Env = props.Env
+    Session = start.Session
     Handle = start.Handle
     KeyFile = start.KeyFile
     ViewerId = start.ViewerId
@@ -523,6 +548,8 @@ let startRepository
     OnOpenRepository =
       fun handle -> dispatch(RefSelected(Build.repository handle))
     OnListChanged = fun open' -> dispatch(RepositoryListChanged open')
+    OnReportCommit = props.OnReportCommit
+    OnShare = props.OnShare
   }
 
   let view, rawHandle =
@@ -584,6 +611,7 @@ let startSearch
   : SearchChild =
   let childProps: SearchResults.Props<'env> = {
     Env = props.Env
+    Session = start.Session
     KeyFile = start.KeyFile
     ViewerId = start.ViewerId
     Pasteis = start.Pasteis
@@ -595,6 +623,8 @@ let startSearch
     OnQuote = fun commit -> dispatch(Quote commit)
     OnOpenExternal = fun url -> dispatch(OpenExternal url)
     OnClose = fun () -> dispatch SearchClosed
+    OnReportCommit = props.OnReportCommit
+    OnShare = props.OnShare
   }
 
   let view, rawHandle =
@@ -747,10 +777,11 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
   let selected = WorkbenchState.refOf props.Initial
   let checkoutId = WorkbenchState.checkoutId props.Initial
 
-  let checkoutStart =
+  let checkoutStart: InspectorStart option =
     checkoutId
     |> Option.map(fun commitId -> {
       CommitId = commitId
+      Session = data.Session
       KeyFile = data.KeyFile
       ViewerId = data.ViewerId
       Pasteis = data.Pasteis
@@ -791,6 +822,7 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
   let historyStart: HistoryStart = {
     Ref = selected
     Place = None
+    Session = data.Session
     KeyFile = data.KeyFile
     ViewerId = data.ViewerId
     Pasteis = data.Pasteis
@@ -805,6 +837,7 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
         None,
         Some {
           Handle = handle
+          Session = data.Session
           KeyFile = data.KeyFile
           ViewerId = data.ViewerId
           Pasteis = data.Pasteis
@@ -871,6 +904,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
           model.Repository |> Option.map _.Handle,
           Some {
             Handle = handle
+            Session = data.Session
             KeyFile = data.KeyFile
             ViewerId = data.ViewerId
             Pasteis = data.Pasteis
@@ -893,6 +927,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
       let start: HistoryStart = {
         Ref = ref
         Place = model.Places |> Map.tryFind ref
+        Session = data.Session
         KeyFile = data.KeyFile
         ViewerId = data.ViewerId
         Pasteis = data.Pasteis
@@ -913,10 +948,11 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | CheckoutSet commitId ->
     let data = sessionData props
 
-    let start =
+    let start: InspectorStart option =
       commitId
       |> Option.map(fun id -> {
         CommitId = id
+        Session = data.Session
         KeyFile = data.KeyFile
         ViewerId = data.ViewerId
         Pasteis = data.Pasteis
@@ -937,6 +973,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
 
     let checkoutStart: InspectorStart = {
       CommitId = commitId
+      Session = data.Session
       KeyFile = data.KeyFile
       ViewerId = data.ViewerId
       Pasteis = data.Pasteis
@@ -1211,6 +1248,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
          props,
          model.Search |> Option.map _.Handle,
          Some {
+           Session = data.Session
            KeyFile = data.KeyFile
            ViewerId = data.ViewerId
            Pasteis = data.Pasteis
@@ -1260,6 +1298,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
           {
             Ref = model.Selected
             Place = model.Places |> Map.tryFind model.Selected
+            Session = data.Session
             KeyFile = data.KeyFile
             ViewerId = data.ViewerId
             Pasteis = data.Pasteis

@@ -7,8 +7,13 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
+open DevNull.Client.Env
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.Profiles
+open DevNull.Client.Stores
+open DevNull.Client.TranslationCache
+open DevNull.Client.UserSettingsStore
 
 /// One inspector's state: the checked-out commit and its parent chain,
 /// the replies and their cursor, the show and replies failures, the
@@ -27,6 +32,8 @@ type Model = {
   RepliesLoading: bool
   RepliesError: AppError option
   Busy: string option
+  Pinning: string option
+  PollChoices: Map<string, string>
   Now: DateTimeOffset
 }
 
@@ -41,12 +48,20 @@ type Msg =
   | ClockTicked of moment: DateTimeOffset
   | StarToggled of Commit
   | StarDone of Result<Commit, AppError>
+  | PinToggled of Commit
+  | PinDone of pinned: bool * Result<Commit, AppError>
   | PastelGiven of Commit
   | PastelDone of Result<PastelResult, AppError>
   | ParentWalked of commitId: string
   | ChildOpened of commitId: string
   | AuthorOpened of handle: string
   | QuoteRequested of Commit
+  | ReplyToggled of Commit
+  | PollChoiceChanged of Commit * PollOption * chosen: bool
+  | PollVoteRequested of Commit
+  | PollVotedDone of Result<Commit, AppError>
+  | CommitUpdated of Commit
+  | CommitDeleted of string
   | CloseRequested
 
 /// What one inspector needs from its host: the protocol workers, the
@@ -58,8 +73,14 @@ type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
-  and 'env :> IProvideHttp> = {
+  and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideLogging> = {
   Env: 'env
+  Session: SignedInSession option
   CommitId: string
   KeyFile: string
   ViewerId: string
@@ -72,7 +93,10 @@ type Props<'env
   OnOpenAuthor: string -> unit
   OnOpenExternal: string -> unit
   OnQuote: Commit -> unit
+  OnOpenThread: Commit -> unit
   OnClose: unit -> unit
+  OnReportCommit: Commit -> unit
+  OnShare: Commit -> unit
 }
 
 /// The inspector's first state and its checkout read.

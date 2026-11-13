@@ -1583,12 +1583,9 @@ module Parts =
         .OnClickHandler(fun _ _ -> dispatch State.StarsMore)
 
     let loading =
-      ProgressBar()
+      DevNull.Client.Components.PageChrome
+        .marquee(model |> Observable.map _.StarsBusy, Thickness())
         .Name("StarsLoading")
-        .IsIndeterminate(true)
-        .Height(2.0)
-        .MaxHeight(2.0)
-        .IsVisible(model |> Observable.map _.StarsBusy)
 
     let failure =
       StackPanel()

@@ -38,6 +38,12 @@ val collapsingMessagePanel:
 /// tone, shown only while the page carries an error.
 val errorPanel: error: IObservable<AppError option> -> Control
 
+/// The two-pixel indeterminate line. Its marquee runs only while
+/// `busy` carries work, and it stops for good when the bar leaves the
+/// tree: an indeterminate bar left running keeps its animation on the
+/// global clock, which roots the bar's whole detached tree.
+val marquee: busy: IObservable<bool> * margin: Thickness -> ProgressBar
+
 /// The feed's load-more button, shown while the page holds a cursor.
 val loadMore: visible: IObservable<bool> * onClick: (unit -> unit) -> Control
 

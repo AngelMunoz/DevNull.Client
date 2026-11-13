@@ -164,21 +164,24 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) : Control * IDisposable =
       log
     )
 
-  let dialog =
-    SearchDialog.Page {
-      Env = props.Env
-      SignedIn = props.Session
-      Searches = searches
-      InitialTerm = None
-      Recents = (props.Env :> IProvideRecentSearches).RecentSearches
-      Nav = searchNav props
-      OpenCompose = props.OnOpenCompose
-      Close = props.OnClose
-    }
+  let dialog, dialogHandle =
+    SearchDialog.mount(
+      dispatcher,
+      {
+        Env = props.Env
+        SignedIn = props.Session
+        Searches = searches
+        InitialTerm = None
+        Recents = (props.Env :> IProvideRecentSearches).RecentSearches
+        Nav = searchNav props
+        OpenCompose = props.OnOpenCompose
+        Close = props.OnClose
+      }
+    )
 
   let shell = Grid()
   shell.RowDefinitions <- RowDefinitions("*,Auto")
 
   shell.Children(dialog.Row(0), commandBar(props).Row(1)) |> ignore
 
-  shell, Disposable.Empty
+  shell, dialogHandle

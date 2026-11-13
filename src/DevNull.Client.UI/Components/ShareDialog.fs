@@ -294,12 +294,9 @@ module Parts =
           box.Text |> Option.ofObj |> Option.iter(State.Typed >> dispatch))
 
     let loading =
-      ProgressBar()
+      DevNull.Client.Components.PageChrome
+        .marquee(model |> Observable.map State.searching, Thickness())
         .Name("ShareLoading")
-        .IsIndeterminate(true)
-        .Height(2.0)
-        .MaxHeight(2.0)
-        .IsVisible(model |> Observable.map State.searching)
 
     let failure =
       TextBlock()

@@ -343,7 +343,7 @@ let tests =
       (async {
         let env = TestEnv(signedInStore(), logApi() :> IHttp)
 
-        let! layout =
+        let! layout, host =
           probeUiAsync(fun () ->
             let surface = {
               new IHostSurface with
@@ -363,7 +363,7 @@ let tests =
               Window(Width = 1600.0, Height = 900.0, Content = mounted.Root)
 
             host.Show()
-            mounted)
+            mounted, host)
 
         let! shown =
           waitForAsync(
@@ -377,6 +377,7 @@ let tests =
         do!
           probeUiAsync(fun () ->
             (layout :> IDisposable).Dispose()
+            host.Close()
             true)
           |> Async.Ignore
       })

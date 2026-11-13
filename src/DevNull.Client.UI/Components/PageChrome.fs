@@ -119,6 +119,22 @@ let loadMore(visible: IObservable<bool>, onClick: unit -> unit) : Control =
     .IsVisible(visible)
     .OnClickHandler(fun _ _ -> onClick())
 
+/// The two-pixel indeterminate line. Its marquee runs only while
+/// `busy` carries work, and it stops for good when the bar leaves the
+/// tree: an indeterminate bar left running keeps its animation on the
+/// global clock, which roots the bar's whole detached tree.
+let marquee(busy: IObservable<bool>, margin: Thickness) : ProgressBar =
+  let bar =
+    ProgressBar()
+      .IsIndeterminate(busy)
+      .Height(2.0)
+      .MaxHeight(2.0)
+      .Margin(margin)
+      .IsVisible(busy)
+
+  bar.DetachedFromVisualTree.Add(fun _ -> bar.IsIndeterminate <- false)
+  bar
+
 /// One quiet line of page text, shown while its slice says Words.
 let linePanel(line: IObservable<Line>) : Control =
   let words =

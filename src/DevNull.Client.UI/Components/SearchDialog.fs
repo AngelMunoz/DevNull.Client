@@ -463,12 +463,10 @@ module Parts =
         )
 
     let loadingLine =
-      ProgressBar()
-        .IsIndeterminate(true)
-        .Height(2.0)
-        .MaxHeight(2.0)
-        .Margin(0, 8)
-        .IsVisible(model |> Observable.map State.searching)
+      DevNull.Client.Components.PageChrome.marquee(
+        model |> Observable.map State.searching,
+        Thickness(0.0, 8.0)
+      )
 
     StackPanel().Margin(8, 16).Children(row, loadingLine)
 
@@ -752,6 +750,24 @@ let view
     ))
 
   card
+
+/// Starts the dialog as a host-owned child: the program runs on the
+/// given dispatcher until the returned handle is disposed, and the
+/// handle disposes the search session with it. The handle holds no
+/// view, so a host may keep it for the child's whole lifetime.
+let mount
+  (dispatcher: Avalonia.Threading.IDispatcher, props: Props<'env>)
+  : Control * IDisposable =
+  let program =
+    Program.mkProgram (State.initial props) (State.update props) (view props)
+    |> Program.withSubscription(State.subscribe props)
+
+  let dialog, handle = Programs.runPage(dispatcher, program)
+
+  dialog,
+  Disposable.Create(fun () ->
+    handle.Dispose()
+    (props.Searches :> IDisposable).Dispose())
 
 type Page<'env
   when 'env :> IProvideClock

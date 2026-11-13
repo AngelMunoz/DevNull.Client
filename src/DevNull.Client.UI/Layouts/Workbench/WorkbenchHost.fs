@@ -195,16 +195,6 @@ type Props<'env
 }
 
 [<Sealed>]
-type WeakDisposable(targetToDispose: IDisposable) =
-  let target = WeakReference targetToDispose
-
-  interface IDisposable with
-    member _.Dispose() =
-      match target.Target with
-      | :? IDisposable as disposable -> disposable.Dispose()
-      | _ -> ()
-
-[<Sealed>]
 type TrackedHandle(raw: IDisposable) =
 
   member val Disposed = false with get, set
@@ -688,8 +678,9 @@ let startSearchPalette
   let view, handle =
     match sessionData props with
     | { Session = Some session } ->
-      let page =
-        SearchDialog.Page {
+      SearchDialog.mount(
+        props.Env.Dispatcher,
+        {
           Env = props.Env
           SignedIn = session
           Searches = searchSession(props, session, Some 5)
@@ -699,8 +690,7 @@ let startSearchPalette
           OpenCompose = fun () -> dispatch ComposeRequested
           Close = fun () -> dispatch SearchPaletteClosed
         }
-
-      page :> Control, WeakDisposable(page) :> IDisposable
+      )
     | _ -> Panel() :> Control, Disposable.Empty
 
   {
@@ -714,8 +704,9 @@ let startSearch
   let view, handle =
     match start.Session with
     | Some session ->
-      let page =
-        SearchDialog.Page {
+      SearchDialog.mount(
+        props.Env.Dispatcher,
+        {
           Env = props.Env
           SignedIn = session
           Searches = searchSession(props, session, None)
@@ -725,8 +716,7 @@ let startSearch
           OpenCompose = fun () -> dispatch ComposeRequested
           Close = fun () -> dispatch SearchClosed
         }
-
-      page :> Control, WeakDisposable(page) :> IDisposable
+      )
     | None -> Panel() :> Control, Disposable.Empty
 
   {

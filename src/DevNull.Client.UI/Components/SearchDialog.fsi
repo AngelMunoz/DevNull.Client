@@ -38,6 +38,14 @@ type Props<'env
   Close: unit -> unit
 }
 
+/// Starts the dialog as a host-owned child: the program runs on the
+/// given dispatcher until the returned handle is disposed, and the
+/// handle disposes the search session with it. The handle holds no
+/// view, so a host may keep it for the child's whole lifetime.
+val mount:
+  dispatcher: Avalonia.Threading.IDispatcher * props: Props<'env> ->
+    Control * System.IDisposable
+
 /// The search dialog: the site's command palette over the same two
 /// searches. Built on open, torn down on detach.
 type Page<'env

@@ -338,8 +338,8 @@ let tests =
           probeUiAsync(fun () ->
             let env = TestEnv(signedInStore(), api :> IHttp)
             let props = hostProps(env, WorkbenchSettings.initial)
-            let mounted = WorkbenchHost.mountFor(Harness.ui, props)
-            mounted.Root, mounted.Inner)
+            let view, handle = WorkbenchHost.mount(Harness.ui, props)
+            view, handle :?> WorkbenchHost.MountedHost)
 
         let! first =
           waitForAsync(
@@ -500,8 +500,8 @@ let tests =
           probeUiAsync(fun () ->
             let env = TestEnv(signedInStore(), api :> IHttp)
             let props = hostProps(env, WorkbenchSettings.initial)
-            let mounted = WorkbenchHost.mountFor(Harness.ui, props)
-            mounted.Root, mounted.Inner)
+            let view, handle = WorkbenchHost.mount(Harness.ui, props)
+            view, handle :?> WorkbenchHost.MountedHost)
 
         let logCount() =
           api.Requests

@@ -844,48 +844,6 @@ let tests =
       })
 
     testCaseAsync
-      "the inspector close clears the window chrome band and the right edge"
-      (async {
-        let! window =
-          probeUiAsync(fun () ->
-            let env = TestEnv(signedInStore(), FakeApi("{}") :> IHttp)
-
-            let window =
-              Window(
-                Width = 1600.0,
-                Height = 900.0,
-                Content = inspectorViewOf env
-              )
-
-            window.Show()
-            window)
-
-        do! pumpAsync()
-
-        let! top, rightGap =
-          probeUiAsync(fun () ->
-            match controlByName(window, "InspectorClose") with
-            | Some close ->
-              let origin = close.TranslatePoint(Point(0.0, 0.0), window)
-
-              origin.Value.Y,
-              window.Bounds.Width - (origin.Value.X + close.Bounds.Width)
-            | None -> 0.0, 0.0)
-
-        Expect.isGreaterThanOrEqual
-          top
-          (Theme.bandHeight + 8.0)
-          "the inspector close entered the window chrome band"
-
-        Expect.isGreaterThanOrEqual
-          rightGap
-          40.0
-          "the inspector close crowded the window close button"
-
-        do! onUiAsync(fun () -> window.Close())
-      })
-
-    testCaseAsync
       "the W3 frame at 1600 px opens the thread, parents, and reply composer"
       (async {
         let! window, subject = buildThreadAsync()

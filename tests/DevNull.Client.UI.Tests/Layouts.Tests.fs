@@ -325,6 +325,7 @@ let tests =
       (async {
         let tape = ResizeArray<string>()
         let testRoots = ResizeArray<WeakReference>()
+        let defaultRoots = ResizeArray<WeakReference>()
 
         let! window = Leaks.startShell(signedInStore(), soakApi 40)
 
@@ -353,7 +354,10 @@ let tests =
 
         for _ in 1..20 do
           do!
-            onUiAsync(fun () -> (window :?> Shell<TestEnv>).SwitchLayout "test")
+            onUiAsync(fun () ->
+              let content = window.Content :?> Panel
+              defaultRoots.Add(WeakReference(content.Children.[0]))
+              (window :?> Shell<TestEnv>).SwitchLayout "test")
 
           let! testMounted =
             waitForAsync(
@@ -385,12 +389,10 @@ let tests =
         let disposed =
           tape |> Seq.filter(fun entry -> entry = "disposed") |> Seq.length
 
-        // Every unmounted layout is asked to let go once, and the
-        // test layouts' controls — the ones this switch loop mounts
-        // and drops — release. The arrangement's own deep release is
-        // tracked as its own fix: its pages ride interval timers that
-        // outlive their programs, and Avalonia bindings keep their
-        // sources after a detach.
+        // Every unmounted layout is asked to let go once, and both
+        // sides release: the test layouts' controls and the retired
+        // default arrangement — its pages, their programs, and the
+        // polls and bindings that used to outlive them.
         Expect.equal disposed 20 "an unmounted test layout was not disposed"
 
         let retained = testRoots |> Seq.filter(fun weak -> weak.IsAlive)
@@ -399,5 +401,13 @@ let tests =
           (Seq.length retained)
           0
           "a switched-out test layout root stayed reachable"
+
+        let retainedDefaults =
+          defaultRoots |> Seq.filter(fun weak -> weak.IsAlive)
+
+        Expect.equal
+          (Seq.length retainedDefaults)
+          0
+          "a switched-out default layout root stayed reachable"
       })
   ]

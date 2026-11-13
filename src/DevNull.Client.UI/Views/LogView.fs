@@ -1,4 +1,4 @@
-﻿module DevNull.Client.Views.LogView
+module DevNull.Client.Views.LogView
 
 open System
 open System.Collections.Generic
@@ -1151,8 +1151,9 @@ module State =
         (props.Env.Session.Observe |> Observable.map SessionChanged)
 
       if model.Attached then
-        Sub.interval "since-poll" (TimeSpan.FromMinutes 1.0) (fun () ->
-          CheckNew)
+        Sub.fromObservable
+          "since-poll"
+          (props.Env.UiClock.Minute |> Observable.map(fun _ -> CheckNew))
 
       if model.Attached then
         Sub.fromObservable "chrome" chromeRequests

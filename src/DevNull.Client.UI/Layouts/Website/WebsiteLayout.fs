@@ -613,6 +613,7 @@ let sidebar(props: SidebarProps) : Control =
 // whether the wide band shows it.
 type AsideProps<'env
   when 'env :> IProvideClock
+  and 'env :> IProvideUiClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
@@ -648,11 +649,20 @@ let aside(props: AsideProps<'env>) : Control =
         )
     | SignedOut -> Panel()
 
-  let host =
-    ContentControl()
-      .Content(
-        PageChrome.rebuildOn(props.Session, userKey, stack) |> _.ToBinding()
+  // The aside's pages run real programs (the live poll, the route
+  // path), and a page built while the aside is hidden is built
+  // detached: its program starts but its detach never comes. Build
+  // the stack only in the wide band, and let the narrow band drop it.
+  let content =
+    Observable.combineLatest props.Wide props.Session
+    |> fun source ->
+      PageChrome.rebuildOn(
+        source,
+        (fun (wide, state) -> wide, userKey state),
+        (fun (wide, state) -> if wide then stack state else Panel())
       )
+
+  let host = ContentControl().Content(content |> _.ToBinding())
 
   host.Name <- "AsideHost"
   host.Margin <- Thickness(24.0, Theme.bandHeight + 24.0, 24.0, 24.0)

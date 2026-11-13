@@ -16,9 +16,11 @@ open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.ImageCache
 open DevNull.Client.Stores
+open DevNull.Client.UiClock
 
 type Props<'env
   when 'env :> IProvideClock
+  and 'env :> IProvideUiClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
@@ -55,7 +57,9 @@ module State =
     | Polled -> model, Cmd.OfAsync.perform fetch props Loaded
 
   let subscribe(props: Props<'env>) : Sub<Msg> =
-    Sub.interval "live-again" (TimeSpan.FromSeconds 60.0) (fun () -> Polled)
+    props.Env.UiClock.Minute
+    |> Observable.map(fun _ -> Polled)
+    |> Sub.fromObservable "live-again"
 
 // The section's semantic regions; the view only composes these.
 module Parts =
@@ -146,6 +150,7 @@ let view
 
 type Page<'env
   when 'env :> IProvideClock
+  and 'env :> IProvideUiClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp

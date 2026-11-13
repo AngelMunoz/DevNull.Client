@@ -5388,6 +5388,12 @@ let tests =
               (control :?> TextBox).Text <-
                 "https://www.youtube.com/watch?v=NeutralVid1"))
 
+        let before =
+          api.Requests
+          |> Seq.filter(fun request ->
+            request.Method = "GET" && request.Target = "/api/v1/users/octocat")
+          |> Seq.length
+
         do!
           onUiAsync(fun () ->
             controlByName(window, "GoLive")
@@ -5419,7 +5425,7 @@ let tests =
                   request.Method = "GET"
                   && request.Target = "/api/v1/users/octocat")
 
-              fetches.Length >= 3)
+              fetches.Length > before)
           )
 
         Expect.isTrue refetched "the post-submit refetch never fired"

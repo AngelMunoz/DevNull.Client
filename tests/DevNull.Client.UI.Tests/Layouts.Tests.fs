@@ -17,6 +17,7 @@ open DevNull.Client.Layouts
 open DevNull.Client.RouteStore
 open DevNull.Client.SettingsStore
 open DevNull.Client.Shell
+open DevNull.Client.Shortcuts
 open DevNull.Client.Stores
 open DevNull.Client.UI.Tests.Fixtures
 open DevNull.Client.UI.Tests.Harness
@@ -46,12 +47,18 @@ let testLayout(tape: ResizeArray<string>) : ILayout =
       member _.Actions = {
         Compose = fun () -> tape.Add "compose"
         Search = fun () -> tape.Add "search"
-        Help = fun () -> tape.Add "help"
         Escape = fun () -> tape.Add "escape"
         Navigate = fun url -> tape.Add("navigate:" + url)
         ToggleFullScreen = fun () -> tape.Add "fullscreen"
         WalkCards = fun step -> tape.Add("walk:" + string step)
       }
+
+      member _.Cheatsheet = [
+        {
+          Keys = [ "T" ]
+          Words = "test the layout"
+        }
+      ]
 
       member _.OverlayOpen() = false
       member _.Navigate(url) = tape.Add("navigate:" + url)
@@ -174,6 +181,29 @@ let tests =
 
         Expect.isTrue shown "the log never rendered"
 
+        // The host cheatsheet reads the default layout's rows.
+        do! onUiAsync(fun () -> pressKey(window, Key.OemQuestion))
+
+        let! defaultKeys =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "Show this list"))
+          )
+
+        Expect.isTrue defaultKeys "the default cheatsheet never showed"
+
+        do! onUiAsync(fun () -> pressKey(window, Key.Escape))
+
+        let! defaultClosed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> not(hasText(root, "Keyboard shortcuts")))
+          )
+
+        Expect.isTrue defaultClosed "the default cheatsheet never closed"
+
         do! onUiAsync(fun () -> registerTest(window, tape))
         do! onUiAsync(fun () -> (window :?> Shell<TestEnv>).SwitchLayout "test")
 
@@ -195,6 +225,35 @@ let tests =
             | _ -> "")
 
         Expect.equal focused "TestRoot" "the new root never took focus"
+
+        // The same key reads the mounted layout's rows, not the
+        // retired layout's.
+        do! onUiAsync(fun () -> pressKey(window, Key.OemQuestion))
+
+        let! testKeys =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "test the layout"))
+          )
+
+        Expect.isTrue testKeys "the test layout's cheatsheet never showed"
+
+        let! oldKeysGone =
+          probeUiAsync(fun () -> not(hasText(window, "Show this list")))
+
+        Expect.isTrue oldKeysGone "the retired layout's keys stayed in the card"
+
+        do! onUiAsync(fun () -> pressKey(window, Key.Escape))
+
+        let! testClosed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> not(hasText(root, "Keyboard shortcuts")))
+          )
+
+        Expect.isTrue testClosed "the test cheatsheet never closed"
 
         // The tunnel reaches the new layout only: the key records
         // there, and the retired layout's dialog stays gone.
@@ -224,6 +283,30 @@ let tests =
           )
 
         Expect.isTrue back "the default layout never remounted"
+
+        // Back on the default: the host card reads the default rows
+        // again.
+        do! onUiAsync(fun () -> pressKey(window, Key.OemQuestion))
+
+        let! defaultAgain =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> hasText(root, "Show this list"))
+          )
+
+        Expect.isTrue defaultAgain "the default cheatsheet did not come back"
+
+        do! onUiAsync(fun () -> pressKey(window, Key.Escape))
+
+        let! defaultAgainClosed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            (fun root -> not(hasText(root, "Keyboard shortcuts")))
+          )
+
+        Expect.isTrue defaultAgainClosed "the default cheatsheet stayed open"
 
         do! onUiAsync(fun () -> pressKey(window, Key.C))
 

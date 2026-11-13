@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Settings:** an Appearance row names the layout the window shows; a pick changes it at once, with no restart. The site's own layout is the choice today.
+- **Layouts:** the help key opens a keyboard cheatsheet in every layout, listing the keys the mounted layout answers; Escape closes it first.
 
 ### Changed
 

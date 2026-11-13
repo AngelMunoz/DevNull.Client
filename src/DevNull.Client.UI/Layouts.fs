@@ -43,6 +43,8 @@ type ILayout =
 
   abstract Actions: Actions
 
+  abstract Cheatsheet: CheatsheetItem list
+
   abstract OverlayOpen: unit -> bool
 
   abstract Navigate: url: string -> unit
@@ -94,6 +96,7 @@ let builtIn
         member _.Name = "current"
         member _.Root = site.Root
         member _.Actions = site.Actions
+        member _.Cheatsheet = site.Cheatsheet
         member _.OverlayOpen() = site.OverlayOpen()
         member _.Navigate(url) = site.Navigate url
         member _.Narrow = site.Narrow

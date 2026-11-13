@@ -62,13 +62,16 @@ type Props<'env
 }
 
 /// The mounted website arrangement: the root control the host slots
-/// in, the key actions and overlay probe the host's tunnel reads, the
-/// navigation window-level intents fall through to, the narrow band
-/// and the drawer toggle the host's band binds, and the unmount that
-/// releases every handle the arrangement wired.
+/// in, the key actions and cheatsheet the host's tunnel reads, the
+/// overlay probe, the navigation window-level intents fall through
+/// to, the narrow band and the drawer toggle the host's band binds,
+/// and the unmount that releases every handle the arrangement wired.
 type Mount = {
   Root: Control
   Actions: Actions
+  /// The keys the arrangement answers, in the order its help card
+  /// shows them.
+  Cheatsheet: CheatsheetItem list
   OverlayOpen: unit -> bool
   Navigate: string -> unit
   Narrow: IObservable<bool>

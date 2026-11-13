@@ -11,8 +11,6 @@ type Actions = {
   Compose: unit -> unit
   /// Opens the search dialog.
   Search: unit -> unit
-  /// Opens the bindings list.
-  Help: unit -> unit
   /// The escape: closes the top overlay, else leaves fullscreen.
   Escape: unit -> unit
   /// Navigates the router.
@@ -23,11 +21,19 @@ type Actions = {
   WalkCards: int -> unit
 }
 
+/// One row of a layout's keyboard cheatsheet: the keys that perform
+/// the action, each drawn as its own chip, and the words shown beside
+/// them.
+type CheatsheetItem = { Keys: string list; Words: string }
+
 /// Everything the one window handler needs.
 [<Struct>]
 type Props = {
   Root: Window
   Actions: Actions
+  /// Opens the window's help layer: the host owns the cheatsheet, so
+  /// the same key works under every layout.
+  Help: unit -> unit
   /// True while a modal overlay holds the window: the compose dialog,
   /// the search dialog, the bindings list.
   OverlayOpen: unit -> bool
@@ -50,7 +56,8 @@ val install: props: Props -> unit
 /// the first card; a back step from outside enters the last.
 val moveCardFocus: dispatcher: IDispatcher * root: Window * step: int -> unit
 
-/// The bindings list the help key opens: one card over a scrim the
-/// shell layers above the panes. The card takes the keyboard when it
-/// attaches, so the cards under the scrim answer no keys.
-val helpCard: dispatcher: IDispatcher -> Control
+/// The bindings list the help key opens, built from the active
+/// layout's rows: one card over a scrim the host layers above the
+/// content slot. The card takes the keyboard when it attaches, so the
+/// controls under the scrim answer no keys.
+val helpCard: dispatcher: IDispatcher * items: CheatsheetItem list -> Control

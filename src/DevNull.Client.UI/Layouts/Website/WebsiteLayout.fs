@@ -48,6 +48,28 @@ open DevNull.Client.UserSettingsStore
 open DevNull.Client.Views
 open DevNull.Client.Views.Routes
 
+let shortcut(keys: string list, words: string) : CheatsheetItem = {
+  Keys = keys
+  Words = words
+}
+
+let cheatsheet: CheatsheetItem list = [
+  shortcut([ "J" ], "Next commit")
+  shortcut([ "K" ], "Previous commit")
+  shortcut([ "Enter" ], "Open the focused commit")
+  shortcut([ "Y" ], "Copy the focused commit's link")
+  shortcut([ "R" ], "Reply to the focused commit")
+  shortcut([ "Q" ], "Quote the focused commit")
+  shortcut([ "C" ], "Write a commit")
+  shortcut([ "Ctrl K" ], "Search")
+  shortcut([ "G"; "L" ], "Go to your log")
+  shortcut([ "G"; "E" ], "Go to trending")
+  shortcut([ "G"; "P" ], "Go to your profile")
+  shortcut([ "G"; "S" ], "Go to settings")
+  shortcut([ "?" ], "Show this list")
+  shortcut([ "F11" ], "Fullscreen")
+]
+
 /// Everything the website arrangement reads: the env its pages and
 /// dialogs call, the router the app built, the URL it booted on, and
 /// the window the arrangement stands in. The router and its boot URL
@@ -84,13 +106,14 @@ type Props<'env
 }
 
 /// The mounted website arrangement: the root control the host slots
-/// in, the key actions and overlay probe the host's tunnel reads, the
-/// navigation window-level intents fall through to, the narrow band
-/// and the drawer toggle the host's band binds, and the unmount that
-/// releases every handle the arrangement wired.
+/// in, the key actions and cheatsheet the host's tunnel reads, the
+/// overlay probe, the navigation window-level intents fall through
+/// to, the narrow band and the drawer toggle the host's band binds,
+/// and the unmount that releases every handle the arrangement wired.
 type Mount = {
   Root: Control
   Actions: Actions
+  Cheatsheet: CheatsheetItem list
   OverlayOpen: unit -> bool
   Navigate: string -> unit
   Narrow: IObservable<bool>
@@ -864,21 +887,6 @@ let mount(props: Props<'env>) : Mount =
       Place = DialogChrome.Center
     }
 
-  // The bindings list: the same overlay shape as the compose dialog,
-  // built on open and released on close.
-  let helpOpen = new BehaviorSubject<bool>(false)
-
-  let closeHelp() = helpOpen.OnNext false
-
-  let helpLayer =
-    DialogChrome.layer {
-      Open = helpOpen :> IObservable<bool>
-      Content = fun () -> Shortcuts.helpCard(env.Dispatcher)
-      Scrim = true
-      OnScrimClick = ValueSome closeHelp
-      Place = DialogChrome.Center
-    }
-
   // The delete undo: the server keeps a deleted commit restorable
   // for its undo window, so a delete leaves one quiet toast over the
   // panes. Undo restores the commit and the open log reloads it; the
@@ -1321,8 +1329,7 @@ let mount(props: Props<'env>) : Mount =
 
   // The arrangement's root: the strip and its overlays, one tree the
   // host slots under its own gates.
-  let root =
-    Panel().Children(split, composeLayer, helpLayer, searchLayer, undoLayer)
+  let root = Panel().Children(split, composeLayer, searchLayer, undoLayer)
 
   let dispose() =
     let subjects: IDisposable list = [
@@ -1332,7 +1339,6 @@ let mount(props: Props<'env>) : Mount =
       compact
       composeOpen
       searchOpen
-      helpOpen
       undoToast
       inlineComposerBody
       previous
@@ -1363,17 +1369,16 @@ let mount(props: Props<'env>) : Mount =
 
   {
     Root = root
+    Cheatsheet = cheatsheet
     Actions = {
       Compose = fun () -> composeOpen.OnNext true
       Search = fun () -> searchOpen.OnNext true
-      Help = fun () -> helpOpen.OnNext true
       Escape =
         fun () ->
-          match searchOpen.Value, helpOpen.Value, composeOpen.Value with
-          | true, _, _ -> closeSearch()
-          | _, true, _ -> closeHelp()
-          | _, _, true -> closeCompose()
-          | _, _, _ ->
+          match searchOpen.Value, composeOpen.Value with
+          | true, _ -> closeSearch()
+          | _, true -> closeCompose()
+          | _ ->
             match window.WindowState with
             | WindowState.FullScreen -> window.WindowState <- WindowState.Normal
             | _ -> ()
@@ -1386,8 +1391,7 @@ let mount(props: Props<'env>) : Mount =
       WalkCards =
         fun step -> Shortcuts.moveCardFocus(env.Dispatcher, window, step)
     }
-    OverlayOpen =
-      fun () -> composeOpen.Value || helpOpen.Value || searchOpen.Value
+    OverlayOpen = fun () -> composeOpen.Value || searchOpen.Value
     Navigate = navigate
     Narrow = narrow
     ToggleDrawer = fun () -> split.IsPaneOpen <- not split.IsPaneOpen

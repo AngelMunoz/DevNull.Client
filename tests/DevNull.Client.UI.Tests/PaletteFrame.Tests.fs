@@ -202,4 +202,103 @@ let tests =
 
         do! close(window, handle)
       })
+
+    testCaseAsync
+      "see all opens a search results tab and closes the dialog"
+      (async {
+        let api = searchApi(false, false)
+        let! window, handle = mountAt1600(api)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history never rendered"
+
+        do! clickName(window, "EditorSearch")
+
+        let! opened =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> visible(root, "SearchInput")
+          )
+
+        Expect.isTrue opened "the header search never opened the dialog"
+
+        do! typeQuery(window, "kai kou")
+
+        let! seeAll =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> visible(root, "SearchRow0")
+          )
+
+        Expect.isTrue seeAll "the search rows never rendered"
+
+        do! pressEnter(window)
+
+        let! tab =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root ->
+              visible(root, "EditorTab-search:kai kou")
+              && visible(root, "EditorSearchTab-kai kou")
+              && rowHasText(root, "EditorTab-search:kai kou", "search: kai kou")
+          )
+
+        Expect.isTrue tab "see all never opened the search results tab"
+
+        let! dialogClosed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> not(visible(root, "SearchInput"))
+          )
+
+        Expect.isTrue dialogClosed "the dialog stayed over the search tab"
+
+        let! person =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> visible(root, "SearchPerson-kai-kou")
+          )
+
+        Expect.isTrue person "the people result never reached the search tab"
+
+        let! commit =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue commit "the commit result never reached the search tab"
+
+        Expect.isTrue
+          (api.Requests
+           |> List.exists(fun request ->
+             request.Target.StartsWith "/api/v1/search/commits"
+             && request.Target.Contains "limit=20"))
+          "the search tab did not ask for its own page"
+
+        do! clickName(window, "EditorTabClose-search:kai kou")
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> not(visible(root, "EditorSearchTab-kai kou"))
+          )
+
+        Expect.isTrue closed "the search results tab did not close"
+
+        do! close(window, handle)
+      })
   ]

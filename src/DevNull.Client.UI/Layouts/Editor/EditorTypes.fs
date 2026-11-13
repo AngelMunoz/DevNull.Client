@@ -18,6 +18,8 @@ module TabId =
 
   let repo(handle: string) = TabId("repo:" + handle)
 
+  let search(term: string) = TabId("search:" + term)
+
   let key(TabId key) = key
 
   let isHistory id = id = history
@@ -29,6 +31,8 @@ module TabId =
   let isList id = isSaved id || isQueue id
 
   let isRepo id = key id |> _.StartsWith("repo:")
+
+  let isSearch id = key id |> _.StartsWith("search:")
 
 type EditorTab = {
   Id: TabId
@@ -79,14 +83,9 @@ module EditorTab =
       SeenReplies = count
     }
 
-  let repo(id: TabId, handle: string) = {
-    Id = id
-    Title = $"@{handle} (repo)"
-    IsPinned = true
-    Dirty = 0
-    RepliesCount = 0
-    SeenReplies = 0
-  }
+  let repo(id: TabId, handle: string) = ordinary(id, $"@{handle} (repo)")
+
+  let search(id: TabId, term: string) = ordinary(id, $"search: {term}")
 
   let id(tab: EditorTab) = tab.Id
 

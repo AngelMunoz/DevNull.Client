@@ -25,6 +25,7 @@ type ProblemsState = {
   Loading: bool
   Error: AppError option
   Items: Notification list
+  NextCursor: string option
 }
 
 [<Struct>]
@@ -43,6 +44,7 @@ type Props = {
   OnSelect: Tab -> unit
   OnClose: unit -> unit
   OnOpenCommit: Commit -> unit
+  OnLoadMore: unit -> unit
 }
 
 let height = 280.0
@@ -88,12 +90,14 @@ let emptyProblems = {
   Loading = false
   Error = None
   Items = []
+  NextCursor = None
 }
 
 let beginProblems(state: ProblemsState) = {
   state with
       Loading = true
       Error = None
+      NextCursor = None
 }
 
 let kindLabel(kind: NotificationKind) =
@@ -320,6 +324,14 @@ let problemsView
 
     for notification in rows do
       yield problemRow(props, notification)
+
+    if state.NextCursor.IsSome && not state.Loading then
+      yield
+        Button()
+          .Name("EditorPanelLoadMore")
+          .Classes(Theme.name Theme.GhostButton)
+          .Content("Load more")
+          .OnClickHandler(fun _ _ -> props.OnLoadMore())
   ]
 
   ScrollViewer()

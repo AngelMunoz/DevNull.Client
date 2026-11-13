@@ -183,7 +183,7 @@ let tests =
       Expect.isFalse loaded.List.Loading "the list's loading flag")
 
     testCase
-      "a repository tab is pinned and one handle opens one tab"
+      "a repository tab is ordinary and one handle opens one tab"
       (fun () ->
         let tab = EditorTab.repo(TabId.repo "ana", "ana")
 
@@ -192,9 +192,9 @@ let tests =
 
         let twice = EditorState.openTab(tab, once)
 
-        Expect.isTrue
+        Expect.isFalse
           (EditorTab.isPinned tab)
-          "the repository tab is not pinned"
+          "the repository tab stayed pinned"
 
         Expect.equal (EditorTab.title tab) "@ana (repo)" "the repository title"
 

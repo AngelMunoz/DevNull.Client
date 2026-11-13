@@ -21,6 +21,8 @@ type ProblemsState = {
   Loading: bool
   Error: AppError option
   Items: Notification list
+  /// The cursor for the next notifications page, when one exists.
+  NextCursor: string option
 }
 
 /// One line of the output log: the read, its result, and its moment.
@@ -41,6 +43,7 @@ type Props = {
   OnSelect: Tab -> unit
   OnClose: unit -> unit
   OnOpenCommit: Commit -> unit
+  OnLoadMore: unit -> unit
 }
 
 /// The panel height the root reserves when the panel is docked.

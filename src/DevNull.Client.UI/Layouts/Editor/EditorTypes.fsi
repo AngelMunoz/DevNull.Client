@@ -27,6 +27,9 @@ module TabId =
   /// The identity of one repository tab: its handle.
   val repo: handle: string -> TabId
 
+  /// The identity of one term's search results tab.
+  val search: term: string -> TabId
+
   /// The key this identity carries.
   val key: id: TabId -> string
 
@@ -44,6 +47,9 @@ module TabId =
 
   /// Whether this is a repository tab's identity.
   val isRepo: id: TabId -> bool
+
+  /// Whether this is a search results tab's identity.
+  val isSearch: id: TabId -> bool
 
 /// The title one ref carries in the strip and the explorer.
 module LogLabel =
@@ -68,9 +74,11 @@ module EditorTab =
   /// the card showed, and the tab starts seen.
   val thread: id: TabId * title: string * repliesCount: int -> EditorTab
 
-  /// One repository tab: pinned, titled from its handle, and closed
-  /// only through the host's own disposal.
+  /// One repository tab: ordinary and titled from its handle.
   val repo: id: TabId * handle: string -> EditorTab
+
+  /// One search results tab: ordinary and titled from its term.
+  val search: id: TabId * term: string -> EditorTab
 
   /// The tab's identity.
   val id: tab: EditorTab -> TabId

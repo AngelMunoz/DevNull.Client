@@ -40,6 +40,26 @@ let tests =
           TabId.history
           "the focus stayed on the closed tab")
 
+    testCase "a repository tab is ordinary and closes" (fun () ->
+      let repo = EditorTab.repo(TabId.repo "octocat", "octocat")
+      let opened = EditorState.openTab(repo, EditorState.initial Following)
+
+      Expect.isFalse
+        (EditorTab.isPinned repo)
+        "the repository tab stayed pinned"
+
+      Expect.equal
+        (EditorTab.title repo)
+        "@octocat (repo)"
+        "the repository title changed"
+
+      let closed = EditorState.closeTab(TabId.repo "octocat", opened)
+
+      Expect.equal
+        (EditorState.tabs closed |> List.map EditorTab.id)
+        [ TabId.history ]
+        "the repository tab did not close")
+
     testCase "the width ladder splits at 1000 and 700" (fun () ->
       Expect.equal (WidthBand.ofWidth 1200.0) Full "1200"
       Expect.equal (WidthBand.ofWidth 1000.0) Full "1000"

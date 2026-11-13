@@ -194,4 +194,51 @@ let tests =
           0
           "the repository program outlived its host"
       })
+
+    testCaseAsync
+      "the repository tab is closable from the tab strip"
+      (async {
+        let! window, handle = mountAt1600()
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history never rendered"
+
+        do! clickName(window, "EditorActivity-Account")
+
+        let! opened =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root ->
+              visible(root, "RepoTab")
+              && visible(root, "EditorTabClose-repo:octocat")
+          )
+
+        Expect.isTrue opened "the repository tab offered no close control"
+
+        do! clickName(window, "EditorTabClose-repo:octocat")
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> not(visible(root, "RepoTab"))
+          )
+
+        Expect.isTrue closed "the repository tab did not close"
+
+        let! tabs = probeUiAsync(fun () -> tabCount window)
+        Expect.equal tabs 1 "the repository tab stayed in the strip"
+
+        let! live = probeUiAsync(fun () -> RepoTab.Live.current())
+        Expect.equal live 0 "the repository program outlived its tab"
+
+        do! close(window, handle)
+      })
   ]

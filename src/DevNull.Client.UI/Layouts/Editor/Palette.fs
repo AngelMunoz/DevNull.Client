@@ -94,6 +94,7 @@ let searchNav(props: Props<'env>) : INavigable = {
         fun _ -> Task.FromResult success
       | [| "search"; term |] ->
         props.OnOpenSearch(Uri.UnescapeDataString term)
+        props.OnClose()
         fun _ -> Task.FromResult success
       | _ -> fun _ -> Task.FromResult(Error(RouteNotFound url))
 

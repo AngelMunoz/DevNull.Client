@@ -20,6 +20,7 @@ open DevNull.Client.UI.Tests.Harness
 let commitId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
 let linkedNotificationId = "01a15752-d17c-7065-b076-99e5bdad596d"
 let unlinkedNotificationId = "01a15752-d17c-7065-b076-99e5bdad596e"
+let followedNotificationId = "01a15752-d17c-7065-b076-99e5bdad596f"
 
 let controlByName(root: Control, name: string) =
   root.GetVisualDescendants()
@@ -59,6 +60,15 @@ let unlinkedNotification =
     )
     .Replace($"\"commit\":{commitJson}", "\"commit\":null")
     .Replace("\"unread_count\":0", "\"unread_count\":2")
+
+let followedNotification =
+  notificationJson
+    .Replace(
+      $"\"id\":\"{linkedNotificationId}\"",
+      $"\"id\":\"{followedNotificationId}\""
+    )
+    .Replace("\"type\":\"replied\"", "\"type\":\"followed\"")
+    .Replace($"\"commit\":{commitJson}", "\"commit\":null")
 
 let twoNotificationsJson =
   sprintf
@@ -111,6 +121,34 @@ let listApi() =
       ok repliesPageJson
     elif request.Target.StartsWith "/api/v1/commits/" then
       ok threadPageJson
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+let pagedNotificationsApi(first: string, second: string) =
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/notifications" then
+      if request.Target.Contains "cursor=next" then
+        ok second
+      else
+        ok first
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+let failingNotificationsApi(first: string) =
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/notifications" then
+      if request.Target.Contains "cursor=next" then
+        refused(500, "The notifications page is unavailable.")
+      else
+        ok first
     elif request.Target.StartsWith "/api/v1/log/" then
       ok logPageJson
     else
@@ -561,6 +599,171 @@ let tests =
             |> Seq.length)
 
         Expect.equal tabs 2 "the unlinked row opened a tab"
+
+        do! close(window, handle)
+      })
+
+    testCaseAsync
+      "Load more appends the next notification page and drops the duplicate"
+      (async {
+        let first =
+          sprintf
+            """{"data":[%s],"links":{},"meta":{"per_page":20,"next_cursor":"next","prev_cursor":null},"filters":{"type":"all"},"read_at":"2026-10-20T04:20:00Z"}"""
+            notificationJson
+
+        let second =
+          sprintf
+            """{"data":[%s,%s,%s],"links":{},"meta":{"per_page":20,"next_cursor":null,"prev_cursor":null},"filters":{"type":"all"},"read_at":"2026-10-20T04:20:00Z"}"""
+            unlinkedNotification
+            followedNotification
+            notificationJson
+
+        let api = pagedNotificationsApi(first, second)
+        let! window, handle = mountAt(1600.0, 900.0, api)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history never rendered"
+        do! openProblems(window)
+
+        let! firstRow =
+          waitForAsync(
+            5000,
+            (fun () ->
+              controlByName(window, $"ProblemRow-{linkedNotificationId}")),
+            Option.isSome
+          )
+
+        Expect.isTrue firstRow "the first notification page never rendered"
+
+        let! more =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> visible(root, "EditorPanelLoadMore")
+          )
+
+        Expect.isTrue more "the first page offered no Load more control"
+        do! clickName(window, "EditorPanelLoadMore")
+
+        let! secondRow =
+          waitForAsync(
+            8000,
+            (fun () ->
+              controlByName(window, $"ProblemRow-{unlinkedNotificationId}")),
+            Option.isSome
+          )
+
+        Expect.isTrue secondRow "the second notification page never appended"
+
+        let! followedTab =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> visible(root, "EditorPanelTab-FOLLOWS")
+          )
+
+        Expect.isTrue followedTab "the appended page's new kind never appeared"
+
+        let! linkedRows =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.filter(fun visual ->
+              visual.Name = $"ProblemRow-{linkedNotificationId}")
+            |> Seq.length)
+
+        Expect.equal linkedRows 1 "the overlapping notification row doubled"
+
+        let! stillMore =
+          probeUiAsync(fun () -> visible(window, "EditorPanelLoadMore"))
+
+        Expect.isFalse
+          stillMore
+          "the exhausted cursor kept the Load more control"
+
+        do! close(window, handle)
+      })
+
+    testCaseAsync
+      "a failed Load more keeps the loaded notification rows"
+      (async {
+        let first =
+          sprintf
+            """{"data":[%s],"links":{},"meta":{"per_page":20,"next_cursor":"next","prev_cursor":null},"filters":{"type":"all"},"read_at":"2026-10-20T04:20:00Z"}"""
+            notificationJson
+
+        let api = failingNotificationsApi first
+        let! window, handle = mountAt(1600.0, 900.0, api)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history never rendered"
+        do! openProblems(window)
+
+        let! firstRow =
+          waitForAsync(
+            5000,
+            (fun () ->
+              controlByName(window, $"ProblemRow-{linkedNotificationId}")),
+            Option.isSome
+          )
+
+        Expect.isTrue firstRow "the first notification page never rendered"
+
+        let! more =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> visible(root, "EditorPanelLoadMore")
+          )
+
+        Expect.isTrue more "the failed-page test never offered Load more"
+        do! clickName(window, "EditorPanelLoadMore")
+
+        let! notifications =
+          waitForAsync(
+            8000,
+            (fun () -> api.Requests),
+            fun requests ->
+              requests
+              |> List.exists(fun request ->
+                request.Target.StartsWith "/api/v1/notifications"
+                && request.Target.Contains "cursor=next")
+          )
+
+        Expect.isTrue notifications "the failed page never left the client"
+
+        let! error =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root ->
+              hasText(
+                root,
+                "dev-null.sh refused the request (HTTP 500): The notifications page is unavailable."
+              )
+          )
+
+        Expect.isTrue error "the failed page did not show its error"
+
+        let! retained =
+          probeUiAsync(fun () ->
+            visible(window, $"ProblemRow-{linkedNotificationId}")
+            && visible(window, "EditorPanelLoadMore"))
+
+        Expect.isTrue
+          retained
+          "the failed page cleared the loaded rows or cursor"
 
         do! close(window, handle)
       })

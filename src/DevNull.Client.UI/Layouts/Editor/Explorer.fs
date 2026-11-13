@@ -52,11 +52,21 @@ let refRow(props: Props, log: LogKind) : Control =
   let head: Control array =
     if selected then
       [|
-        TextBlock()
-          .Text("HEAD")
-          .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
+        Border()
+          .Name("EditorExplorerHead")
+          .Classes(Theme.name Theme.Hairline)
+          .BorderThickness(Thickness(1.0))
+          .CornerRadius(3.0)
+          .Padding(Thickness(4.0, 1.0))
+          .Margin(Thickness(8.0, 0.0, 0.0, 0.0))
           .VerticalAlignment(VerticalAlignment.Center)
           .Column(2)
+          .Child(
+            TextBlock()
+              .Text("HEAD")
+              .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
+              .VerticalAlignment(VerticalAlignment.Center)
+          )
       |]
     else
       [||]

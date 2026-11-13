@@ -817,7 +817,7 @@ module Parts =
       .AcceptsReturn(true)
       .ClearSelectionOnLostFocus(false)
       .MinHeight(44.0)
-      .MaxHeight(300.0)
+      .MaxHeight(180.0)
       .TextWrapping(TextWrapping.Wrap)
       .PlaceholderText(
         model

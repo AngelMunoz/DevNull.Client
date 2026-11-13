@@ -143,6 +143,39 @@ let tests =
           Theme.bandHeight
           "the band still covers the tab strip"
 
+        let! centered =
+          probeUiAsync(fun () ->
+            let named(name: string) =
+              window.GetVisualDescendants()
+              |> Seq.tryFind(fun visual -> visual.Name = name)
+              |> Option.map(fun visual -> visual :?> Control)
+
+            match
+              named "EditorActivityBar", named "EditorActivity-History"
+            with
+            | Some bar, Some button ->
+              let point =
+                button.TranslatePoint(
+                  Point(button.Bounds.Width / 2.0, button.Bounds.Height / 2.0),
+                  bar
+                )
+
+              point.HasValue
+              && abs(point.Value.X - bar.Bounds.Width / 2.0) < 0.5
+            | _ -> false)
+
+        Expect.isTrue centered "the activity icons left-aligned inside the bar"
+
+        let! headSpacing =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryFind(fun visual -> visual.Name = "EditorExplorerHead")
+            |> Option.map(fun visual -> visual :?> Border)
+            |> Option.exists(fun tag ->
+              tag.Margin.Left >= 8.0 && tag.Padding.Left >= 4.0))
+
+        Expect.isTrue headSpacing "the HEAD tag kept its old spacing"
+
         do! settleAsync()
 
         let! fullStatus = probeUiAsync(fun () -> statusText window)

@@ -3,6 +3,8 @@ module DevNull.Client.UI.Tests.EditorHardening
 open System
 open System.Reactive.Subjects
 open Avalonia.Controls
+open Avalonia.Input
+open Avalonia.Interactivity
 open Avalonia.VisualTree
 open Expecto
 open FSharp.Control.Reactive
@@ -209,7 +211,47 @@ let tests =
           )
 
         Expect.isTrue panel "the terminal panel never opened"
-        Expect.isTrue (mounted.OverlayOpen()) "the panel did not hold the frame"
+
+        Expect.isFalse
+          (mounted.OverlayOpen())
+          "the docked panel masked the host keys"
+
+        let hostHits = ResizeArray<string>()
+
+        do!
+          onUiAsync(fun () ->
+            DevNull.Client.Shortcuts.install {
+              Root = window
+              Actions = {
+                Compose = fun () -> hostHits.Add "compose"
+                Search = fun () -> ()
+                Help = fun () -> hostHits.Add "help"
+                Escape = fun () -> ()
+                Navigate = fun _ -> ()
+                ToggleFullScreen = fun () -> ()
+                WalkCards = fun _ -> ()
+              }
+              OverlayOpen = mounted.OverlayOpen
+            }
+
+            window.RaiseEvent(
+              KeyEventArgs(
+                RoutedEvent = InputElement.KeyDownEvent,
+                Key = Key.OemQuestion
+              )
+            )
+
+            window.RaiseEvent(
+              KeyEventArgs(
+                RoutedEvent = InputElement.KeyDownEvent,
+                Key = Key.C
+              )
+            ))
+
+        Expect.sequenceEqual
+          hostHits
+          [ "help"; "compose" ]
+          "the docked panel swallowed host keys"
 
         do! onUiAsync(fun () -> mounted.Send EditorRoot.OpenPalette)
 
@@ -233,9 +275,9 @@ let tests =
 
         Expect.isTrue paletteClosed "Escape did not close the palette first"
 
-        Expect.isTrue
+        Expect.isFalse
           (mounted.OverlayOpen())
-          "the panel did not stay under the palette"
+          "the panel still counted as an overlay"
 
         do! onUiAsync(fun () -> mounted.Send EditorRoot.Escape)
 
@@ -256,7 +298,7 @@ let tests =
       })
 
     testCaseAsync
-      "the help overlay and default layout affordance name the way back"
+      "the default layout affordance is the status strip's way back"
       (async {
         let api = threadApi()
         let env = TestEnv(signedInStore(), api :> IHttp)
@@ -298,29 +340,12 @@ let tests =
         do! clickName(window, "EditorDefaultLayout")
         Expect.isTrue asked.Value "the default layout affordance did nothing"
 
-        let! helpButton = probeUiAsync(fun () -> visible(window, "EditorHelp"))
-        Expect.isTrue helpButton "the help control never appeared"
+        let! privateHelp =
+          probeUiAsync(fun () ->
+            visible(window, "EditorHelp")
+            || visible(window, "EditorHelpOverlay"))
 
-        do! clickName(window, "EditorHelp")
-        do! settleAsync()
-
-        let! overlay =
-          probeUiAsync(fun () -> visible(window, "EditorHelpOverlay"))
-
-        Expect.isTrue overlay "the help overlay never opened"
-
-        let! help =
-          waitForAsync(
-            5000,
-            (fun () -> window),
-            fun root ->
-              hasText(
-                root,
-                "The remotes pane is in the default layout. The More menu is in the default layout. Translations are in the default layout. The scheduled queue opens from the explorer."
-              )
-          )
-
-        Expect.isTrue help "the help flyout never rendered"
+        Expect.isFalse privateHelp "the editor kept its own help overlay"
 
         do!
           onUiAsync(fun () ->

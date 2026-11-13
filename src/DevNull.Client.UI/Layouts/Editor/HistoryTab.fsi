@@ -3,15 +3,21 @@ module DevNull.Client.Layouts.Editor.HistoryTab
 open System
 open Avalonia.Controls
 open Avalonia.Threading
+open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.Api
+open DevNull.Client.Env
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.Profiles
+open DevNull.Client.Remotes
 open DevNull.Client.Stores
+open DevNull.Client.TranslationCache
 open DevNull.Client.UiClock
+open DevNull.Client.UserSettingsStore
 open MVUish.Avalonia
 
 /// What the frame reads from the pinned history tab: the number the
@@ -34,7 +40,14 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideUiClock
-  and 'env :> IProvideImageCache> = {
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideRemotes
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideBrowser> = {
   Env: 'env
   Session: SignedInSession
   Log: LogKind
@@ -50,6 +63,12 @@ type Props<'env
   OnScroll: float -> unit
   /// A card click: the host opens the commit's thread tab.
   OnOpen: Commit -> unit
+  /// The inline reply action opens the terminal on this commit.
+  OnReplyRequested: Commit -> unit
+  /// The quote action opens the terminal over this commit.
+  OnQuoteRequested: Commit -> unit
+  /// The author flyout opens this account's repository tab.
+  OnOpenRepo: string -> unit
   /// One read's result, for the frame's output log.
   OnFetch: Result<unit, string> -> unit
 }
@@ -74,6 +93,8 @@ module State =
     /// Whether the one-minute poll runs.
     Polling: bool
     FetchedAt: DateTimeOffset option
+    /// The card actions and their dialogs.
+    Cards: EditorCards.State
     /// The shared clock's last tick, for the relative times.
     Now: DateTimeOffset
   }
@@ -88,6 +109,7 @@ module State =
     | CheckNew
     | NewChecked of Result<LogPage, AppError>
     | Opened of Commit
+    | CardMsg of EditorCards.Msg
     | RefreshRequested
 
   /// The fresh state: the first page is on its way.

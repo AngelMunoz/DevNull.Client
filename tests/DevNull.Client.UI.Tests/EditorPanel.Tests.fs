@@ -346,6 +346,66 @@ let tests =
       })
 
     testCaseAsync
+      "a long terminal draft keeps the commit action in view"
+      (async {
+        let api = panelApi("", 0)
+        let! window, handle = mountAt(1600.0, 900.0, api)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history never rendered"
+        do! openProblems(window)
+        do! clickName(window, "EditorPanelTab-Terminal")
+
+        let! box =
+          waitForAsync(
+            5000,
+            (fun () -> textBoxWithWatermark(window, "What did you ship?")),
+            Option.isSome
+          )
+
+        Expect.isTrue box "the terminal composer never showed"
+
+        do!
+          onUiAsync(fun () ->
+            textBoxWithWatermark(window, "What did you ship?")
+            |> Option.iter(fun body -> body.Text <- String('x', 4000)))
+
+        do! settleAsync()
+
+        let! inView =
+          probeUiAsync(fun () ->
+            match
+              controlByName(window, "ComposerBody"),
+              buttonWithText(window, "Commit")
+            with
+            | Some body, Some submit ->
+              let point =
+                submit.TranslatePoint(
+                  Point(submit.Bounds.Width / 2.0, submit.Bounds.Height / 2.0),
+                  window
+                )
+
+              body.Bounds.Height <= 181.0
+              && submit.IsEffectivelyVisible
+              && point.HasValue
+              && point.Value.Y > 0.0
+              && point.Value.Y < window.ClientSize.Height
+            | _ -> false)
+
+        Expect.isTrue
+          inView
+          "the long draft pushed the commit action out of view"
+
+        do! close(window, handle)
+      })
+
+    testCaseAsync
       "a problem with a commit opens its thread and one without a commit does nothing"
       (async {
         let api = panelApi(twoNotificationsJson, 0)

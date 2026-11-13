@@ -6,14 +6,33 @@ open Expecto
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.AttachmentSources
+open DevNull.Client.Env
 open DevNull.Client.ImageCache
 open DevNull.Client.Layouts.Editor
+open DevNull.Client.Profiles
+open DevNull.Client.Remotes
 open DevNull.Client.Stores
+open DevNull.Client.TranslationCache
 open DevNull.Client.UiClock
+open DevNull.Client.UserSettingsStore
 open DevNull.Client.UI.Tests.Fixtures
 
 /// The workers one pure update needs: fixed values and no transport.
 type FakeEnv() =
+  let http: IHttp = {
+    new IHttp with
+      member _.Send(_: HttpRequest) = async {
+        return Error { Message = "unused" }
+      }
+
+      member _.GetBytes(_: string) = async {
+        return Error { Message = "unused" }
+      }
+  }
+
+  let full = TestEnv(signedInStore(), http)
+
 
   interface IProvideClock with
     member _.Clock = {
@@ -57,6 +76,27 @@ type FakeEnv() =
         member _.Get(_: string) = async { return None }
     }
 
+  interface IProvideDispatcher with
+    member _.Dispatcher = (full :> IProvideDispatcher).Dispatcher
+
+  interface IProvideRemotes with
+    member _.Remotes = (full :> IProvideRemotes).Remotes
+
+  interface IProvideProfiles with
+    member _.Profiles = (full :> IProvideProfiles).Profiles
+
+  interface IProvideTranslations with
+    member _.Translations = (full :> IProvideTranslations).Translations
+
+  interface IProvideUserSettings with
+    member _.UserSettings = (full :> IProvideUserSettings).UserSettings
+
+  interface IProvideAttachmentSources with
+    member _.Attachments = (full :> IProvideAttachmentSources).Attachments
+
+  interface IProvideBrowser with
+    member _.Browser = (full :> IProvideBrowser).Browser
+
 let session: SignedInSession = {
   Session = {
     User = {
@@ -91,6 +131,9 @@ let props(log: LogKind) : HistoryTab.Props<FakeEnv> = {
   OnSnapshot = ignore
   OnScroll = ignore
   OnOpen = ignore
+  OnReplyRequested = ignore
+  OnQuoteRequested = ignore
+  OnOpenRepo = ignore
   OnFetch = ignore
 }
 

@@ -15,6 +15,7 @@ open FSharp.Control.Reactive
 open MVUish.Avalonia
 open MVUish.Avalonia.Collections
 open DevNull.Client
+open DevNull.Client.AttachmentSources
 open DevNull.Client.Components
 open DevNull.Client.Components.CommitCard
 open DevNull.Client.Components.PageChrome
@@ -24,11 +25,15 @@ open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.Env
 open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.Profiles
+open DevNull.Client.Remotes
 open DevNull.Client.Stores
+open DevNull.Client.TranslationCache
+open DevNull.Client.UserSettingsStore
 open DevNull.Client.UiClock
 
 [<Struct>]
@@ -47,7 +52,13 @@ type Props<'env
   and 'env :> IProvideHttp
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
-  and 'env :> IProvideProfiles> = {
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideRemotes
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideBrowser> = {
   Env: 'env
   Session: SignedInSession
   CommitId: string
@@ -72,6 +83,8 @@ module State =
     PollChoices: Map<string, string>
     Now: DateTimeOffset
     Peek: (string * CommitPage) option
+    Cards: EditorCards.State
+    Deleted: string option
   }
 
   type Msg =
@@ -87,6 +100,7 @@ module State =
     | CardEvent of Event
     | PeekRequested of commitId: string
     | Peeked of commitId: string * Result<CommitPage, AppError>
+    | CardMsg of EditorCards.Msg
     | ClockTicked of moment: DateTimeOffset
 
   let initial = {
@@ -99,6 +113,8 @@ module State =
     PollChoices = Map.empty
     Now = DateTimeOffset.MinValue
     Peek = None
+    Cards = EditorCards.empty
+    Deleted = None
   }
 
   let repliesCount(model: Model) =
@@ -220,8 +236,21 @@ module State =
   let announce(props: Props<'env>, model: Model) =
     Cmd.ofAction(fun () -> props.OnSnapshot(snapshot(props, model)))
 
+  let cardsProps(props: Props<'env>) : EditorCards.Props<'env> = {
+    Env = props.Env
+    Session = props.Session
+    Zone = props.Zone
+    Surface = EditorCards.Detail
+    Now = props.Now
+    OnOpenRepo = props.OnOpenRepo
+  }
+
   let init(props: Props<'env>) =
-    let model = { initial with Now = props.Now() }
+    let model = {
+      initial with
+          Now = props.Now()
+          Cards = EditorCards.initial(cardsProps props)
+    }
 
     model,
     Cmd.batch [
@@ -241,6 +270,7 @@ module State =
               Loading = false
               Error = None
               Page = Some page
+              Deleted = None
         }
 
         next, announce(props, next)
@@ -388,6 +418,26 @@ module State =
 
       next, Cmd.none
     | Peeked(_, Error _) -> model, Cmd.none
+    | CardMsg msg ->
+      let cards, cmd, effects =
+        EditorCards.update(cardsProps props, msg, model.Cards)
+
+      let next =
+        effects
+        |> List.fold
+          (fun current effect ->
+            match effect with
+            | EditorCards.CommitChanged updated -> withCommit(updated, current)
+            | EditorCards.CommitDeleted commitId -> {
+                current with
+                    Deleted = Some commitId
+              }
+            | EditorCards.PinChanged(_, updated) ->
+              withCommit(updated, current)
+            | EditorCards.Failed error -> { current with Error = Some error })
+          { model with Cards = cards }
+
+      next, EditorCards.mapCmd(CardMsg, cmd)
     | ClockTicked moment ->
       let next = { model with Now = moment }
 
@@ -398,6 +448,11 @@ module State =
       Sub.fromObservable
         "clock"
         (props.Env.UiClock.Minute |> Observable.map ClockTicked)
+
+      Sub.fromObservable
+        "card-clock"
+        (props.Env.UiClock.Minute
+         |> Observable.map(fun tick -> CardMsg(EditorCards.ClockTicked tick)))
     ]
     |> Sub.batch
 
@@ -415,55 +470,43 @@ let view
   let busy =
     model |> Observable.map(fun current -> current.Busy) |> Slices.share
 
-  let flyout: UserFlyout.Source = {
-    Fetch = props.Env.Profiles.Fetch
-    OnOpen = props.OnOpenRepo
-    OnOpenOrg = ignore
-    OnOpenTag = ignore
-    Cache = props.Env.ImageCache
-  }
+  let cardDispatch msg = dispatch(State.CardMsg msg)
+
+  let baseProps =
+    EditorCards.row {
+      Props = State.cardsProps props
+      State = model |> Observable.map _.Cards
+      Dispatch = cardDispatch
+      OnEvent =
+        EditorCards.event(
+          cardDispatch,
+          fun event -> dispatch(State.CardEvent event)
+        )
+    }
 
   let mainProps: RowProps = {
-    OnEvent = fun event -> dispatch(State.CardEvent event)
-    OnOpenExternal = ignore
-    ViewerId = props.Session.Session.User.Id
-    Pasteis = Observable.single props.Session.Session.PasteisMode
-    Now = model |> Observable.map(fun current -> current.Now)
-    PollChoices = model |> Observable.map(fun current -> current.PollChoices)
-    Dense = false
-    Images = props.Env.ImageCache
-    Flyout = ValueSome flyout
-    Pin = ValueNone
-    Star =
-      ValueSome {
-        Command = fun commit -> dispatch(State.StarToggled commit)
-        Busy = busy
-      }
-    Stars = ValueNone
-    Vote =
-      ValueSome {
-        Command = fun commit -> dispatch(State.PollVoteRequested commit)
-        Busy = busy
-      }
-    Pastel =
-      ValueSome {
-        Command = fun commit -> dispatch(State.PastelGiven commit)
-        Busy = busy
-      }
-    Menu = ValueNone
-    Translation = Observable.single(fun _ -> ValueNone)
-    Zone = props.Zone
+    baseProps with
+        PollChoices =
+          model |> Observable.map(fun current -> current.PollChoices)
+        Dense = false
+        Star =
+          ValueSome {
+            Command = fun commit -> dispatch(State.StarToggled commit)
+            Busy = busy
+          }
+        Vote =
+          ValueSome {
+            Command = fun commit -> dispatch(State.PollVoteRequested commit)
+            Busy = busy
+          }
+        Pastel =
+          ValueSome {
+            Command = fun commit -> dispatch(State.PastelGiven commit)
+            Busy = busy
+          }
   }
 
-  let replyProps: RowProps = {
-    mainProps with
-        OnEvent = fun event -> dispatch(State.CardEvent event)
-        Dense = true
-        PollChoices = Observable.single(Map.empty<string, string>)
-        Star = ValueNone
-        Vote = ValueNone
-        Pastel = ValueNone
-  }
+  let replyProps: RowProps = { mainProps with Dense = true }
 
   let breadcrumbs(nodes: CommitNode list) : Control =
     let commits =
@@ -537,12 +580,14 @@ let view
       .Content(
         model
         |> Observable.map(fun current ->
-          current.Page |> Option.map(fun page -> page.Commit))
+          current.Page |> Option.map(fun page -> page.Commit), current.Deleted)
         |> Observable.distinctUntilChanged
-        |> Observable.map(fun commit ->
-          match commit with
-          | Some commit -> feedRow mainProps (LiveCommit commit)
-          | None ->
+        |> Observable.map(fun (commit, deleted) ->
+          match commit, deleted with
+          | Some commit, Some commitId when commit.Id = commitId ->
+            CommitCard.tombstone()
+          | Some commit, _ -> feedRow mainProps (LiveCommit commit)
+          | None, _ ->
             TextBlock()
               .Text("Opening the thread…")
               .Classes(Theme.name Theme.FgMuted)
@@ -594,9 +639,20 @@ let view
         loadMoreControl
       )
 
-  ScrollViewer()
-    .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
-    .Content(body)
+  let content =
+    ScrollViewer()
+      .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
+      .Content(body)
+
+  Grid()
+    .Children(
+      content,
+      EditorCards.layer(
+        State.cardsProps props,
+        model |> Observable.map _.Cards,
+        cardDispatch
+      )
+    )
 
 let program
   (props: Props<'env>)

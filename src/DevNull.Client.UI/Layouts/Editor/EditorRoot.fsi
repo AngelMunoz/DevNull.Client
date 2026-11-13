@@ -13,7 +13,9 @@ open DevNull.Client.ImageCache
 open DevNull.Client.Profiles
 open DevNull.Client.Remotes
 open DevNull.Client.Stores
+open DevNull.Client.TranslationCache
 open DevNull.Client.UiClock
+open DevNull.Client.UserSettingsStore
 
 /// What the editor frame needs from its host: the signed workers, the
 /// signed-in session, the stored ref, the viewer's lane, the zone the
@@ -31,6 +33,9 @@ type Props<'env
   and 'env :> IProvideDispatcher
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideProfiles
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
@@ -71,5 +76,6 @@ val mount: dispatcher: IDispatcher * props: Props<'env> -> Control * IDisposable
 
 /// Mounts the editor with its command surface. `Send` enters the same
 /// update path as the frame's own controls; `Escape` closes the palette
-/// before the panel; `OverlayOpen` reports either overlay.
+/// before the panel; `OverlayOpen` reports only the palette, because
+/// the docked panel is not modal.
 val mountFor: dispatcher: IDispatcher * props: Props<'env> -> EditorMount

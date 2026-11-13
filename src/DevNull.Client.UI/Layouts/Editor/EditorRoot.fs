@@ -27,6 +27,8 @@ open DevNull.Client.Formatting
 open DevNull.Client.Icons
 open DevNull.Client.ImageCache
 open DevNull.Client.Profiles
+open DevNull.Client.TranslationCache
+open DevNull.Client.UserSettingsStore
 open DevNull.Client.Remotes
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
@@ -43,6 +45,9 @@ type Props<'env
   and 'env :> IProvideDispatcher
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideProfiles
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
@@ -141,6 +146,9 @@ type HistorySinks = {
   Snapshot: HistoryTab.Snapshot -> unit
   Scroll: float -> unit
   Open: Commit -> unit
+  Reply: Commit -> unit
+  Quote: Commit -> unit
+  OpenRepo: string -> unit
   Fetch: Result<unit, string> -> unit
 }
 
@@ -156,6 +164,9 @@ type ProgramArgs<'env
   and 'env :> IProvideDispatcher
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideProfiles
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> = {
   Runtime: Runtime
   Props: Props<'env>
@@ -185,6 +196,9 @@ type ViewArgs<'env
   and 'env :> IProvideDispatcher
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideProfiles
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> = {
   Runtime: Runtime
   Props: Props<'env>
@@ -204,6 +218,9 @@ type UpdateArgs<'env
   and 'env :> IProvideDispatcher
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideProfiles
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> = { Runtime: Runtime; Props: Props<'env> }
 
 [<Struct>]
@@ -219,6 +236,9 @@ type HistoryArgs<'env
   and 'env :> IProvideDispatcher
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideProfiles
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> = {
   Props: Props<'env>
   Log: LogKind
@@ -239,6 +259,9 @@ let historyProps(args: HistoryArgs<'env>) : HistoryTab.Props<'env> = {
   OnSnapshot = args.Sinks.Snapshot
   OnScroll = args.Sinks.Scroll
   OnOpen = args.Sinks.Open
+  OnReplyRequested = args.Sinks.Reply
+  OnQuoteRequested = args.Sinks.Quote
+  OnOpenRepo = args.Sinks.OpenRepo
   OnFetch = args.Sinks.Fetch
 }
 
@@ -269,6 +292,8 @@ let threadProps
 [<Struct>]
 type RepoHooks = {
   OpenCommit: Commit -> unit
+  OpenReply: Commit -> unit
+  OpenQuote: Commit -> unit
   OpenRepo: string -> unit
 }
 
@@ -281,6 +306,8 @@ let repoProps
   Zone = props.Zone
   Now = props.Now
   OnOpenCommit = hooks.OpenCommit
+  OnReply = hooks.OpenReply
+  OnQuote = hooks.OpenQuote
   OnOpenRepo = hooks.OpenRepo
 }
 
@@ -1020,62 +1047,6 @@ let view(args: ViewArgs<'env>) : Control =
 
   let statusBar = ContentControl().Content(status |> _.ToBinding())
 
-  let helpOpen = new System.Reactive.Subjects.BehaviorSubject<bool>(false)
-
-  let helpText =
-    TextBlock()
-      .Name("EditorHelpText")
-      .Text(
-        "The remotes pane is in the default layout. The More menu is in the default layout. Translations are in the default layout. The scheduled queue opens from the explorer."
-      )
-      .TextWrapping(TextWrapping.Wrap)
-      .MaxWidth(420.0)
-      .Classes(Theme.name Theme.Muted)
-
-  let helpButton =
-    Button()
-      .Name("EditorHelp")
-      .Classes(Theme.name Theme.GhostButton)
-      .Padding(Thickness(8.0, 2.0))
-      .Content("?")
-
-  helpButton.Click.Add(fun _ -> helpOpen.OnNext(not helpOpen.Value))
-
-  ToolTip.SetTip(helpButton, "Help")
-
-  let helpOverlay =
-    Border()
-      .Name("EditorHelpOverlay")
-      .Classes(Theme.name Theme.ScrimBack)
-      .IsVisible(helpOpen)
-      .Child(
-        Border()
-          .Classes(Theme.name Theme.CardBack, Theme.name Theme.Hairline)
-          .BorderThickness(Thickness(1.0))
-          .CornerRadius(8.0)
-          .Padding(16.0)
-          .Width(480.0)
-          .MaxWidth(520.0)
-          .HorizontalAlignment(HorizontalAlignment.Center)
-          .VerticalAlignment(VerticalAlignment.Top)
-          .Margin(Thickness(0.0, 80.0, 0.0, 0.0))
-          .Child(
-            StackPanel()
-              .Spacing(8.0)
-              .Children(
-                TextBlock()
-                  .Text("HELP")
-                  .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted),
-                helpText,
-                Button()
-                  .Name("EditorHelpClose")
-                  .Classes(Theme.name Theme.GhostButton)
-                  .Content("Close")
-                  .OnClickHandler(fun _ _ -> helpOpen.OnNext false)
-              )
-          )
-      )
-
   let defaultLayoutButton =
     Button()
       .Name("EditorDefaultLayout")
@@ -1087,23 +1058,17 @@ let view(args: ViewArgs<'env>) : Control =
   ToolTip.SetTip(defaultLayoutButton, "Use the default layout")
 
   let statusRow = Grid()
-  statusRow.ColumnDefinitions <- ColumnDefinitions("*,Auto,Auto")
+  statusRow.ColumnDefinitions <- ColumnDefinitions("*,Auto")
 
-  statusRow.Children(
-    statusBar.Column(0),
-    helpButton.Column(1),
-    defaultLayoutButton.Column(2)
-  )
+  statusRow.Children(statusBar.Column(0), defaultLayoutButton.Column(1))
   |> ignore
-
-  editor.Children(helpOverlay.Row(0).RowSpan(2)) |> ignore
 
   let root = Grid()
 
   root.Name <- "EditorRoot"
   root.Margin <- Thickness(0.0, Theme.bandHeight, 0.0, 0.0)
   root.RowDefinitions <- RowDefinitions("*,Auto")
-  root.ColumnDefinitions <- ColumnDefinitions("52,Auto,*")
+  root.ColumnDefinitions <- ColumnDefinitions("56,Auto,*")
 
   root.Children(
     activityControl.Column(0),
@@ -1117,29 +1082,6 @@ let view(args: ViewArgs<'env>) : Control =
     WidthBand.ofWidth root.Bounds.Width |> WidthChanged |> dispatch)
 
   root
-
-let quoteCard(props: Props<'env>, commit: Commit) : Control =
-  feedRow
-    {
-      OnEvent = ignore
-      OnOpenExternal = ignore
-      ViewerId = props.Session.Session.User.Id
-      Pasteis = Observable.single props.Session.Session.PasteisMode
-      Now = Observable.single(props.Now())
-      PollChoices = Observable.single(Map.empty<string, string>)
-      Dense = true
-      Images = props.Env.ImageCache
-      Flyout = ValueNone
-      Pin = ValueNone
-      Star = ValueNone
-      Stars = ValueNone
-      Vote = ValueNone
-      Pastel = ValueNone
-      Menu = ValueNone
-      Translation = Observable.single(fun _ -> ValueNone)
-      Zone = props.Zone
-    }
-    (LiveCommit commit)
 
 type EditorCommand =
   | OpenTerminal
@@ -1238,6 +1180,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
 
   let content = ContentControl()
   let term = ContentControl()
+  let quoteLifetime = new SerialDisposable()
   let historyLifetime = new SerialDisposable()
 
   let paletteHost =
@@ -1281,8 +1224,28 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
 
     let parts: Control array =
       match quoted with
-      | Some commit -> [| quoteCard(props, commit); composer |]
-      | None -> [| composer |]
+      | Some commit ->
+        let view, handle =
+          QuoteCard.mount(
+            dispatcher,
+            {
+              Env = props.Env
+              Session = props.Session
+              Zone = props.Zone
+              Commit = commit
+              Now = props.Now
+              OnOpenThread = fun target -> opens.OnNext target
+              OnReply = fun target -> replies.OnNext target
+              OnQuote = fun target -> quotes.OnNext target
+              OnOpenRepo = fun handle -> repoOpens.OnNext handle
+            }
+          )
+
+        quoteLifetime.Disposable <- handle
+        [| view; composer |]
+      | None ->
+        quoteLifetime.Disposable <- Disposable.Empty
+        [| composer |]
 
     term.Content <- StackPanel().Spacing(8.0).Children(parts)
 
@@ -1311,6 +1274,15 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
               fun commit ->
                 if selected.Value = log then
                   opens.OnNext commit
+            Reply =
+              fun commit ->
+                if selected.Value = log then
+                  replies.OnNext commit
+            Quote =
+              fun commit ->
+                if selected.Value = log then
+                  quotes.OnNext commit
+            OpenRepo = fun handle -> repoOpens.OnNext handle
             Fetch =
               fun result ->
                 if selected.Value = log then
@@ -1383,6 +1355,9 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
             Zone = props.Zone
             Now = props.Now
             OnOpenThread = fun commit -> opens.OnNext commit
+            OnReply = fun commit -> replies.OnNext commit
+            OnQuote = fun commit -> quotes.OnNext commit
+            OnOpenRepo = fun handle -> repoOpens.OnNext handle
           }
         )
 
@@ -1442,6 +1417,8 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
             handle,
             {
               OpenCommit = fun commit -> opens.OnNext commit
+              OpenReply = fun commit -> replies.OnNext commit
+              OpenQuote = fun commit -> quotes.OnNext commit
               OpenRepo = fun next -> repoOpens.OnNext next
             }
           )
@@ -1561,6 +1538,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
 
   handles.Add frameHandle
   handles.Add historyLifetime
+  handles.Add quoteLifetime
   handles.Add threadsCleanup
   handles.Add listsCleanup
   handles.Add reposCleanup
@@ -1585,8 +1563,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
     | None -> ()
 
   let overlayOpen() =
-    current.Value
-    |> Option.exists(fun model -> model.PaletteOpen || model.Panel.Open)
+    current.Value |> Option.exists(fun model -> model.PaletteOpen)
 
   new EditorMount(
     root,

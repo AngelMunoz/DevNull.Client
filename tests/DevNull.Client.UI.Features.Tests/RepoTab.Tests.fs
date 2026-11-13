@@ -61,6 +61,8 @@ let props: RepoTab.Props<FakeEnv> = {
     fun () ->
       System.DateTimeOffset(2026, 11, 12, 12, 0, 0, System.TimeSpan.Zero)
   OnOpenCommit = ignore
+  OnReply = ignore
+  OnQuote = ignore
   OnOpenRepo = ignore
 }
 

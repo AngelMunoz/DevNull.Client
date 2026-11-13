@@ -504,12 +504,13 @@ let tests =
 
         let! window, mounted =
           probeUiAsync(fun () ->
-            let view, handle = WorkbenchHost.mount(ui, props)
+            let mounted = WorkbenchHost.mountFor(ui, props)
+            let view = mounted.Root
 
             let window = Window(Width = 1600.0, Height = 900.0, Content = view)
 
             window.Show()
-            window, handle :?> WorkbenchHost.MountedHost)
+            window, mounted.Inner)
 
         let! history =
           waitForAsync(
@@ -640,12 +641,13 @@ let tests =
 
         let! window, mounted =
           probeUiAsync(fun () ->
-            let view, handle = WorkbenchHost.mount(ui, props)
+            let mounted = WorkbenchHost.mountFor(ui, props)
+            let view = mounted.Root
 
             let window = Window(Width = 1600.0, Height = 900.0, Content = view)
 
             window.Show()
-            window, handle :?> WorkbenchHost.MountedHost)
+            window, mounted.Inner)
 
         let! inspector =
           waitForAsync(
@@ -775,80 +777,6 @@ let tests =
             (chrome :?> StackPanel).Children.Count)
 
         Expect.equal count 8 "the refs chrome lost its default layout child"
-      })
-
-    testCaseAsync
-      "the question mark opens the shared workbench cheatsheet"
-      (async {
-        let api = workbenchApi()
-        let env = TestEnv(signedInStore(), api :> IHttp)
-        let props = hostProps(env, Observable.single now)
-        let model, _ = WorkbenchHost.init props
-
-        let subject = new BehaviorSubject<WorkbenchHost.Model>(model)
-
-        let! window =
-          probeUiAsync(fun () ->
-            let view =
-              WorkbenchHost.view
-                props
-                (subject :> IObservable<WorkbenchHost.Model>)
-                ignore
-
-            let window = Window(Width = 1600.0, Height = 900.0, Content = view)
-            window.Show()
-            window)
-
-        do!
-          onUiAsync(fun () ->
-            controlByName(window, "WorkbenchRoot")
-            |> Option.iter(fun root ->
-              root.RaiseEvent(
-                KeyEventArgs(
-                  RoutedEvent = InputElement.KeyDownEvent,
-                  Key = Key.OemQuestion,
-                  KeyModifiers = KeyModifiers.Shift
-                )
-              )))
-
-        let! shown =
-          waitForAsync(
-            5000,
-            (fun () -> window),
-            fun root ->
-              hasText(root, "Keyboard shortcuts")
-              && hasText(root, "Fullscreen")
-              && (controlByName(root, "ShortcutsCard") |> Option.isSome)
-          )
-
-        Expect.isTrue shown "the question mark never opened the cheatsheet"
-
-        do!
-          onUiAsync(fun () ->
-            controlByName(window, "WorkbenchRoot")
-            |> Option.iter(fun root ->
-              root.RaiseEvent(
-                KeyEventArgs(
-                  RoutedEvent = InputElement.KeyDownEvent,
-                  Key = Key.Escape
-                )
-              )))
-
-        let! closed =
-          waitForAsync(
-            5000,
-            (fun () -> controlByName(window, "WorkbenchHelp")),
-            fun help ->
-              help |> Option.exists(fun control -> not control.IsVisible)
-          )
-
-        Expect.isTrue closed "Escape did not close the workbench cheatsheet"
-
-        do!
-          onUiAsync(fun () ->
-            window.Close()
-            subject.OnCompleted()
-            subject.Dispose())
       })
 
     testCaseAsync

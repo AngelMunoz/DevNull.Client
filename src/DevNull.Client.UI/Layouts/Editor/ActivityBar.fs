@@ -45,17 +45,15 @@ let badgeOf(props: Props, activity: Activity) =
   | Remotes -> props.Badges.Remotes
   | Account -> 0
 
-let badge(count: int) : Control array =
+let badge(count: int) : Control =
   if count > 0 then
-    [|
-      Border()
-        .Classes(Theme.name Theme.TabBadge)
-        .HorizontalAlignment(HorizontalAlignment.Right)
-        .VerticalAlignment(VerticalAlignment.Top)
-        .Child(TextBlock().Text(shortCount count))
-    |]
+    Border()
+      .Classes(Theme.name Theme.TabBadge)
+      .HorizontalAlignment(HorizontalAlignment.Right)
+      .VerticalAlignment(VerticalAlignment.Top)
+      .Child(TextBlock().Text(shortCount count))
   else
-    [||]
+    Panel()
 
 let activityButton(props: Props, activity: Activity) : Control =
   let count = badgeOf(props, activity)
@@ -65,9 +63,10 @@ let activityButton(props: Props, activity: Activity) : Control =
       .HorizontalAlignment(HorizontalAlignment.Center)
       .VerticalAlignment(VerticalAlignment.Center)
 
-  let children: Control array = [| icon; yield! badge count |]
-
-  let content: Control = Grid().Children(children)
+  let content: Control =
+    Grid(ColumnDefinitions = ColumnDefinitions "*, Auto")
+      .HorizontalAlignmentCenter()
+      .Children(icon.ColumnSpan(2).Column(0), (badge count).Column(0))
 
   let button =
     if activity = props.Selected then
@@ -79,8 +78,8 @@ let activityButton(props: Props, activity: Activity) : Control =
     button
       .Width(36.0)
       .Height(36.0)
-      .HorizontalAlignment(HorizontalAlignment.Center)
-      .Padding(Thickness(0.0))
+      .HorizontalAlignmentCenter()
+      .HorizontalContentAlignmentCenter()
       .Content(content)
       .OnClickHandler(fun _ _ -> props.OnSelect activity)
 
@@ -104,6 +103,7 @@ let view(props: Props) : Control =
     .Child(
       StackPanel()
         .Orientation(Orientation.Vertical)
+        .HorizontalAlignmentCenter()
         .Spacing(10.0)
         .Children(children)
     )

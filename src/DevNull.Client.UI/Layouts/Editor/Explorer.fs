@@ -49,23 +49,20 @@ let refRow(props: Props, log: LogKind) : Control =
       .VerticalAlignment(VerticalAlignment.Center)
       .Column(1)
 
-  let head: Control array =
+  let head: Control =
     if selected then
-      [|
-        TextBlock()
-          .Text("HEAD")
-          .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
-          .VerticalAlignment(VerticalAlignment.Center)
-          .Column(2)
-      |]
+      TextBlock()
+        .Text("HEAD")
+        .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Padding(4, 0)
+        .Column(2)
     else
-      [||]
+      Panel().Column(2)
 
-  let children: Control array = [| marker; label; yield! head |]
-
-  let content = Grid().Children(children)
-
-  content.ColumnDefinitions <- ColumnDefinitions("14,*,Auto")
+  let content =
+    Grid(ColumnDefinitions = ColumnDefinitions("14,*,Auto"))
+      .Children(marker, label, head)
 
   let button =
     if selected then

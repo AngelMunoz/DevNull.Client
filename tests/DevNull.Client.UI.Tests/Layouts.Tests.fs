@@ -484,12 +484,7 @@ let tests =
         Expect.isTrue closedAgain "the sheet never closed after the US key"
       })
 
-    // Hangs after the workbench merge: the forced GC wait deadlocks
-    // the headless session thread. Skipped pending a harness fix.
-    // Hangs after the workbench merge: the headless session stops
-    // serving dispatches; the test async waits forever (stack in
-    // hang-stack2.txt). Skipped pending a harness fix.
-    ptestCaseAsync
+    testCaseAsync
       "twenty layout switches retain nothing"
       (async {
         let tape = ResizeArray<string>()

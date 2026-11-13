@@ -332,7 +332,7 @@ let view
     RowActions.create {
       Env = props.Env
       Session = props.Session
-      Now = props.Now
+      Now = now
       OfferBasicActions = true
       OnUpdated = CommitUpdated >> dispatch
       OnDeleted = CommitDeleted >> dispatch

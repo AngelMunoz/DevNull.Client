@@ -636,6 +636,7 @@ let view
   (dispatch: Dispatch<Msg>)
   : Control =
   let busy = model |> Observable.map _.Busy |> Slices.share
+  let now = model |> Observable.map _.Now |> Slices.share
 
   let inline slot(command: Commit -> unit) : ActionSlot voption =
     ValueSome { Command = command; Busy = busy }
@@ -646,7 +647,7 @@ let view
       RowActions.create {
         Env = props.Env
         Session = session
-        Now = props.Now
+        Now = now
         OfferBasicActions = false
         OnUpdated = CommitUpdated >> dispatch
         OnDeleted = CommitDeleted >> dispatch
@@ -669,7 +670,7 @@ let view
     OnOpenExternal = props.OnOpenExternal
     ViewerId = props.ViewerId
     Pasteis = model |> Observable.map _.Pasteis |> Slices.share
-    Now = model |> Observable.map _.Now |> Slices.share
+    Now = now
     PollChoices = model |> Observable.map _.PollChoices |> Slices.share
     Dense = true
     Images = props.Images

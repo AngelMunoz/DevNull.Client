@@ -34,6 +34,8 @@ type SurfaceProps<'env
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
+  /// The page model's clock ticks, on the UI thread: the translation
+  /// pipe rebuilds controls from this stream.
   Now: IObservable<DateTimeOffset>
   OfferBasicActions: bool
   OnUpdated: Commit -> unit

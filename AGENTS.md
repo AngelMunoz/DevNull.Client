@@ -84,7 +84,7 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
     theme first, app styles after; the scheme registration through the
     head's registrar; one exclusive `instance.lock` file hold; the second
     instance completes the callback headlessly.
-- `src/DevNull.Client.Windows/` - the Windows head (`net10.0-windows`,
+- `src/DevNull.Client.Windows/` - the Windows head (`net11.0-windows`,
   Windows 11 APIs as the floor): the registry scheme registrar, the
   native services record, and the entry point that calls `start`.
   Windows-only implementations (audio through WASAPI or WinRT, toasts,

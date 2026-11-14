@@ -5,7 +5,7 @@
     <!-- The latest Windows SDK for the WinRT projections this head uses
          (audio, later toasts and prompts); the app runs from Windows 10
          2004 up, and guards anything newer than that itself -->
-    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetFramework>net11.0-windows10.0.26100.0</TargetFramework>
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <!-- The shipped executable keeps the product name: the scheme
          handlers of existing installs point at it -->

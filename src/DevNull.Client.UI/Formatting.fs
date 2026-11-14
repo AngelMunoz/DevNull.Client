@@ -85,10 +85,7 @@ let dayLabel(now: DateTimeOffset, day: DateTimeOffset) : string =
     day'.ToString("ddd, MMM d", CultureInfo.InvariantCulture)
 
 let plainText(html: string) : string =
-  Regex.Replace(html, "<[^>]+>", "")
-  |> System.Net.WebUtility.HtmlDecode
-  |> Option.ofObj
-  |> Option.defaultValue ""
+  Regex.Replace(html, "<[^>]+>", "") |> System.Net.WebUtility.HtmlDecode
 
 let blockTitle(language: string option, filename: string option) =
   filename |> Option.orElse language

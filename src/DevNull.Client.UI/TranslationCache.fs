@@ -115,10 +115,11 @@ module TranslationCache =
     Async.Start(
       asyncEx {
         for path in state.Files.List() do
-          match Path.GetFileNameWithoutExtension path |> Option.ofObj with
-          | Some stem when CommitIds.parse<AppError> stem |> Result.isError ->
-            state.Files.Drop path
-          | _ -> ()
+          match
+            CommitIds.parse<AppError>(Path.GetFileNameWithoutExtension path)
+          with
+          | Error _ -> state.Files.Drop path
+          | Ok _ -> ()
       }
     )
   }
@@ -142,9 +143,9 @@ module TranslationCache =
     Async.Start(
       asyncEx {
         for path in state.Files.List() do
-          match Option.ofObj(Path.GetFileNameWithoutExtension path) with
-          | Some commitId -> do! recallDisk(state, commitId) |> Async.Ignore
-          | None -> ()
+          do!
+            recallDisk(state, Path.GetFileNameWithoutExtension path)
+            |> Async.Ignore
       }
     )
 

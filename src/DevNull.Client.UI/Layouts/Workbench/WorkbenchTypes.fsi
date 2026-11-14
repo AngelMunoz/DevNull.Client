@@ -10,6 +10,7 @@ type Ref =
   | SavedRef
   | ScheduledRef
   | NotificationsRef
+  | RemotesRef
   | RepositoryRef of handle: string
 
 /// The list a history program reads: one log, or the signed user's
@@ -55,6 +56,9 @@ module Ref =
   /// True for the notifications ref.
   val notifications: ref: Ref -> bool
 
+  /// True for the remotes ref.
+  val remotes: ref: Ref -> bool
+
 module Checkout =
 
   /// The checked-out commit's id.
@@ -80,6 +84,8 @@ module internal Build =
   val scheduled: Ref
 
   val notifications: Ref
+
+  val remotes: Ref
 
   val repository: handle: string -> Ref
 

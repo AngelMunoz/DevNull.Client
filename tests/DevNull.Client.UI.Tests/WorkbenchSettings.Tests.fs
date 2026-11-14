@@ -56,6 +56,7 @@ let tests =
         "saved"
         "scheduled"
         "notifications"
+        "remotes"
         "repository:ana"
       ]
 

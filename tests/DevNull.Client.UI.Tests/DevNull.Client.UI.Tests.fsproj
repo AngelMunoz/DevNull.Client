@@ -23,6 +23,7 @@
     <Compile Include="EditorPanel.Tests.fs" />
     <Compile Include="RepoFrame.Tests.fs" />
     <Compile Include="RemotesMount.Tests.fs" />
+    <Compile Include="WorkbenchRemotes.Tests.fs" />
     <Compile Include="EditorFlyout.Tests.fs" />
     <Compile Include="PaletteFrame.Tests.fs" />
     <Compile Include="EditorHardening.Tests.fs" />

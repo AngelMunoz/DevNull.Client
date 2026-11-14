@@ -29,16 +29,20 @@ open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
+open DevNull.Client.Natives
 open DevNull.Client.Profiles
 open DevNull.Client.RecentSearchStore
 open DevNull.Client.Remotes
+open DevNull.Client.RemotesState
 open DevNull.Client.Search
+open DevNull.Client.SettingsStore
 open DevNull.Client.Shortcuts
 open DevNull.Client.Stores
 open DevNull.Client.Theme
 open DevNull.Client.TranslationCache
 open DevNull.Client.UiClock
 open DevNull.Client.UserSettingsStore
+open DevNull.Client.Views
 open Navs
 
 type HistoryChild = {
@@ -69,6 +73,11 @@ type RepositoryChild = {
 
 type NotificationsChild = { View: Control; Handle: IDisposable }
 
+type RemotesChild = {
+  Mount: RemotesMount.Mount
+  Handle: IDisposable
+}
+
 type SearchPaletteChild = { View: Control; Handle: IDisposable }
 
 type SearchChild = {
@@ -91,6 +100,14 @@ type Model = {
   SearchPalette: SearchPaletteChild option
   Search: SearchChild option
   SearchTerm: string option
+  Remotes: RemotesChild option
+  ChatTarget: ChatTarget option
+  RemoteCount: int
+  RemoteSharedSeen: bool
+  RemotesOn: bool
+  PrefsFrom: RemotesFrom option
+  PrefsPull: bool
+  Notice: string option
   ShareOpen: Commit option
   ReportOpen: Commit option
   Handle: string
@@ -109,6 +126,7 @@ type Model = {
   LiveNotifications: int
   LiveSearchPalette: int
   LiveSearch: int
+  LiveRemotes: int
 }
 
 [<NoComparison>]
@@ -140,6 +158,16 @@ type Msg =
   | RepositoryListChanged of open': bool
   | NotificationsReady of view: Control * handle: IDisposable
   | NotificationsStopped
+  | RemotesReady of mount: RemotesMount.Mount * handle: IDisposable
+  | RemotesStopped
+  | ChatSelected of target: ChatTarget option
+  | RemoteCountChanged of count: int
+  | RemoteShared of target: ChatTarget option
+  | EnableRequested
+  | EnableSettled of result: Result<unit, AppError>
+  | PrefsFromWanted of from: RemotesFrom
+  | PrefsPullWanted
+  | PrefsSettled of result: Result<unit, AppError>
   | SearchPaletteToggled
   | EscapeRequested
   | SearchPaletteClosed
@@ -181,6 +209,9 @@ type Props<'env
   and 'env :> IProvideProfiles
   and 'env :> IProvideRecentSearches
   and 'env :> IProvideRemotes
+  and 'env :> IProvideNatives
+  and 'env :> IProvideSettings
+  and 'env :> IProvideBrowser
   and 'env :> IProvideTranslations
   and 'env :> IProvideUiClock
   and 'env :> IProvideUserSettings
@@ -243,9 +274,13 @@ type internal MountedHost() =
 
   member val LiveNotifications = 0 with get, set
 
+  member val CurrentRemotes: TrackedHandle option = None with get, set
+
   member val LiveSearchPalette = 0 with get, set
 
   member val LiveSearch = 0 with get, set
+
+  member val LiveRemotes = 0 with get, set
 
   member val HostDisposed = false with get, set
 
@@ -272,6 +307,7 @@ type internal MountedHost() =
     this.LiveThread <- model.LiveThread
     this.LiveRepository <- model.LiveRepository
     this.LiveNotifications <- model.LiveNotifications
+    this.LiveRemotes <- model.LiveRemotes
     this.LiveSearchPalette <- model.LiveSearchPalette
     this.LiveSearch <- model.LiveSearch
 
@@ -289,6 +325,9 @@ type internal MountedHost() =
 
     this.CurrentNotifications <-
       model.Notifications |> Option.bind(fun child -> track child.Handle)
+
+    this.CurrentRemotes <-
+      model.Remotes |> Option.bind(fun child -> track child.Handle)
 
     this.CurrentSearchPalette <-
       model.SearchPalette |> Option.bind(fun child -> track child.Handle)
@@ -311,6 +350,7 @@ type internal MountedHost() =
       this.CurrentThread |> Option.iter _.Dispose()
       this.CurrentRepository |> Option.iter _.Dispose()
       this.CurrentNotifications |> Option.iter _.Dispose()
+      this.CurrentRemotes |> Option.iter _.Dispose()
       this.CurrentSearchPalette |> Option.iter _.Dispose()
       this.CurrentSearch |> Option.iter _.Dispose()
       this.HostHandle |> Option.iter _.Dispose()
@@ -319,6 +359,7 @@ type internal MountedHost() =
       this.LiveThread <- 0
       this.LiveRepository <- 0
       this.LiveNotifications <- 0
+      this.LiveRemotes <- 0
       this.LiveSearchPalette <- 0
       this.LiveSearch <- 0
       this.HostDisposed <- true
@@ -382,6 +423,10 @@ type NotificationsStart = { KeyFile: string }
 
 [<Struct>]
 type SearchPaletteStart = { KeyFile: string }
+
+/// The remotes child's start: the signed-in session the mount reads.
+[<Struct>]
+type RemotesStart = { Session: SignedInSession }
 
 [<Struct>]
 type SearchStart = {
@@ -827,6 +872,52 @@ let startNotificationsCmd
       dispatch(NotificationsReady(child.View, child.Handle))
     | None -> ())
 
+let startRemotes
+  (props: Props<'env>, dispatch: Msg -> unit, start: RemotesStart)
+  : RemotesChild =
+  let mount =
+    RemotesMount.mount(
+      props.Env.Dispatcher,
+      {
+        Env = props.Env
+        Session = start.Session
+        OnOpenProfile =
+          fun handle -> dispatch(RefSelected(Build.repository handle))
+        OnTargetChanged = fun target -> dispatch(ChatSelected target)
+      }
+    )
+
+  {
+    Mount = mount
+    Handle = new TrackedHandle(mount.Lifetime) :> IDisposable
+  }
+
+let startRemotesCmd
+  (props: Props<'env>, old: IDisposable option, start: RemotesStart option)
+  : Cmd<Msg> =
+  Cmd.ofEffect(fun dispatch ->
+    match old with
+    | Some handle ->
+      handle.Dispose()
+      dispatch RemotesStopped
+    | None -> ()
+
+    match start with
+    | Some start ->
+      let child = startRemotes(props, dispatch, start)
+      dispatch(RemotesReady(child.Mount, child.Handle))
+    | None -> ())
+
+// The remotes child's start under one ref: the signed-in session while
+// the account has remotes on, or none.
+let remotesStartFor(data: SessionData, selected: Ref) : RemotesStart option =
+  if Ref.remotes selected then
+    data.Session
+    |> Option.filter(fun session -> session.Session.Remotes.IsSome)
+    |> Option.map(fun session -> { Session = session })
+  else
+    None
+
 let startSearchPaletteCmd
   (props: Props<'env>, old: IDisposable option, start: SearchPaletteStart option) : Cmd<
                                                                                       Msg
@@ -882,6 +973,21 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
       FocusComposer = false
     })
 
+  let remotesOn =
+    data.Session
+    |> Option.map(fun session -> session.Session.Remotes.IsSome)
+    |> Option.defaultValue false
+
+  let prefsFrom =
+    data.Session
+    |> Option.bind(fun session -> session.Session.Remotes |> Option.map _.From)
+
+  let prefsPull =
+    data.Session
+    |> Option.bind(fun session ->
+      session.Session.Remotes |> Option.map _.PullReceipts)
+    |> Option.defaultValue false
+
   let model: Model = {
     Selected = selected
     CheckoutId = checkoutId
@@ -893,6 +999,14 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     Repository = None
     RepositoryListOpen = false
     Notifications = None
+    Remotes = None
+    ChatTarget = None
+    RemoteCount = 0
+    RemoteSharedSeen = false
+    RemotesOn = remotesOn
+    PrefsFrom = prefsFrom
+    PrefsPull = prefsPull
+    Notice = None
     SearchPalette = None
     Search = None
     SearchTerm = None
@@ -912,6 +1026,7 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     LiveThread = 0
     LiveRepository = 0
     LiveNotifications = 0
+    LiveRemotes = 0
     LiveSearchPalette = 0
     LiveSearch = 0
   }
@@ -942,6 +1057,8 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
       )
     | None when Ref.notifications selected ->
       startNotificationsCmd(props, None, Some { KeyFile = data.KeyFile })
+    | None when Ref.remotes selected ->
+      startRemotesCmd(props, None, remotesStartFor(data, selected))
     | None -> startHistoryCmd(props, None, historyStart)
 
   model,
@@ -970,9 +1087,15 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
       model with
           CheckoutId = commitId
           Inspector = None
+          ChatTarget = None
     },
     Cmd.batch [
       startInspectorCmd(props, model.Inspector |> Option.map _.Handle, start)
+
+      model.Remotes
+      |> Option.map(fun child ->
+        Cmd.ofAction(fun () -> child.Mount.Send State.Closed))
+      |> Option.defaultValue Cmd.none
 
       stateCmd(props, model.Selected, commitId)
     ]
@@ -991,6 +1114,8 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
           Repository = None
           RepositoryListOpen = false
           Notifications = None
+          Remotes = None
+          ChatTarget = None
           SearchPalette = None
           Search = None
           SearchTerm = None
@@ -1008,6 +1133,11 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
       )
 
       startSearchCmd(props, model.Search |> Option.map _.Handle, None)
+      startRemotesCmd(
+        props,
+        model.Remotes |> Option.map _.Handle,
+        remotesStartFor(data, ref)
+      )
       stateCmd(props, ref, model.CheckoutId)
     ]
 
@@ -1045,6 +1175,18 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
           props,
           model.Notifications |> Option.map _.Handle,
           Some { KeyFile = data.KeyFile }
+        )
+      ]
+    | None when Ref.remotes ref ->
+      cleared,
+      Cmd.batch [
+        yield! common
+        stopHistoryCmd(model.History |> Option.map _.Handle)
+        startRepositoryCmd(props, model.Repository |> Option.map _.Handle, None)
+        startNotificationsCmd(
+          props,
+          model.Notifications |> Option.map _.Handle,
+          None
         )
       ]
     | None ->
@@ -1203,13 +1345,47 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | SessionChanged state ->
     let data = sessionOfState state
 
-    {
+    let on =
+      data.Session
+      |> Option.map(fun session -> session.Session.Remotes.IsSome)
+      |> Option.defaultValue false
+
+    let from =
+      data.Session
+      |> Option.bind(fun session ->
+        session.Session.Remotes |> Option.map _.From)
+
+    let pull =
+      data.Session
+      |> Option.bind(fun session ->
+        session.Session.Remotes |> Option.map _.PullReceipts)
+      |> Option.defaultValue false
+
+    let switched = {
       model with
           Handle = data.Handle
           UnreadCount = data.Unread
           Pasteis = data.Pasteis
-    },
-    Cmd.none
+          RemotesOn = on
+          PrefsFrom = from
+          PrefsPull = pull
+    }
+
+    if (data.Handle, on) = (model.Handle, model.RemotesOn) then
+      switched, Cmd.none
+    else
+      let cleared = {
+        switched with
+            Remotes = None
+            ChatTarget = None
+      }
+
+      cleared,
+      startRemotesCmd(
+        props,
+        model.Remotes |> Option.map _.Handle,
+        remotesStartFor(data, model.Selected)
+      )
   | HistoryReported(ref, report) ->
     match model.Places |> Map.tryFind ref with
     | Some place when place = report.Place -> model, Cmd.none
@@ -1308,6 +1484,103 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
     else
       childHandle.Dispose()
       model, Cmd.none
+  | RemotesStopped ->
+    {
+      model with
+          LiveRemotes = max 0 (model.LiveRemotes - 1)
+    },
+    Cmd.none
+  | RemotesReady(mount, childHandle) ->
+    if Ref.remotes model.Selected then
+      model.Remotes |> Option.iter(fun current -> current.Handle.Dispose())
+
+      let live =
+        if model.Remotes.IsSome then
+          model.LiveRemotes
+        else
+          model.LiveRemotes + 1
+
+      {
+        model with
+            Remotes = Some { Mount = mount; Handle = childHandle }
+            LiveRemotes = live
+      },
+      Cmd.none
+    else
+      childHandle.Dispose()
+      model, Cmd.none
+  | ChatSelected target ->
+    if Ref.remotes model.Selected then
+      match target with
+      | Some _ ->
+        {
+          model with
+              ChatTarget = target
+              CheckoutId = None
+              Inspector = None
+        },
+        Cmd.batch [
+          startInspectorCmd(props, model.Inspector |> Option.map _.Handle, None)
+          stateCmd(props, model.Selected, None)
+        ]
+      | None -> { model with ChatTarget = None }, Cmd.none
+    else
+      model, Cmd.none
+  | RemoteCountChanged count -> { model with RemoteCount = count }, Cmd.none
+  | RemoteShared target ->
+    if model.RemoteSharedSeen then
+      match target with
+      | Some _ when not(Ref.remotes model.Selected) ->
+        model, Cmd.ofMsg(RefSelected Build.remotes)
+      | _ -> model, Cmd.none
+    else
+      { model with RemoteSharedSeen = true }, Cmd.none
+  | EnableRequested ->
+    { model with Notice = None },
+    Cmd.OfAsync.perform props.Env.Remotes.SetEnabled true EnableSettled
+  | EnableSettled result ->
+    match result with
+    | Ok() -> model, Cmd.none
+    | Error error ->
+      {
+        model with
+            Notice = Some(Errors.describe error)
+      },
+      Cmd.none
+  | PrefsFromWanted from ->
+    {
+      model with
+          PrefsFrom = Some from
+          Notice = None
+    },
+    Cmd.OfAsync.perform
+      props.Env.Remotes.SetPreferences
+      (from, model.PrefsPull)
+      PrefsSettled
+  | PrefsPullWanted ->
+    let pull = not model.PrefsPull
+
+    match model.PrefsFrom with
+    | Some from ->
+      {
+        model with
+            PrefsPull = pull
+            Notice = None
+      },
+      Cmd.OfAsync.perform
+        props.Env.Remotes.SetPreferences
+        (from, pull)
+        PrefsSettled
+    | None -> model, Cmd.none
+  | PrefsSettled result ->
+    match result with
+    | Ok() -> model, Cmd.none
+    | Error error ->
+      {
+        model with
+            Notice = Some(Errors.describe error)
+      },
+      Cmd.none
   | EscapeRequested ->
     if model.SearchPalette.IsSome then
       model, Cmd.ofMsg SearchPaletteClosed
@@ -1575,6 +1848,20 @@ let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
     Sub.fromObservable
       "session"
       (props.Env.Session.Observe |> Observable.map SessionChanged)
+
+    Sub.fromObservable
+      "remotes"
+      (props.Env.Remotes.Observe
+       |> Observable.map(fun state -> state.Unread |> Option.defaultValue 0)
+       |> Observable.distinctUntilChanged
+       |> Observable.map RemoteCountChanged)
+
+    Sub.fromObservable
+      "remote-target"
+      (props.Env.Remotes.Observe
+       |> Observable.map _.OpenTarget
+       |> Observable.distinctUntilChangedKey(Option.map ChatTargets.key)
+       |> Observable.map RemoteShared)
   ]
   |> Sub.batch
 
@@ -1610,17 +1897,26 @@ let view
       current.Selected,
       current.SavedCount,
       current.Staging.Queue.Total,
-      current.UnreadCount)
+      current.UnreadCount,
+      current.RemotesOn,
+      current.RemoteCount)
     |> Observable.distinctUntilChanged
-    |> Observable.map(fun (selected, saved, scheduled, unread) ->
-      WorkbenchChrome.refs(
-        {
-          Rows = WorkbenchChrome.rows(saved, scheduled, unread)
-          Selected = selected
-        },
-        (fun ref -> dispatch(RefSelected ref)),
-        (fun () -> props.OnUseDefaultLayout())
-      ))
+    |> Observable.map
+      (fun (selected, saved, scheduled, unread, on, remoteCount) ->
+        WorkbenchChrome.refs(
+          {
+            Rows =
+              WorkbenchChrome.rows(
+                saved,
+                scheduled,
+                unread,
+                if on then Some remoteCount else None
+              )
+            Selected = selected
+          },
+          (fun ref -> dispatch(RefSelected ref)),
+          (fun () -> props.OnUseDefaultLayout())
+        ))
 
   let refsHost = ContentControl().Content(refsSlice |> _.ToBinding())
 
@@ -1665,9 +1961,19 @@ let view
     |> Observable.distinctUntilChanged
     |> Slices.share
 
+  let chatOpen =
+    model
+    |> Observable.map _.ChatTarget.IsSome
+    |> Observable.distinctUntilChanged
+    |> Slices.share
+
+  let checkoutOrChat =
+    Observable.combineLatest hasCheckout chatOpen
+    |> Observable.map(fun (checkout, chat) -> checkout || chat)
+
   let hasRight =
-    Observable.combineLatest hasCheckout repositoryListOpen
-    |> Observable.map(fun (checkout, listing) -> checkout || listing)
+    Observable.combineLatest checkoutOrChat repositoryListOpen
+    |> Observable.map(fun (left, listing) -> left || listing)
     |> Observable.distinctUntilChanged
     |> Slices.share
 
@@ -1702,6 +2008,21 @@ let view
     |> Observable.distinctUntilChanged
     |> Slices.share
 
+  let remotesOpen =
+    model
+    |> Observable.map _.Remotes.IsSome
+    |> Observable.distinctUntilChanged
+    |> Slices.share
+
+  let remotesBusy =
+    Observable.combineLatest threadOpen searchOpen
+    |> Observable.map(fun (thread, search) -> thread || search)
+
+  let remotesVisible =
+    Observable.combineLatest remotesBusy remotesOpen
+    |> Observable.map(fun (busy, remotes) -> remotes && not busy)
+    |> Observable.distinctUntilChanged
+
   let paletteOpen =
     model
     |> Observable.map _.SearchPalette.IsSome
@@ -1716,8 +2037,12 @@ let view
     Observable.combineLatest coveredThreadRepo notificationsOpen
     |> Observable.map(fun (covered, notifications) -> covered || notifications)
 
+  let coveredThreadRepoNotificationsRemotes =
+    Observable.combineLatest coveredThreadRepoNotifications remotesVisible
+    |> Observable.map(fun (covered, remotes) -> covered || remotes)
+
   let centerCovered =
-    Observable.combineLatest coveredThreadRepoNotifications searchOpen
+    Observable.combineLatest coveredThreadRepoNotificationsRemotes searchOpen
     |> Observable.map(fun (covered, search) -> covered || search)
     |> Observable.distinctUntilChanged
 
@@ -1788,6 +2113,12 @@ let view
     |> Observable.map(fun (busy, notifications) -> notifications && not busy)
     |> Observable.distinctUntilChanged
 
+  let remotesSelected =
+    model
+    |> Observable.map(fun current -> Ref.remotes current.Selected)
+    |> Observable.distinctUntilChanged
+    |> Slices.share
+
   let notificationsHost =
     ContentControl()
       .Name("NotificationsRegion")
@@ -1797,6 +2128,113 @@ let view
       .IsVisible(notificationsVisible)
       .Margin(
         reserved |> Observable.map(fun right -> Thickness(0.0, 0.0, right, 0.0))
+      )
+
+  let remotesOn =
+    model
+    |> Observable.map _.RemotesOn
+    |> Observable.distinctUntilChanged
+    |> Slices.share
+
+  let remotesPanel =
+    RemotesMount.disabledPanel(
+      (fun () -> dispatch EnableRequested),
+      (fun () -> props.OnUseDefaultLayout())
+    )
+
+  let remotesInboxPlaceholder = Panel()
+
+  let remotesSlice =
+    model
+    |> Observable.map(fun current ->
+      current.RemotesOn,
+      current.Remotes |> Option.map(fun child -> child.Mount.Inbox))
+    |> Observable.distinctUntilChanged
+    |> Observable.map(function
+      | true, Some inbox -> inbox
+      | true, None -> remotesInboxPlaceholder
+      | false, _ -> remotesPanel)
+
+  let prefsFrom =
+    model
+    |> Observable.map _.PrefsFrom
+    |> Observable.distinctUntilChanged
+    |> Slices.share
+
+  let prefsPull =
+    model
+    |> Observable.map _.PrefsPull
+    |> Observable.distinctUntilChanged
+    |> Slices.share
+
+  let fromPill(label: string, from: RemotesFrom) : Control =
+    let pill =
+      Button()
+        .Classes(Theme.name Theme.FilterPill)
+        .Content(label)
+        .OnClickHandler(fun _ _ -> dispatch(PrefsFromWanted from))
+
+    Theme.bindClass(
+      pill,
+      Theme.FilterPillActive,
+      prefsFrom |> Observable.map(fun current -> current = Some from)
+    )
+    |> ignore
+
+    pill
+
+  let pullPill: Control =
+    let pill =
+      Button()
+        .Classes(Theme.name Theme.FilterPill)
+        .Content("Pull receipts")
+        .OnClickHandler(fun _ _ -> dispatch PrefsPullWanted)
+
+    Theme.bindClass(pill, Theme.FilterPillActive, prefsPull) |> ignore
+
+    pill
+
+  let prefsRow =
+    Border()
+      .Name("RemotesPrefs")
+      .Classes(Theme.name Theme.Hairline)
+      .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
+      .Padding(Thickness(12.0, 8.0, 12.0, 8.0))
+      .Child(
+        StackPanel()
+          .Orientation(Orientation.Horizontal)
+          .Spacing(8.0)
+          .Children(
+            TextBlock()
+              .Classes(Theme.name Theme.Muted)
+              .Text("Who can write:")
+              .VerticalAlignment(VerticalAlignment.Center),
+            fromPill("Following", FromFollowing),
+            fromPill("Everyone", FromEveryone),
+            pullPill
+          )
+      )
+      .IsVisible(
+        Observable.combineLatest remotesSelected remotesOn
+        |> Observable.map(fun (selected, on) -> selected && on)
+      )
+
+  let remotesHost =
+    ContentControl()
+      .Name("RemotesInboxHost")
+      .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+      .VerticalContentAlignment(VerticalAlignment.Stretch)
+      .Content(remotesSlice |> _.ToBinding())
+
+  let remotesCenter =
+    Grid(RowDefinitions = RowDefinitions "Auto,*")
+      .Name("RemotesRegion")
+      .Children(prefsRow.Row(0), remotesHost.Row(1))
+      .IsVisible(remotesSelected)
+      .Margin(
+        reserved
+        |> Observable.map(fun right ->
+          Thickness(0.0, Theme.bandHeight, right, 0.0))
       )
 
   let searchPlaceholder = Panel()
@@ -1855,11 +2293,32 @@ let view
     |> Observable.distinctUntilChanged
     |> Observable.map(Option.defaultValue inspectorPlaceholder)
 
+  let noChat = chatOpen |> Observable.map not
+
+  let chatPlaceholder = Panel()
+
+  let chatSlice =
+    model
+    |> Observable.map(fun current ->
+      current.Remotes |> Option.map(fun child -> child.Mount.Thread))
+    |> Observable.distinctUntilChanged
+    |> Observable.map(Option.defaultValue chatPlaceholder)
+
+  let chatHost =
+    ContentControl()
+      .Name("RemotesThreadHost")
+      .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+      .VerticalContentAlignment(VerticalAlignment.Stretch)
+      .Content(chatSlice |> _.ToBinding())
+      .IsVisible(chatOpen)
+      .Margin(Thickness(8.0, Theme.bandHeight + 8.0, 8.0, 8.0))
+
   let inspectorContent =
     ContentControl()
       .HorizontalContentAlignment(HorizontalAlignment.Stretch)
       .VerticalContentAlignment(VerticalAlignment.Stretch)
       .Content(inspectorSlice |> _.ToBinding())
+      .IsVisible(noChat)
 
   let threadParentsSlice =
     model
@@ -1886,6 +2345,8 @@ let view
   let repositoryListsVisible =
     Observable.combineLatest repositoryVisible repositoryListOpen
     |> Observable.map(fun (repository, listing) -> repository && listing)
+    |> Observable.combineLatest noChat
+    |> Observable.map(fun (visible, free) -> visible && free)
     |> Observable.distinctUntilChanged
 
   let repositoryListsHost =
@@ -1901,7 +2362,8 @@ let view
       .Children(
         threadParentsHost.Row(0),
         inspectorContent.Row(1),
-        repositoryListsHost.Row(1)
+        repositoryListsHost.Row(1),
+        chatHost.Row(1)
       )
 
   let inspectorRegion =
@@ -1939,6 +2401,7 @@ let view
         repositoryHost,
         searchHost,
         threadHost,
+        remotesCenter,
         inspectorRegion,
         paletteHost
       )
@@ -1981,7 +2444,8 @@ let view
           current.Selected,
           current.Handle,
           current.FetchedAt,
-          minuteBucket current.Now)
+          minuteBucket current.Now,
+          current.Notice)
         |> Observable.map(fun current ->
           WorkbenchChrome.statusText(
             {
@@ -1991,7 +2455,10 @@ let view
               Now = current.Now
             }
             : WorkbenchChrome.StatusModel
-          ))
+          )
+          + (current.Notice
+             |> Option.map(fun note -> " · " + note)
+             |> Option.defaultValue ""))
       )
 
   let statusBar =

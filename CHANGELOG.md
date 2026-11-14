@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Layouts:** the help key opens a keyboard cheatsheet in every layout, listing the keys the mounted layout answers; Escape closes it first.
 - **Settings:** an Appearance row names the layout the window shows; a pick changes it at once, with no restart. The site's own layout is the default.
 - **Remotes:** the inbox and the open thread share one router-free mount, so future layouts can host them side by side; the Website page looks and acts as before.
+- **Workbench:** the refs rail gains a Remotes row with the unread count; selecting it shows the conversation list in the center and opens each chat in the right pane, one chat at a time, with the checkout closing as the chat opens and back.
 
 ### Changed
 

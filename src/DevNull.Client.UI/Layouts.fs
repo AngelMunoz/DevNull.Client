@@ -245,8 +245,9 @@ let builtIn
 
       // The sinks can reach the host's message path only after the
       // mount exists; the slot is filled once, right after the call
-      // returns, before any message can run.
-      let sendToWorkbench: WorkbenchHost.Msg -> unit = ignore
+      // returns, before any message can run. Without the fill the
+      // author and profile sinks would stay silent.
+      let sendToWorkbench: (WorkbenchHost.Msg -> unit) ref = ref ignore
 
       let workbenchRoot, workbenchLifetime =
         WorkbenchHost.mount(
@@ -260,9 +261,8 @@ let builtIn
               workbenchZone((env :> IProvideUserSettings).UserSettings.Current)
             OnOpenAuthor =
               fun handle ->
-                sendToWorkbench(
-                  WorkbenchHost.RefSelected(Build.repository handle)
-                )
+                let send = sendToWorkbench.Value
+                send(WorkbenchHost.RefSelected(Build.repository handle))
             OnOpenExternal =
               fun url -> (env :> IProvideBrowser).Browser.Open url |> ignore
             OnStateChanged =
@@ -271,6 +271,9 @@ let builtIn
             OnUseDefaultLayout = fun () -> surface.Switch "current"
           }
         )
+
+      sendToWorkbench.Value <-
+        (workbenchLifetime :?> WorkbenchHost.MountedHost).Send
 
       {
         new ILayout with

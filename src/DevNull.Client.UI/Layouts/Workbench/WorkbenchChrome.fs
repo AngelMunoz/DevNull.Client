@@ -29,13 +29,14 @@ let rowOf(token: string, count: int option) : RefRow = {
   Count = count
 }
 
-let rows(saved: int, scheduled: int, unread: int) = [
+let rows(saved: int, scheduled: int, unread: int, remotes: int option) = [
   rowOf("latest", None)
   rowOf("following", None)
   rowOf("trending", None)
   rowOf("saved", Some saved)
   rowOf("scheduled", Some scheduled)
   rowOf("notifications", Some unread)
+  rowOf("remotes", remotes)
 ]
 
 let refButton(selected: Ref, row: RefRow, onSelect: Ref -> unit) : Control =

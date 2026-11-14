@@ -32,8 +32,11 @@ val refs:
     Control
 
 /// The refs tree rows in display order: Latest, Following, Trending,
-/// then Saved, Scheduled, and Notifications with their counts.
-val rows: saved: int * scheduled: int * unread: int -> RefRow list
+/// then Saved, Scheduled, Notifications, and Remotes with their counts.
+/// The Remotes row always stands; its count is none while the account
+/// has remotes off.
+val rows:
+  saved: int * scheduled: int * unread: int * remotes: int option -> RefRow list
 
 /// The status bar's one line: the ref, the handle, and the fetch time.
 val statusText: model: StatusModel -> string

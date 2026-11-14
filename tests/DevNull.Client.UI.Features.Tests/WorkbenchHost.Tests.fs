@@ -483,7 +483,7 @@ let tests =
         WorkbenchSettings.parse "scheduled" |> WorkbenchState.refOf
 
       let row =
-        WorkbenchChrome.rows(0, loaded.Staging.Queue.Total, 0)
+        WorkbenchChrome.rows(0, loaded.Staging.Queue.Total, 0, None)
         |> List.find(fun entry -> entry.Ref = scheduled)
 
       Expect.equal

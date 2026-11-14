@@ -625,9 +625,26 @@ module ThreadPane =
           :> Control
         | Partner _ -> actions
 
+      let close =
+        Button()
+          .Name("ThreadClose")
+          .Classes(Theme.name Theme.GhostButton)
+          .Content(Icons.iconAt(Icons.Glyph.Close, 12.0))
+          .Margin(Thickness(0.0, 0.0, 8.0, 0.0))
+          .OnClickHandler(fun _ args ->
+            args.Handled <- true
+            dispatch State.Closed)
+
+      ToolTip.SetTip(close, "Close chat")
+
       DockPanel()
         .LastChildFill(true)
-        .Children(menu.Dock(Dock.Right), bell.Dock(Dock.Right), identity)
+        .Children(
+          close.Dock(Dock.Right),
+          menu.Dock(Dock.Right),
+          bell.Dock(Dock.Right),
+          identity
+        )
 
     let loadingOlder = thread |> Observable.map _.IsLoadingOlder
 

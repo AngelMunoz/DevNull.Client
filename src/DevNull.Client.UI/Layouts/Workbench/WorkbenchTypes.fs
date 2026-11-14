@@ -7,6 +7,7 @@ type Ref =
   | SavedRef
   | ScheduledRef
   | NotificationsRef
+  | RemotesRef
   | RepositoryRef of handle: string
 
 type HistorySource =
@@ -31,6 +32,7 @@ module Ref =
     | SavedRef -> "Saved"
     | ScheduledRef -> "Scheduled"
     | NotificationsRef -> "Notifications"
+    | RemotesRef -> "Remotes"
     | RepositoryRef handle -> "@" + handle
 
   let stored(ref: Ref) =
@@ -39,6 +41,7 @@ module Ref =
     | SavedRef -> "saved"
     | ScheduledRef -> "scheduled"
     | NotificationsRef -> "notifications"
+    | RemotesRef -> "remotes"
     | RepositoryRef handle -> "repository:" + handle
 
   let log(ref: Ref) =
@@ -47,6 +50,7 @@ module Ref =
     | SavedRef
     | ScheduledRef
     | NotificationsRef
+    | RemotesRef
     | RepositoryRef _ -> None
 
   let source(ref: Ref) =
@@ -55,6 +59,7 @@ module Ref =
     | SavedRef -> Some SavedSource
     | ScheduledRef
     | NotificationsRef
+    | RemotesRef
     | RepositoryRef _ -> None
 
   let repository(ref: Ref) =
@@ -65,6 +70,11 @@ module Ref =
   let notifications(ref: Ref) =
     match ref with
     | NotificationsRef -> true
+    | _ -> false
+
+  let remotes(ref: Ref) =
+    match ref with
+    | RemotesRef -> true
     | _ -> false
 
 module Checkout =
@@ -88,6 +98,8 @@ module Build =
   let scheduled: Ref = ScheduledRef
 
   let notifications: Ref = NotificationsRef
+
+  let remotes: Ref = RemotesRef
 
   let repository(handle: string) : Ref = RepositoryRef handle
 

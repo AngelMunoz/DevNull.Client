@@ -247,7 +247,7 @@ module Parts =
       grid.Children(
         avatar
           .Column(0)
-          .Margin(0.0, 0.0, 12.0, 0.0)
+          .Margin(12.0, 0.0, 12.0, 0.0)
           .VerticalAlignment(VerticalAlignment.Center),
         StackPanel()
           .Spacing(2.0)
@@ -327,7 +327,7 @@ module Parts =
         columns.Children(
           avatar
             .Column(0)
-            .Margin(0.0, 0.0, 12.0, 0.0)
+            .Margin(12.0, 0.0, 12.0, 0.0)
             .VerticalAlignment(VerticalAlignment.Center),
           StackPanel()
             .Spacing(2.0)

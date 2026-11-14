@@ -14,13 +14,17 @@ open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
+open DevNull.Client.Natives
 open DevNull.Client.Profiles
 open DevNull.Client.RecentSearchStore
 open DevNull.Client.Remotes
+open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
 open DevNull.Client.TranslationCache
 open DevNull.Client.UserSettingsStore
+open DevNull.Client.Views
+open DevNull.Client.RemotesState
 
 /// One live history program: the ref it shows, the place it restored,
 /// its root view, the handle that ends it, and the named refresh inlet
@@ -61,6 +65,17 @@ type RepositoryChild = {
 /// ends it.
 type NotificationsChild = { View: Control; Handle: IDisposable }
 
+/// One live remotes mount: the shared inbox and thread controls, and
+/// the tracked handle that ends them.
+type RemotesChild = {
+  Mount: RemotesMount.Mount
+  Handle: IDisposable
+}
+
+/// The remotes child's start: the signed-in session the mount reads.
+[<Struct>]
+type RemotesStart = { Session: SignedInSession }
+
 /// One live search palette: its root view and the handle that ends it.
 type SearchPaletteChild = { View: Control; Handle: IDisposable }
 
@@ -91,6 +106,18 @@ type Model = {
   SearchPalette: SearchPaletteChild option
   Search: SearchChild option
   SearchTerm: string option
+  Remotes: RemotesChild option
+  /// The open chat, or none. Never set while a checkout stands.
+  ChatTarget: ChatTarget option
+  RemoteCount: int
+  /// The share slice's first emission is the standing target, never a
+  /// share: the flag tells it apart.
+  RemoteSharedSeen: bool
+  /// Whether the signed-in account has remotes on.
+  RemotesOn: bool
+  PrefsFrom: RemotesFrom option
+  PrefsPull: bool
+  Notice: string option
   ShareOpen: Commit option
   ReportOpen: Commit option
   Handle: string
@@ -109,6 +136,7 @@ type Model = {
   LiveNotifications: int
   LiveSearchPalette: int
   LiveSearch: int
+  LiveRemotes: int
 }
 
 /// The host's messages: ref and checkout selections, the reply
@@ -148,6 +176,16 @@ type Msg =
   | RepositoryListChanged of open': bool
   | NotificationsReady of view: Control * handle: IDisposable
   | NotificationsStopped
+  | RemotesReady of mount: RemotesMount.Mount * handle: IDisposable
+  | RemotesStopped
+  | ChatSelected of target: ChatTarget option
+  | RemoteCountChanged of count: int
+  | RemoteShared of target: ChatTarget option
+  | EnableRequested
+  | EnableSettled of result: Result<unit, AppError>
+  | PrefsFromWanted of from: RemotesFrom
+  | PrefsPullWanted
+  | PrefsSettled of result: Result<unit, AppError>
   | SearchPaletteToggled
   | EscapeRequested
   | SearchPaletteClosed
@@ -178,9 +216,10 @@ type Msg =
 
 /// What the host needs from its integrator: the protocol workers, the
 /// dispatcher that starts child programs, the session store, the image
-/// cache, the attachment sources the composer stages into, the clock
-/// and zone, the last-visit store, the outbound sinks, the layout
-/// switch, and the stored state the host starts from.
+/// cache, the attachment sources the composer stages into, the chat
+/// drafts, the voice audio, the browser, the clock and zone, the
+/// last-visit store, the outbound sinks, the layout switch, and the
+/// stored state the host starts from.
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
@@ -194,6 +233,9 @@ type Props<'env
   and 'env :> IProvideProfiles
   and 'env :> IProvideRecentSearches
   and 'env :> IProvideRemotes
+  and 'env :> IProvideNatives
+  and 'env :> IProvideSettings
+  and 'env :> IProvideBrowser
   and 'env :> IProvideTranslations
   and 'env :> IProvideUiClock
   and 'env :> IProvideUserSettings
@@ -230,6 +272,7 @@ type internal MountedHost =
   member LiveNotifications: int
   member LiveSearchPalette: int
   member LiveSearch: int
+  member LiveRemotes: int
   member HostDisposed: bool
   interface IDisposable
 

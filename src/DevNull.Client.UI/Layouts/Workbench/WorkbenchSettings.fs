@@ -28,6 +28,7 @@ module WorkbenchSettings =
       | "saved" -> Some Build.saved
       | "scheduled" -> Some Build.scheduled
       | "notifications" -> Some Build.notifications
+      | "remotes" -> Some Build.remotes
       | _ when token.StartsWith("repository:", StringComparison.Ordinal) ->
         token.Substring("repository:".Length)
         |> parseHandle

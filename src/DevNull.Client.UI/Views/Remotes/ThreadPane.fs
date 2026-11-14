@@ -518,9 +518,7 @@ module ThreadPane =
           :> Control
 
       let menuActions: ThreadMenus.MenuActions = {
-        ViewProfile =
-          fun user ->
-            Navigation.go(props.Nav, "/profile/" + user.Handle, ignore)
+        ViewProfile = fun user -> props.OnOpenProfile user.Handle
         Pin = fun wanted -> dispatch(State.PinWanted wanted)
         Archive = fun wanted -> dispatch(State.ArchiveWanted wanted)
         Mute = fun how -> dispatch(State.MuteWanted how)

@@ -204,6 +204,8 @@
     <Compile Include="Views\Remotes\RemotesInbox.fs" />
     <Compile Include="Views\Remotes\ThreadPane.fsi" />
     <Compile Include="Views\Remotes\ThreadPane.fs" />
+    <Compile Include="Views\Remotes\RemotesMount.fsi" />
+    <Compile Include="Views\Remotes\RemotesMount.fs" />
     <Compile Include="Views\Remotes\RemotesView.fsi" />
     <Compile Include="Views\Remotes\RemotesView.fs" />
     <Compile Include="Views\SavedView.fsi" />

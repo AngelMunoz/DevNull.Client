@@ -186,12 +186,15 @@ let remotesPage
     env,
     "Sign in to read your remotes.",
     fun session ->
-      RemotesView.Page {
-        Env = env
-        Session = session
-        Nav = nav
-        Context = context
-      }
+      RemotesView.Page(
+        {
+          Env = env
+          Session = session
+          OnOpenProfile =
+            fun handle -> Navigation.go(nav, "/profile/" + handle, ignore)
+        },
+        context
+      )
   )
 
 let savedPage

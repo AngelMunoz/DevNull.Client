@@ -17,7 +17,6 @@ open DevNull.Client.RemotesState
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
-open Navs
 
 /// Everything the remotes page reads from its host.
 type Props<'env
@@ -38,9 +37,8 @@ type Props<'env
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
-  Nav: INavigable
-  /// The route the page lives in; owns the page's program lifetime.
-  Context: RouteContext
+  /// The host opens this person's profile its own way.
+  OnOpenProfile: string -> unit
 }
 
 /// The remotes page's state types: the model, its messages, and the

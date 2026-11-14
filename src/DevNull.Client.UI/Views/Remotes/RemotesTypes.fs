@@ -17,7 +17,6 @@ open DevNull.Client.RemotesState
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
-open Navs
 
 type Props<'env
   when 'env :> IProvideClock
@@ -37,8 +36,7 @@ type Props<'env
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
-  Nav: INavigable
-  Context: RouteContext
+  OnOpenProfile: string -> unit
 }
 
 module State =

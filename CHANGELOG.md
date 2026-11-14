@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Editor:** a third layout for wide screens — the feed as an editor: a pinned history tab, one tab per open thread with dirty dots, a notifications/activity/terminal panel, a command palette, and profiles as repository tabs with shields and contribution graphs. Pick it in Settings; the window's keyboard shortcuts and tray verbs reach it fully with its next integration.
 - **Layouts:** the help key opens a keyboard cheatsheet in every layout, listing the keys the mounted layout answers; Escape closes it first.
 - **Settings:** an Appearance row names the layout the window shows; a pick changes it at once, with no restart. The site's own layout is the default.
+- **Remotes:** the inbox and the open thread share one router-free mount, so future layouts can host them side by side; the Website page looks and acts as before.
 
 ### Changed
 

@@ -6,6 +6,9 @@ open MVUish.Avalonia
 /// that feed it from outside, and the store calls it runs.
 module RemotesModel =
 
+  /// The thread slice of the page model.
+  val inline threadModelOf: model: State.Model -> State.ThreadModel
+
   /// The page's first model: the store's snapshot, the open target's
   /// parked draft, and the quiet defaults.
   val init: props: Props<'env> -> unit -> State.Model * Cmd<State.Msg>

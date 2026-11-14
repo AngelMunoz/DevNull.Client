@@ -40,6 +40,7 @@ type Props<'env
   Commit: Commit
   Sent: User -> unit
   Close: unit -> unit
+  OnPushed: (User -> unit) voption
 }
 
 module State =
@@ -104,7 +105,9 @@ module State =
       )
     )
 
-    props.Env.Remotes.SetOpenTarget(Some(Partner recipient))
+    match props.OnPushed with
+    | ValueSome sink -> sink recipient
+    | ValueNone -> props.Env.Remotes.SetOpenTarget(Some(Partner recipient))
 
   let answered(model: Model) : bool =
     model.Answer |> Option.exists(fun (term, _) -> term = termOf model.Term)

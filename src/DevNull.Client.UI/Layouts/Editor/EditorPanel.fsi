@@ -6,10 +6,11 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Errors
 
 /// Which panel tab is in front: one notification kind, the
-/// activity log, or the terminal.
+/// activity log, the remotes inbox, or the terminal.
 type Tab =
   | Kind of NotificationKind
   | Activity
+  | Remotes
   | Terminal
 
 /// The panel's own state: whether it is open and which tab is in front.
@@ -33,13 +34,14 @@ type OutputLine = {
   At: DateTimeOffset
 }
 
-/// What the panel host renders: its state, the three bodies, and
+/// What the panel host renders: its state, the four bodies, and
 /// the height the root derives from its own bounds.
 type Props = {
   State: IObservable<State>
   Problems: IObservable<ProblemsState>
   Output: IObservable<OutputLine list>
   Terminal: Control
+  Remotes: Control
   Now: IObservable<DateTimeOffset>
   OnSelect: Tab -> unit
   OnClose: unit -> unit
@@ -132,5 +134,5 @@ val outputCap: int
 /// The same lines with one line appended, oldest dropped at the cap.
 val appendOutput: line: OutputLine * lines: OutputLine list -> OutputLine list
 
-/// The panel host: the tab row, the three bodies, and the close control.
+/// The panel host: the tab row, the four bodies, and the close control.
 val view: props: Props -> Control

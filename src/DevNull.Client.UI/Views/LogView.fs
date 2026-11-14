@@ -1662,6 +1662,7 @@ let view
                   dispatch State.ShareClosed
                   dispatch State.Shared
               Close = fun () -> dispatch State.ShareClosed
+              OnPushed = ValueNone
             }
           | ValueNone -> Panel()
       Scrim = true

@@ -96,6 +96,7 @@ type Props<'env
   OnReply: Commit -> unit
   OnQuote: Commit -> unit
   OnOpenRepo: string -> unit
+  OnShared: User -> unit
 }
 
 let emptyList = {
@@ -175,6 +176,7 @@ let cardsProps(props: Props<'env>) : EditorCards.Props<'env> = {
   Surface = EditorCards.Profile
   Now = props.Now
   OnOpenRepo = props.OnOpenRepo
+  OnShared = ignore
 }
 
 let replaceNode(items: CommitNode list, updated: Commit) =

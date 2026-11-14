@@ -1,6 +1,7 @@
 namespace DevNull.Client.Editor
 
 open DevNull.Client.Core.ApiTypes
+open DevNull.Client.RemotesState
 
 type TabId = TabId of string
 
@@ -20,6 +21,9 @@ module TabId =
 
   let search(term: string) = TabId("search:" + term)
 
+  let remote(target: ChatTarget) =
+    TabId("remote:" + ChatTargets.key target)
+
   let key(TabId key) = key
 
   let isHistory id = id = history
@@ -33,6 +37,8 @@ module TabId =
   let isRepo id = key id |> _.StartsWith("repo:")
 
   let isSearch id = key id |> _.StartsWith("search:")
+
+  let isRemote id = key id |> _.StartsWith("remote:")
 
 type EditorTab = {
   Id: TabId
@@ -86,6 +92,8 @@ module EditorTab =
   let repo(id: TabId, handle: string) = ordinary(id, $"@{handle} (repo)")
 
   let search(id: TabId, term: string) = ordinary(id, $"search: {term}")
+
+  let remote(id: TabId, title: string) = ordinary(id, title)
 
   let id(tab: EditorTab) = tab.Id
 

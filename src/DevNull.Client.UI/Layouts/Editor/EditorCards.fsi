@@ -91,6 +91,9 @@ type Props<'env
   Surface: Surface
   Now: unit -> DateTimeOffset
   OnOpenRepo: string -> unit
+  /// A share sends its recipient here: the frame opens the chat as a
+  /// remote tab. Runs on the UI thread.
+  OnShared: User -> unit
 }
 
 /// The row inlet: the surface, the live state, the dispatch, and the

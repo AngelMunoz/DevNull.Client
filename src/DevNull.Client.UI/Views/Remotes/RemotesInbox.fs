@@ -527,7 +527,7 @@ module Parts =
         .MaxWidth(220.0)
         .Text(
           model
-          |> Observable.map _.OrgName
+          |> Observable.map _.Thread.OrgName
           |> Observable.distinctUntilChanged
           |> _.ToBinding()
         )
@@ -569,9 +569,9 @@ module Parts =
         .Content(
           PageChrome.rebuildOn(
             model,
-            (fun current -> current.OrgMembers),
+            _.Thread.OrgMembers,
             fun current ->
-              let members = current.OrgMembers
+              let members = current.Thread.OrgMembers
 
               let picked =
                 if members.IsEmpty then
@@ -633,8 +633,7 @@ module Parts =
                     .Content("create org")
                     .IsEnabled(
                       model
-                      |> Observable.map(fun current ->
-                        not current.OrgMembers.IsEmpty)
+                      |> Observable.map(_.Thread.OrgMembers.IsEmpty >> not)
                     )
                     .OnClickHandler(fun _ args ->
                       args.Handled <- true

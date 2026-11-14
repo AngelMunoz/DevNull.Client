@@ -59,18 +59,7 @@ module State =
     | BlockFlight
     | RemoveFlight
 
-  type Model = {
-    State: RemotesState
-    Tab: InboxTab
-    Query: string
-    Found: SearchFound option
-    AskedMore: bool
-    RequestsOn: bool
-    Now: DateTimeOffset
-    Riding: bool
-    Landing: Landing option
-    LandingBeat: int
-    MarkedThrough: int
+  type ThreadModel = {
     DraftKey: string
     Draft: string
     Mention: string option
@@ -86,10 +75,25 @@ module State =
     PinAsk: Message option
     Busy: Flight option
     PinnedPanel: bool
+    Landing: Landing option
+    LandingBeat: int
+    Riding: bool
+    MarkedThrough: int
     SeenThrough: int
     Unseen: int
     Behind: bool
     PingHeard: int
+  }
+
+  type Model = {
+    State: RemotesState
+    Tab: InboxTab
+    Query: string
+    Found: SearchFound option
+    AskedMore: bool
+    RequestsOn: bool
+    Now: DateTimeOffset
+    Thread: ThreadModel
   }
 
   type Msg =

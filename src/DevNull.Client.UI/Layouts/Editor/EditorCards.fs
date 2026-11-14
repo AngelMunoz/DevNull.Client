@@ -106,6 +106,7 @@ type Props<'env
   Surface: Surface
   Now: unit -> DateTimeOffset
   OnOpenRepo: string -> unit
+  OnShared: User -> unit
 }
 
 type RowArgs<'env
@@ -655,8 +656,12 @@ let layer
               Env = props.Env
               Session = props.Session
               Commit = commit
-              Sent = fun _ -> dispatch Shared
+              Sent =
+                fun recipient ->
+                  props.OnShared recipient
+                  dispatch Shared
               Close = fun () -> dispatch ShareClosed
+              OnPushed = ValueSome props.OnShared
             }
           | None -> Panel()
       Scrim = true

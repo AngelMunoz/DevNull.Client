@@ -34,6 +34,7 @@ let commands = [
   SwitchRef LogKind.Trending
   OpenNotifications
   OpenPanel EditorPanel.Activity
+  OpenPanel EditorPanel.Remotes
   OpenPanel EditorPanel.Terminal
   UseDefaultLayout
 ]

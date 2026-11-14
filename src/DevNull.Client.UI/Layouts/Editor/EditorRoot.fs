@@ -11,6 +11,8 @@ open Avalonia.Media
 open Avalonia.Threading
 open NXUI.Extensions
 open FSharp.Control.Reactive
+open IcedTasks
+open Microsoft.Extensions.Logging
 open MVUish.Avalonia
 open DevNull.Client
 open DevNull.Client.Editor
@@ -27,11 +29,14 @@ open DevNull.Client.Errors
 open DevNull.Client.Formatting
 open DevNull.Client.Icons
 open DevNull.Client.ImageCache
+open DevNull.Client.Natives
 open DevNull.Client.Profiles
 open DevNull.Client.RecentSearchStore
+open DevNull.Client.SettingsStore
 open DevNull.Client.TranslationCache
 open DevNull.Client.UserSettingsStore
 open DevNull.Client.Remotes
+open DevNull.Client.RemotesState
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
 
@@ -51,6 +56,8 @@ type Props<'env
   and 'env :> IProvideUserSettings
   and 'env :> IProvideBrowser
   and 'env :> IProvideRecentSearches
+  and 'env :> IProvideSettings
+  and 'env :> IProvideNatives
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession
@@ -96,6 +103,17 @@ type Runtime = {
   OpenSaved: unit -> unit
   OpenQueue: unit -> unit
   Lists: IObservable<Map<string, Control>>
+  /// One remote chat tab per open conversation.
+  OpenRemote: ChatTarget -> unit
+  CloseRemote: string -> unit
+  Remotes: IObservable<Map<string, Control>>
+  /// The inbox program's control (the list while the account is on,
+  /// the enable panel while it is off). The panel shows it on its
+  /// Remotes tab; the view never moves it between parents.
+  RemotesInbox: Control
+  /// Closes every remote tab and remounts the inbox body for the
+  /// new sign-in state.
+  ResetRemotes: SessionState -> unit
   PaletteHost: Control
   OpenPalette: unit -> unit
   ClosePalette: unit -> unit
@@ -118,6 +136,8 @@ type Model = {
   Output: EditorPanel.OutputLine list
   ThreadParticipants: Map<string, ParticipantRow list>
   PaletteOpen: bool
+  UserId: string option
+  AccountRemotes: MeRemotes option
 }
 
 type Msg =
@@ -127,6 +147,8 @@ type Msg =
   | TabClosed of TabId
   | HistoryChanged of HistoryTab.Snapshot
   | ThreadChanged of string * ThreadTab.Snapshot
+  | RemoteOpened of ChatTarget
+  | RemoteChanged of string * RemoteThreadTab.Snapshot
   | Scrolled of LogKind * float
   | SessionChanged of SessionState
   | RemotesChanged of count: int
@@ -163,6 +185,7 @@ type HistorySinks = {
   Reply: Commit -> unit
   Quote: Commit -> unit
   OpenRepo: string -> unit
+  Shared: User -> unit
   Fetch: Result<unit, string> -> unit
 }
 
@@ -182,12 +205,16 @@ type ProgramArgs<'env
   and 'env :> IProvideUserSettings
   and 'env :> IProvideBrowser
   and 'env :> IProvideRecentSearches
+  and 'env :> IProvideSettings
+  and 'env :> IProvideNatives
   and 'env :> IProvideLogging> = {
   Runtime: Runtime
   Props: Props<'env>
   History: IObservable<HistoryTab.Snapshot>
   Scrolls: IObservable<LogKind * float>
   Threads: IObservable<string * ThreadTab.Snapshot>
+  RemoteOpens: IObservable<ChatTarget>
+  RemoteSnapshots: IObservable<string * RemoteThreadTab.Snapshot>
   Opens: IObservable<Commit>
   Quotes: IObservable<Commit>
   Replies: IObservable<Commit>
@@ -215,6 +242,8 @@ type ViewArgs<'env
   and 'env :> IProvideUserSettings
   and 'env :> IProvideBrowser
   and 'env :> IProvideRecentSearches
+  and 'env :> IProvideSettings
+  and 'env :> IProvideNatives
   and 'env :> IProvideLogging> = {
   Runtime: Runtime
   Props: Props<'env>
@@ -238,6 +267,8 @@ type UpdateArgs<'env
   and 'env :> IProvideUserSettings
   and 'env :> IProvideBrowser
   and 'env :> IProvideRecentSearches
+  and 'env :> IProvideSettings
+  and 'env :> IProvideNatives
   and 'env :> IProvideLogging> = { Runtime: Runtime; Props: Props<'env> }
 
 [<Struct>]
@@ -257,6 +288,8 @@ type HistoryArgs<'env
   and 'env :> IProvideUserSettings
   and 'env :> IProvideBrowser
   and 'env :> IProvideRecentSearches
+  and 'env :> IProvideSettings
+  and 'env :> IProvideNatives
   and 'env :> IProvideLogging> = {
   Props: Props<'env>
   Log: LogKind
@@ -280,6 +313,7 @@ let historyProps(args: HistoryArgs<'env>) : HistoryTab.Props<'env> = {
   OnReplyRequested = args.Sinks.Reply
   OnQuoteRequested = args.Sinks.Quote
   OnOpenRepo = args.Sinks.OpenRepo
+  OnShared = args.Sinks.Shared
   OnFetch = args.Sinks.Fetch
 }
 
@@ -290,6 +324,7 @@ type ThreadHooks = {
   Quote: Commit -> unit
   Reply: Commit -> unit
   OpenRepo: string -> unit
+  Shared: User -> unit
 }
 
 let threadProps
@@ -305,6 +340,7 @@ let threadProps
   OnQuote = hooks.Quote
   OnReplyRequested = hooks.Reply
   OnOpenRepo = hooks.OpenRepo
+  OnShared = hooks.Shared
 }
 
 [<Struct>]
@@ -313,6 +349,7 @@ type RepoHooks = {
   OpenReply: Commit -> unit
   OpenQuote: Commit -> unit
   OpenRepo: string -> unit
+  Shared: User -> unit
 }
 
 let repoProps
@@ -327,7 +364,13 @@ let repoProps
   OnReply = hooks.OpenReply
   OnQuote = hooks.OpenQuote
   OnOpenRepo = hooks.OpenRepo
+  OnShared = hooks.Shared
 }
+
+let inline remoteTitle(target: ChatTarget) : string =
+  match target with
+  | Partner partner -> $"{partner.Name} @{partner.Handle}"
+  | Org org -> org.Name |> Option.defaultValue "org"
 
 let initial(props: Props<'env>, history: HistoryTab.Snapshot) = {
   Frame = EditorState.initial(StoredState.selectedRef props.Stored)
@@ -346,6 +389,8 @@ let initial(props: Props<'env>, history: HistoryTab.Snapshot) = {
   Output = []
   ThreadParticipants = Map.empty
   PaletteOpen = false
+  UserId = Some props.Session.Session.User.Id
+  AccountRemotes = props.Session.Session.Remotes
 }
 
 let unreadOf(state: SessionState) =
@@ -580,6 +625,8 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
         Cmd.ofAction(fun () -> args.Runtime.CloseRepo(TabId.key id))
       elif closed && TabId.isSearch id then
         Cmd.ofAction(fun () -> args.Runtime.CloseSearch(TabId.key id))
+      elif closed && TabId.isRemote id then
+        Cmd.ofAction(fun () -> args.Runtime.CloseRemote(TabId.key id))
       elif closed then
         Cmd.ofAction(fun () -> args.Runtime.CloseThread(TabId.key id))
       else
@@ -637,6 +684,58 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
               model.ThreadParticipants.Add(commitId, snapshot.Participants)
       },
       Cmd.none
+  | RemoteOpened target ->
+    match model.AccountRemotes with
+    | None -> model, Cmd.none
+    | Some _ ->
+      let id = TabId.remote target
+
+      let next = {
+        model with
+            Frame =
+              EditorState.openTab(
+                EditorTab.remote(id, remoteTitle target),
+                model.Frame
+              )
+            Activity = ActivityBar.Remotes
+            FlyoutOpen = false
+      }
+
+      next, Cmd.ofAction(fun () -> args.Runtime.OpenRemote target)
+  | RemoteChanged(key, snapshot) ->
+    let wanted = "remote:" + key
+
+    let target =
+      model.Frame
+      |> EditorState.tabs
+      |> List.tryFind(fun tab -> TabId.key(EditorTab.id tab) = wanted)
+
+    match target with
+    | None -> model, Cmd.none
+    | Some tab ->
+      let id = EditorTab.id tab
+
+      // The tab reports its own title once the first read lands; the
+      // frame never clears the dot itself, it only carries the tab's
+      // unread count, and selecting the tab marks it seen.
+      let frame =
+        if snapshot.Loading then
+          model.Frame
+        else
+          model.Frame
+          |> EditorState.tabs
+          |> List.map(fun current ->
+            if EditorTab.id current = id then
+              EditorTab.withTitle(snapshot.Title, current)
+            else
+              current)
+          |> fun tabs -> EditorState.withTabs(tabs, model.Frame)
+
+      {
+        model with
+            Frame = EditorState.setDirty(id, snapshot.Unread, frame)
+      },
+      Cmd.none
   | Scrolled(log, offset) ->
     let place =
       model.Places |> Map.tryFind log |> Option.defaultValue EditorPlace.empty
@@ -652,9 +751,47 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
       },
       Cmd.none
   | SessionChanged state ->
-    let next = { model with Unread = unreadOf state }
+    let user =
+      match state with
+      | SignedIn signed -> Some signed.Session.User.Id
+      | SignedOut -> None
 
-    next, Cmd.none
+    let account =
+      match state with
+      | SignedIn signed -> signed.Session.Remotes
+      | SignedOut -> None
+
+    let switched = user <> model.UserId
+
+    let flipped =
+      account |> Option.isSome <> (model.AccountRemotes |> Option.isSome)
+
+    // Chats, drafts, and the session in the tab props belong to the
+    // old user; the sidebar body belongs to the old account. This is
+    // the one path that cleans both up.
+    let frame =
+      if switched || flipped then
+        model.Frame
+        |> EditorState.tabs
+        |> List.filter(fun tab -> TabId.isRemote(EditorTab.id tab))
+        |> List.fold
+          (fun frame tab -> EditorState.closeTab(EditorTab.id tab, frame))
+          model.Frame
+      else
+        model.Frame
+
+    let next = {
+      model with
+          Unread = unreadOf state
+          UserId = user
+          AccountRemotes = account
+          Frame = frame
+    }
+
+    if switched || flipped then
+      next, Cmd.ofAction(fun () -> args.Runtime.ResetRemotes state)
+    else
+      next, Cmd.none
   | RemotesChanged count ->
     let next = { model with RemoteCount = count }
 
@@ -694,11 +831,12 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
       next, Cmd.none
     | ActivityBar.Account ->
       openRepo(args, args.Props.Session.Session.User.Handle, model)
-    | _ ->
+    | ActivityBar.Remotes ->
       let next = {
         model with
-            Activity = activity
+            Activity = ActivityBar.Remotes
             FlyoutOpen = false
+            Panel = EditorPanel.openOn(EditorPanel.Remotes, model.Panel)
       }
 
       next, Cmd.none
@@ -724,8 +862,19 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
     let panel = EditorPanel.toggle(tab, model.Panel)
     openNotificationsPanel(args, panel, model)
   | PanelSelected tab ->
-    let panel = EditorPanel.select(tab, model.Panel)
-    openNotificationsPanel(args, panel, model)
+    match tab with
+    | EditorPanel.Remotes ->
+      let next = {
+        model with
+            Panel = EditorPanel.select(tab, model.Panel)
+            Activity = ActivityBar.Remotes
+            FlyoutOpen = false
+      }
+
+      next, Cmd.none
+    | _ ->
+      let panel = EditorPanel.select(tab, model.Panel)
+      openNotificationsPanel(args, panel, model)
   | OpenNotifications ->
     let panel = EditorPanel.openFirst(model.Problems.Items, model.Panel)
     openNotificationsPanel(args, panel, model)
@@ -932,6 +1081,15 @@ let subscribe(args: ProgramArgs<'env>, _model: Model) : Sub<Msg> =
     Sub.fromObservable
       "clock"
       (args.Props.Env.UiClock.Minute |> Observable.map ClockTicked)
+
+    Sub.fromObservable
+      "remote-opens"
+      (args.RemoteOpens |> Observable.map RemoteOpened)
+
+    Sub.fromObservable
+      "remote-snaps"
+      (args.RemoteSnapshots
+       |> Observable.map(fun (key, snapshot) -> RemoteChanged(key, snapshot)))
   ]
   |> Sub.batch
 
@@ -1055,41 +1213,51 @@ let view(args: ViewArgs<'env>) : Control =
       .HorizontalAlignment(HorizontalAlignment.Center)
       .VerticalAlignment(VerticalAlignment.Center)
 
-  let activeContent =
-    Observable.combineLatest
-      (Observable.combineLatest
-        (Observable.combineLatest
-          (Observable.combineLatest
-            (model |> Observable.map _.Frame |> Slices.gateByRef)
-            args.Runtime.Threads)
-          args.Runtime.Repos)
-        args.Runtime.Lists)
-      args.Runtime.Searches
-    |> Observable.map(fun ((((frame, threads), repos), lists), searches) ->
-      let id = EditorState.activeTab frame
+  // One combine per line, each named and shared: no deep inline nest,
+  // no cold re-subscription per emission.
+  let frame =
+    model |> Observable.map _.Frame |> Slices.gateByRef |> Slices.share
 
-      if id = TabId.history then
-        args.Runtime.History
-      elif TabId.isList id then
-        lists |> Map.tryFind(TabId.key id) |> Option.defaultValue loading
-      elif TabId.isRepo id then
-        repos |> Map.tryFind(TabId.key id) |> Option.defaultValue loading
-      elif TabId.isSearch id then
-        searches |> Map.tryFind(TabId.key id) |> Option.defaultValue loading
-      else
-        threads |> Map.tryFind(TabId.key id) |> Option.defaultValue loading)
+  let threads = args.Runtime.Threads
+  let repos = args.Runtime.Repos
+  let lists = args.Runtime.Lists
+  let searches = args.Runtime.Searches
+  let remotes = args.Runtime.Remotes
+
+  let frameThreads = Observable.combineLatest frame threads |> Slices.share
+  let withRepos = Observable.combineLatest frameThreads repos |> Slices.share
+  let withLists = Observable.combineLatest withRepos lists |> Slices.share
+  let withSearches = Observable.combineLatest withLists searches |> Slices.share
+
+  let activeContent =
+    Observable.combineLatest withSearches remotes
+    |> Observable.map
+      (fun (((((frame, threads), repos), lists), searches), remotes) ->
+        let id = EditorState.activeTab frame
+
+        if id = TabId.history then
+          args.Runtime.History
+        elif TabId.isList id then
+          lists |> Map.tryFind(TabId.key id) |> Option.defaultValue loading
+        elif TabId.isRepo id then
+          repos |> Map.tryFind(TabId.key id) |> Option.defaultValue loading
+        elif TabId.isSearch id then
+          searches |> Map.tryFind(TabId.key id) |> Option.defaultValue loading
+        elif TabId.isRemote id then
+          remotes |> Map.tryFind(TabId.key id) |> Option.defaultValue loading
+        else
+          threads |> Map.tryFind(TabId.key id) |> Option.defaultValue loading)
     |> Observable.distinctUntilChanged
+    |> Slices.share
 
   let content = ContentControl().Content(activeContent |> _.ToBinding())
 
-  let contentArea = Grid()
-
-  contentArea.RowDefinitions <- RowDefinitions("*,Auto")
+  let contentArea = Grid(RowDefinitions = RowDefinitions "*,Auto")
 
   let panelHeight =
     Observable.combineLatest
-      (contentArea.GetObservable(Visual.BoundsProperty)
-       |> Observable.map(fun bounds -> bounds.Height))
+      (contentArea.GetObservable Visual.BoundsProperty
+       |> Observable.map _.Height)
       args.Runtime.TerminalQuote
     |> Observable.map(fun (total, quoting) ->
       EditorPanel.heightOf(total, quoting))
@@ -1097,18 +1265,23 @@ let view(args: ViewArgs<'env>) : Control =
     |> Slices.share
 
   let panel =
-    EditorPanel.view {
-      State = model |> Observable.map(fun current -> current.Panel)
-      Problems = model |> Observable.map(fun current -> current.Problems)
-      Output = model |> Observable.map _.Output |> Slices.gateByRef
-      Terminal = args.Runtime.Terminal
-      Now = model |> Observable.map _.Now |> Slices.share
-      OnSelect = fun tab -> dispatch(PanelSelected tab)
-      OnClose = fun () -> dispatch PanelClosed
-      OnOpenCommit = fun commit -> dispatch(OpenThread commit)
-      OnLoadMore = fun () -> dispatch ProblemsMoreRequested
-      Height = panelHeight
-    }
+    EditorPanel
+      .view(
+        {
+          State = model |> Observable.map _.Panel
+          Problems = model |> Observable.map _.Problems
+          Output = model |> Observable.map _.Output |> Slices.gateByRef
+          Terminal = args.Runtime.Terminal
+          Remotes = args.Runtime.RemotesInbox
+          Now = model |> Observable.map _.Now |> Slices.share
+          OnSelect = fun tab -> dispatch(PanelSelected tab)
+          OnClose = fun () -> dispatch PanelClosed
+          OnOpenCommit = fun commit -> dispatch(OpenThread commit)
+          OnLoadMore = fun () -> dispatch ProblemsMoreRequested
+          Height = panelHeight
+        }
+      )
+      .RowSpan(2)
 
   let spacer =
     Border()
@@ -1121,6 +1294,7 @@ let view(args: ViewArgs<'env>) : Control =
 
   let dim =
     Border()
+      .RowSpan(2)
       .Name("EditorPanelDim")
       .Classes(Theme.name Theme.ScrimBack)
       .IsVisible(
@@ -1151,24 +1325,19 @@ let view(args: ViewArgs<'env>) : Control =
       .Name("PaletteOverlay")
       .Classes(Theme.name Theme.ScrimBack)
       .IsVisible(model |> Observable.map(fun current -> current.PaletteOpen))
-      .Child(args.Runtime.PaletteHost)
-
-  Grid.SetRowSpan(dim, 2)
-  Grid.SetRowSpan(panel, 2)
+      .Child
+      args.Runtime.PaletteHost
 
   contentArea.Children(content.Row(0), spacer.Row(1), flyout, dim, panel)
   |> ignore
 
-  let editor = Grid()
-
-  editor.RowDefinitions <- RowDefinitions("Auto,*")
-
-  editor.Children(
-    tabArea.Row(0),
-    contentArea.Row(1),
-    paletteOverlay.Row(0).RowSpan(2)
-  )
-  |> ignore
+  let editor =
+    Grid(RowDefinitions = RowDefinitions "Auto,*")
+      .Children(
+        tabArea.Row(0),
+        contentArea.Row(1),
+        paletteOverlay.Row(0).RowSpan(2)
+      )
 
   let status =
     rebuildOn(
@@ -1205,31 +1374,26 @@ let view(args: ViewArgs<'env>) : Control =
   defaultLayoutButton.Click.Add(fun _ -> props.OnUseDefaultLayout())
   ToolTip.SetTip(defaultLayoutButton, "Use the default layout")
 
-  let statusRow = Grid()
-  statusRow.ColumnDefinitions <- ColumnDefinitions("*,Auto")
+  let statusRow =
+    Grid(ColumnDefinitions = ColumnDefinitions("*,Auto"))
+      .Children(statusBar.Column(0), defaultLayoutButton.Column(1))
 
-  statusRow.Children(statusBar.Column(0), defaultLayoutButton.Column(1))
-  |> ignore
 
-  let root = Grid()
-
-  root.Name <- "EditorRoot"
-  root.Margin <- Thickness(0.0, Theme.bandHeight, 0.0, 0.0)
-  root.RowDefinitions <- RowDefinitions("*,Auto")
-  root.ColumnDefinitions <- ColumnDefinitions("56,Auto,*")
-
-  root.Children(
-    activityControl.Column(0),
-    sidebar.Column(1),
-    editor.Column(2),
-    statusRow.Row(1).ColumnSpan(3)
+  Grid(
+    RowDefinitions = RowDefinitions "*,Auto",
+    ColumnDefinitions = ColumnDefinitions "56,Auto,*"
   )
-  |> ignore
+    .Name("EditorRoot")
+    .Margin(0.0, Theme.bandHeight, 0.0, 0.0)
+    .Children(
+      activityControl.Column(0),
+      sidebar.Column(1),
+      editor.Column(2),
+      statusRow.Row(1).ColumnSpan(3)
+    )
+    .OnSizeChangedHandler(fun sender _ ->
+      WidthBand.ofWidth sender.Bounds.Width |> WidthChanged |> dispatch)
 
-  root.SizeChanged.Add(fun _ ->
-    WidthBand.ofWidth root.Bounds.Width |> WidthChanged |> dispatch)
-
-  root
 
 type EditorCommand =
   | OpenTerminal
@@ -1307,6 +1471,11 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
 
   let opens = new System.Reactive.Subjects.Subject<Commit>()
   let repoOpens = new System.Reactive.Subjects.Subject<string>()
+  let remoteOpens = new System.Reactive.Subjects.Subject<ChatTarget>()
+
+  let remoteSnapshots =
+    new System.Reactive.Subjects.Subject<string * RemoteThreadTab.Snapshot>()
+
   let paletteClose = new System.Reactive.Subjects.Subject<unit>()
   let paletteRefs = new System.Reactive.Subjects.Subject<LogKind>()
   let palettePanels = new System.Reactive.Subjects.Subject<EditorPanel.Tab>()
@@ -1327,6 +1496,8 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
   let listEntries = new BehaviorSubject<Map<string, ThreadEntry>>(Map.empty)
 
   let searchEntries = new BehaviorSubject<Map<string, ThreadEntry>>(Map.empty)
+
+  let remoteEntries = new BehaviorSubject<Map<string, ThreadEntry>>(Map.empty)
 
   let content = ContentControl()
   let term = ContentControl()
@@ -1408,6 +1579,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
               OnReply = fun target -> replies.OnNext target
               OnQuote = fun target -> quotes.OnNext target
               OnOpenRepo = fun handle -> repoOpens.OnNext handle
+              OnShared = fun user -> remoteOpens.OnNext(Partner user)
             }
           )
 
@@ -1477,6 +1649,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
                 if selected.Value = log then
                   quotes.OnNext commit
             OpenRepo = fun handle -> repoOpens.OnNext handle
+            Shared = fun user -> remoteOpens.OnNext(Partner user)
             Fetch =
               fun result ->
                 if selected.Value = log then
@@ -1540,6 +1713,11 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
     |> Observable.map(fun map -> map |> Map.map(fun _ entry -> entry.View))
     |> Slices.share
 
+  let remotes =
+    remoteEntries
+    |> Observable.map(fun map -> map |> Map.map(fun _ entry -> entry.View))
+    |> Slices.share
+
   let openList(kind: ListTab.Kind) =
     let id =
       match kind with
@@ -1562,6 +1740,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
             OnReply = fun commit -> replies.OnNext commit
             OnQuote = fun commit -> quotes.OnNext commit
             OnOpenRepo = fun handle -> repoOpens.OnNext handle
+            OnShared = fun user -> remoteOpens.OnNext(Partner user)
           }
         )
 
@@ -1594,6 +1773,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
               Quote = fun commit -> quotes.OnNext commit
               Reply = fun commit -> replies.OnNext commit
               OpenRepo = fun handle -> repoOpens.OnNext handle
+              Shared = fun user -> remoteOpens.OnNext(Partner user)
             }
           )
         )
@@ -1624,6 +1804,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
               OpenReply = fun commit -> replies.OnNext commit
               OpenQuote = fun commit -> quotes.OnNext commit
               OpenRepo = fun next -> repoOpens.OnNext next
+              Shared = fun user -> remoteOpens.OnNext(Partner user)
             }
           )
         )
@@ -1656,6 +1837,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
             OnReply = fun commit -> replies.OnNext commit
             OnQuote = fun commit -> quotes.OnNext commit
             OnOpenRepo = fun handle -> repoOpens.OnNext handle
+            OnShared = fun user -> remoteOpens.OnNext(Partner user)
           }
         )
 
@@ -1669,6 +1851,113 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
       searchEntries.OnNext(searchEntries.Value.Remove key)
       entry.Lifetime.Dispose()
     | None -> ()
+
+  let openRemote(target: ChatTarget) =
+    let key = TabId.key(TabId.remote target)
+
+    if not(Map.containsKey key remoteEntries.Value) then
+      let id = TabId.remote target
+
+      let active =
+        Observable.combineLatest
+          props.Active
+          (current
+           |> Observable.map(fun held ->
+             held
+             |> Option.exists(fun model ->
+               EditorState.activeTab model.Frame = id)))
+        |> Observable.map(fun (window, mine) -> window && mine)
+        |> Observable.distinctUntilChanged
+
+      let view, lifetime =
+        RemoteThreadTab.mount(
+          dispatcher,
+          {
+            Env = props.Env
+            Session = props.Session
+            Target = target
+            Zone = props.Zone
+            Now = props.Now
+            Active = active
+            OnSnapshot =
+              fun snapshot -> remoteSnapshots.OnNext(snapshot.Key, snapshot)
+            OnOpenProfile = fun handle -> repoOpens.OnNext handle
+          }
+        )
+
+      remoteEntries.OnNext(
+        remoteEntries.Value.Add(key, { View = view; Lifetime = lifetime })
+      )
+
+  let closeRemote(key: string) =
+    match Map.tryFind key remoteEntries.Value with
+    | Some entry ->
+      remoteEntries.OnNext(remoteEntries.Value.Remove key)
+      entry.Lifetime.Dispose()
+    | None -> ()
+
+  // One list program for the layout: the panel shows its control on
+  // the Remotes tab, so the inbox poll runs once for the layout's life.
+  let listLifetime = new SerialDisposable()
+  let listRoot = new BehaviorSubject<Control>(Panel())
+
+  let inboxHost =
+    ContentControl()
+      .Name("EditorRemotesInbox")
+      .Content(listRoot |> _.ToBinding())
+
+  let enableRemotes() =
+    asyncEx {
+      match! props.Env.Remotes.SetEnabled true with
+      | Ok() -> ()
+      | Error error ->
+        let log =
+          props.Env.LoggerFactory.CreateLogger
+            "DevNull.Client.Editor.EditorRoot"
+
+        log.LogWarning("Turning remotes on failed: {Error}", describe error)
+    }
+    |> Async.StartImmediate
+
+  let mountListBody(session: SignedInSession option) =
+    match session with
+    | Some signed when signed.Session.Remotes.IsSome ->
+      let list, handle =
+        RemoteList.mount(
+          dispatcher,
+          {
+            Env = props.Env
+            Session = signed
+            Zone = props.Zone
+            OnOpen = fun target -> remoteOpens.OnNext target
+            OnOpenProfile = fun handle -> repoOpens.OnNext handle
+          }
+        )
+
+      listLifetime.Disposable <- handle
+      listRoot.OnNext list
+    | _ ->
+      listLifetime.Disposable <- Disposable.Empty
+
+      listRoot.OnNext(
+        DevNull.Client.Views.RemotesMount.disabledPanel(
+          enableRemotes,
+          props.OnUseDefaultLayout
+        )
+      )
+
+  let resetRemotes(state: SessionState) =
+    for KeyValue(key, _) in remoteEntries.Value do
+      closeRemote key
+
+    let session =
+      match state with
+      | SignedIn signed -> Some signed
+      | SignedOut -> None
+
+    mountListBody session
+
+  mountListBody(Some props.Session)
 
   let runtime = {
     History = content
@@ -1690,6 +1979,11 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
     OpenSaved = openSaved
     OpenQueue = openQueue
     Lists = lists
+    OpenRemote = openRemote
+    CloseRemote = closeRemote
+    Remotes = remotes
+    RemotesInbox = inboxHost
+    ResetRemotes = resetRemotes
     PaletteHost = paletteHost
     OpenPalette = openPalette
     ClosePalette = closePalette
@@ -1701,6 +1995,8 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
     History = snapshots
     Scrolls = scrolls
     Threads = threadSnapshots
+    RemoteOpens = remoteOpens
+    RemoteSnapshots = remoteSnapshots
     Opens = opens
     Quotes = quotes
     Replies = replies
@@ -1754,6 +2050,19 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
       searchEntries.OnCompleted()
       searchEntries.Dispose())
 
+  let remotesCleanup =
+    Disposable.Create(fun () ->
+      for KeyValue(_, entry) in remoteEntries.Value do
+        entry.Lifetime.Dispose()
+
+      remoteEntries.OnCompleted()
+      remoteEntries.Dispose())
+
+  let listCleanup =
+    Disposable.Create(fun () ->
+      listRoot.OnCompleted()
+      listRoot.Dispose())
+
   let subjectCleanup =
     Disposable.Create(fun () ->
       snapshots.OnCompleted()
@@ -1764,6 +2073,10 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
       scrolls.Dispose()
       threadSnapshots.OnCompleted()
       threadSnapshots.Dispose()
+      remoteOpens.OnCompleted()
+      remoteOpens.Dispose()
+      remoteSnapshots.OnCompleted()
+      remoteSnapshots.Dispose()
       opens.OnCompleted()
       opens.Dispose()
       repoOpens.OnCompleted()
@@ -1798,6 +2111,9 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
   handles.Add listsCleanup
   handles.Add reposCleanup
   handles.Add searchesCleanup
+  handles.Add remotesCleanup
+  handles.Add listLifetime
+  handles.Add listCleanup
   handles.Add paletteLifetime
   handles.Add subjectCleanup
 

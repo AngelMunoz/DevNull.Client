@@ -13,6 +13,7 @@ open DevNull.Client.UI.Tests.RepoFrame
 open DevNull.Client.UI.Tests.RemotesMountTests
 open DevNull.Client.UI.Tests.WorkbenchRemotesTests
 open DevNull.Client.UI.Tests.EditorFlyout
+open DevNull.Client.UI.Tests.EditorRemotesTests
 open DevNull.Client.UI.Tests.PaletteFrame
 open DevNull.Client.UI.Tests.EditorHardening
 open DevNull.Client.UI.Tests.EditorGates
@@ -57,6 +58,7 @@ let main argv =
       RemotesMountTests.tests
       WorkbenchRemotesTests.tests
       testSequenced EditorFlyout.tests
+      testSequenced EditorRemotesTests.tests
       testSequenced PaletteFrame.tests
       testSequenced EditorHardening.tests
       Unread.tests

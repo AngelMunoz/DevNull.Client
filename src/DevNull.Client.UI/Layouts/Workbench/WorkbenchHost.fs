@@ -2507,6 +2507,7 @@ let view
         Commit = commit
         Sent = fun _ -> dispatch ShareClosed
         Close = fun () -> dispatch ShareClosed
+        OnPushed = ValueNone
       }
       :> Control)
 

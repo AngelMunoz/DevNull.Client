@@ -91,6 +91,10 @@ type Props<'env
   OnReply: Commit -> unit
   OnQuote: Commit -> unit
   OnOpenRepo: string -> unit
+  /// A share sends its recipient here: the frame opens the chat as a
+  /// remote tab. The profile surface never shares, so the frame passes
+  /// a sink it never calls. Runs on the UI thread.
+  OnShared: User -> unit
 }
 
 /// The fresh state: the profile and the first commit page are on

@@ -17,6 +17,7 @@ open DevNull.Client.Formatting
 type Tab =
   | Kind of NotificationKind
   | Activity
+  | Remotes
   | Terminal
 
 type State = { Open: bool; Tab: Tab }
@@ -40,6 +41,7 @@ type Props = {
   Problems: IObservable<ProblemsState>
   Output: IObservable<OutputLine list>
   Terminal: Control
+  Remotes: Control
   Now: IObservable<DateTimeOffset>
   OnSelect: Tab -> unit
   OnClose: unit -> unit
@@ -68,6 +70,7 @@ let isKindTab(tab: Tab) =
   match tab with
   | Kind _ -> true
   | Activity
+  | Remotes
   | Terminal -> false
 
 let close(state: State) = { state with Open = false }
@@ -144,6 +147,7 @@ let effectiveTab(items: Notification list, tab: Tab) =
   | Kind kind when hasKind(items, kind) -> tab
   | Kind _ -> firstKind items |> Option.map Kind |> Option.defaultValue Activity
   | Activity
+  | Remotes
   | Terminal -> tab
 
 let reconcile(items: Notification list, state: State) = {
@@ -200,12 +204,14 @@ let tabLabel(tab: Tab) =
   match tab with
   | Kind kind -> kindLabel kind
   | Activity -> "ACTIVITY"
+  | Remotes -> "REMOTES"
   | Terminal -> "TERMINAL"
 
 let tabName(tab: Tab) =
   match tab with
   | Kind kind -> kindLabel kind
   | Activity -> "Activity"
+  | Remotes -> "Remotes"
   | Terminal -> "Terminal"
 
 let tabButton(props: Props, current: Tab, tab: Tab) : Control =
@@ -226,7 +232,7 @@ let tabButton(props: Props, current: Tab, tab: Tab) : Control =
   button
 
 let tabStrip(props: Props, current: Tab, items: Notification list) : Control =
-  let tabs = [ Activity; Terminal ] @ (kindsOf items |> List.map Kind)
+  let tabs = [ Activity; Remotes; Terminal ] @ (kindsOf items |> List.map Kind)
 
   let strip =
     StackPanel()
@@ -396,7 +402,8 @@ let inline tabKey(tab: Tab) : int * string =
     | NotificationKind.UnknownKind raw -> 9, raw
     | _ -> kindRank kind, ""
   | Activity -> 10, ""
-  | Terminal -> 11, ""
+  | Remotes -> 11, ""
+  | Terminal -> 12, ""
 
 let view(props: Props) : Control =
   let current =
@@ -430,6 +437,7 @@ let view(props: Props) : Control =
             match tab with
             | Kind kind -> problemsView(props, problems, kind)
             | Activity
+            | Remotes
             | Terminal -> Panel()
         )
         |> _.ToBinding()
@@ -440,6 +448,7 @@ let view(props: Props) : Control =
           match tab with
           | Kind _ -> true
           | Activity
+          | Remotes
           | Terminal -> false)
       )
 
@@ -460,6 +469,12 @@ let view(props: Props) : Control =
       .Content(props.Terminal)
       .IsVisible(current |> Observable.map(fun (tab, _) -> tab = Terminal))
 
+  let remotesHost =
+    ContentControl()
+      .Name("EditorPanelRemotes")
+      .Content(props.Remotes)
+      .IsVisible(current |> Observable.map(fun (tab, _) -> tab = Remotes))
+
   let body = Grid()
   body.RowDefinitions <- RowDefinitions("Auto,*")
 
@@ -469,7 +484,7 @@ let view(props: Props) : Control =
       .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
       .Child(tabStripHost)
       .Row(0),
-    Grid().Children(problemsHost, outputHost, terminalHost).Row(1)
+    Grid().Children(problemsHost, outputHost, terminalHost, remotesHost).Row(1)
   )
   |> ignore
 

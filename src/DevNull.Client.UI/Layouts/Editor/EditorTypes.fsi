@@ -1,6 +1,7 @@
 namespace DevNull.Client.Editor
 
 open DevNull.Client.Core.ApiTypes
+open DevNull.Client.RemotesState
 
 /// The identity of one editor tab: the pinned history tab, or one
 /// ordinary tab. The representation stays hidden; the factories are
@@ -30,6 +31,10 @@ module TabId =
   /// The identity of one term's search results tab.
   val search: term: string -> TabId
 
+  /// The identity of one remote chat tab, from its store key under
+  /// the remote prefix.
+  val remote: target: ChatTarget -> TabId
+
   /// The key this identity carries.
   val key: id: TabId -> string
 
@@ -50,6 +55,9 @@ module TabId =
 
   /// Whether this is a search results tab's identity.
   val isSearch: id: TabId -> bool
+
+  /// Whether this is a remote chat tab's identity.
+  val isRemote: id: TabId -> bool
 
 /// The title one ref carries in the strip and the explorer.
 module LogLabel =
@@ -79,6 +87,10 @@ module EditorTab =
 
   /// One search results tab: ordinary and titled from its term.
   val search: id: TabId * term: string -> EditorTab
+
+  /// One remote chat tab: ordinary, with the unread count as its
+  /// dirty dot.
+  val remote: id: TabId * title: string -> EditorTab
 
   /// The tab's identity.
   val id: tab: EditorTab -> TabId
@@ -163,8 +175,9 @@ module EditorState =
   val activeTab: state: EditorState -> TabId
 
   /// The same state on another tab, when that tab exists. A thread
-  /// tab's unseen replies clear as it takes the focus; the history
-  /// tab keeps its own new-commit count.
+  /// tab's unseen replies clear as it takes the focus, and so does a
+  /// remote tab's unread; the history tab keeps its own new-commit
+  /// count.
   val selectTab: id: TabId * state: EditorState -> EditorState
 
   /// The same state with one tab opened, or with its tab selected

@@ -68,21 +68,10 @@ module State =
     | BlockFlight
     | RemoveFlight
 
-  type Model = {
-    State: RemotesState
-    Tab: InboxTab
-    Query: string
-    Found: SearchFound option
-    AskedMore: bool
-    RequestsOn: bool
-    Now: DateTimeOffset
-    Riding: bool
-    Landing: Landing option
-    /// The beat of the latest message landing: a repeated landing on
-    /// the same message takes a new beat, so its row's timer can never
-    /// end an older one.
-    LandingBeat: int
-    MarkedThrough: int
+  /// The thread pane's own fields: the draft and its attachments,
+  /// the org forms, the reading position, and the in-flight action.
+  /// The inbox fields stay on `Model`; the thread moves as one value.
+  type ThreadModel = {
     DraftKey: string
     Draft: string
     /// The `@token` the caret stands in while one is being typed.
@@ -105,10 +94,31 @@ module State =
     Busy: Flight option
     /// Whether the pinned-messages panel stands open over the reading.
     PinnedPanel: bool
+    Landing: Landing option
+    /// The beat of the latest message landing: a repeated landing on
+    /// the same message takes a new beat, so its row's timer can never
+    /// end an older one.
+    LandingBeat: int
+    Riding: bool
+    MarkedThrough: int
     SeenThrough: int
     Unseen: int
     Behind: bool
     PingHeard: int
+  }
+
+  /// The page model: the store snapshot and the inbox fields, with the
+  /// thread fields as one nested value.
+  type Model = {
+    State: RemotesState
+    Tab: InboxTab
+    Query: string
+    Found: SearchFound option
+    AskedMore: bool
+    RequestsOn: bool
+    Now: DateTimeOffset
+    /// The open thread's own fields.
+    Thread: ThreadModel
   }
 
   type Msg =

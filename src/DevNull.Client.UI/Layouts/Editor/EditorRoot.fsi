@@ -10,9 +10,11 @@ open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
+open DevNull.Client.Natives
 open DevNull.Client.Profiles
 open DevNull.Client.RecentSearchStore
 open DevNull.Client.Remotes
+open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
 open DevNull.Client.TranslationCache
 open DevNull.Client.UiClock
@@ -38,6 +40,8 @@ type Props<'env
   and 'env :> IProvideUserSettings
   and 'env :> IProvideBrowser
   and 'env :> IProvideRecentSearches
+  and 'env :> IProvideSettings
+  and 'env :> IProvideNatives
   and 'env :> IProvideLogging> = {
   Env: 'env
   Session: SignedInSession

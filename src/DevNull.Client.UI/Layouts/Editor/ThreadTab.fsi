@@ -66,6 +66,9 @@ type Props<'env
   OnReplyRequested: Commit -> unit
   /// Opens the repository tab of one handle, from the author flyout.
   OnOpenRepo: string -> unit
+  /// A share sends its recipient here: the frame opens the chat as a
+  /// remote tab. Runs on the UI thread.
+  OnShared: User -> unit
 }
 
 /// The tab's state logic, exported so the update stays testable

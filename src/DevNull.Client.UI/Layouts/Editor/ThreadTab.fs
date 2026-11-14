@@ -70,6 +70,7 @@ type Props<'env
   OnQuote: Commit -> unit
   OnReplyRequested: Commit -> unit
   OnOpenRepo: string -> unit
+  OnShared: User -> unit
 }
 
 module State =
@@ -244,6 +245,7 @@ module State =
     Surface = EditorCards.Detail
     Now = props.Now
     OnOpenRepo = props.OnOpenRepo
+    OnShared = props.OnShared
   }
 
   let init(props: Props<'env>) =

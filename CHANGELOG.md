@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-14
+
 ### Added
 
 - **Workbench:** a second layout for wide screens — the feed as a source-control workbench with a refs tree, one history in the center, the checked-out commit in an inspector pane, a staging area for writing, and a status bar naming the ref, the lane, and the signing key. Pick it in Settings under Appearance; the change applies at once, and the default layout is one click back. Remotes, the More menu, and translations stay in the default layout.
@@ -26,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Internals:** the app's window (its band, tray, gates, and loops) and the arrangement it shows (the site's sidebar, feed column, and routes) are separate modules now, so future layouts can mount inside the same window without a restart. Nothing you can see or click changed.
+- **Packaging:** the Windows build upgrades System.Reactive to 7.0.0, so the .NET 11 Native AOT bundle builds without the WPF runtime pack.
 
 ## [0.15.0] - 2026-11-11
 

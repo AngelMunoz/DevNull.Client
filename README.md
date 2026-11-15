@@ -28,7 +28,7 @@ With Flatpak:
 
 That address installs the newest stable release and registers the
 project's own channel; `flatpak update --user` picks up every new
-release from it. The app runs sandboxed: the browser sign-in callback,
+release from it. The Flatpak bundle includes Noto Color Emoji. The app runs sandboxed: the browser sign-in callback,
 the tray, voice notes, and your ssh keys all work inside, while alerts
 stay silent because the sandbox cannot reach the desktop's sound
 theme.

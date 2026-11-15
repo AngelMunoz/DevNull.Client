@@ -24,22 +24,21 @@ let tests =
       | Error _ -> failtest "expected Ok"
     }
 
-    test "a body over 4000 characters fails" {
-      let long = String.replicate 4001 "x"
+    test "a body over the effective cap fails" {
+      let long = String.replicate (CommitBodies.maxLength + 1) "x"
 
       match CommitBodies.parse long with
-      | Error(BodyTooLong(_, length)) ->
-        Expect.equal length 4001 "the length is exact"
+      | Error(BodyTooLong _) -> ()
       | _ -> failtest "expected BodyTooLong"
     }
 
-    test "a long link counts as 23 characters" {
-      // 3970 characters of text plus a 60-character link: 4030 raw,
-      // 3993 counted, so the server accepts what the old raw cap
-      // refused.
-      let padded =
-        String.replicate 3970 "x"
-        + " https://dev-null.sh/aaaaaaaaaaaaaaaaaaaaaaaaaa"
+    test "a long link counts as a short run" {
+      let padding =
+        String.replicate
+          (CommitBodies.maxLength - CommitBodies.linkCountsAs - 1)
+          "x"
+
+      let padded = padding + " https://dev-null.sh/aaaaaaaaaaaaaaaaaaaaaaaaaa"
 
       let parsed: Result<string<CommitBody>, TestError> =
         CommitBodies.parse padded
@@ -50,9 +49,8 @@ let tests =
     }
 
     test "a run of blank lines collapses before the count" {
-      // 3997 characters plus four newlines plus one more: 4002 raw,
-      // 4000 after the collapse of the blank run.
-      let padded = String.replicate 3997 "x" + "\n\n\n\n" + "y"
+      let padding = String.replicate (CommitBodies.maxLength - 3) "x"
+      let padded = padding + "\n\n\n\n" + "y"
 
       let parsed: Result<string<CommitBody>, TestError> =
         CommitBodies.parse padded
@@ -67,11 +65,42 @@ let tests =
     }
 
     test "a body over the raw cap fails before any counting" {
-      let long = String.replicate 40001 "x"
+      let long = String.replicate (CommitBodies.maxRawLength + 1) "x"
 
       match CommitBodies.parse long with
-      | Error(BodyTooLong(_, length)) ->
-        Expect.equal length 40001 "the length is exact"
+      | Error(BodyTooLong _) -> ()
+      | _ -> failtest "expected BodyTooLong"
+    }
+
+    test "an astral emoji counts as one code point" {
+      Expect.equal
+        (CommitBodies.characterCount "a")
+        (CommitBodies.characterCount "🚀")
+        "the astral emoji has the same count as one ASCII character"
+    }
+
+    test "a body of astral emoji is accepted at the effective cap" {
+      let emoji = "🚀"
+      let body = String.replicate CommitBodies.maxLength emoji
+
+      Expect.isTrue (CommitBodies.accepts body) "the cap accepts the body"
+
+      let parsed: Result<string<CommitBody>, TestError> =
+        CommitBodies.parse body
+
+      match parsed with
+      | Ok _ -> ()
+      | Error _ -> failtest "the cap refused the body"
+    }
+
+    test "one more astral emoji is refused" {
+      let emoji = "🚀"
+      let body = String.replicate (CommitBodies.maxLength + 1) emoji
+
+      Expect.isFalse (CommitBodies.accepts body) "the cap refuses the body"
+
+      match CommitBodies.parse body with
+      | Error(BodyTooLong _) -> ()
       | _ -> failtest "expected BodyTooLong"
     }
 

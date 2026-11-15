@@ -18,6 +18,26 @@
     ],
     "modules": [
         {
+            "name": "noto-color-emoji",
+            "buildsystem": "simple",
+            "build-commands": [
+                "install -Dm644 NotoColorEmoji.ttf /app/share/fonts/NotoColorEmoji.ttf",
+                "install -Dm644 LICENSE /app/share/licenses/noto-color-emoji/OFL.txt"
+            ],
+            "sources": [
+                {
+                    "type": "file",
+                    "url": "https://github.com/googlefonts/noto-emoji/raw/e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e/2D/fonts/NotoColorEmoji.ttf",
+                    "sha256": "15671215ab769fdc7162a045d56fd7d7e477c51b04e6b3c761d914d8fdd6cc44"
+                },
+                {
+                    "type": "file",
+                    "url": "https://github.com/googlefonts/noto-emoji/raw/e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e/LICENSE",
+                    "sha256": "500bb1ccf43df7bbb522112f9133a52b16e1c35e809632f5d8609b179152de5b"
+                }
+            ]
+        },
+        {
             "name": "devnull-client",
             "buildsystem": "simple",
             "build-commands": [

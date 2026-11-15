@@ -34,6 +34,14 @@ let private realized(window: Window) : int =
   |> Seq.tryHead
   |> Option.defaultValue 0
 
+/// A forced full collection with finalizers drained between the passes.
+let private collect() : unit =
+  for _ in 1..2 do
+    GC.Collect()
+    GC.WaitForPendingFinalizers()
+
+  GC.Collect()
+
 let tests =
   testList "feed virtualization" [
     testCaseAsync
@@ -399,5 +407,79 @@ let tests =
           )
 
         Expect.isTrue gone "the removed row stayed"
+      })
+    testCaseAsync
+      "growing past the short-page band releases the plain rows"
+      (async {
+        let items = new BehaviorSubject<int list>([ 0; 1; 2 ])
+        let later = ResizeArray<WeakReference>()
+
+        let trackingRow(index: int) : Control =
+          let control = row index
+          later.Add(WeakReference(control))
+          control
+
+        let! window =
+          probeUiAsync(fun () ->
+            let feed =
+              Feed.view {
+                Header = ValueNone
+                Items = items :> IObservable<int list>
+                KeyOf = string
+                Row = trackingRow
+                Footer = ValueNone
+                HasMore = Observable.single false
+                ScrollTo = ValueNone
+                Ride = false
+                Restore = ValueNone
+                OnScroll = ValueNone
+                OnRide = ValueNone
+                OnNeedMore = ValueNone
+              }
+
+            let window = Window(Width = 480.0, Height = 600.0, Content = feed)
+
+            window.Show()
+            window)
+
+        let! appeared =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "Row 2")
+          )
+
+        Expect.isTrue appeared "the short page never realized its rows"
+
+        let plainRows = later |> Seq.toList
+        later.Clear()
+
+        do! onUiAsync(fun () -> items.OnNext [ 0..39 ])
+
+        let! switched =
+          waitForAsync(
+            5000,
+            (fun () -> realized window),
+            fun count -> count > 0
+          )
+
+        Expect.isTrue
+          switched
+          "the long page never switched to the virtual panel"
+
+        do! pumpAsync()
+        do! settleAsync()
+        collect()
+        do! settleAsync()
+
+        let! alive =
+          probeUiAsync(fun () ->
+            plainRows
+            |> List.filter(fun reference -> reference.IsAlive)
+            |> List.length)
+
+        Expect.equal alive 0 "the retired plain rows stayed alive"
+
+        do! onUiAsync(fun () -> window.Close())
       })
   ]

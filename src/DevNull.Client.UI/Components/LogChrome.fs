@@ -224,6 +224,10 @@ type Page<'env
 
     // The chrome is replaced, never re-shown, so its program ends on
     // the first detach.
-    let root, _ = Programs.runComponent(this, props.Env.Dispatcher, program)
-
-    this.Content <- root
+    Programs.runComponentOnAttach(
+      this,
+      props.Env.Dispatcher,
+      program,
+      fun root -> this.Content <- root
+    )
+    |> ignore

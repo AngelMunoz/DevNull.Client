@@ -696,23 +696,35 @@ module Parts =
       | true, iana -> Option.ofObj iana
       | false, _ -> None
 
-  // Every zone this machine knows, by IANA id. The list is built once:
-  // the offsets are the current ones.
-  let zones: Zone list =
-    TimeZoneInfo.GetSystemTimeZones()
-    |> Seq.choose(fun zone ->
-      ianaOf zone
-      |> Option.map(fun id ->
-        let resolved =
-          try
-            TimeZoneInfo.FindSystemTimeZoneById id
-          with _ ->
-            zone
+  // Every zone this machine knows, by IANA id. The list is built once,
+  // and only when a non-empty picker query reads it: the offsets are
+  // the current ones.
+  let zones: Lazy<Zone list> =
+    lazy
+      (TimeZoneInfo.GetSystemTimeZones()
+       |> Seq.choose(fun zone ->
+         ianaOf zone
+         |> Option.map(fun id ->
+           let resolved =
+             try
+               TimeZoneInfo.FindSystemTimeZoneById id
+             with _ ->
+               zone
 
-        { Id = id; Offset = offsetOf resolved }))
-    |> Seq.distinctBy(fun zone -> zone.Id)
-    |> Seq.sortBy(fun zone -> zone.Id)
-    |> Seq.toList
+           { Id = id; Offset = offsetOf resolved }))
+       |> Seq.distinctBy(fun zone -> zone.Id)
+       |> Seq.sortBy(fun zone -> zone.Id)
+       |> Seq.toList)
+
+  // One zone by its id, without reading the whole list: naming one
+  // zone never loads every zone.
+  let tryResolveZone(id: string) : Zone option =
+    try
+      let zone = TimeZoneInfo.FindSystemTimeZoneById id
+
+      Some { Id = id; Offset = offsetOf zone }
+    with _ ->
+      None
 
   // The device's own zone, when the machine names one.
   let deviceZone: string option = ianaOf TimeZoneInfo.Local
@@ -725,6 +737,8 @@ module Parts =
     Rows: State.Model -> (string * string) list
     // The identity of the rows the filter reads.
     Key: State.Model -> obj
+    // The hint the list shows while it holds no rows.
+    EmptyHint: string
     Typed: string -> unit
     Picked: string -> unit
   }
@@ -757,7 +771,7 @@ module Parts =
                 |> List.truncate 80
 
               if matching.IsEmpty then
-                Status.empty "No match."
+                Status.empty args.EmptyHint
               else
                 StackPanel()
                   .Spacing(2.0)
@@ -793,7 +807,7 @@ module Parts =
         | Some id ->
           // A zone the web saved but this machine does not list shows its
           // own id, the way the site's picker names it.
-          match zones |> List.tryFind(fun zone -> zone.Id = id) with
+          match tryResolveZone id with
           | Some zone -> $"{zone.Offset}  {zone.Id}"
           | None -> id
         | None ->
@@ -886,10 +900,16 @@ module Parts =
           Model = model
           Query = fun current -> current.ZoneQuery
           Rows =
-            fun _ -> [
-              for zone in zones -> zone.Id, $"{zone.Offset}  {zone.Id}"
-            ]
-          Key = fun _ -> zones
+            fun current ->
+              if current.ZoneQuery.Trim() = "" then
+                []
+              else
+                [
+                  for zone in zones.Value ->
+                    zone.Id, $"{zone.Offset}  {zone.Id}"
+                ]
+          Key = fun current -> current.ZoneQuery
+          EmptyHint = "Type to search zones."
           Typed = fun text -> dispatch(State.ZoneQueryChanged text)
           Picked = fun id -> dispatch(State.ZonePicked(Some id))
         },
@@ -1019,6 +1039,7 @@ module Parts =
               ])
               |> Option.defaultValue []
           Key = fun current -> current.Prefs
+          EmptyHint = "No match."
           Typed = fun text -> dispatch(State.LanguageQueryChanged text)
           Picked = fun code -> dispatch(State.LanguagePicked(Some code))
         },

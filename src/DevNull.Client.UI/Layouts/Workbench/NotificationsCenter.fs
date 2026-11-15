@@ -1,17 +1,13 @@
 module DevNull.Client.Workbench.NotificationsCenter
 
 open System
-open System.Collections.Generic
 open Avalonia
 open Avalonia.Controls
-open Avalonia.Controls.Primitives
-open Avalonia.Controls.Templates
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
-open MVUish.Avalonia.Collections
 open DevNull.Client
 open DevNull.Client.Components
 open DevNull.Client.Core.Api
@@ -304,27 +300,6 @@ let view
       .Content(grid)
       .OnClickHandler(fun _ _ -> dispatch(Opened notification))
 
-  let rows =
-    ItemsControl()
-      .Name("NotificationRows")
-      .ItemTemplate(
-        FuncDataTemplate<Notification>(
-          (fun notification _ ->
-            if isNull(box notification) then
-              Panel() :> Control
-            else
-              row notification),
-          false
-        )
-      )
-      .BindItemsSource(
-        model
-        |> Observable.map _.Items
-        |> Slices.gateByRef
-        |> Observable.map(fun items -> items :> IReadOnlyList<Notification>),
-        fun notification -> notification.Id
-      )
-
   let refresh =
     Button()
       .Name("NotificationsRefresh")
@@ -389,24 +364,34 @@ let view
       fun () -> dispatch MoreRequested
     )
 
+  let hasMore = model |> Observable.map(fun current -> current.Cursor.IsSome)
+
   let header =
     StackPanel()
       .Spacing(6.0)
       .Margin(Thickness(16.0, 16.0, 16.0, 8.0))
       .Children(head, notice, loadingLine, emptyLine, errorLine)
 
-  let body =
-    ScrollViewer()
-      .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
-      .Content(StackPanel().Spacing(4.0).Children(rows, more))
-
-  let grid = Grid()
-
-  grid.RowDefinitions <- RowDefinitions("Auto,*")
-
-  grid.Children(header.Row(0), body.Row(1)) |> ignore
-
-  Border().Name("NotificationsCenter").Child(grid)
+  (Feed.view {
+    Header = ValueSome header
+    Items = model |> Observable.map _.Items |> Slices.gateByRef
+    KeyOf = fun notification -> notification.Id
+    Row =
+      fun notification ->
+        if isNull(box notification) then
+          Panel() :> Control
+        else
+          row notification
+    Footer = ValueSome more
+    HasMore = hasMore
+    ScrollTo = ValueNone
+    Ride = false
+    Restore = ValueNone
+    OnScroll = ValueNone
+    OnRide = ValueNone
+    OnNeedMore = ValueSome(fun () -> dispatch MoreRequested)
+  })
+    .Name("NotificationsCenter")
 
 let program(props: Props<'env>) =
   Program.mkProgram

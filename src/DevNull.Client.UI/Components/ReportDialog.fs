@@ -540,8 +540,12 @@ type Page<'env
         (State.update props)
         (view props)
 
-    let root, _ = Programs.runComponent(this, props.Env.Dispatcher, program)
-
-    this.Content <- root
+    Programs.runComponentOnAttach(
+      this,
+      props.Env.Dispatcher,
+      program,
+      fun root -> this.Content <- root
+    )
+    |> ignore
 
     this.DetachedFromVisualTree.Add(fun _ -> State.collectStaged props)

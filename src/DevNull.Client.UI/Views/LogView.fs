@@ -278,10 +278,7 @@ module State =
       initial with
           Pasteis = props.Session.Session.PasteisMode
           Automatic = props.Session.Session.AutomaticTranslation
-          Translations =
-            TranslationModel.seed(
-              (props.Env :> IProvideTranslations).Translations.Snapshot()
-            )
+          Translations = TranslationModel.initial
           Marker = marker
     },
     Cmd.OfAsync.perform fetch (props, None) Fetched
@@ -1491,6 +1488,7 @@ module Parts =
       |> Observable.map(fun _ -> 0.0)
 
     Feed.view {
+      Header = ValueNone
       Items = rows
       KeyOf = State.keyOf
       Row = fun logRow -> row(args, logRow)

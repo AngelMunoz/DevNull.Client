@@ -3,14 +3,12 @@
 open System
 open Avalonia
 open Avalonia.Controls
-open Avalonia.Controls.Templates
 open Avalonia.Input
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
-open MVUish.Avalonia.Collections
 open Microsoft.Extensions.Logging
 open Navs
 open DevNull.Client
@@ -125,10 +123,7 @@ module State =
       Tab = MostRelevant
       Recents = props.Recents.Recent(props.SignedIn.Session.User.Id)
       Automatic = props.SignedIn.Session.AutomaticTranslation
-      Translations =
-        TranslationModel.seed(
-          (props.Env :> IProvideTranslations).Translations.Snapshot()
-        )
+      Translations = TranslationModel.initial
       Relations = Map.empty
       MenuBusy = None
     }
@@ -915,27 +910,25 @@ let view
     found.Users,
     found.Organizations
 
-  let body =
+  let items =
+    model
+    |> Observable.map(fun current ->
+      let term = current.Term.Trim()
+
+      if term = "" || State.searching current then
+        []
+      else
+        State.resultNodes(current, State.answerOf current))
+
+  let headerBody =
     PageChrome.rebuildOn(
       model,
       bodyKey,
       fun current ->
         let term = current.Term.Trim()
 
-        let suggestions =
-          SearchParts.suggestions |> List.filter(fun words -> words <> term)
-
-        let quietChildren: Control array = [|
-          if not current.Recents.IsEmpty then
-            Parts.quietSection(dispatch, "Recent searches", current.Recents)
-
-          Parts.quietSection(dispatch, "Try searching for…", suggestions)
-        |]
-
-        let quietRows = StackPanel().Children(quietChildren)
-
         if term = "" then
-          quietRows
+          Panel() :> Control
         else
           let answer = State.answerOf current
 
@@ -972,9 +965,15 @@ let view
                 |]
               )
 
+          let tabs =
+            if answer.Term <> "" then
+              [| Parts.tabStrip(model, dispatch) |]
+            else
+              [||]
+
           let shown = State.resultNodes(current, answer)
 
-          let results =
+          let resultsHead: Control =
             if State.searching current then
               Parts.placeholders()
             elif shown.IsEmpty then
@@ -987,42 +986,56 @@ let view
 
               Parts.fatalOf(hint, term)
             else
-              let rows =
-                ItemsControl()
-                  .ItemTemplate(
-                    FuncDataTemplate<CommitNode>(
-                      (fun node _ -> CommitCard.feedRow ctx node),
-                      false
-                    )
-                  )
-                  .BindItemsSource(
-                    model
-                    |> Observable.map(fun now ->
-                      shown
-                      :> System.Collections.Generic.IReadOnlyList<CommitNode>),
-                    FeedParts.nodeKey
-                  )
-
               let heading =
                 match current.Tab with
                 | State.MostRelevant -> "Most relevant commits"
-                | State.Latest -> "Latest commits \u00b7 past week"
+                | State.Latest -> "Latest commits · past week"
 
-              StackPanel()
-                .Children(Parts.countHeader(heading, shown.Length), rows)
-
-          let tabs =
-            if answer.Term <> "" then
-              [| Parts.tabStrip(model, dispatch) |]
-            else
-              [||]
+              Parts.countHeader(heading, shown.Length)
 
           let ordered: Control array =
             let head: Control array = [| profileRows |]
-            Array.append head (Array.append tabs [| results; quietRows |])
+            Array.append head (Array.append tabs [| resultsHead |])
 
           StackPanel().Children(ordered)
     )
+
+  let footerBody =
+    PageChrome.rebuildOn(
+      model,
+      bodyKey,
+      fun current ->
+        let term = current.Term.Trim()
+
+        let suggestions =
+          SearchParts.suggestions |> List.filter(fun words -> words <> term)
+
+        let quietChildren: Control array = [|
+          if not current.Recents.IsEmpty then
+            Parts.quietSection(dispatch, "Recent searches", current.Recents)
+
+          Parts.quietSection(dispatch, "Try searching for…", suggestions)
+        |]
+
+        StackPanel().Children(quietChildren)
+    )
+
+  let feed =
+    (Feed.view {
+      Header = ValueSome(ContentControl().Content(headerBody |> _.ToBinding()))
+      Items = items
+      KeyOf = FeedParts.nodeKey
+      Row = fun node -> CommitCard.feedRow ctx node
+      Footer = ValueSome(ContentControl().Content(footerBody |> _.ToBinding()))
+      HasMore = Observable.single false
+      ScrollTo = ValueNone
+      Ride = false
+      Restore = ValueNone
+      OnScroll = ValueNone
+      OnRide = ValueNone
+      OnNeedMore = ValueNone
+    })
+      .Name("SearchResults")
 
   PageChrome.page {
     Model = model
@@ -1032,7 +1045,7 @@ let view
     Busy = fun _ -> PageChrome.Off
     Empty = fun _ -> PageChrome.Off
     Header = [ Parts.inputRow(model, dispatch) ]
-    Body = ScrollViewer().Content(body |> _.ToBinding())
+    Body = feed
   }
 
 type Page<'env

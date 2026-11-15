@@ -433,6 +433,7 @@ module Parts =
       hasMore: IObservable<bool>
     ) : Control =
     (Feed.view {
+      Header = ValueNone
       Items = list
       KeyOf = RemotesRows.rowKey
       Row =

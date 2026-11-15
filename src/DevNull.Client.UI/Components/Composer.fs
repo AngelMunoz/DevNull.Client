@@ -1166,8 +1166,13 @@ type Page<'env
       |> Program.withSubscription(State.subscribe session)
 
     // The composer is replace-only: the first detach ends the program.
-    let root, _ = Programs.runComponent(this, props.Env.Dispatcher, program)
-    this.Content <- root
+    Programs.runComponentOnAttach(
+      this,
+      props.Env.Dispatcher,
+      program,
+      fun root -> this.Content <- root
+    )
+    |> ignore
 
     // A host left with staged images collects them on the composer's
     // one live teardown.

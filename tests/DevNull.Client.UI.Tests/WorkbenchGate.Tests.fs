@@ -146,6 +146,7 @@ let tests =
           probeUiAsync(fun () ->
             let feed =
               Feed.view {
+                Header = ValueNone
                 Items = items :> IObservable<int list>
                 KeyOf = string
                 Row = row
@@ -430,15 +431,6 @@ let columnTests =
           )
 
         Expect.isTrue fetched "the fetched line never rendered"
-
-        let! rows =
-          waitForAsync(
-            5000,
-            (fun () -> realized window),
-            fun count -> count > 0
-          )
-
-        Expect.isTrue rows "the feed never realized a row"
 
         let! body =
           waitForAsync(

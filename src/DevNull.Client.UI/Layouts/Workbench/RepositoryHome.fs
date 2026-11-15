@@ -1,17 +1,13 @@
 module DevNull.Client.Workbench.RepositoryHome
 
 open System
-open System.Collections.Generic
 open Avalonia
 open Avalonia.Controls
-open Avalonia.Controls.Primitives
-open Avalonia.Controls.Templates
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
-open MVUish.Avalonia.Collections
 open DevNull.Client
 open DevNull.Client.Components
 open DevNull.Client.Components.CommitCard
@@ -950,26 +946,8 @@ let view
       .Text(statsText')
       .IsVisible(statsText' |> Observable.map(fun text -> text <> ""))
 
-  let commits =
-    ItemsControl()
-      .Name("RepositoryCommits")
-      .ItemTemplate(
-        FuncDataTemplate<CommitNode>(
-          (fun node _ ->
-            if isNull(box node) then
-              Panel() :> Control
-            else
-              CommitCard.feedRow rowPropsOf node),
-          false
-        )
-      )
-      .BindItemsSource(
-        model
-        |> Observable.map _.Commits
-        |> Slices.gateByRef
-        |> Observable.map(fun commits -> commits :> IReadOnlyList<CommitNode>),
-        FeedParts.nodeKey
-      )
+  let hasMoreCommits =
+    model |> Observable.map(fun current -> current.CommitsCursor.IsSome)
 
   let historyLabel =
     TextBlock()
@@ -1019,7 +997,7 @@ let view
       fun () -> dispatch MoreCommitsRequested
     )
 
-  let centerStack =
+  let commitsHeader =
     StackPanel()
       .Spacing(12.0)
       .Margin(Thickness(16.0))
@@ -1031,94 +1009,88 @@ let view
         activity,
         stats,
         historyLabel,
-        commits,
         loadingLine,
         emptyLine,
-        commitsError,
-        commitsMore
+        commitsError
       )
 
-  let center =
-    Border()
-      .Name("RepositoryCenter")
-      .Child(
-        ScrollViewer()
-          .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
-          .Content(centerStack)
-      )
+  let commitsFeed =
+    (Feed.view {
+      Header = ValueSome commitsHeader
+      Items = model |> Observable.map _.Commits |> Slices.gateByRef
+      KeyOf = FeedParts.nodeKey
+      Row =
+        fun node ->
+          if isNull(box node) then
+            Panel() :> Control
+          else
+            CommitCard.feedRow rowPropsOf node
+      Footer = ValueSome commitsMore
+      HasMore = hasMoreCommits
+      ScrollTo = ValueNone
+      Ride = false
+      Restore = ValueNone
+      OnScroll = ValueNone
+      OnRide = ValueNone
+      OnNeedMore = ValueSome(fun () -> dispatch MoreCommitsRequested)
+    })
+      .Name("RepositoryCommits")
+
+  let center = Border().Name("RepositoryCenter").Child(commitsFeed)
 
   let peopleVisible =
     model
     |> Observable.map(fun current -> current.People.IsSome)
     |> Observable.distinctUntilChanged
 
-  let peopleRows =
-    ItemsControl()
-      .ItemTemplate(
-        FuncDataTemplate<User>(
-          (fun user _ ->
-            if isNull(box user) then
-              Panel() :> Control
-            else
-              let bio =
-                TextBlock()
-                  .Classes(Theme.name Theme.Muted)
-                  .FontSize(12.0)
-                  .Text(user.Bio |> Option.defaultValue "")
-                  .TextTrimming(TextTrimming.CharacterEllipsis)
-                  .IsVisible(
-                    user.Bio
-                    |> Option.map(fun text -> text <> "")
-                    |> Option.defaultValue false
-                  )
+  let peopleRow(user: User) : Control =
+    if isNull(box user) then
+      Panel() :> Control
+    else
+      let bio =
+        TextBlock()
+          .Classes(Theme.name Theme.Muted)
+          .FontSize(12.0)
+          .Text(user.Bio |> Option.defaultValue "")
+          .TextTrimming(TextTrimming.CharacterEllipsis)
+          .IsVisible(
+            user.Bio
+            |> Option.map(fun text -> text <> "")
+            |> Option.defaultValue false
+          )
 
-              let content =
-                StackPanel()
-                  .Orientation(Orientation.Horizontal)
-                  .Spacing(10.0)
-                  .Children(
-                    Avatar.view {
-                      Name = user.Name
-                      Url = user.AvatarUrl
-                      Lane = user.Lane
-                      Size = 32.0
-                      Cache = props.Images
-                      Square = false
-                      Viewable = false
-                    },
-                    StackPanel()
-                      .Spacing(2.0)
-                      .VerticalAlignment(VerticalAlignment.Center)
-                      .Children(
-                        TextBlock()
-                          .Classes(Theme.name Theme.Subtitle)
-                          .Text(user.Name),
-                        ProfileCard.laneHandle(user.Lane, user.Handle),
-                        bio
-                      )
-                  )
+      let content =
+        StackPanel()
+          .Orientation(Orientation.Horizontal)
+          .Spacing(10.0)
+          .Children(
+            Avatar.view {
+              Name = user.Name
+              Url = user.AvatarUrl
+              Lane = user.Lane
+              Size = 32.0
+              Cache = props.Images
+              Square = false
+              Viewable = false
+            },
+            StackPanel()
+              .Spacing(2.0)
+              .VerticalAlignment(VerticalAlignment.Center)
+              .Children(
+                TextBlock().Classes(Theme.name Theme.Subtitle).Text(user.Name),
+                ProfileCard.laneHandle(user.Lane, user.Handle),
+                bio
+              )
+          )
 
-              Button()
-                .Classes(Theme.name Theme.CommitRow)
-                .HorizontalAlignment(HorizontalAlignment.Stretch)
-                .HorizontalContentAlignment(HorizontalAlignment.Left)
-                .Padding(Thickness(8.0))
-                .Content(content)
-                .OnClickHandler(fun _ _ ->
-                  dispatch(OpenRepository user.Handle))
-              :> Control),
-          false
-        )
-      )
-      .BindItemsSource(
-        model
-        |> Observable.map _.People
-        |> Slices.gateByRef
-        |> Observable.map(function
-          | Some people -> people.Items :> IReadOnlyList<User>
-          | None -> Array.empty),
-        fun user -> user.Id
-      )
+      Button()
+        .Classes(Theme.name Theme.CommitRow)
+        .HorizontalAlignment(HorizontalAlignment.Stretch)
+        .HorizontalContentAlignment(HorizontalAlignment.Left)
+        .Padding(Thickness(8.0))
+        .Content(content)
+        .OnClickHandler(fun _ _ -> dispatch(OpenRepository user.Handle))
+      :> Control
 
   let peopleTitleLine =
     TextBlock()
@@ -1202,29 +1174,46 @@ let view
       fun () -> dispatch MorePeopleRequested
     )
 
-  let peopleStack =
+  let peopleHeader =
     StackPanel()
       .Spacing(8.0)
       .Margin(Thickness(12.0))
-      .Children(
-        peopleHead,
-        peopleRows,
-        peopleLoadingLine,
-        peopleEmptyLine,
-        peopleError,
-        peopleMore
-      )
+      .Children(peopleHead, peopleLoadingLine, peopleEmptyLine, peopleError)
+
+  let peopleFeed =
+    (Feed.view {
+      Header = ValueSome peopleHeader
+      Items =
+        model
+        |> Observable.map _.People
+        |> Slices.gateByRef
+        |> Observable.map(function
+          | Some people -> people.Items
+          | None -> [])
+      KeyOf = fun user -> user.Id
+      Row = peopleRow
+      Footer = ValueSome peopleMore
+      HasMore =
+        model
+        |> Observable.map(fun current ->
+          match current.People with
+          | Some people -> people.Cursor.IsSome
+          | None -> false)
+      ScrollTo = ValueNone
+      Ride = false
+      Restore = ValueNone
+      OnScroll = ValueNone
+      OnRide = ValueNone
+      OnNeedMore = ValueSome(fun () -> dispatch MorePeopleRequested)
+    })
+      .Name("RepositoryPeopleRows")
 
   let lists =
     Border()
       .Name("RepositoryPeople")
       .Classes(Theme.name Theme.CardBack)
       .IsVisible(peopleVisible)
-      .Child(
-        ScrollViewer()
-          .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
-          .Content(peopleStack)
-      )
+      .Child(peopleFeed)
 
   { Center = center; Lists = lists }
 

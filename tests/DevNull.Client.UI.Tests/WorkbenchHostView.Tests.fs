@@ -1183,7 +1183,7 @@ let tests =
         do!
           onUiAsync(fun () ->
             window.Close()
-            (handle :> IDisposable).Dispose())
+            handle.Dispose())
       })
 
     testCaseAsync
@@ -1290,7 +1290,7 @@ let tests =
         do!
           onUiAsync(fun () ->
             window.Close()
-            (handle :> IDisposable).Dispose())
+            handle.Dispose())
       })
 
     testCaseAsync
@@ -1374,7 +1374,7 @@ let tests =
         do!
           onUiAsync(fun () ->
             window.Close()
-            (handle :> IDisposable).Dispose())
+            handle.Dispose())
       })
 
     testCaseAsync
@@ -1435,7 +1435,7 @@ let tests =
         do!
           onUiAsync(fun () ->
             window.Close()
-            (handle :> IDisposable).Dispose())
+            handle.Dispose())
       })
 
     testCaseAsync
@@ -1497,6 +1497,97 @@ let tests =
         do!
           onUiAsync(fun () ->
             window.Close()
-            (handle :> IDisposable).Dispose())
+            handle.Dispose())
+      })
+
+    testCaseAsync
+      "replaced history handles release their wrapped handle"
+      (async {
+        let env = TestEnv(signedInStore(), workbenchApi() :> IHttp)
+        let props = hostProps env
+
+        let! window, mounted =
+          probeUiAsync(fun () ->
+            let view, handle = WorkbenchHost.mount(ui, props)
+
+            let window = Window(Width = 1600.0, Height = 900.0, Content = view)
+
+            window.Show()
+            window, handle :?> WorkbenchHost.MountedHost)
+
+        let! first =
+          waitForAsync(
+            8000,
+            (fun () -> mounted.LiveHistory),
+            fun live -> live = 1
+          )
+
+        Expect.isTrue first "the first history program never landed"
+
+        let! weak =
+          probeUiAsync(fun () ->
+            controlByName(window, "HistoryRegion")
+            |> Option.bind(function
+              | :? ContentControl as host -> Option.ofObj host.Content
+              | _ -> None)
+            |> Option.map WeakReference)
+
+        Expect.isTrue weak.IsSome "the first history root never rendered"
+
+        let sendGrown(msg: WorkbenchHost.Msg) = async {
+          let before = mounted.Created.Length
+
+          do! onUiAsync(fun () -> mounted.Send msg)
+
+          let! grown =
+            waitForAsync(
+              8000,
+              (fun () -> mounted.Created.Length),
+              fun count -> count > before
+            )
+
+          Expect.isTrue grown "a new child handle never reached the mount"
+          do! settleAsync()
+        }
+
+        let latest = WorkbenchSettings.parse "latest" |> WorkbenchState.refOf
+
+        let following =
+          WorkbenchSettings.parse "following" |> WorkbenchState.refOf
+
+        let trending =
+          WorkbenchSettings.parse "trending" |> WorkbenchState.refOf
+
+        for entry in [ latest; trending; following; latest ] do
+          do! sendGrown(WorkbenchHost.RefSelected entry)
+
+        do!
+          onUiAsync(fun () ->
+            (mounted :> IDisposable).Dispose()
+            (mounted :> IDisposable).Dispose()
+            window.Content <- Panel()
+            window.Close())
+
+        do! settleAsync()
+        do! settleAsync()
+
+        GC.Collect()
+        GC.WaitForPendingFinalizers()
+        GC.Collect()
+
+        Expect.isTrue
+          (mounted.Created |> List.forall(fun handle -> handle.Disposed))
+          "a replaced child handle stayed live"
+
+        Expect.isTrue
+          (mounted.Created
+           |> List.forall(fun handle ->
+             obj.ReferenceEquals(
+               handle.Raw,
+               System.Reactive.Disposables.Disposable.Empty
+             )))
+          "a replaced child handle kept its wrapped handle"
+
+        Expect.isFalse weak.Value.IsAlive "a replaced history root survived"
       })
   ]

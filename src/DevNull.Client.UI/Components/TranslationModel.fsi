@@ -58,10 +58,6 @@ type Finish = {
 /// No commit translated yet, nothing running.
 val initial: Book
 
-/// The book a page starts with: every translation fetched before, ready
-/// to show under the automatic choice.
-val seed: translations: Map<string, CommitTranslation> -> Book
-
 /// What one card shows about a commit's translation, or none when it has
 /// nothing to say.
 val view: surface: Surface -> TranslationView voption

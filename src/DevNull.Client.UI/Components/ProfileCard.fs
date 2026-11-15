@@ -232,6 +232,10 @@ type Page<'env
   do
     let program = Program.mkProgram (State.init props) State.update (view props)
 
-    let root, _ = Programs.runComponent(this, props.Env.Dispatcher, program)
-
-    this.Content <- root
+    Programs.runComponentOnAttach(
+      this,
+      props.Env.Dispatcher,
+      program,
+      fun root -> this.Content <- root
+    )
+    |> ignore

@@ -146,6 +146,7 @@ let props
   OnQuote = sinks.Quote
   OnReplyRequested = sinks.Reply
   OnOpenRepo = ignore
+  OnShared = ignore
 }
 
 let pageOf(json: string) =
@@ -249,6 +250,7 @@ let tests =
         Surface = surface
         Now = fun () -> DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero)
         OnOpenRepo = ignore
+        OnShared = ignore
       }
 
       let rowOf surface =

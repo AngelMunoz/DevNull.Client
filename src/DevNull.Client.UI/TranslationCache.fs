@@ -1,7 +1,6 @@
 module DevNull.Client.TranslationCache
 
 open System
-open System.Collections.Concurrent
 open System.IO
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Types
@@ -13,7 +12,6 @@ type TranslationCache =
   abstract TryGet: commitId: string -> Async<CommitTranslation option>
   abstract Set: commitId: string * payload: TranslationPayload -> Async<unit>
   abstract Forget: commitId: string -> Async<unit>
-  abstract Snapshot: unit -> Map<string, CommitTranslation>
 
 type IProvideTranslations =
   abstract Translations: TranslationCache
@@ -34,7 +32,6 @@ module TranslationCache =
     Directory: string
     Files: Files
     Log: ILogger
-    Held: ConcurrentDictionary<string, DateTime * CommitTranslation>
   }
 
   // The app's own file tier: one directory, with every failure a cache
@@ -124,99 +121,49 @@ module TranslationCache =
     )
   }
 
-  let recallDisk
-    (state: State, commitId: string)
-    : Async<CommitTranslation option> = asyncEx {
-    match! tryDisk(state, commitId) with
-    | Some(writtenAt, translation) ->
-      state.Held[commitId] <- (writtenAt, translation)
-      return Some translation
-    | None ->
-      state.Held.TryRemove commitId |> ignore
-      return None
-  }
-
-  // A restart starts with the disk tier in memory: the scan starts with
-  // the cache and runs beside the window. A page that mounts before it
-  // settles reads what it needs through TryGet.
-  let startScan(state: State) =
-    Async.Start(
-      asyncEx {
-        for path in state.Files.List() do
-          do!
-            recallDisk(state, Path.GetFileNameWithoutExtension path)
-            |> Async.Ignore
-      }
-    )
-
   let tryGet(state: State, commitId: string) : Async<CommitTranslation option> =
     asyncEx {
-      match state.Held.TryGetValue commitId with
-      | true, (writtenAt, translation) when DateTime.UtcNow - writtenAt <= ttl ->
-        state.Log.LogDebug(
-          "The translation of {Commit} came from memory.",
+      match! tryDisk(state, commitId) with
+      | Some(_, translation) ->
+        state.Log.LogInformation(
+          "The translation of {Commit} came from the disk.",
           commitId
         )
 
         return Some translation
-      | _ ->
-        match! recallDisk(state, commitId) with
-        | Some translation ->
-          state.Log.LogInformation(
-            "The translation of {Commit} came from the disk.",
-            commitId
-          )
+      | None ->
+        state.Log.LogInformation(
+          "The disk holds no translation of {Commit}; the page asks the server.",
+          commitId
+        )
 
-          return Some translation
-        | None ->
-          state.Log.LogInformation(
-            "The disk holds no translation of {Commit}; the page asks the server.",
-            commitId
-          )
-
-          return None
+        return None
     }
 
   let set
     (state: State, commitId: string, payload: TranslationPayload)
     : Async<unit> = asyncEx {
     match payload.Translation with
-    | Some translation ->
-      state.Held[commitId] <- (DateTime.UtcNow, translation)
-
-      do! state.Files.Keep(pathOf(state, commitId), payload.Json)
-    | None ->
-      state.Held.TryRemove commitId |> ignore
-      do! forgetDisk(state, commitId)
+    | Some _ -> do! state.Files.Keep(pathOf(state, commitId), payload.Json)
+    | None -> do! forgetDisk(state, commitId)
   }
 
   let forget(state: State, commitId: string) : Async<unit> = asyncEx {
-    state.Held.TryRemove commitId |> ignore
     do! forgetDisk(state, commitId)
   }
-
-  let snapshot(state: State) : Map<string, CommitTranslation> =
-    state.Held
-    |> Seq.filter(fun pair -> DateTime.UtcNow - fst pair.Value <= ttl)
-    |> Seq.map(fun pair -> pair.Key, snd pair.Value)
-    |> Map.ofSeq
 
   let createWith(directory: string, files: Files, log: ILogger) =
     let state: State = {
       Directory = directory
       Files = files
       Log = log
-      Held = ConcurrentDictionary<string, DateTime * CommitTranslation>()
     }
-
-    startScan state
 
     {
       new TranslationCache with
         member _.TryGet(commitId) = tryGet(state, commitId)
         member _.Set(commitId, payload) = set(state, commitId, payload)
         member _.Forget(commitId) = forget(state, commitId)
-        member _.Snapshot() = snapshot state
     }
 
   let create(directory: string, log: ILogger) =

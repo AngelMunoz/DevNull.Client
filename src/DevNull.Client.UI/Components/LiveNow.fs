@@ -164,6 +164,10 @@ type Page<'env
       Program.mkProgram (State.init props) (State.update props) (view props)
       |> Program.withSubscription(fun _ -> State.subscribe props)
 
-    let root, _ = Programs.runComponent(this, props.Env.Dispatcher, program)
-
-    this.Content <- root
+    Programs.runComponentOnAttach(
+      this,
+      props.Env.Dispatcher,
+      program,
+      fun root -> this.Content <- root
+    )
+    |> ignore

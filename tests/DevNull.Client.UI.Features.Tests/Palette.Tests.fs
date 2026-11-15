@@ -14,6 +14,7 @@ let tests =
           "switch ref: Trending"
           "open panel: NOTIFICATIONS"
           "open panel: ACTIVITY"
+          "open panel: REMOTES"
           "open panel: TERMINAL"
           "use default layout"
         ]

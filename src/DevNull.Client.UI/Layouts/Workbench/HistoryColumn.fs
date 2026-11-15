@@ -776,6 +776,7 @@ let view
 
   let feed =
     Feed.view {
+      Header = ValueNone
       Items =
         model
         |> Slices.gateByRefKey (fun current -> current.Items) (fun current ->

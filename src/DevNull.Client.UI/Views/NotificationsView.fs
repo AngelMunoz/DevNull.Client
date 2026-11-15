@@ -876,6 +876,7 @@ module Parts =
     let hasMore = model |> Observable.map _.NextCursor.IsSome
 
     Feed.view {
+      Header = ValueNone
       Items =
         model
         |> Observable.map _.Items

@@ -449,6 +449,7 @@ let view
 
   let feed =
     DevNull.Client.Components.Feed.view {
+      Header = ValueNone
       Items = model |> Observable.map(fun current -> current.Items)
       KeyOf = State.keyOf
       Row = fun node -> feedRow rowProps node

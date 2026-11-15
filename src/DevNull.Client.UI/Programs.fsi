@@ -20,3 +20,14 @@ val runComponent:
   dispatcher: IDispatcher *
   program: Program<unit, 'model, 'msg, 'view> ->
     'view * IDisposable
+
+/// Starts a component program when its scope first attaches to the visual
+/// tree. A scope that never attaches starts no program. The returned
+/// handle cancels a pending start or stops a started program; disposing it
+/// is idempotent.
+val runComponentOnAttach:
+  scope: Visual *
+  dispatcher: IDispatcher *
+  program: Program<unit, 'model, 'msg, 'view> *
+  setView: ('view -> unit) ->
+    IDisposable

@@ -487,22 +487,57 @@ let tests =
         Expect.isTrue translated "the retry never landed"
       })
     testCaseAsync
-      "a fetched translation stays when the log returns"
+      "a fetched translation is recalled when the log returns"
       (async {
-        let api = automaticApi()
-        let! window = startShell(signedInStore(), api :> IHttp)
+        let tier = MemoryFiles()
+        let api = translatedApi()
+
+        let cache =
+          TranslationCache.createWith("cache", tier.Files, NullLogger.Instance)
+
+        let! window =
+          startShellWithTranslations(signedInStore(), api :> IHttp, cache)
+
+        let! shown = showsText(window, "It was DNS.")
+        Expect.isTrue shown "the log never rendered"
+
+        let! button =
+          waitForAsync(
+            5000,
+            (fun () -> buttonWithText(window, "Translate")),
+            Option.isSome
+          )
+
+        Expect.isTrue button "the translate button never appeared"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "Translate") |> Option.iter click)
 
         let! translated = showsText(window, "Translated from German")
-        Expect.isTrue translated "the automatic translation never showed"
-        Expect.isTrue translated "the translation never showed"
+        Expect.isTrue translated "the translated body never showed"
 
         do! clickWhenShown(window, "Following")
         let! _ = showsText(window, "It was DNS.")
 
         do! clickWhenShown(window, "Latest")
+        let! _ = showsText(window, "It was DNS.")
+
+        let! rebutton =
+          waitForAsync(
+            5000,
+            (fun () -> buttonWithText(window, "Translate")),
+            Option.isSome
+          )
+
+        Expect.isTrue rebutton "the translate button never reappeared"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "Translate") |> Option.iter click)
 
         let! again = showsText(window, "Translated from German")
-        Expect.isTrue again "the translation did not stay"
+        Expect.isTrue again "the translation was never recalled"
 
         let calls =
           api.Requests
@@ -537,24 +572,14 @@ let tests =
           (stored |> Option.map fst)
           "file contents"
 
+        let! found = first.TryGet commit.Id
+        Expect.equal (Some german) found "file read"
+
         let second =
           TranslationCache.createWith("cache", tier.Files, NullLogger.Instance)
 
         let! fromDisk = second.TryGet commit.Id
         Expect.equal (Some german) fromDisk "file read"
-
-        let! found =
-          waitForAsync(
-            5000,
-            (fun () -> second.Snapshot()),
-            fun seed -> not seed.IsEmpty
-          )
-
-        Expect.isTrue found "the seed never arrived"
-
-        let seed = second.Snapshot()
-
-        Expect.equal (Some german) (seed |> Map.tryFind commit.Id) "seed"
 
         let! book = recall(second, initial, commit.Id)
 
@@ -584,6 +609,32 @@ let tests =
         Expect.isNone missed "cache miss"
       })
     testCaseAsync
+      "a translation with no answer drops the file"
+      (async {
+        let tier = MemoryFiles()
+        let commit = commitOf None
+
+        let cache =
+          TranslationCache.createWith("cache", tier.Files, NullLogger.Instance)
+
+        do!
+          cache.Set(
+            commit.Id,
+            {
+              Translation = Some german
+              Json = translationJson
+            }
+          )
+
+        Expect.equal 1 (tier.Files.List().Length) "file written"
+
+        do! cache.Set(commit.Id, { Translation = None; Json = "{}" })
+
+        let! dropped = cache.TryGet commit.Id
+        Expect.isNone dropped "dropped translation"
+        Expect.equal 0 (tier.Files.List().Length) "dropped file"
+      })
+    testCaseAsync
       "a foreign file leaves with a deletion"
       (async {
         let tier = MemoryFiles()
@@ -604,6 +655,9 @@ let tests =
         do! tier.Files.Keep(Path.Combine("cache", "not a commit id.json"), "{}")
 
         do! cache.Forget commit.Id
+
+        let! forgotten = cache.TryGet commit.Id
+        Expect.isNone forgotten "forgotten translation"
 
         let! gone =
           waitForAsync(
@@ -647,6 +701,52 @@ let tests =
         Expect.isNone after "expired file"
       })
     testCaseAsync
+      "a corrupt file is dropped"
+      (async {
+        let tier = MemoryFiles()
+        let commit = commitOf None
+        let path = Path.Combine("cache", commit.Id + ".json")
+
+        do! tier.Files.Keep(path, "not translation json")
+
+        let cache =
+          TranslationCache.createWith("cache", tier.Files, NullLogger.Instance)
+
+        let! corrupt = cache.TryGet commit.Id
+        Expect.isNone corrupt "corrupt translation"
+
+        let! after = tier.Files.Read path
+        Expect.isNone after "corrupt file"
+      })
+    testCaseAsync
+      "construction lists and reads no file"
+      (async {
+        let tier = MemoryFiles()
+        let lists = ref 0
+        let reads = ref 0
+        let inner = tier.Files
+
+        let counting: TranslationCache.Files = {
+          Read =
+            fun path -> async {
+              reads.Value <- reads.Value + 1
+              return! inner.Read path
+            }
+          Keep = inner.Keep
+          Drop = inner.Drop
+          List =
+            fun () ->
+              lists.Value <- lists.Value + 1
+              inner.List()
+        }
+
+        TranslationCache.createWith("cache", counting, NullLogger.Instance)
+        |> ignore
+
+        Expect.equal 0 lists.Value "list calls"
+        Expect.equal 0 reads.Value "read calls"
+      })
+    testCaseAsync
       "a fetched translation is not posted again after a restart"
       (async {
         let tier = MemoryFiles()
@@ -686,19 +786,10 @@ let tests =
 
         Expect.isTrue written "the file was never written"
 
-        let secondApi = automaticApi()
+        let secondApi = translatedApi()
 
         let second =
           TranslationCache.createWith("cache", tier.Files, NullLogger.Instance)
-
-        let! loaded =
-          waitForAsync(
-            5000,
-            (fun () -> second.Snapshot()),
-            fun seed -> not seed.IsEmpty
-          )
-
-        Expect.isTrue loaded "the disk was never read"
 
         let! remounted =
           startShellWithTranslations(
@@ -706,6 +797,22 @@ let tests =
             secondApi :> IHttp,
             second
           )
+
+        let! reshown = showsText(remounted, "It was DNS.")
+        Expect.isTrue reshown "the log never rendered"
+
+        let! rebutton =
+          waitForAsync(
+            5000,
+            (fun () -> buttonWithText(remounted, "Translate")),
+            Option.isSome
+          )
+
+        Expect.isTrue rebutton "the translate button never appeared"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(remounted, "Translate") |> Option.iter click)
 
         let! cached = showsText(remounted, "Translated from German")
         Expect.isTrue cached "the cached translation never showed"

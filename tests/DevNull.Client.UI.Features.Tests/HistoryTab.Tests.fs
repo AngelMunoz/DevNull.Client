@@ -135,6 +135,7 @@ let props(log: LogKind) : HistoryTab.Props<FakeEnv> = {
   OnQuoteRequested = ignore
   OnOpenRepo = ignore
   OnFetch = ignore
+  OnShared = ignore
 }
 
 let pageOf(json: string) =

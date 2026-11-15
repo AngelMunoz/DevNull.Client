@@ -13,6 +13,7 @@ open MVUish.Avalonia
 open DevNull.Client
 open DevNull.Client.Editor
 open DevNull.Client.AttachmentSources
+open DevNull.Client.Components
 open DevNull.Client.Components.CommitCard
 open DevNull.Client.Components.PageChrome
 open DevNull.Client.Components.SearchParts
@@ -171,13 +172,18 @@ let peopleSection
     .Spacing(6.0)
     .Children([| heading "PEOPLE"; StackPanel().Spacing(4.0).Children(rows) |])
 
-let commitSection
+let view
   (
     props: Props<'env>,
-    model: State.Model,
-    dispatch: Dispatch<State.Msg>,
-    ctx: RowCtx
+    model: IObservable<State.Model>,
+    dispatch: Dispatch<State.Msg>
   ) : Control =
+  let ctx: RowCtx = {
+    Images = props.Env.ImageCache
+    Flyout = ValueNone
+    Now = props.Now()
+  }
+
   let cardDispatch msg = dispatch(State.CardMsg msg)
 
   let fallback =
@@ -188,97 +194,93 @@ let commitSection
     | MoreRepliesRequested commit -> props.OnOpenThread commit
     | _ -> ()
 
+  let cards = model |> Observable.map _.Cards |> Slices.share
+
   let rowProps =
     EditorCards.row {
       Props = State.cardsProps props
-      State = Observable.single model.Cards
+      State = cards
       Dispatch = cardDispatch
       OnEvent = EditorCards.event(cardDispatch, fallback)
     }
     |> fun row -> { row with Dense = true }
 
-  let rows: Control array =
-    match model.Commits with
-    | None -> [| status "Searching commits…" |]
-    | Some found ->
-      if found.Commits.IsEmpty then
-        [| status "No commits found." |]
-      else
-        [| for node in found.Commits -> feedRow rowProps node |]
-
-  StackPanel()
-    .Spacing(6.0)
-    .Children([| heading "COMMITS"; StackPanel().Spacing(4.0).Children(rows) |])
-
-let sections
-  (props: Props<'env>, model: State.Model, dispatch: Dispatch<State.Msg>)
-  : Control =
-  let ctx: RowCtx = {
-    Images = props.Env.ImageCache
-    Flyout = ValueNone
-    Now = props.Now()
-  }
-
-  let people: Control = peopleSection(ctx, model, props.OnOpenRepo)
-
-  let people: Control =
-    match model.People with
-    | Some found when found.Throttled ->
-      StackPanel()
-        .Children([| people; status "Search is busy. Try again soon." |])
-    | _ -> people
-
-  let commits: Control = commitSection(props, model, dispatch, ctx)
-
-  let commits: Control =
-    match model.Commits with
-    | Some found when found.Throttled ->
-      StackPanel()
-        .Children([| commits; status "Search is busy. Try again soon." |])
-    | _ -> commits
-
-  let error = errorPanel(Observable.single model.Error)
-
-  StackPanel()
-    .Spacing(12.0)
-    .Children(
-      TextBlock()
-        .Text($"SEARCH / {props.Term}")
-        .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted),
-      people,
-      commits,
-      error
-    )
-
-let view
-  (
-    props: Props<'env>,
-    model: IObservable<State.Model>,
-    dispatch: Dispatch<State.Msg>
-  ) : Control =
-  let body =
+  let headerBody =
     rebuildOn(
       model,
-      (fun current ->
-        current.People, current.Commits, current.Error, current.Cards),
-      fun current -> sections(props, current, dispatch)
+      (fun current -> current.People, current.Commits, current.Error),
+      fun current ->
+        let people: Control = peopleSection(ctx, current, props.OnOpenRepo)
+
+        let people: Control =
+          match current.People with
+          | Some found when found.Throttled ->
+            StackPanel()
+              .Children([| people; status "Search is busy. Try again soon." |])
+          | _ -> people
+
+        let commitsHead: Control =
+          match current.Commits with
+          | None ->
+            StackPanel()
+              .Spacing(6.0)
+              .Children([| heading "COMMITS"; status "Searching commits…" |])
+          | Some found when found.Commits.IsEmpty ->
+            StackPanel()
+              .Spacing(6.0)
+              .Children([| heading "COMMITS"; status "No commits found." |])
+          | Some _ -> heading "COMMITS"
+
+        let commitsHead: Control =
+          match current.Commits with
+          | Some found when found.Throttled ->
+            StackPanel()
+              .Children(
+                [| commitsHead; status "Search is busy. Try again soon." |]
+              )
+          | _ -> commitsHead
+
+        let error = errorPanel(Observable.single current.Error)
+
+        StackPanel()
+          .Spacing(12.0)
+          .Children(
+            TextBlock()
+              .Text($"SEARCH / {props.Term}")
+              .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted),
+            people,
+            commitsHead,
+            error
+          )
     )
 
-  let cardDispatch msg = dispatch(State.CardMsg msg)
+  let items =
+    model
+    |> Observable.map(fun current ->
+      match current.Commits with
+      | Some found -> found.Commits
+      | None -> [])
 
-  let content =
-    ScrollViewer()
-      .Name($"EditorSearchTab-{props.Term}")
-      .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
-      .Content(
-        ContentControl()
-          .Content(body |> _.ToBinding())
-          .Margin(Thickness(16.0, 12.0))
-      )
+  let feed =
+    Feed.view {
+      Header = ValueSome(ContentControl().Content(headerBody |> _.ToBinding()))
+      Items = items
+      KeyOf = FeedParts.nodeKey
+      Row = fun node -> feedRow rowProps node
+      Footer = ValueNone
+      HasMore = Observable.single false
+      ScrollTo = ValueNone
+      Ride = false
+      Restore = ValueNone
+      OnScroll = ValueNone
+      OnRide = ValueNone
+      OnNeedMore = ValueNone
+    }
 
   Grid()
+    .Name($"EditorSearchTab-{props.Term}")
     .Children(
-      content,
+      feed,
       EditorCards.layer(
         State.cardsProps props,
         model |> Observable.map _.Cards,

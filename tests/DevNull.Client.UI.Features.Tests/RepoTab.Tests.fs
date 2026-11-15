@@ -64,6 +64,7 @@ let props: RepoTab.Props<FakeEnv> = {
   OnReply = ignore
   OnQuote = ignore
   OnOpenRepo = ignore
+  OnShared = ignore
 }
 
 let update(msg: RepoTab.Msg, model: RepoTab.Model) =

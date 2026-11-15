@@ -129,10 +129,7 @@ module State =
       initial with
           Pasteis = props.Session.Session.PasteisMode
           Automatic = props.Session.Session.AutomaticTranslation
-          Translations =
-            TranslationModel.seed(
-              (props.Env :> IProvideTranslations).Translations.Snapshot()
-            )
+          Translations = TranslationModel.initial
     },
     Cmd.OfAsync.perform fetch (props.Env, props.Session, None) Fetched
 
@@ -646,6 +643,7 @@ module Parts =
     let hasMore = model |> Observable.map _.NextCursor.IsSome
 
     Feed.view {
+      Header = ValueNone
       Items = model |> Observable.map _.Items
       KeyOf = FeedParts.nodeKey
       Row =

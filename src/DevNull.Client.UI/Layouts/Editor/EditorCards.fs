@@ -148,10 +148,7 @@ let empty = {
 
 let initial(props: Props<'env>) = {
   empty with
-      Translations =
-        TranslationModel.seed(
-          (props.Env :> IProvideTranslations).Translations.Snapshot()
-        )
+      Translations = TranslationModel.initial
       Now = props.Now()
 }
 

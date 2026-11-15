@@ -20,6 +20,8 @@ open DevNull.Client.UI.Tests.EditorGates
 open DevNull.Client.UI.Tests.Natives
 open DevNull.Client.UI.Tests.WorkbenchGateTests
 open DevNull.Client.UI.Tests.WorkbenchHardening
+open DevNull.Client.UI.Tests.AttachGateTests
+open DevNull.Client.UI.Tests.WebsiteRetirementTests
 open DevNull.Client.UI.Tests.WorkbenchHostViewTests
 open DevNull.Client.UI.Tests.WorkbenchSettingsTests
 
@@ -36,6 +38,8 @@ let main argv =
       // The switch checks read the same process-global state: the heap
       // for the retained roots, focus and keys for the rebind.
       testSequenced LayoutHost.tests
+      testSequenced AttachGateTests.tests
+      testSequenced WebsiteRetirementTests.tests
       FeedTests.tests
       EditorSettings.tests
       EditorTypes.tests

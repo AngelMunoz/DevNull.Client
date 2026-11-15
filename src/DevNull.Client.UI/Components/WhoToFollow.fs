@@ -1,16 +1,13 @@
 module DevNull.Client.Components.WhoToFollow
 
 open System
-open System.Collections.Generic
 open Avalonia
 open Avalonia.Controls
-open Avalonia.Controls.Templates
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
-open MVUish.Avalonia.Collections
 open Microsoft.Extensions.Logging
 open DevNull.Client
 open DevNull.Client.Components
@@ -642,19 +639,24 @@ let view
   let shown =
     model |> Observable.map _.Shown |> Slices.gateByRef |> Slices.share
 
-  let rows =
-    ItemsControl()
-      .ItemTemplate(
-        FuncDataTemplate<User>(
-          (fun user _ ->
-            if isNull(box user) then Panel() :> Control else row user),
-          false
-        )
-      )
-      .BindItemsSource(
-        shown |> Observable.map(fun users -> users :> IReadOnlyList<User>),
-        fun user -> user.Id
-      )
+  let hasMore = Observable.single false
+
+  let feed =
+    (Feed.view {
+      Header = ValueNone
+      Items = shown
+      KeyOf = fun user -> user.Id
+      Row =
+        fun user -> if isNull(box user) then Panel() :> Control else row user
+      Footer = ValueNone
+      HasMore = hasMore
+      ScrollTo = ValueNone
+      Ride = false
+      Restore = ValueNone
+      OnScroll = ValueNone
+      OnRide = ValueNone
+      OnNeedMore = ValueNone
+    })
       .IsVisible(shown |> Observable.map(fun users -> not users.IsEmpty))
 
   let busy =
@@ -706,7 +708,7 @@ let view
           && current.Error.IsNone)
       )
 
-  let body = StackPanel().Spacing(12.0).Children(busy, errorLine, empty, rows)
+  let body = StackPanel().Spacing(12.0).Children(busy, errorLine, empty, feed)
 
   Border()
     .Name("WhoToFollow")
@@ -742,6 +744,10 @@ type Page<'env
 
     // The aside replaces the rail when the signed-in user changes; it is
     // never cached or re-shown, so the first detach ends its program.
-    let root, _ = Programs.runComponent(this, props.Env.Dispatcher, program)
-
-    this.Content <- root
+    Programs.runComponentOnAttach(
+      this,
+      props.Env.Dispatcher,
+      program,
+      fun root -> this.Content <- root
+    )
+    |> ignore

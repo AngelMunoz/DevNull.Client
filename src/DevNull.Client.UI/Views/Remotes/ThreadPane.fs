@@ -327,6 +327,7 @@ module ThreadPane =
 
     let scroller =
       (Feed.view {
+        Header = ValueNone
         Items = rowItems
         KeyOf = RemotesRows.threadRowKey
         Row = row

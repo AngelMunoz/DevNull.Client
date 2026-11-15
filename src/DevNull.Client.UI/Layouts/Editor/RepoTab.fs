@@ -860,29 +860,6 @@ let listView
         more
       )
 
-let commitsView(model: Model, rowProps: CommitCard.RowProps) : Control =
-  let rows: Control array = [|
-    for node in model.Commits do
-      CommitCard.feedRow rowProps node
-  |]
-
-  let empty =
-    TextBlock()
-      .Text(
-        if model.CommitsLoading then
-          "Reading commits…"
-        else
-          "No commits yet."
-      )
-      .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
-      .IsVisible(List.isEmpty model.Commits)
-
-  let error = PageChrome.errorPanel(Observable.single model.CommitsError)
-
-  StackPanel()
-    .Spacing(8.0)
-    .Children(empty, error, StackPanel().Spacing(8.0).Children(rows))
-
 let view
   (props: Props<'env>, model: IObservable<Model>, dispatch: Dispatch<Msg>)
   : Control =
@@ -906,53 +883,54 @@ let view
       OnEvent = EditorCards.event(cardDispatch, fallback)
     }
 
-  let headerHost =
-    let header =
-      PageChrome.rebuildOn(
-        model,
-        (fun current ->
-          current.Details, current.FollowBusy, current.Loading, current.Error),
-        fun current -> headerView(props, current, dispatch)
-      )
+  let headerBody =
+    PageChrome.rebuildOn(
+      model,
+      (fun current ->
+        current.Details,
+        current.FollowBusy,
+        current.Loading,
+        current.Error,
+        current.List,
+        current.CommitsLoading,
+        current.Commits.IsEmpty,
+        current.CommitsError),
+      fun current ->
+        let commitsEmpty: Control =
+          if List.isEmpty current.Commits then
+            TextBlock()
+              .Text(
+                if current.CommitsLoading then
+                  "Reading commits…"
+                else
+                  "No commits yet."
+              )
+              .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
+          else
+            Panel()
 
-    ContentControl().Content(header |> _.ToBinding())
+        let commitsError =
+          PageChrome.errorPanel(Observable.single current.CommitsError)
 
-  let listHost =
-    let list =
-      PageChrome.rebuildOn(
-        model,
-        (fun current -> current.List),
-        fun current -> listView(props, current.List, dispatch)
-      )
-
-    ContentControl().Content(list |> _.ToBinding())
-
-  let bodyHost =
-    let body =
-      PageChrome.rebuildOn(
-        model,
-        (fun current -> current.Details),
-        fun current ->
+        let body: Control =
           match current.Details with
           | Some details -> bodyView(details, rowProps)
           | None -> Panel()
-      )
 
-    ContentControl().Content(body |> _.ToBinding())
-
-  let commitsHost =
-    let commits =
-      PageChrome.rebuildOn(
-        model,
-        (fun current ->
-          current.Commits,
-          current.CommitsCursor |> Option.defaultValue "",
-          current.CommitsLoading,
-          current.CommitsError),
-        fun current -> commitsView(current, rowProps)
-      )
-
-    ContentControl().Content(commits |> _.ToBinding())
+        StackPanel()
+          .Spacing(12.0)
+          .Margin(Thickness(16.0, 12.0))
+          .Children(
+            headerView(props, current, dispatch),
+            listView(props, current.List, dispatch),
+            body,
+            TextBlock()
+              .Text($"HISTORY @{props.Handle}")
+              .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted),
+            commitsEmpty,
+            commitsError
+          )
+    )
 
   let more =
     let button =
@@ -964,28 +942,26 @@ let view
     button.Name <- "RepoMoreCommits"
     button
 
-  let content =
-    ScrollViewer()
+  let feed =
+    (Feed.view {
+      Header = ValueSome(ContentControl().Content(headerBody |> _.ToBinding()))
+      Items = model |> Observable.map _.Commits
+      KeyOf = FeedParts.nodeKey
+      Row = fun node -> CommitCard.feedRow rowProps node
+      Footer = ValueSome more
+      HasMore =
+        model |> Observable.map(fun current -> current.CommitsCursor.IsSome)
+      ScrollTo = ValueNone
+      Ride = false
+      Restore = ValueNone
+      OnScroll = ValueNone
+      OnRide = ValueNone
+      OnNeedMore = ValueSome(fun () -> dispatch MoreCommits)
+    })
       .Name("RepoTab")
-      .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
-      .Content(
-        StackPanel()
-          .Spacing(12.0)
-          .Margin(Thickness(16.0, 12.0))
-          .Children(
-            headerHost,
-            listHost,
-            bodyHost,
-            TextBlock()
-              .Text($"HISTORY @{props.Handle}")
-              .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted),
-            commitsHost,
-            more
-          )
-      )
 
   Grid()
-    .Children(content, EditorCards.layer(cardsProps props, cards, cardDispatch))
+    .Children(feed, EditorCards.layer(cardsProps props, cards, cardDispatch))
 
 let program(props: Props<'env>) : Program<unit, Model, Msg, Control> =
   Program.mkProgram

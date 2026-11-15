@@ -253,9 +253,11 @@ type Props<'env
 
 /// One child program handle the mount wrapper tracks. The wrapper
 /// marks it when it ends, so a test can prove every seen handle is
-/// disposed.
+/// disposed. Raw holds the wrapped handle until the first dispose
+/// releases it, so a disposed handle keeps no program alive.
 [<Sealed>]
 type internal TrackedHandle =
+  member Raw: IDisposable with get, set
   member Disposed: bool
   interface IDisposable
 

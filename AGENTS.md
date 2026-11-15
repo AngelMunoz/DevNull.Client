@@ -32,6 +32,7 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
 25. **Lean env constraints.** Function parameters take the intersection form `env: #IProvideClock & #IProvideNonceSource & ...`. A `when` wall stays only where the compiler requires it — type and class definitions (`type Props<'env when ...>`, the `Shell` class) — or where a named constraint factors a secondary mechanism (Core's env-and-error composition). Never restate on `init`/`update`/`view` a constraint `Props<'env>` already carries.
 26. **Recursive async is async/asyncEx, never a task CE.** Task computation expressions do not support recursive evaluation; a recursive asynchronous function is `async`/`asyncEx` end to end.
 27. **Recursive functions strive to be tail-recursive and say so.** Annotate genuinely tail-recursive functions with `[<TailCall>]` so the compiler checks the claim; a recursion that cannot be tail (fold- or callback-position recursion over bounded data) stays un-annotated with its bound stated.
+28. Every list that can display 10 or more items MUST virtualize. Use `Components/Feed.view` or a virtualizing items panel owned by the list's own scroller. Lists capped by domain code MUST state the cap where the cap is enforced.
 
 ## Architecture
 

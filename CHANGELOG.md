@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Remotes:** the inbox and the open thread share one router-free mount, so future layouts can host them side by side; the Website page looks and acts as before.
 - **Workbench:** the refs rail gains a Remotes row with the unread count; selecting it shows the conversation list in the center and opens each chat in the right pane, one chat at a time, with the checkout closing as the chat opens and back.
 - **Editor:** the Remotes activity opens the bottom pane on a REMOTES inbox tab beside Activity and Terminal, and each chat opens as its own tab with its own draft, poll, and unread dot; sharing a commit opens its chat tab.
+- **Workbench:** replacing a page releases the previous page's program and model.
+- **Layouts:** a retired layout releases the programs of the components it hosted.
+- **Editor:** long threads virtualize their replies and keep only the rows near the viewport.
+- **Lists:** long search, history, notification, scheduled, and workbench lists virtualize their rows.
+- **Settings:** the time-zone list loads when the picker is used.
+- **Translations:** translations are read from the file tier on demand; the process keeps no process-wide translation dictionary.
 
 ### Changed
 

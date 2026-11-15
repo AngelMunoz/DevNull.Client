@@ -1,16 +1,13 @@
 ﻿module DevNull.Client.Views.ScheduledView
 
 open System
-open System.Collections.Generic
 open Avalonia
 open Avalonia.Controls
-open Avalonia.Controls.Templates
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
-open MVUish.Avalonia.Collections
 open Navs
 open DevNull.Client
 open DevNull.Client.Components
@@ -616,28 +613,23 @@ module Parts =
       dispatch: Dispatch<State.Msg>,
       model: IObservable<State.Model>
     ) : Control =
-    let rows =
-      ItemsControl()
-        .ItemTemplate(
-          FuncDataTemplate<ScheduledCommit>(
-            (fun entry _ -> row(dispatch, model, entry)),
-            false
-          )
-        )
-        .BindItemsSource(
-          model
-          |> Observable.map(fun current ->
-            current.Items :> IReadOnlyList<ScheduledCommit>),
-          fun entry -> entry.Id
-        )
-
     // The queue keeps the page gutter the pinned header already uses,
     // so the rows, their hairlines, and the title line up on one edge.
-    ScrollViewer()
+    (Feed.view {
+      Header = ValueNone
+      Items = model |> Observable.map _.Items
+      KeyOf = fun entry -> entry.Id
+      Row = fun entry -> row(dispatch, model, entry)
+      Footer = ValueSome(pager(props, dispatch, model))
+      HasMore = Observable.single false
+      ScrollTo = ValueNone
+      Ride = false
+      Restore = ValueNone
+      OnScroll = ValueNone
+      OnRide = ValueNone
+      OnNeedMore = ValueNone
+    })
       .Padding(Theme.pagePadding)
-      .Content(
-        StackPanel().Spacing(8.0).Children(rows, pager(props, dispatch, model))
-      )
 
 let view
   (props: Props<'env>)

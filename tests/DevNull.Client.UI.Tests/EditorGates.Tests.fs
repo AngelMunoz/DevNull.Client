@@ -38,6 +38,7 @@ let tests =
           probeUiAsync(fun () ->
             let feed =
               Feed.view {
+                Header = ValueNone
                 Items = Observable.single [ 0..60 ]
                 KeyOf = string
                 Row = plainRow

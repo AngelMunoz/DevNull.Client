@@ -785,8 +785,13 @@ type Page<'env
     Program.mkProgram (State.initial props) (State.update props) (view props)
     |> Program.withSubscription(State.subscribe props)
 
-  let root, childHandle =
-    Programs.runComponent(this, props.Env.Dispatcher, program)
+  let childHandle =
+    Programs.runComponentOnAttach(
+      this,
+      props.Env.Dispatcher,
+      program,
+      fun root -> this.Content <- root
+    )
 
   let lifetime =
     Disposable.Create(fun () ->
@@ -796,8 +801,6 @@ type Page<'env
       childHandle.Dispose())
 
   do
-    this.Content <- root
-
     // The close path reads the top-level back from Tag; the page itself
     // does not otherwise use it.
     this.AttachedToVisualTree.Add(fun _ ->

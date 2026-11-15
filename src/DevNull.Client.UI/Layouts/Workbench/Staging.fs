@@ -1,16 +1,13 @@
 module DevNull.Client.Workbench.Staging
 
 open System
-open System.Collections.Generic
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
-open Avalonia.Controls.Templates
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
-open MVUish.Avalonia.Collections
 open DevNull.Client
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Components
@@ -132,42 +129,35 @@ let queueRow(entry: ScheduledCommit) : Control =
     )
 
 let queue(model: IObservable<View>) : Control =
-  let rows =
-    ItemsControl()
-      .ItemTemplate(
-        FuncDataTemplate<ScheduledCommit>(
-          (fun entry _ -> queueRow entry),
-          false
-        )
-      )
-      .BindItemsSource(
-        model
-        |> Observable.map _.Queue.Items
-        |> Slices.gateByRef
-        |> Observable.map(fun items -> items :> IReadOnlyList<ScheduledCommit>),
-        fun entry -> entry.Id
+  let header =
+    StackPanel()
+      .Spacing(2.0)
+      .Children(
+        TextBlock().Classes(Theme.name Theme.Mono).Text("QUEUE"),
+        TextBlock()
+          .Name("StagingQueueNote")
+          .Classes(Theme.name Theme.Muted)
+          .TextWrapping(TextWrapping.Wrap)
+          .Text(
+            model |> Observable.map queueNote |> Observable.distinctUntilChanged
+          )
       )
 
-  let note =
-    TextBlock()
-      .Name("StagingQueueNote")
-      .Classes(Theme.name Theme.Muted)
-      .TextWrapping(TextWrapping.Wrap)
-      .Text(
-        model |> Observable.map queueNote |> Observable.distinctUntilChanged
-      )
-
-  let children: Control array = [|
-    TextBlock().Classes(Theme.name Theme.Mono).Text("QUEUE") :> Control
-    note
-    ScrollViewer()
-      .MaxHeight(240.0)
-      .VerticalScrollBarVisibility(ScrollBarVisibility.Auto)
-      .Content(rows)
-    :> Control
-  |]
-
-  StackPanel().Spacing(6.0).Children(children)
+  (Feed.view {
+    Header = ValueSome header
+    Items = model |> Observable.map _.Queue.Items |> Slices.gateByRef
+    KeyOf = fun entry -> entry.Id
+    Row = queueRow
+    Footer = ValueNone
+    HasMore = Observable.single false
+    ScrollTo = ValueNone
+    Ride = false
+    Restore = ValueNone
+    OnScroll = ValueNone
+    OnRide = ValueNone
+    OnNeedMore = ValueNone
+  })
+    .MaxHeight(240.0)
 
 let strip(props: Props<'env>, model: IObservable<View>) : Control =
   let counts =

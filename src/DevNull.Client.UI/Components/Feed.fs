@@ -105,6 +105,8 @@ type Tail(stick: bool) =
     }
 
 type Props<'T when 'T: equality> = {
+  /// Content above the first row, inside the feed's scroll owner.
+  Header: Control voption
   Items: IObservable<'T list>
   KeyOf: 'T -> string
   Row: 'T -> Control
@@ -132,14 +134,38 @@ let view(props: Props<'T>) : ScrollViewer =
       false
     )
 
-  let items =
+  let gated = props.Items |> Slices.gateByRef
+
+  // A short page renders every row: the reading column rarely scrolls,
+  // and a virtualizing panel would leave some rows unbuilt. A long page
+  // runs through the VirtualizingStackPanel, so only the rows near the
+  // viewport exist.
+  let plain =
+    ItemsControl()
+      .ItemTemplate(template)
+      .ItemsPanel(FuncTemplate<Panel>(fun () -> StackPanel()))
+      .BindItemsSource(gated, props.KeyOf)
+
+  let virtualized =
     ItemsControl()
       .ItemTemplate(template)
       .ItemsPanel(FuncTemplate<Panel>(fun () -> VirtualizingStackPanel()))
-      .BindItemsSource(props.Items |> Slices.gateByRef, props.KeyOf)
+      .BindItemsSource(gated, props.KeyOf)
+
+  let list =
+    ContentControl()
+      .Content(
+        gated
+        |> Observable.map(fun rows ->
+          if rows.Length >= 10 then virtualized :> Control else plain)
+        |> _.ToBinding()
+      )
 
   let children: Control array = [|
-    items
+    match props.Header with
+    | ValueNone -> ()
+    | ValueSome header -> header
+    list
     match props.Footer with
     | ValueNone -> ()
     | ValueSome footer -> footer

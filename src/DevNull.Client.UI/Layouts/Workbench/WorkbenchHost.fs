@@ -230,12 +230,15 @@ type Props<'env
 [<Sealed>]
 type TrackedHandle(raw: IDisposable) =
 
+  member val Raw = raw with get, set
+
   member val Disposed = false with get, set
 
   member this.Dispose() =
     if not this.Disposed then
       this.Disposed <- true
-      raw.Dispose()
+      this.Raw.Dispose()
+      this.Raw <- Disposable.Empty
 
   interface IDisposable with
     member this.Dispose() = this.Dispose()

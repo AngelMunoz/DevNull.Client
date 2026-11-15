@@ -621,47 +621,35 @@ let view
       .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
       .Margin(0.0, 8.0, 0.0, 0.0)
 
-  let repliesItems =
-    ItemsControl()
-      .ItemTemplate(
-        FuncDataTemplate<CommitNode>(
-          (fun node _ -> feedRow replyProps node),
-          false
-        )
-      )
-      .ItemsPanel(FuncTemplate<Panel>(fun () -> StackPanel()))
-      .BindItemsSource(
-        model
-        |> Observable.map(fun current -> current.Replies)
-        |> Slices.gateByRef,
-        keyOf
-      )
-
   let hasMore =
     model |> Observable.map(fun current -> current.RepliesCursor.IsSome)
 
   let loadMoreControl = loadMore(hasMore, fun () -> dispatch State.MoreReplies)
 
-  let body =
+  let header =
     StackPanel()
       .Spacing(8.0)
-      .Children(
-        breadcrumbRow,
-        error,
-        mainCard,
-        repliesHeader,
-        repliesItems,
-        loadMoreControl
-      )
+      .Children(breadcrumbRow, error, mainCard, repliesHeader)
 
-  let content =
-    ScrollViewer()
-      .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
-      .Content(body)
+  let feed =
+    Feed.view {
+      Header = ValueSome header
+      Items = model |> Observable.map _.Replies
+      KeyOf = keyOf
+      Row = fun node -> feedRow replyProps node
+      Footer = ValueSome loadMoreControl
+      HasMore = hasMore
+      ScrollTo = ValueNone
+      Ride = false
+      Restore = ValueNone
+      OnScroll = ValueNone
+      OnRide = ValueNone
+      OnNeedMore = ValueSome(fun () -> dispatch State.MoreReplies)
+    }
 
   Grid()
     .Children(
-      content,
+      feed,
       EditorCards.layer(State.cardsProps props, cards, cardDispatch)
     )
 

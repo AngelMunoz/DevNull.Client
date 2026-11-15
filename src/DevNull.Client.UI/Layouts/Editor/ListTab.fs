@@ -13,6 +13,7 @@ open MVUish.Avalonia
 open DevNull.Client
 open DevNull.Client.Editor
 open DevNull.Client.AttachmentSources
+open DevNull.Client.Components
 open DevNull.Client.Components.CommitCard
 open DevNull.Client.Components.PageChrome
 open DevNull.Client.Core.Api
@@ -333,9 +334,134 @@ let queueRow
         )
     )
 
-let savedView
-  (props: Props<'env>, model: State.Model, dispatch: Dispatch<State.Msg>)
-  : Control =
+let savedFeed
+  (
+    props: Props<'env>,
+    model: IObservable<State.Model>,
+    dispatch: Dispatch<State.Msg>,
+    rowProps: CommitCard.RowProps
+  ) : Control =
+  let headerBody =
+    rebuildOn(
+      model,
+      (fun current -> current.Loading, current.Saved.IsEmpty, current.Error),
+      fun current ->
+        let empty: Control =
+          if current.Loading && current.Saved.IsEmpty then
+            TextBlock()
+              .Text("Loading saved commits…")
+              .Classes(Theme.name Theme.Muted)
+          elif current.Saved.IsEmpty then
+            TextBlock()
+              .Text("No saved commits.")
+              .Classes(Theme.name Theme.Muted)
+          else
+            Panel()
+
+        StackPanel()
+          .Spacing(6.0)
+          .Children(
+            TextBlock()
+              .Text("STARS.INDEX")
+              .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted),
+            empty,
+            errorPanel(Observable.single current.Error)
+          )
+    )
+
+  let more =
+    loadMore(
+      model |> Observable.map(fun current -> current.SavedCursor.IsSome),
+      fun () -> dispatch State.MoreSaved
+    )
+      .Name("ListTabMoreSaved")
+
+  (Feed.view {
+    Header = ValueSome(ContentControl().Content(headerBody |> _.ToBinding()))
+    Items = model |> Observable.map _.Saved
+    KeyOf =
+      fun node ->
+        match node with
+        | LiveCommit commit -> commit.Id
+        | Tombstone tombstone -> tombstone.Id
+    Row = fun node -> feedRow rowProps node
+    Footer = ValueSome more
+    HasMore = model |> Observable.map(_.SavedCursor.IsSome)
+    ScrollTo = ValueNone
+    Ride = false
+    Restore = ValueNone
+    OnScroll = ValueNone
+    OnRide = ValueNone
+    OnNeedMore = ValueSome(fun () -> dispatch State.MoreSaved)
+  })
+    .Name($"EditorListTab-{title props.Kind}")
+
+let queueFeed
+  (
+    props: Props<'env>,
+    model: IObservable<State.Model>,
+    dispatch: Dispatch<State.Msg>
+  ) : Control =
+  let headerBody =
+    rebuildOn(
+      model,
+      (fun current -> current.Loading, current.Queue.IsEmpty, current.Error),
+      fun current ->
+        let empty: Control =
+          if current.Loading && current.Queue.IsEmpty then
+            TextBlock()
+              .Text("Loading the queue…")
+              .Classes(Theme.name Theme.Muted)
+          elif current.Queue.IsEmpty then
+            TextBlock()
+              .Text("No scheduled commits.")
+              .Classes(Theme.name Theme.Muted)
+          else
+            Panel()
+
+        StackPanel()
+          .Spacing(6.0)
+          .Children(
+            TextBlock()
+              .Text("SCHEDULED")
+              .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted),
+            empty,
+            errorPanel(Observable.single current.Error)
+          )
+    )
+
+  let more =
+    loadMore(
+      model
+      |> Observable.map(fun current -> current.QueuePage < current.QueueLast),
+      fun () -> dispatch State.MoreQueue
+    )
+      .Name("ListTabMoreQueue")
+
+  (Feed.view {
+    Header = ValueSome(ContentControl().Content(headerBody |> _.ToBinding()))
+    Items = model |> Observable.map _.Queue
+    KeyOf = fun entry -> entry.Id
+    Row = fun entry -> queueRow(props, props.Now(), entry)
+    Footer = ValueSome more
+    HasMore =
+      model
+      |> Observable.map(fun current -> current.QueuePage < current.QueueLast)
+    ScrollTo = ValueNone
+    Ride = false
+    Restore = ValueNone
+    OnScroll = ValueNone
+    OnRide = ValueNone
+    OnNeedMore = ValueSome(fun () -> dispatch State.MoreQueue)
+  })
+    .Name($"EditorListTab-{title props.Kind}")
+
+let view
+  (
+    props: Props<'env>,
+    model: IObservable<State.Model>,
+    dispatch: Dispatch<State.Msg>
+  ) : Control =
   let cardDispatch msg = dispatch(State.CardMsg msg)
 
   let fallback =
@@ -346,132 +472,26 @@ let savedView
     | MoreRepliesRequested commit -> props.OnOpenThread commit
     | _ -> ()
 
+  let cards = model |> Observable.map _.Cards |> Slices.share
+
   let rowProps =
     EditorCards.row {
       Props = State.cardsProps props
-      State = Observable.single model.Cards
+      State = cards
       Dispatch = cardDispatch
       OnEvent = EditorCards.event(cardDispatch, fallback)
     }
     |> fun row -> { row with Dense = true }
 
-  let rows = [|
-    for node in model.Saved do
-      feedRow rowProps node
-  |]
-
-  let empty: Control =
-    if model.Loading && model.Saved.IsEmpty then
-      TextBlock().Text("Loading saved commits…").Classes(Theme.name Theme.Muted)
-    elif model.Saved.IsEmpty then
-      TextBlock().Text("No saved commits.").Classes(Theme.name Theme.Muted)
-    else
-      Panel()
-
-  let error = errorPanel(Observable.single model.Error)
-
-  let more =
-    loadMore(
-      Observable.single(model.SavedCursor.IsSome),
-      fun () -> dispatch State.MoreSaved
-    )
-
-  more.Name <- "ListTabMoreSaved"
-
-  StackPanel()
-    .Spacing(6.0)
-    .Children(
-      TextBlock()
-        .Text("STARS.INDEX")
-        .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted),
-      empty,
-      error,
-      StackPanel().Spacing(4.0).Children(rows),
-      more
-    )
-
-let queueView
-  (props: Props<'env>, model: State.Model, dispatch: Dispatch<State.Msg>)
-  : Control =
-  let rows = [|
-    for entry in model.Queue do
-      queueRow(props, model.Now, entry)
-  |]
-
-  let empty: Control =
-    if model.Loading && model.Queue.IsEmpty then
-      TextBlock().Text("Loading the queue…").Classes(Theme.name Theme.Muted)
-    elif model.Queue.IsEmpty then
-      TextBlock().Text("No scheduled commits.").Classes(Theme.name Theme.Muted)
-    else
-      Panel()
-
-  let error = errorPanel(Observable.single model.Error)
-
-  let more =
-    loadMore(
-      Observable.single(model.QueuePage < model.QueueLast),
-      fun () -> dispatch State.MoreQueue
-    )
-
-  more.Name <- "ListTabMoreQueue"
-
-  StackPanel()
-    .Spacing(6.0)
-    .Children(
-      TextBlock()
-        .Text("SCHEDULED")
-        .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted),
-      empty,
-      error,
-      StackPanel().Spacing(6.0).Children(rows),
-      more
-    )
-
-let view
-  (
-    props: Props<'env>,
-    model: IObservable<State.Model>,
-    dispatch: Dispatch<State.Msg>
-  ) : Control =
-  let body =
-    rebuildOn(
-      model,
-      (fun current ->
-        current.Saved,
-        current.Queue,
-        current.Loading,
-        current.Error,
-        current.QueuePage,
-        current.QueueLast,
-        current.Cards,
-        minuteBucket current.Now),
-      fun current ->
-        match props.Kind with
-        | Saved -> savedView(props, current, dispatch)
-        | Queue -> queueView(props, current, dispatch)
-    )
-
-  let cardDispatch msg = dispatch(State.CardMsg msg)
-
-  let content =
-    ScrollViewer()
-      .Name($"EditorListTab-{title props.Kind}")
-      .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
-      .Content(
-        ContentControl()
-          .Content(body |> _.ToBinding())
-          .Margin(Thickness(16.0, 12.0))
-      )
+  let feed =
+    match props.Kind with
+    | Saved -> savedFeed(props, model, dispatch, rowProps)
+    | Queue -> queueFeed(props, model, dispatch)
 
   Grid()
     .Children(
-      content,
-      EditorCards.layer(
-        State.cardsProps props,
-        model |> Observable.map _.Cards,
-        cardDispatch
-      )
+      feed,
+      EditorCards.layer(State.cardsProps props, cards, cardDispatch)
     )
 
 let program

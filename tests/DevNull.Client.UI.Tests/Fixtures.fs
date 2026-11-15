@@ -1556,6 +1556,16 @@ let manyCardsApi() =
        | ValueSome answer -> answer
        | ValueNone -> ok "{}"))
 
+/// The api of the long recycle test: a feed long enough to virtualize.
+let longCardsApi() =
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/log/" then
+      ok(manyCardsPageJson 20)
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
 /// One commit by another user, so a stranger's newer commit can sit
 /// above the viewer's own.
 let strangerCommitJson(id: string, hash: string, body: string, date: string) =

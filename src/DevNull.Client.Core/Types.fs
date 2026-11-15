@@ -3,6 +3,7 @@ module DevNull.Client.Core.Types
 #nowarn "3535"
 
 open System
+open System.Text
 open System.Text.RegularExpressions
 open FSharp.UMX
 open DevNull.Client.Core
@@ -38,24 +39,26 @@ module CommitBodies =
 
   let proseLink = Regex(@"https?://[^\s<>""]+", RegexOptions.IgnoreCase)
 
-  /// The server's count: every prose link counts as 23 characters.
+  let inline codePointCount(text: string) = text.EnumerateRunes() |> Seq.length
+
+  /// The server's count: every prose link counts as 23 code points.
   let characterCount(body: string) =
     let links =
       proseLink.Matches body
       |> Seq.sumBy(fun matched ->
-        let length = matched.Value.Length
+        let length = codePointCount matched.Value
 
         if length <= maxLinkLength then
           max 0 (length - linkCountsAs)
         else
           0)
 
-    body.Length - links
+    codePointCount body - links
 
   let parse<'e when CommitBodyError<'e>>
     (raw: string)
     : Result<string<CommitBody>, 'e> =
-    let length = raw.Length
+    let length = codePointCount raw
 
     if length < 1 then
       Error('e.BodyTooShort(raw, length))
@@ -69,6 +72,15 @@ module CommitBodies =
         Error('e.BodyTooLong(raw, length))
       else
         Ok(UMX.tag<CommitBody> normalized)
+
+  /// Checks both caps with the same normalization and count as parse,
+  /// so the picker refuses before it inserts.
+  let accepts(raw: string) : bool =
+    let length = codePointCount raw
+
+    length >= 1
+    && length <= maxRawLength
+    && characterCount(normalize raw) <= maxLength
 
 /// A reply may not reach past the participants its picks and its
 /// mentions carry together, as the server refuses it.

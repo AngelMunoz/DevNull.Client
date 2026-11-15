@@ -3,6 +3,7 @@ module DevNull.Client.Startup
 open System
 open System.IO
 open Avalonia
+open Avalonia.Media
 open Avalonia.Threading
 open Avalonia.Controls.ApplicationLifetimes
 open Avalonia.Themes.Fluent
@@ -132,6 +133,22 @@ let completeCallback
   : unit =
   DeviceAuth.finish(env, uri, log) |> Async.Ignore |> Async.RunSynchronously
 
+let emojiFallback(name: string) =
+  let fallback = FontFallback()
+  fallback.FontFamily <- FontFamily(name)
+  fallback.UnicodeRange <- UnicodeRange.Default
+  fallback
+
+let fontOptions() =
+  let options = FontManagerOptions()
+
+  options.FontFallbacks <- [|
+    emojiFallback "Segoe UI Emoji"
+    emojiFallback "Noto Color Emoji"
+  |]
+
+  options
+
 let start(logging: ILoggerFactory, natives: NativeServices, argv: string[]) =
   let log = logging.CreateLogger "DevNull.Client.Startup"
 
@@ -222,6 +239,7 @@ let start(logging: ILoggerFactory, natives: NativeServices, argv: string[]) =
     AppBuilder
       .Configure(fun () -> DesktopApp(env, callback))
       .UsePlatformDetect()
+      .With(fontOptions())
       .AfterSetup(fun _ ->
         Theme.apply((env :> IProvideSettings).Settings.Current.Theme))
       .StartWithClassicDesktopLifetime(argv)

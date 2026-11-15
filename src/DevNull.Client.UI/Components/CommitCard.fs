@@ -348,11 +348,20 @@ module Parts =
 
   // One plain run with its tags wrapped: prose runs beside tag
   // inlines.
+  let addEmojiRuns(inlines: InlineCollection, text: string) =
+    for run in DevNull.Client.Core.Emoji.runs text do
+      match run with
+      | DevNull.Client.Core.Emoji.Text plain -> inlines.Add(Run plain) |> ignore
+      | DevNull.Client.Core.Emoji.Emoji emoji ->
+        let inlineRun = Run emoji
+        inlineRun.FontFamily <- Theme.Fonts.emoji
+        inlines.Add inlineRun |> ignore
+
   let withTags(args: BodyArgs, plain: string, inlines: InlineCollection) =
     splitTags plain
     |> List.iter(fun piece ->
       match piece with
-      | Prose prose -> inlines.Add(Run prose) |> ignore
+      | Prose prose -> addEmojiRuns(inlines, prose)
       | Tag tag -> inlines.Add(tagInline(args.Flyout, tag)) |> ignore)
 
   // One plain run with its links wrapped: prose runs beside link
@@ -374,20 +383,13 @@ module Parts =
     | [] ->
       match DevNull.Client.Core.RemotesText.splitLinks text with
       | [ DevNull.Client.Core.RemotesText.Prose plain ] ->
-        match splitTags plain with
-        | [ Prose _ ] ->
-          TextBlock()
-            .FontSize(bodyFontSize)
-            .Text(plain)
-            .TextWrapping(TextWrapping.Wrap)
-        | _ ->
-          let block =
-            TextBlock().FontSize(bodyFontSize).TextWrapping(TextWrapping.Wrap)
+        let block =
+          TextBlock().FontSize(bodyFontSize).TextWrapping(TextWrapping.Wrap)
 
-          let inlines = InlineCollection()
-          block.Inlines <- inlines
-          withTags(args, plain, inlines)
-          block
+        let inlines = InlineCollection()
+        block.Inlines <- inlines
+        withTags(args, plain, inlines)
+        block
       | _ ->
         let block =
           TextBlock().FontSize(bodyFontSize).TextWrapping(TextWrapping.Wrap)
@@ -762,39 +764,39 @@ module Parts =
   // One option label with the mentions the body links and, once the
   // option is the viewer's, the check mark that follows it inline.
   let optionLabel(spec: LabelSpec) : Control =
-    if not spec.Marked && spec.Mentions.IsEmpty then
-      TextBlock().Text(spec.Text).TextWrapping(TextWrapping.Wrap)
-    else
-      let block =
+    let block =
+      if not spec.Marked && spec.Mentions.IsEmpty then
+        TextBlock().TextWrapping(TextWrapping.Wrap)
+      else
         TextBlock().FontSize(bodyFontSize).TextWrapping(TextWrapping.Wrap)
 
-      let inlines = InlineCollection()
-      block.Inlines <- inlines
+    let inlines = InlineCollection()
+    block.Inlines <- inlines
 
-      match spec.Mentions with
-      | [] -> inlines.Add(Run spec.Text) |> ignore
-      | _ ->
-        splitMentions(spec.Text, spec.Mentions)
-        |> List.iter(fun piece ->
-          match piece with
-          | Plain plain -> inlines.Add(Run plain) |> ignore
-          | Handle mention ->
-            inlines.Add(handleInline(spec.Flyout, Accent, mention)) |> ignore)
+    match spec.Mentions with
+    | [] -> addEmojiRuns(inlines, spec.Text)
+    | _ ->
+      splitMentions(spec.Text, spec.Mentions)
+      |> List.iter(fun piece ->
+        match piece with
+        | Plain plain -> addEmojiRuns(inlines, plain)
+        | Handle mention ->
+          inlines.Add(handleInline(spec.Flyout, Accent, mention)) |> ignore)
 
-      if spec.Marked then
-        block.FontWeight <- FontWeight.Medium
+    if spec.Marked then
+      block.FontWeight <- FontWeight.Medium
 
-        let check =
-          Icons.iconAt(Glyph.Check, 16.0).Classes(Theme.name Theme.FgAccent)
+      let check =
+        Icons.iconAt(Glyph.Check, 16.0).Classes(Theme.name Theme.FgAccent)
 
-        check.Margin <- Thickness(6.0, 0.0, 0.0, 0.0)
-        check.Name <- $"PollCheck{spec.Text}"
+      check.Margin <- Thickness(6.0, 0.0, 0.0, 0.0)
+      check.Name <- $"PollCheck{spec.Text}"
 
-        let inlineControl = InlineUIContainer(check)
-        inlineControl.BaselineAlignment <- BaselineAlignment.Center
-        inlines.Add(inlineControl) |> ignore
+      let inlineControl = InlineUIContainer(check)
+      inlineControl.BaselineAlignment <- BaselineAlignment.Center
+      inlines.Add(inlineControl) |> ignore
 
-      block
+    block
 
   // One result row: the bar the server's share fills, the label, and
   // the share at the right. The bar sits behind the content, clipped by

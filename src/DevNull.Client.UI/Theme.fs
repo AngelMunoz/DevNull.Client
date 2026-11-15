@@ -51,6 +51,8 @@ module Fonts =
 
   let mono = FontFamily("avares://DevNull.Client.UI/Assets/Fonts#Geist Mono")
 
+  let emoji = FontFamily("Segoe UI Emoji, Noto Color Emoji")
+
 let solid(variant: ThemeVariant, key: string) : IBrush =
   match Application.Current with
   | null -> Brushes.Transparent

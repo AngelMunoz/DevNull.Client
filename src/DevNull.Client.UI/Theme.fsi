@@ -49,6 +49,9 @@ module Fonts =
   /// Geist Mono, the face of hashes, handles, times, and counts.
   val mono: FontFamily
 
+  /// The platform emoji families, used only for emoji runs.
+  val emoji: FontFamily
+
 /// One class name in the style vocabulary.
 type StyleClass =
   | NavItem

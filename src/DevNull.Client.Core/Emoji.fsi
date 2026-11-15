@@ -14,19 +14,24 @@ type Match = {
   Rank: int
 }
 
+/// One span of a plain text value: text keeps the app font; emoji takes
+/// the emoji font.
+type Run =
+  | Text of string
+  | Emoji of string
+
 /// One insertion: the body, the selection it replaces, the emoji to
-/// place there, and the raw cap in UTF-16 units. Start and Finish may
-/// arrive in either order.
+/// place there. Start and Finish may arrive in either order. The caret
+/// stays a UTF-16 index for Avalonia.
 [<Struct>]
 type Insert = {
   Text: string
   Start: int
   Finish: int
   Emoji: string
-  MaxLength: int
 }
 
-/// The text and caret an accepted insertion leaves.
+/// The text and caret an insertion leaves.
 [<Struct>]
 type Inserted = { Text: string; Caret: int }
 
@@ -57,6 +62,10 @@ val search: query: string -> Match array
 /// Inserts the emoji over the range between Start and Finish, or at
 /// the caret when the range is empty, and answers the text with the
 /// caret after the emoji. The range is ordered and clamped into the
-/// text, so a selection dragged in either direction is replaced. An
-/// insertion that would take the text past the raw cap is refused.
-val insertAt: insert: Insert -> Inserted voption
+/// text, so a selection dragged in either direction is replaced.
+val insertAt: insert: Insert -> Inserted
+
+/// Splits plain text into text and emoji runs by grapheme. A grapheme
+/// with the emoji selector, a keycap, a ZWJ, a skin tone, a regional
+/// indicator, or a default emoji-presentation code point is emoji.
+val runs: text: string -> Run list

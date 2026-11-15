@@ -254,6 +254,7 @@ let cell(args: CellArgs) : Border =
   let glyph =
     TextBlock()
       .Text(args.Emoji)
+      .FontFamily(Theme.Fonts.emoji)
       .FontSize(20.0)
       .HorizontalAlignment(HorizontalAlignment.Center)
       .VerticalAlignment(VerticalAlignment.Center)
@@ -352,23 +353,21 @@ let view(props: Props) : Control =
     let start, finish = selection.Value
     let text = bodyText()
 
-    let inserted =
+    popup.IsOpen <- false
+    props.Body.Focus() |> ignore
+
+    let candidate =
       Emoji.insertAt {
         Text = text
         Start = start
         Finish = finish
         Emoji = emoji
-        MaxLength = CommitBodies.maxRawLength
       }
 
-    popup.IsOpen <- false
-    props.Body.Focus() |> ignore
-
-    match inserted with
-    | ValueSome result ->
-      props.Body.Text <- result.Text
-      props.Body.CaretIndex <- result.Caret
-    | ValueNone ->
+    if CommitBodies.accepts candidate.Text then
+      props.Body.Text <- candidate.Text
+      props.Body.CaretIndex <- candidate.Caret
+    else
       let start = min start text.Length
       let finish = min finish text.Length
 
@@ -410,6 +409,7 @@ let view(props: Props) : Control =
   let footerEmoji =
     TextBlock()
       .Name("EmojiFooterGlyph")
+      .FontFamily(Theme.Fonts.emoji)
       .FontSize(24.0)
       .VerticalAlignment(VerticalAlignment.Center)
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Emoji:** Unicode emoji render with the native platform font on Windows and Linux; the Flatpak bundle includes Noto Color Emoji. Emoji-heavy bodies count against the server's limit in Unicode code points, not UTF-16 units.
+
 ## [0.16.0] - 2026-11-14
 
 ### Added

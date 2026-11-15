@@ -26,16 +26,6 @@
     <Compile Include="Program.fs" />
   </ItemGroup>
 
-  <PropertyGroup>
-    <!-- System.Reactive (through NXUI) declares a WindowsDesktop
-         framework reference for every -windows TFM, so the WPF runtime
-         pack rides along into the Native AOT graph. Nothing in this
-         app reaches WPF; the pack's single-file diagnostics
-         (Assembly.Location in framework and WinRT internals) are
-         suppressed here. Revisit when NXUI drops System.Reactive. -->
-    <NoWarn>$(NoWarn);IL3000;IL3002</NoWarn>
-  </PropertyGroup>
-
   <ItemGroup>
     <!-- The assembly version follows CHANGELOG.md, like Core's -->
     <PackageReference Include="Ionide.KeepAChangelog.Tasks" PrivateAssets="all" />

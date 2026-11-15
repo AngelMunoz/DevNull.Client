@@ -305,6 +305,7 @@
     <PackageReference Include="Avalonia.Desktop" />
     <PackageReference Include="Avalonia.Themes.Fluent" />
     <PackageReference Include="NXUI" />
+    <PackageReference Include="System.Reactive" />
     <PackageReference Include="Navs.Avalonia" />
     <PackageReference Include="MVUish.Avalonia" />
 

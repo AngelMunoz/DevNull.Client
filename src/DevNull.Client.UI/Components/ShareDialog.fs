@@ -40,6 +40,7 @@ type Props<'env
   Commit: Commit
   Sent: User -> unit
   Close: unit -> unit
+  OnPushed: (User -> unit) voption
 }
 
 module State =
@@ -104,7 +105,9 @@ module State =
       )
     )
 
-    props.Env.Remotes.SetOpenTarget(Some(Partner recipient))
+    match props.OnPushed with
+    | ValueSome sink -> sink recipient
+    | ValueNone -> props.Env.Remotes.SetOpenTarget(Some(Partner recipient))
 
   let answered(model: Model) : bool =
     model.Answer |> Option.exists(fun (term, _) -> term = termOf model.Term)
@@ -294,12 +297,9 @@ module Parts =
           box.Text |> Option.ofObj |> Option.iter(State.Typed >> dispatch))
 
     let loading =
-      ProgressBar()
+      DevNull.Client.Components.PageChrome
+        .marquee(model |> Observable.map State.searching, Thickness())
         .Name("ShareLoading")
-        .IsIndeterminate(true)
-        .Height(2.0)
-        .MaxHeight(2.0)
-        .IsVisible(model |> Observable.map State.searching)
 
     let failure =
       TextBlock()
@@ -472,6 +472,10 @@ type Page<'env
         (State.update props)
         (view props)
 
-    let root, _ = Programs.runComponent(this, props.Env.Dispatcher, program)
-
-    this.Content <- root
+    Programs.runComponentOnAttach(
+      this,
+      props.Env.Dispatcher,
+      program,
+      fun root -> this.Content <- root
+    )
+    |> ignore

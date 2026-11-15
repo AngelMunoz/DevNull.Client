@@ -16,12 +16,15 @@ type Ride = {
   Viewport: float
 }
 
-/// One virtualized feed: the rows run through an ItemsControl over a
-/// `VirtualizingStackPanel`, so only the rows near the viewport exist.
-/// The feed owns its scroll; `Footer` rides under the last row (the
-/// load-more button). The rows column is capped at 720 device
-/// independent pixels and centered.
+/// One feed: a page under ten rows renders every row; a longer page
+/// runs through a `VirtualizingStackPanel`, so only the rows near the
+/// viewport exist. The feed owns its scroll; `Header` renders above the
+/// first row and `Footer` rides under the last row (the load-more
+/// button). The rows column is capped at 720 device independent pixels
+/// and centered.
 type Props<'T when 'T: equality> = {
+  /// Content above the first row, inside the feed's scroll owner.
+  Header: Control voption
   Items: IObservable<'T list>
   KeyOf: 'T -> string
   Row: 'T -> Control

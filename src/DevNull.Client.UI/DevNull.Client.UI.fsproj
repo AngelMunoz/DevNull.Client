@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <Nullable>enable</Nullable>
     <DebugType>embedded</DebugType>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
@@ -90,8 +90,6 @@
     <Compile Include="Navigation.fs" />
     <Compile Include="Shortcuts.fsi" />
     <Compile Include="Shortcuts.fs" />
-    <Compile Include="Tray.fsi" />
-    <Compile Include="Tray.fs" />
     <Compile Include="Slices.fsi" />
     <Compile Include="Slices.fs" />
     <Compile Include="Components\Status.fsi" />
@@ -172,12 +170,12 @@
     <Compile Include="Components\LiveNow.fs" />
     <Compile Include="Components\ThreadVoice.fsi" />
     <Compile Include="Components\ThreadVoice.fs" />
-    <Compile Include="Views\CommitActions.fsi" />
-    <Compile Include="Views\CommitActions.fs" />
+    <Compile Include="Components\CommitActions.fsi" />
+    <Compile Include="Components\CommitActions.fs" />
+    <Compile Include="Components\TranslationModel.fsi" />
+    <Compile Include="Components\TranslationModel.fs" />
     <Compile Include="Views\CommitRows.fsi" />
     <Compile Include="Views\CommitRows.fs" />
-    <Compile Include="Views\TranslationModel.fsi" />
-    <Compile Include="Views\TranslationModel.fs" />
     <Compile Include="Views\SignInView.fsi" />
     <Compile Include="Views\SignInView.fs" />
     <Compile Include="Views\LogView.fsi" />
@@ -198,6 +196,8 @@
     <Compile Include="Components\ThreadComposer.fs" />
     <Compile Include="Views\Remotes\RemotesTypes.fsi" />
     <Compile Include="Views\Remotes\RemotesTypes.fs" />
+    <Compile Include="Views\Remotes\RemotesThread.fsi" />
+    <Compile Include="Views\Remotes\RemotesThread.fs" />
     <Compile Include="Views\Remotes\RemotesRows.fsi" />
     <Compile Include="Views\Remotes\RemotesRows.fs" />
     <Compile Include="Views\Remotes\RemotesModel.fsi" />
@@ -206,6 +206,8 @@
     <Compile Include="Views\Remotes\RemotesInbox.fs" />
     <Compile Include="Views\Remotes\ThreadPane.fsi" />
     <Compile Include="Views\Remotes\ThreadPane.fs" />
+    <Compile Include="Views\Remotes\RemotesMount.fsi" />
+    <Compile Include="Views\Remotes\RemotesMount.fs" />
     <Compile Include="Views\Remotes\RemotesView.fsi" />
     <Compile Include="Views\Remotes\RemotesView.fs" />
     <Compile Include="Views\SavedView.fsi" />
@@ -226,6 +228,70 @@
     <Compile Include="Views\SearchView.fs" />
     <Compile Include="Views\Routes.fsi" />
     <Compile Include="Views\Routes.fs" />
+    <Compile Include="Layouts\Website\WebsiteLayout.fsi" />
+    <Compile Include="Layouts\Website\WebsiteLayout.fs" />
+    <Compile Include="Layouts\Workbench\WorkbenchTypes.fsi" />
+    <Compile Include="Layouts\Workbench\WorkbenchTypes.fs" />
+    <Compile Include="Layouts\Workbench\WorkbenchSettings.fsi" />
+    <Compile Include="Layouts\Workbench\WorkbenchSettings.fs" />
+    <Compile Include="Layouts\Workbench\RowActions.fsi" />
+    <Compile Include="Layouts\Workbench\RowActions.fs" />
+    <Compile Include="Layouts\Workbench\HistoryColumn.fsi" />
+    <Compile Include="Layouts\Workbench\HistoryColumn.fs" />
+    <Compile Include="Layouts\Workbench\Inspector.fsi" />
+    <Compile Include="Layouts\Workbench\Inspector.fs" />
+    <Compile Include="Layouts\Workbench\WorkbenchChrome.fsi" />
+    <Compile Include="Layouts\Workbench\WorkbenchChrome.fs" />
+    <Compile Include="Layouts\Workbench\Staging.fsi" />
+    <Compile Include="Layouts\Workbench\Staging.fs" />
+    <Compile Include="Layouts\Workbench\ThreadMode.fsi" />
+    <Compile Include="Layouts\Workbench\ThreadMode.fs" />
+    <Compile Include="Layouts\Workbench\RepositoryHome.fsi" />
+    <Compile Include="Layouts\Workbench\RepositoryHome.fs" />
+    <Compile Include="Layouts\Workbench\NotificationsCenter.fsi" />
+    <Compile Include="Layouts\Workbench\NotificationsCenter.fs" />
+    <Compile Include="Layouts\Workbench\WorkbenchHost.fsi" />
+    <Compile Include="Layouts\Workbench\WorkbenchHost.fs" />
+    <Compile Include="Layouts\Editor\EditorCards.fsi" />
+    <Compile Include="Layouts\Editor\EditorCards.fs" />
+    <Compile Include="Layouts\Editor\QuoteCard.fsi" />
+    <Compile Include="Layouts\Editor\QuoteCard.fs" />
+    <Compile Include="Layouts\Editor\EditorTypes.fsi" />
+    <Compile Include="Layouts\Editor\EditorTypes.fs" />
+    <Compile Include="Layouts\Editor\EditorSettings.fsi" />
+    <Compile Include="Layouts\Editor\EditorSettings.fs" />
+    <Compile Include="Layouts\Editor\HistoryTab.fsi" />
+    <Compile Include="Layouts\Editor\HistoryTab.fs" />
+    <Compile Include="Layouts\Editor\ThreadTab.fsi" />
+    <Compile Include="Layouts\Editor\ThreadTab.fs" />
+    <Compile Include="Layouts\Editor\RepoTab.fsi" />
+    <Compile Include="Layouts\Editor\RepoTab.fs" />
+    <Compile Include="Layouts\Editor\TabStrip.fsi" />
+    <Compile Include="Layouts\Editor\TabStrip.fs" />
+    <Compile Include="Layouts\Editor\ActivityBar.fsi" />
+    <Compile Include="Layouts\Editor\ActivityBar.fs" />
+    <Compile Include="Layouts\Editor\Explorer.fsi" />
+    <Compile Include="Layouts\Editor\Explorer.fs" />
+    <Compile Include="Layouts\Editor\StatusBar.fsi" />
+    <Compile Include="Layouts\Editor\StatusBar.fs" />
+    <Compile Include="Layouts\Editor\EditorPanel.fsi" />
+    <Compile Include="Layouts\Editor\EditorPanel.fs" />
+    <Compile Include="Layouts\Editor\Palette.fsi" />
+    <Compile Include="Layouts\Editor\Palette.fs" />
+    <Compile Include="Layouts\Editor\ListTab.fsi" />
+    <Compile Include="Layouts\Editor\ListTab.fs" />
+        <Compile Include="Layouts\Editor\SearchTab.fsi" />
+    <Compile Include="Layouts\Editor\SearchTab.fs" />
+    <Compile Include="Layouts\Editor\RemoteThreadTab.fsi" />
+    <Compile Include="Layouts\Editor\RemoteThreadTab.fs" />
+    <Compile Include="Layouts\Editor\RemoteList.fsi" />
+    <Compile Include="Layouts\Editor\RemoteList.fs" />
+<Compile Include="Layouts\Editor\EditorRoot.fsi" />
+    <Compile Include="Layouts\Editor\EditorRoot.fs" />
+    <Compile Include="Layouts.fsi" />
+    <Compile Include="Layouts.fs" />
+    <Compile Include="Tray.fsi" />
+    <Compile Include="Tray.fs" />
     <Compile Include="Shell.fsi" />
     <Compile Include="Shell.fs" />
     <Compile Include="Startup.fsi" />

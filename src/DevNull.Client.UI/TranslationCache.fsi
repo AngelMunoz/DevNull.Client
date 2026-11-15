@@ -4,33 +4,28 @@ open System
 open DevNull.Client.Core.ApiTypes
 open Microsoft.Extensions.Logging
 
-/// The translations fetched before, by commit id: memory first, then one
-/// file per commit under the given tier. No member blocks its caller on
-/// a file: the reads and writes ride the caller's async. The log names
-/// each answer, so a request trail shows the disk coming first.
+/// The translations fetched before, by commit id: one file per commit
+/// under the given tier. No member blocks its caller on a file: the reads
+/// and writes ride the caller's async. The cache keeps no process-wide
+/// dictionary and runs no startup scan; every answer is read on demand.
 type TranslationCache =
-  /// The translation held for one commit, from the memory tier or the
-  /// file tier. A file answer also joins the memory tier.
+  /// The translation held for one commit, from the file tier alone.
+  /// A missing, expired, or corrupt file answers `None`.
   abstract TryGet: commitId: string -> Async<CommitTranslation option>
 
-  /// Keeps one answer: the value in memory, and the server's own JSON on
-  /// the file tier. An answer with no translation drops both, and the
-  /// drop sweeps foreign files away beside it.
+  /// Keeps one answer: the server's own JSON on the file tier. An answer
+  /// with no translation drops the file instead.
   abstract Set: commitId: string * payload: TranslationPayload -> Async<unit>
 
-  /// Drops one commit's translation, when the site says it has none, and
-  /// sweeps foreign files away beside it.
+  /// Drops one commit's file, when the site says it has none, and sweeps
+  /// foreign files away beside it.
   abstract Forget: commitId: string -> Async<unit>
-
-  /// Every translation still under its seven-day bound, for a page that
-  /// mounts. The memory tier only.
-  abstract Snapshot: unit -> Map<string, CommitTranslation>
 
 /// Accessor for the translation cache capability.
 type IProvideTranslations =
   abstract Translations: TranslationCache
 
-/// The translation cache over its memory tier and one file tier.
+/// The translation cache over one file tier.
 module TranslationCache =
 
   /// The cache's own file tier, injected: read one file with its write
@@ -44,9 +39,10 @@ module TranslationCache =
     List: unit -> string list
   }
 
-  /// The app's own cache: the directory under the local app data.
+  /// The app's cache: the directory under the local app data.
   val create: directory: string * log: ILogger -> TranslationCache
 
-  /// The cache over the given directory and file tier.
+  /// The cache over the given directory and file tier. Construction reads
+  /// no file and lists none.
   val createWith:
     directory: string * files: Files * log: ILogger -> TranslationCache

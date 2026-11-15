@@ -434,6 +434,7 @@ let view(props: Props) : Control =
 
   let scroller =
     Feed.view {
+      Header = ValueNone
       Items = blocks
       KeyOf = keyOf
       Row = fun block -> blockView(props, pick, block)

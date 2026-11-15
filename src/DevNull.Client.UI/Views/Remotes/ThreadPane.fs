@@ -8,24 +8,63 @@ open Avalonia.Layout
 open Avalonia.VisualTree
 open NXUI.Extensions
 open FSharp.Control.Reactive
+open FSharp.UMX
 open MVUish.Avalonia
 open DevNull.Client
+open DevNull.Client.AttachmentSources
 open DevNull.Client.Components
 open DevNull.Client.Components.ThreadComposer
 open DevNull.Client.Components.ThreadVoice
+open DevNull.Client.Core
 open DevNull.Client.Core.ApiTypes
+open DevNull.Client.Core.Capabilities
+open DevNull.Client.Core.Http
+open DevNull.Client.Env
+open DevNull.Client.ImageCache
 open DevNull.Client.Natives
+open DevNull.Client.Profiles
+open DevNull.Client.Remotes
 open DevNull.Client.RemotesState
+open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
+open DevNull.Client.UiClock
 
 module ThreadPane =
+
+  type TabModel = {
+    Thread: ThreadState
+    Model: State.ThreadModel
+  }
+
+  type ForTargetArgs<'env
+    when 'env :> IProvideClock
+    and 'env :> IProvideNonceSource
+    and 'env :> IProvideSigner
+    and 'env :> IProvideHttp
+    and 'env :> IProvideDispatcher
+    and 'env :> IProvideSession
+    and 'env :> IProvideUiClock
+    and 'env :> IProvideImageCache
+    and 'env :> IProvideProfiles
+    and 'env :> IProvideSettings
+    and 'env :> IProvideAttachmentSources
+    and 'env :> IProvideNatives
+    and 'env :> IProvideRemotes
+    and 'env :> IProvideBrowser
+    and 'env :> IProvideLogging> = {
+    Props: Props<'env>
+    Target: ChatTarget
+    Model: IObservable<TabModel>
+    Dispatch: Dispatch<State.Msg>
+  }
 
   // What the page's remaining thread code shares with the message
   // rows it composes: the dispatch and model it still owns, the
   // viewer, whether the thread is an org's, and the message media.
   type RowCtx = {
     Dispatch: Dispatch<State.Msg>
-    Model: IObservable<State.Model>
+    Model: IObservable<TabModel>
+    Usage: IObservable<ReactionUse list>
     ViewerId: string
     IsOrg: bool
     Media: ThreadMessage.Media
@@ -166,7 +205,7 @@ module ThreadPane =
       Flash =
         ctx.Model
         |> Observable.map(fun current ->
-          match current.Landing with
+          match current.Model.Landing with
           | Some(State.Message(id, beat)) when id = message.Id ->
             ValueSome beat
           | _ -> ValueNone)
@@ -241,12 +280,9 @@ module ThreadPane =
   // the landing token and the feed's tail report.
   let feed(ask: FeedAsk) : ScrollViewer =
     let ctx = ask.Ctx
-    let key = ask.Key
 
     let liveThread =
-      ctx.Model
-      |> Observable.map(fun current -> current.State.Threads |> Map.tryFind key)
-      |> Observable.distinctUntilChanged
+      ask.Thread |> Observable.map Some |> Observable.distinctUntilChanged
 
     let rowItems =
       ask.Thread
@@ -258,11 +294,7 @@ module ThreadPane =
           Thread = current
         })
 
-    let usage =
-      ctx.Model
-      |> Observable.map(fun current ->
-        current.State.ReactionUsage |> Option.defaultValue [])
-      |> Observable.distinctUntilChanged
+    let usage = ctx.Usage
 
     let row(item: State.ThreadRow) : Control =
       match item with
@@ -281,7 +313,9 @@ module ThreadPane =
         )
 
     let landings =
-      ctx.Model |> Observable.map _.Landing |> Observable.distinctUntilChanged
+      ctx.Model
+      |> Observable.map _.Model.Landing
+      |> Observable.distinctUntilChanged
 
     let scrollTo =
       landings
@@ -293,6 +327,7 @@ module ThreadPane =
 
     let scroller =
       (Feed.view {
+        Header = ValueNone
         Items = rowItems
         KeyOf = RemotesRows.threadRowKey
         Row = row
@@ -399,9 +434,23 @@ module ThreadPane =
   // the dispatch.
   [<Struct>]
   type PaneCore = {
-    Model: IObservable<State.Model>
+    Model: IObservable<TabModel>
+    Usage: IObservable<ReactionUse list>
     Dispatch: Dispatch<State.Msg>
   }
+
+  let inline tabOf
+    (state: State.Model, target: ChatTarget, key: string)
+    : TabModel = {
+    Thread =
+      state.State.Threads
+      |> Map.tryFind key
+      |> Option.defaultValue(RemotesState.emptyThread target)
+    Model = state.Thread
+  }
+
+  let inline usageOf(state: State.Model) : ReactionUse list =
+    state.State.ReactionUsage |> Option.defaultValue []
 
   // What one pane build picks up: the note stage, the target, and its
   // key.
@@ -432,8 +481,7 @@ module ThreadPane =
     let rowsGrid = Grid()
 
     let paneWidth =
-      rowsGrid.GetObservable(Visual.BoundsProperty)
-      |> Observable.map(fun bounds -> bounds.Width)
+      rowsGrid.GetObservable(Visual.BoundsProperty) |> Observable.map _.Width
 
     let media: ThreadMessage.Media = {
       Cache = props.Env.ImageCache
@@ -449,6 +497,7 @@ module ThreadPane =
     let ctx: RowCtx = {
       Dispatch = dispatch
       Model = model
+      Usage = core.Usage
       ViewerId = props.Session.Session.User.Id
       IsOrg = isOrg
       Media = media
@@ -456,12 +505,7 @@ module ThreadPane =
         ValueSome(fun url -> props.Env.Browser.Open(url) |> ignore)
     }
 
-    let thread =
-      model
-      |> Observable.map(fun current ->
-        current.State.Threads
-        |> Map.tryFind key
-        |> Option.defaultValue(RemotesState.emptyThread target))
+    let thread = model |> Observable.map _.Thread
 
     let restore =
       props.Env.Remotes.ScrollPlaceOf key |> ValueOption.defaultValue 0.0
@@ -508,7 +552,7 @@ module ThreadPane =
                 .Content(
                   PageChrome.rebuildOn(
                     thread,
-                    (fun current -> current.Members),
+                    _.Members,
                     (fun current ->
                       ThreadMenus.memberStack(media.Cache, current.Members))
                   )
@@ -518,9 +562,7 @@ module ThreadPane =
           :> Control
 
       let menuActions: ThreadMenus.MenuActions = {
-        ViewProfile =
-          fun user ->
-            Navigation.go(props.Nav, "/profile/" + user.Handle, ignore)
+        ViewProfile = fun user -> props.OnOpenProfile user.Handle
         Pin = fun wanted -> dispatch(State.PinWanted wanted)
         Archive = fun wanted -> dispatch(State.ArchiveWanted wanted)
         Mute = fun how -> dispatch(State.MuteWanted how)
@@ -534,14 +576,13 @@ module ThreadPane =
 
       let busy =
         model
-        |> Observable.map(fun current -> current.Busy.IsSome)
+        |> Observable.map _.Model.Busy.IsSome
         |> Observable.distinctUntilChanged
 
       let actions =
         ThreadMenus.actionsMenu {
           Target = target
-          Pinned =
-            thread |> Observable.map(fun current -> current.PinnedAt.IsSome)
+          Pinned = thread |> Observable.map _.PinnedAt.IsSome
           Archived = thread |> Observable.map _.IsArchived
           Busy = busy
           Actions = menuActions
@@ -559,7 +600,7 @@ module ThreadPane =
             .Content(
               PageChrome.rebuildOn(
                 thread,
-                (fun current -> current.MentionsCount),
+                _.MentionsCount,
                 (fun current ->
                   if current.MentionsCount <= 0 then
                     Panel() :> Control
@@ -616,9 +657,9 @@ module ThreadPane =
                 ViewerId = props.Session.Session.User.Id
                 ViewerHandle = props.Session.Session.User.Handle
                 Thread = thread
-                Rename = model |> Observable.map _.OrgRename
-                Picked = model |> Observable.map _.OrgMembers
-                Shared = model |> Observable.map _.OrgShare
+                Rename = model |> Observable.map _.Model.OrgRename
+                Picked = model |> Observable.map _.Model.OrgMembers
+                Shared = model |> Observable.map _.Model.OrgShare
                 Busy = busy
                 Actions = orgActions
               },
@@ -627,9 +668,26 @@ module ThreadPane =
           :> Control
         | Partner _ -> actions
 
+      let close =
+        Button()
+          .Name("ThreadClose")
+          .Classes(Theme.name Theme.GhostButton)
+          .Content(Icons.iconAt(Icons.Glyph.Close, 12.0))
+          .Margin(Thickness(0.0, 0.0, 8.0, 0.0))
+          .OnClickHandler(fun _ args ->
+            args.Handled <- true
+            dispatch State.Closed)
+
+      ToolTip.SetTip(close, "Close chat")
+
       DockPanel()
         .LastChildFill(true)
-        .Children(menu.Dock(Dock.Right), bell.Dock(Dock.Right), identity)
+        .Children(
+          close.Dock(Dock.Right),
+          menu.Dock(Dock.Right),
+          bell.Dock(Dock.Right),
+          identity
+        )
 
     let loadingOlder = thread |> Observable.map _.IsLoadingOlder
 
@@ -649,14 +707,15 @@ module ThreadPane =
     let awayFromPresent =
       model
       |> Observable.map(fun current ->
-        (not current.Riding && current.Behind) || current.Unseen > 0)
+        not current.Model.Riding && current.Model.Behind
+        || current.Model.Unseen > 0)
       |> Observable.distinctUntilChanged
 
     let presentLabel =
       model
       |> Observable.map(fun current ->
-        if current.Unseen > 0 then
-          $"{current.Unseen} new"
+        if current.Model.Unseen > 0 then
+          $"{current.Model.Unseen} new"
         else
           "back to present")
       |> Observable.distinctUntilChanged
@@ -666,7 +725,9 @@ module ThreadPane =
     // The pinned panel stands over the reading while it is open; the
     // banner row over the pane's top opens it.
     let pinned =
-      model |> Observable.map _.PinnedPanel |> Observable.distinctUntilChanged
+      model
+      |> Observable.map _.Model.PinnedPanel
+      |> Observable.distinctUntilChanged
 
     let listHost =
       Panel()
@@ -692,7 +753,7 @@ module ThreadPane =
         OnOpen = fun () -> dispatch(State.PinnedPanelWanted true)
       }
 
-    let noticeLine = ThreadChrome.notice(model |> Observable.map _.Notice)
+    let noticeLine = ThreadChrome.notice(model |> Observable.map _.Model.Notice)
 
     let composerServices: ThreadComposer.Services = {
       ViewerId = props.Session.Session.User.Id
@@ -726,7 +787,7 @@ module ThreadPane =
         .Content(
           PageChrome.rebuildOn(
             thread,
-            (fun current -> current.Access),
+            _.Access,
             (fun current ->
               match current.Access with
               | PushOpen ->
@@ -738,12 +799,12 @@ module ThreadPane =
                     thread
                     |> Observable.map(fun current ->
                       RemotesRows.typingNames(isOrg, current))
-                  Draft = model |> Observable.map _.Draft
-                  Images = model |> Observable.map _.Images
-                  LinkChoice = model |> Observable.map _.LinkChoice
-                  Mention = model |> Observable.map _.Mention
-                  Voice = model |> Observable.map _.Voice
-                  Recording = model |> Observable.map _.Recording
+                  Draft = model |> Observable.map _.Model.Draft
+                  Images = model |> Observable.map _.Model.Images
+                  LinkChoice = model |> Observable.map _.Model.LinkChoice
+                  Mention = model |> Observable.map _.Model.Mention
+                  Voice = model |> Observable.map _.Model.Voice
+                  Recording = model |> Observable.map _.Model.Recording
                   Actions = composerActions
                 }
               | PushRequest
@@ -802,11 +863,11 @@ module ThreadPane =
         ThreadChrome.pinDialog {
           Open =
             model
-            |> Observable.map(fun current -> current.PinAsk.IsSome)
+            |> Observable.map _.Model.PinAsk.IsSome
             |> Observable.distinctUntilChanged
           Busy =
             model
-            |> Observable.map(fun current -> current.Busy.IsSome)
+            |> Observable.map _.Model.Busy.IsSome
             |> Observable.distinctUntilChanged
           OnConfirm = fun keep -> dispatch(State.PinConfirmed keep)
           OnCancel = fun () -> dispatch State.PinAskCancelled
@@ -830,22 +891,65 @@ module ThreadPane =
       |> Observable.map _.State.OpenTarget
       |> Observable.distinctUntilChangedKey(Option.map ChatTargets.key)
 
-    let core: PaneCore = { Model = model; Dispatch = dispatch }
-
     ContentControl()
       .Content(
         checkedOut
         |> Observable.map(function
           | Some target ->
+            let key = ChatTargets.key target
+
+            let tabModel =
+              model
+              |> Observable.map(fun current -> tabOf(current, target, key))
+
+            let usage =
+              model |> Observable.map usageOf |> Observable.distinctUntilChanged
+
             pane(
               props,
-              core,
+              {
+                Model = tabModel
+                Usage = usage
+                Dispatch = dispatch
+              },
               {
                 Solo = solo
                 Target = target
-                Key = ChatTargets.key target
+                Key = key
               }
             )
           | None -> Parts.noThread())
+        |> _.ToBinding()
+      )
+
+  let forTarget(args: ForTargetArgs<'env>) : Control =
+    let solo = Solo()
+    let target = args.Target
+    let key = ChatTargets.key target
+
+    let core: PaneCore = {
+      Model = args.Model
+      Usage = Observable.single []
+      Dispatch = args.Dispatch
+    }
+
+    let shown =
+      args.Model
+      |> Observable.map(fun _ -> target)
+      |> Observable.distinctUntilChangedKey(ChatTargets.key)
+
+    ContentControl()
+      .Content(
+        shown
+        |> Observable.map(fun fixedTarget ->
+          pane(
+            args.Props,
+            core,
+            {
+              Solo = solo
+              Target = fixedTarget
+              Key = key
+            }
+          ))
         |> _.ToBinding()
       )

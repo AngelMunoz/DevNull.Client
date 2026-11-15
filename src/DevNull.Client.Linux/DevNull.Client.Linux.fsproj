@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <!-- The shipped executable keeps the product name: the scheme
          handlers of existing installs point at it -->
     <AssemblyName>DevNull.Client</AssemblyName>

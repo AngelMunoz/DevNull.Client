@@ -1,6 +1,7 @@
 module DevNull.Client.Components.SearchDialog
 
 open System
+open System.Reactive.Disposables
 open System.Text.RegularExpressions
 open Avalonia
 open Avalonia.Controls
@@ -44,6 +45,7 @@ type Props<'env
   Searches: Session
   Recents: RecentSearchStore
   Nav: INavigable
+  InitialTerm: string option
   OpenCompose: unit -> unit
   Close: unit -> unit
 }
@@ -86,8 +88,10 @@ module State =
     | ClockTicked of moment: DateTimeOffset
 
   let initial (props: Props<'env>) () : Model * Cmd<Msg> =
+    let term = props.InitialTerm |> Option.defaultValue ""
+
     let model = {
-      Term = ""
+      Term = term
       Active = 0
       Profiles = ValueNone
       Commits = ValueNone
@@ -96,7 +100,13 @@ module State =
       Remembered = ""
     }
 
-    model, Cmd.none
+    let seed =
+      if term.Trim() = "" then
+        Cmd.none
+      else
+        Cmd.ofAction(fun () -> props.Searches.Set term)
+
+    model, seed
 
   let inline trimmed(model: Model) = model.Term.Trim()
 
@@ -453,12 +463,10 @@ module Parts =
         )
 
     let loadingLine =
-      ProgressBar()
-        .IsIndeterminate(true)
-        .Height(2.0)
-        .MaxHeight(2.0)
-        .Margin(0, 8)
-        .IsVisible(model |> Observable.map State.searching)
+      DevNull.Client.Components.PageChrome.marquee(
+        model |> Observable.map State.searching,
+        Thickness(0.0, 8.0)
+      )
 
     StackPanel().Margin(8, 16).Children(row, loadingLine)
 
@@ -743,6 +751,24 @@ let view
 
   card
 
+/// Starts the dialog as a host-owned child: the program runs on the
+/// given dispatcher until the returned handle is disposed, and the
+/// handle disposes the search session with it. The handle holds no
+/// view, so a host may keep it for the child's whole lifetime.
+let mount
+  (dispatcher: Avalonia.Threading.IDispatcher, props: Props<'env>)
+  : Control * IDisposable =
+  let program =
+    Program.mkProgram (State.initial props) (State.update props) (view props)
+    |> Program.withSubscription(State.subscribe props)
+
+  let dialog, handle = Programs.runPage(dispatcher, program)
+
+  dialog,
+  Disposable.Create(fun () ->
+    handle.Dispose()
+    (props.Searches :> IDisposable).Dispose())
+
 type Page<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
@@ -755,16 +781,34 @@ type Page<'env
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
   inherit UserControl()
 
+  let program =
+    Program.mkProgram (State.initial props) (State.update props) (view props)
+    |> Program.withSubscription(State.subscribe props)
+
+  let childHandle =
+    Programs.runComponentOnAttach(
+      this,
+      props.Env.Dispatcher,
+      program,
+      fun root -> this.Content <- root
+    )
+
+  let lifetime =
+    Disposable.Create(fun () ->
+      this.Tag <- null
+      this.Content <- null
+      (props.Searches :> IDisposable).Dispose()
+      childHandle.Dispose())
+
   do
-    let program =
-      Program.mkProgram (State.initial props) (State.update props) (view props)
-      |> Program.withSubscription(State.subscribe props)
-
-    let root, _ = Programs.runComponent(this, props.Env.Dispatcher, program)
-
-    this.Content <- root
+    // The close path reads the top-level back from Tag; the page itself
+    // does not otherwise use it.
+    this.AttachedToVisualTree.Add(fun _ ->
+      this.Tag <- TopLevel.GetTopLevel(this))
 
     // The overlay's content is released on close; the session's pipes
     // go with it.
-    this.DetachedFromVisualTree.Add(fun _ ->
-      (props.Searches :> IDisposable).Dispose())
+    this.DetachedFromVisualTree.Add(fun _ -> lifetime.Dispose())
+
+  interface IDisposable with
+    member _.Dispose() = lifetime.Dispose()

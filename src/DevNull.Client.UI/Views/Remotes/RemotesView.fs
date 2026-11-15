@@ -1,14 +1,12 @@
 module DevNull.Client.Views.RemotesView
 
-open System
+open System.Reactive.Disposables
+open System.Reactive.Subjects
 open Avalonia.Controls
-open FSharp.Control.Reactive
-open MVUish.Avalonia
-open DevNull.Client
 open DevNull.Client.AttachmentSources
-open DevNull.Client.Components
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
+open DevNull.Client.Components
 open DevNull.Client.Env
 open DevNull.Client.ImageCache
 open DevNull.Client.Natives
@@ -17,22 +15,7 @@ open DevNull.Client.Remotes
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
-
-// The page's own composition: the inbox column and the thread column
-// through the shared two-pane frame; the program drives them all.
-let view
-  (props: Props<'env>)
-  (model: IObservable<State.Model>)
-  (dispatch: Dispatch<State.Msg>)
-  : Control =
-
-  SplitChrome.view {
-    Side = Parts.inbox(props, model, dispatch)
-    Main = ThreadPane.column(props, model, dispatch)
-    MainOpen =
-      model |> Observable.map(fun current -> current.State.OpenTarget.IsSome)
-    OnBack = fun () -> dispatch State.Closed
-  }
+open Navs
 
 type Page<'env
   when 'env :> IProvideClock
@@ -49,18 +32,36 @@ type Page<'env
   and 'env :> IProvideNatives
   and 'env :> IProvideRemotes
   and 'env :> IProvideBrowser
-  and 'env :> IProvideLogging>(props: Props<'env>) as this =
+  and 'env :> IProvideLogging>(props: Props<'env>, context: RouteContext) as this
+  =
   inherit UserControl()
 
   do
-    let program =
-      Program.mkProgram
-        (RemotesModel.init props)
-        (RemotesModel.update props)
-        (view props)
-      |> Program.withSubscription(RemotesModel.subscribe props)
+    let opened =
+      new BehaviorSubject<bool>(props.Env.Remotes.Current.OpenTarget.IsSome)
 
-    let root, lifetime = Programs.runPage(props.Env.Dispatcher, program)
+    let mount =
+      RemotesMount.mount(
+        props.Env.Dispatcher,
+        {
+          Env = props.Env
+          Session = props.Session
+          OnOpenProfile = props.OnOpenProfile
+          OnTargetChanged = fun target -> opened.OnNext target.IsSome
+        }
+      )
 
-    this.Content <- root
-    props.Context.AddDisposable lifetime
+    this.Content <-
+      SplitChrome.view {
+        Side = mount.Inbox
+        Main = mount.Thread
+        MainOpen = opened
+        OnBack = fun () -> mount.Send State.Closed
+      }
+
+    context.AddDisposable(
+      Disposable.Create(fun () ->
+        mount.Lifetime.Dispose()
+        opened.OnCompleted()
+        opened.Dispose())
+    )

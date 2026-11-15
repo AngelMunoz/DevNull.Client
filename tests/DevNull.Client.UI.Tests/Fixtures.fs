@@ -1556,6 +1556,16 @@ let manyCardsApi() =
        | ValueSome answer -> answer
        | ValueNone -> ok "{}"))
 
+/// The api of the long recycle test: a feed long enough to virtualize.
+let longCardsApi() =
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/log/" then
+      ok(manyCardsPageJson 20)
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
 /// One commit by another user, so a stranger's newer commit can sit
 /// above the viewer's own.
 let strangerCommitJson(id: string, hash: string, body: string, date: string) =
@@ -1902,6 +1912,37 @@ let groupedInboxApi() =
       ok groupedInboxJson
     elif request.Target.StartsWith "/api/v1/log/" then
       ok logPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
+/// The scheduled queue's empty page.
+let emptyQueueJson =
+  """{"data":[],"links":{"first":null,"last":null,"prev":null,"next":null},"meta":{"current_page":1,"from":0,"last_page":1,"path":"","per_page":20,"to":0,"total":0}}"""
+
+/// The workbench host's fake layer: every surface the frame starts reads
+/// from a canned answer, so a request count sees the workbench alone.
+let workbenchApi() =
+  FakeApi(fun request ->
+    if request.Target.StartsWith "/api/v1/starred" then
+      ok logPageJson
+    elif request.Target.EndsWith "/star" then
+      ok commitJson
+    elif request.Target.StartsWith "/api/v1/scheduled-commits" then
+      ok emptyQueueJson
+    elif request.Target.StartsWith "/api/v1/notifications" then
+      ok groupedInboxJson
+    elif request.Target.StartsWith "/api/v1/search/commits" then
+      ok(sprintf "{\"data\":[%s]}" commitJson)
+    elif request.Target.StartsWith "/api/v1/search/profiles" then
+      ok """{"users":[],"organizations":[]}"""
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    elif request.Target.Contains "/replies" then
+      ok repliesPageJson
+    elif request.Target.StartsWith "/api/v1/commits/" then
+      ok threadPageJson
     else
       (match accountAnswer request with
        | ValueSome answer -> answer

@@ -105,6 +105,8 @@ type Tail(stick: bool) =
     }
 
 type Props<'T when 'T: equality> = {
+  /// Content above the first row, inside the feed's scroll owner.
+  Header: Control voption
   Items: IObservable<'T list>
   KeyOf: 'T -> string
   Row: 'T -> Control
@@ -132,14 +134,53 @@ let view(props: Props<'T>) : ScrollViewer =
       false
     )
 
-  let items =
+  let gated = props.Items |> Slices.gateByRef
+
+  // A short page renders every row: the reading column rarely scrolls,
+  // and a virtualizing panel would leave some rows unbuilt. A long page
+  // runs through the VirtualizingStackPanel, so only the rows near the
+  // viewport exist. The list is built again only when the page crosses
+  // that boundary, so the retired list and its realized rows do not stay
+  // reachable from the feed.
+  let build(long: bool) : Control =
     ItemsControl()
       .ItemTemplate(template)
-      .ItemsPanel(FuncTemplate<Panel>(fun () -> VirtualizingStackPanel()))
-      .BindItemsSource(props.Items |> Slices.gateByRef, props.KeyOf)
+      .ItemsPanel(
+        FuncTemplate<Panel>(fun () ->
+          if long then
+            VirtualizingStackPanel() :> Panel
+          else
+            StackPanel())
+      )
+      .BindItemsSource(gated, props.KeyOf)
+
+  let current = ref(ValueNone: (bool * Control) voption)
+
+  let select(rows: 'T list) : Control =
+    let long = rows.Length >= 10
+
+    match current.Value with
+    | ValueSome(mode, control) when mode = long -> control
+    | previous ->
+      match previous with
+      | ValueSome(_, old) ->
+        match old with
+        | :? ItemsControl as stale -> stale.ItemsSource <- Array.empty<obj>
+        | _ -> ()
+      | ValueNone -> ()
+
+      let next = build long
+      current.Value <- ValueSome(long, next)
+      next
+
+  let list =
+    ContentControl().Content(gated |> Observable.map select |> _.ToBinding())
 
   let children: Control array = [|
-    items
+    match props.Header with
+    | ValueNone -> ()
+    | ValueSome header -> header
+    list
     match props.Footer with
     | ValueNone -> ()
     | ValueSome footer -> footer

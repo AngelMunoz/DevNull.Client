@@ -1,25 +1,24 @@
 ﻿module DevNull.Client.Views.CommitDetailView
 
 open System
-open System.Collections.Generic
 open System.Reactive.Disposables
 open System.Reactive.Subjects
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
 open Avalonia.Controls.Shapes
-open Avalonia.Controls.Templates
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
-open MVUish.Avalonia.Collections
 open Navs
 open DevNull.Client
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Components
+open DevNull.Client.Components.CommitActions
 open DevNull.Client.Components.CommitCard
+open DevNull.Client.Components.TranslationModel
 open DevNull.Client.Components.UserFlyout
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
@@ -263,10 +262,7 @@ module State =
       initial with
           Pasteis = props.Session.Session.PasteisMode
           Automatic = props.Session.Session.AutomaticTranslation
-          Translations =
-            TranslationModel.seed(
-              (props.Env :> IProvideTranslations).Translations.Snapshot()
-            )
+          Translations = TranslationModel.initial
           Quoting = props.Quoting
     },
     Cmd.batch [
@@ -1331,21 +1327,26 @@ module Parts =
 
   // The ancestor chain above the card.
   let ancestors(props: Props<'env>, model: IObservable<State.Model>) : Control =
-    ItemsControl()
-      .ItemTemplate(
-        FuncDataTemplate<CommitNode>(
-          (fun node _ -> ancestorRow(props, node)),
-          false
-        )
-      )
-      .BindItemsSource(
+    (Feed.view {
+      Header = ValueNone
+      Items =
         model
         |> Observable.map(fun current ->
           match current.Page with
-          | Some page -> page.Ancestors :> IReadOnlyList<CommitNode>
-          | None -> [] :> IReadOnlyList<CommitNode>),
-        FeedParts.nodeKey
-      )
+          | Some page -> page.Ancestors
+          | None -> [])
+      KeyOf = FeedParts.nodeKey
+      Row = fun node -> ancestorRow(props, node)
+      Footer = ValueNone
+      HasMore = Observable.single false
+      ScrollTo = ValueNone
+      Ride = false
+      Restore = ValueNone
+      OnScroll = ValueNone
+      OnRide = ValueNone
+      OnNeedMore = ValueNone
+    })
+      .MaxHeight(320.0)
 
   // The reply column under the card: the root replies as the site's
   // slim chain. The focused card runs its lane tail to its bottom
@@ -1581,12 +1582,9 @@ module Parts =
         .OnClickHandler(fun _ _ -> dispatch State.StarsMore)
 
     let loading =
-      ProgressBar()
+      DevNull.Client.Components.PageChrome
+        .marquee(model |> Observable.map _.StarsBusy, Thickness())
         .Name("StarsLoading")
-        .IsIndeterminate(true)
-        .Height(2.0)
-        .MaxHeight(2.0)
-        .IsVisible(model |> Observable.map _.StarsBusy)
 
     let failure =
       StackPanel()
@@ -1666,25 +1664,29 @@ module Parts =
             .Text("Related commits")
         )
 
-    let rows =
-      ItemsControl()
-        .ItemTemplate(
-          FuncDataTemplate<CommitNode>(
-            (fun node _ -> CommitCard.feedRow ctx.Rows node),
-            false
-          )
-        )
-        .BindItemsSource(
-          model |> Observable.map(fun current -> current.Related),
-          FeedParts.nodeKey
-        )
+    let feed =
+      (Feed.view {
+        Header = ValueSome header
+        Items = model |> Observable.map(fun current -> current.Related)
+        KeyOf = FeedParts.nodeKey
+        Row = fun node -> CommitCard.feedRow ctx.Rows node
+        Footer = ValueNone
+        HasMore = Observable.single false
+        ScrollTo = ValueNone
+        Ride = false
+        Restore = ValueNone
+        OnScroll = ValueNone
+        OnRide = ValueNone
+        OnNeedMore = ValueNone
+      })
+        .MaxHeight(480.0)
 
     Border()
       .Name("RelatedCommits")
       .Classes(Theme.name Theme.Hairline)
       .BorderThickness(Thickness(0.0, 1.0, 0.0, 0.0))
       .Margin(0.0, 16.0, 0.0, 0.0)
-      .Child(StackPanel().Children(header, rows))
+      .Child(feed)
       .IsVisible(
         model
         |> Observable.map(fun current ->
@@ -1814,6 +1816,7 @@ let view
                   dispatch State.ShareClosed
                   dispatch State.Shared
               Close = fun () -> dispatch State.ShareClosed
+              OnPushed = ValueNone
             }
           | ValueNone -> Panel()
       Scrim = true

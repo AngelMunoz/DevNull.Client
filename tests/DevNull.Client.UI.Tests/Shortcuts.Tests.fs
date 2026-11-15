@@ -346,12 +346,12 @@ let tests =
               Actions = {
                 Compose = ignore
                 Search = ignore
-                Help = ignore
                 Escape = fun () -> hits.Add()
                 Navigate = ignore
                 ToggleFullScreen = ignore
                 WalkCards = ignore
               }
+              Help = ignore
               OverlayOpen = fun () -> false
             }
 

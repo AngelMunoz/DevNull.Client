@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Workbench:** a second layout for wide screens — the feed as a source-control workbench with a refs tree, one history in the center, the checked-out commit in an inspector pane, a staging area for writing, and a status bar naming the ref, the lane, and the signing key. Pick it in Settings under Appearance; the change applies at once, and the default layout is one click back. Remotes, the More menu, and translations stay in the default layout.
+- **Editor:** a third layout for wide screens — the feed as an editor: a pinned history tab, one tab per open thread with dirty dots, a notifications/activity/terminal panel, a command palette, and profiles as repository tabs with shields and contribution graphs. Pick it in Settings; the window's keyboard shortcuts and tray verbs reach it fully with its next integration.
+- **Layouts:** the help key opens a keyboard cheatsheet in every layout, listing the keys the mounted layout answers; Escape closes it first.
+- **Settings:** an Appearance row names the layout the window shows; a pick changes it at once, with no restart. The site's own layout is the default.
+- **Remotes:** the inbox and the open thread share one router-free mount, so future layouts can host them side by side; the Website page looks and acts as before.
+- **Workbench:** the refs rail gains a Remotes row with the unread count; selecting it shows the conversation list in the center and opens each chat in the right pane, one chat at a time, with the checkout closing as the chat opens and back.
+- **Editor:** the Remotes activity opens the bottom pane on a REMOTES inbox tab beside Activity and Terminal, and each chat opens as its own tab with its own draft, poll, and unread dot; sharing a commit opens its chat tab.
+- **Workbench:** replacing a page releases the previous page's program and model.
+- **Layouts:** a retired layout releases the programs of the components it hosted.
+- **Editor:** long threads virtualize their replies and keep only the rows near the viewport.
+- **Lists:** long search, history, notification, scheduled, and workbench lists virtualize their rows.
+- **Settings:** the time-zone list loads when the picker is used.
+- **Translations:** translations are read from the file tier on demand; the process keeps no process-wide translation dictionary.
+
+### Changed
+
+- **Internals:** the app's window (its band, tray, gates, and loops) and the arrangement it shows (the site's sidebar, feed column, and routes) are separate modules now, so future layouts can mount inside the same window without a restart. Nothing you can see or click changed.
+
 ## [0.15.0] - 2026-11-11
 
 ### Added

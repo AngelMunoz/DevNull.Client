@@ -728,7 +728,7 @@ let tests =
         do!
           onUiAsync(fun () ->
             buttonWithText(window, "It was DNS.")
-            |> Option.iter(fun card -> click(card :?> Button)))
+            |> Option.iter(fun card -> click card))
 
         let! walked =
           waitForAsync(

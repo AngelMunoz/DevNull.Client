@@ -2,8 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <Nullable>enable</Nullable>
+    <TargetFramework>net11.0</TargetFramework>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
@@ -15,7 +14,27 @@
     <Compile Include="App.Tests.fs" />
     <Compile Include="Shortcuts.Tests.fs" />
     <Compile Include="Leaks.Tests.fs" />
+    <Compile Include="Layouts.Tests.fs" />
     <Compile Include="Feed.Tests.fs" />
+    <Compile Include="EditorSettings.Tests.fs" />
+    <Compile Include="EditorTypes.Tests.fs" />
+    <Compile Include="EditorFrame.Tests.fs" />
+    <Compile Include="EditorChurn.Tests.fs" />
+    <Compile Include="EditorPanel.Tests.fs" />
+    <Compile Include="RepoFrame.Tests.fs" />
+    <Compile Include="RemotesMount.Tests.fs" />
+    <Compile Include="WorkbenchRemotes.Tests.fs" />
+    <Compile Include="EditorFlyout.Tests.fs" />
+    <Compile Include="EditorRemotes.Tests.fs" />
+    <Compile Include="PaletteFrame.Tests.fs" />
+    <Compile Include="EditorHardening.Tests.fs" />
+    <Compile Include="EditorGates.Tests.fs" />
+    <Compile Include="WorkbenchSettings.Tests.fs" />
+    <Compile Include="WorkbenchGate.Tests.fs" />
+    <Compile Include="WorkbenchHostView.Tests.fs" />
+    <Compile Include="WorkbenchHardening.Tests.fs" />
+    <Compile Include="AttachGate.Tests.fs" />
+    <Compile Include="WebsiteRetirement.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

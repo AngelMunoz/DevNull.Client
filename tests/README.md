@@ -86,6 +86,29 @@ blocking on its first dispatch. This library's clock service uses a
 outside the UI thread must not touch the dispatcher in their
 constructor; hand ticks to `dispatch` and let the program loop marshal.
 
+### A control built off the session thread kills the session
+
+An `AvaloniaObject` records the dispatcher of the thread that builds
+it. A control built in a background continuation therefore belongs to
+a second `Dispatcher`, and the session thread cannot attach it later:
+`ContentControl.ContentChanged` calls `set_InheritanceParent`, which
+calls `VerifyAccess` and throws `InvalidOperationException: The calling
+thread cannot access this object because a different thread owns it.`
+The exception escapes the binding's dispatcher operation and ends the
+headless session thread. The test process stays alive, but every later
+`session.Dispatch` waits forever: the suite deadlocks with idle stacks
+and no Avalonia session frame. A dump shows the second `Dispatcher`
+held by the off-thread control.
+
+Build controls on the session thread only. A view that maps an
+observable to a control (`PageChrome.rebuildOn`, `Observable.map build`)
+is safe only while that observable emits on the UI thread: a page
+model's stream is safe, an app-lifetime service stream is not unless it
+marshals. A `System.Timers.Timer`-backed clock emits on the thread pool;
+derive `Now` from the page model's clock `Sub`, not from the clock
+service directly. The workbench passed `UiClock.Minute` to `RowActions`;
+its translation line was built on the timer thread.
+
 ### Waits are many small session dispatches, not one long one
 
 The program loop posts its message processing to the dispatcher, and
@@ -116,6 +139,9 @@ that starts a wait inside a wait freezes.
 4. For the real stacks: `dotnet-stack report -p <pid>` prints every
    managed thread's stack of the hung process. The stuck frame names
    the culprit (this is how the DispatcherTimer deadlock was found).
+   If every thread looks idle and no Avalonia session thread appears,
+   an off-thread control ended the session thread; see "A control
+   built off the session thread kills the session" above.
 
 ### The bootstrap exception
 

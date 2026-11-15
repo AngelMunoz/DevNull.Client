@@ -18,7 +18,9 @@ open MVUish.Avalonia
 open Navs
 open DevNull.Client
 open DevNull.Client.Components
+open DevNull.Client.Components.CommitActions
 open DevNull.Client.Components.CommitCard
+open DevNull.Client.Components.TranslationModel
 open DevNull.Client.Components.UserFlyout
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
@@ -269,10 +271,7 @@ module State =
       initial with
           Pasteis = props.Session.Session.PasteisMode
           Automatic = props.Session.Session.AutomaticTranslation
-          Translations =
-            TranslationModel.seed(
-              (props.Env :> IProvideTranslations).Translations.Snapshot()
-            )
+          Translations = TranslationModel.initial
     },
     Cmd.batch [
       Cmd.OfAsync.perform

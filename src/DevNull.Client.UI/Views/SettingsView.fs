@@ -12,6 +12,7 @@ open MVUish.Avalonia
 open Navs
 open DevNull.Client
 open DevNull.Client.Components
+open DevNull.Client.Components.TranslationModel
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
@@ -78,6 +79,7 @@ module State =
     | RevokeDone of Result<unit, AppError> * Device
     | CloseToTraySet of enabled: bool
     | ThemeChosen of choice: ThemeChoice
+    | LayoutChosen of choice: LayoutChoice
     | SettingsChanged of settings: AppSettings
     | PrefsArrived of settings: UserSettings option
     | ZonePicked of id: string option
@@ -100,6 +102,9 @@ module State =
     Settings = {
       CloseToTray = false
       Theme = System
+      Layout = CurrentLayout
+      WorkbenchState = ""
+      EditorState = ""
       SidebarExpanded = true
       ChatDrafts = Map.empty
       VoiceVolume = 1.0
@@ -471,6 +476,14 @@ module State =
             Settings = { model.Settings with Theme = choice }
       },
       Cmd.ofAction(fun () -> store.SetTheme choice)
+    | LayoutChosen choice ->
+      let store = (props.Env :> IProvideSettings).Settings
+
+      {
+        model with
+            Settings = { model.Settings with Layout = choice }
+      },
+      Cmd.ofAction(fun () -> store.SetLayout choice)
     | SettingsChanged settings -> { model with Settings = settings }, Cmd.none
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
@@ -614,6 +627,56 @@ module Parts =
         themeHost
       )
 
+  // The layout row: one button per arrangement the app ships. A pick
+  // writes the setting, and the window mounts the choice at once — no
+  // restart.
+  let layoutRow
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : Control =
+    let host = ContentControl()
+
+    let choices =
+      PageChrome.rebuildOn(
+        model,
+        (fun current -> current.Settings.Layout),
+        fun current ->
+          let choiceButton(label: string, choice: LayoutChoice) : Control =
+            let button =
+              Button()
+                .Classes(Theme.name Theme.NavButton)
+                .Content(label)
+                .OnClickHandler(fun _ _ -> dispatch(State.LayoutChosen choice))
+
+            if current.Settings.Layout = choice then
+              button.Classes(Theme.name Theme.AccentEdge) |> ignore
+
+            button
+
+          let row: Control array = [|
+            choiceButton("Default (site)", CurrentLayout)
+            choiceButton("Workbench", WorkbenchLayout)
+            choiceButton("Editor", EditorLayout)
+          |]
+
+          StackPanel()
+            .Orientation(Orientation.Horizontal)
+            .Spacing(6.0)
+            .Children(row)
+      )
+
+    host.Content(choices.ToBinding()) |> ignore
+
+    StackPanel()
+      .Spacing(6.0)
+      .Children(
+        TextBlock().Classes(Theme.name Theme.Subtitle).Text("Layout"),
+        TextBlock()
+          .Classes(Theme.name Theme.Muted)
+          .TextWrapping(TextWrapping.Wrap)
+          .Text("The layout changes now. No restart."),
+        host
+      )
+
   // One zone the picker offers: its IANA id and its current offset.
   type Zone = { Id: string; Offset: string }
 
@@ -633,23 +696,35 @@ module Parts =
       | true, iana -> Option.ofObj iana
       | false, _ -> None
 
-  // Every zone this machine knows, by IANA id. The list is built once:
-  // the offsets are the current ones.
-  let zones: Zone list =
-    TimeZoneInfo.GetSystemTimeZones()
-    |> Seq.choose(fun zone ->
-      ianaOf zone
-      |> Option.map(fun id ->
-        let resolved =
-          try
-            TimeZoneInfo.FindSystemTimeZoneById id
-          with _ ->
-            zone
+  // Every zone this machine knows, by IANA id. The list is built once,
+  // and only when a non-empty picker query reads it: the offsets are
+  // the current ones.
+  let zones: Lazy<Zone list> =
+    lazy
+      (TimeZoneInfo.GetSystemTimeZones()
+       |> Seq.choose(fun zone ->
+         ianaOf zone
+         |> Option.map(fun id ->
+           let resolved =
+             try
+               TimeZoneInfo.FindSystemTimeZoneById id
+             with _ ->
+               zone
 
-        { Id = id; Offset = offsetOf resolved }))
-    |> Seq.distinctBy(fun zone -> zone.Id)
-    |> Seq.sortBy(fun zone -> zone.Id)
-    |> Seq.toList
+           { Id = id; Offset = offsetOf resolved }))
+       |> Seq.distinctBy(fun zone -> zone.Id)
+       |> Seq.sortBy(fun zone -> zone.Id)
+       |> Seq.toList)
+
+  // One zone by its id, without reading the whole list: naming one
+  // zone never loads every zone.
+  let tryResolveZone(id: string) : Zone option =
+    try
+      let zone = TimeZoneInfo.FindSystemTimeZoneById id
+
+      Some { Id = id; Offset = offsetOf zone }
+    with _ ->
+      None
 
   // The device's own zone, when the machine names one.
   let deviceZone: string option = ianaOf TimeZoneInfo.Local
@@ -662,6 +737,8 @@ module Parts =
     Rows: State.Model -> (string * string) list
     // The identity of the rows the filter reads.
     Key: State.Model -> obj
+    // The hint the list shows while it holds no rows.
+    EmptyHint: string
     Typed: string -> unit
     Picked: string -> unit
   }
@@ -694,7 +771,7 @@ module Parts =
                 |> List.truncate 80
 
               if matching.IsEmpty then
-                Status.empty "No match."
+                Status.empty args.EmptyHint
               else
                 StackPanel()
                   .Spacing(2.0)
@@ -730,7 +807,7 @@ module Parts =
         | Some id ->
           // A zone the web saved but this machine does not list shows its
           // own id, the way the site's picker names it.
-          match zones |> List.tryFind(fun zone -> zone.Id = id) with
+          match tryResolveZone id with
           | Some zone -> $"{zone.Offset}  {zone.Id}"
           | None -> id
         | None ->
@@ -823,10 +900,16 @@ module Parts =
           Model = model
           Query = fun current -> current.ZoneQuery
           Rows =
-            fun _ -> [
-              for zone in zones -> zone.Id, $"{zone.Offset}  {zone.Id}"
-            ]
-          Key = fun _ -> zones
+            fun current ->
+              if current.ZoneQuery.Trim() = "" then
+                []
+              else
+                [
+                  for zone in zones.Value ->
+                    zone.Id, $"{zone.Offset}  {zone.Id}"
+                ]
+          Key = fun current -> current.ZoneQuery
+          EmptyHint = "Type to search zones."
           Typed = fun text -> dispatch(State.ZoneQueryChanged text)
           Picked = fun id -> dispatch(State.ZonePicked(Some id))
         },
@@ -956,6 +1039,7 @@ module Parts =
               ])
               |> Option.defaultValue []
           Key = fun current -> current.Prefs
+          EmptyHint = "No match."
           Typed = fun text -> dispatch(State.LanguageQueryChanged text)
           Picked = fun code -> dispatch(State.LanguagePicked(Some code))
         },
@@ -1182,6 +1266,7 @@ let view
             TextBlock().Text(user.Name),
             Parts.laneRow(model, dispatch),
             Parts.themeRow(model, dispatch),
+            Parts.layoutRow(model, dispatch),
             Parts.timezoneRow(model, dispatch),
             Parts.languageRow(model, dispatch),
             Parts.pasteisRow(model, dispatch),

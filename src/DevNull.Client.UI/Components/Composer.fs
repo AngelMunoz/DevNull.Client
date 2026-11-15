@@ -4,6 +4,7 @@ open System
 open System.Runtime
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Layout
 open Avalonia.Media
 open Avalonia.Threading
 open NXUI.Extensions
@@ -817,7 +818,7 @@ module Parts =
       .AcceptsReturn(true)
       .ClearSelectionOnLostFocus(false)
       .MinHeight(44.0)
-      .MaxHeight(300.0)
+      .MaxHeight(180.0)
       .TextWrapping(TextWrapping.Wrap)
       .PlaceholderText(
         model
@@ -1077,35 +1078,71 @@ let view
   // No box: the composer rides the rail plain, the way the site's does
   // on the log and the thread; a host that wants a card wraps it. The
   // audience dialog rides the same frame, above the composer's rail.
-  Grid()
-    .Children(
-      StackPanel()
-        .Margin(0.0, 0.0, 0.0, 12.0)
-        .Spacing(8.0)
+  Border()
+    .Padding(Thickness(12.0, 4.0, 12.0, 0.0))
+    .Child(
+      Grid()
         .Children(
-          match picker.Trigger with
-          | ValueSome trigger -> [|
-              trigger
-              body
-              completion
-              emoji
-              strip
-              poll
-              schedule
-              toolbar.Row
-            |]
-          | ValueNone -> [|
-              body
-              completion
-              emoji
-              strip
-              poll
-              schedule
-              toolbar.Row
-            |]
-        ),
-      picker.Layer
+          StackPanel()
+            .Margin(0.0, 0.0, 0.0, 12.0)
+            .Spacing(8.0)
+            .Children(
+              match picker.Trigger with
+              | ValueSome trigger -> [|
+                  trigger
+                  body
+                  completion
+                  emoji
+                  strip
+                  poll
+                  schedule
+                  toolbar.Row
+                |]
+              | ValueNone -> [|
+                  body
+                  completion
+                  emoji
+                  strip
+                  poll
+                  schedule
+                  toolbar.Row
+                |]
+            ),
+          picker.Layer
+        )
     )
+
+// The composer's target line: who the draft answers or what it
+// quotes, with the commit's short hash. A host shows it directly
+// above the composer so a stale draft never hides its target.
+let targetLabel(verb: string, commit: Commit) : string =
+  $"{verb} @{Author.handle commit.Author} · {commit.ShortHash}"
+
+// The target line with its cancel button: the button stands only
+// while the host passes a clear sink.
+let targetStrip(label: string, onClear: (unit -> unit) voption) : Control =
+  let line =
+    TextBlock()
+      .Name("ComposerTarget")
+      .Classes(Theme.name Theme.Mono)
+      .Text(label)
+      .TextWrapping(TextWrapping.Wrap)
+
+  match onClear with
+  | ValueNone -> line :> Control
+  | ValueSome clear ->
+    DockPanel()
+      .LastChildFill(true)
+      .Children(
+        Button()
+          .Name("ComposerTargetClear")
+          .Classes(Theme.name Theme.GhostButton)
+          .Content("×")
+          .OnClickHandler(fun _ _ -> clear())
+          .DockRight(),
+        line
+      )
+    :> Control
 
 type Page<'env
   when 'env :> IProvideClock
@@ -1129,8 +1166,13 @@ type Page<'env
       |> Program.withSubscription(State.subscribe session)
 
     // The composer is replace-only: the first detach ends the program.
-    let root, _ = Programs.runComponent(this, props.Env.Dispatcher, program)
-    this.Content <- root
+    Programs.runComponentOnAttach(
+      this,
+      props.Env.Dispatcher,
+      program,
+      fun root -> this.Content <- root
+    )
+    |> ignore
 
     // A host left with staged images collects them on the composer's
     // one live teardown.

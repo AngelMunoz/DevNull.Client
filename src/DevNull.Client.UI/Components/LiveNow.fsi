@@ -6,12 +6,14 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Env
 open DevNull.Client.ImageCache
 open DevNull.Client.Stores
+open DevNull.Client.UiClock
 
 /// Everything the live-now section reads: the signed account and
 /// the env its calls need. The section opens a row's stream outside
 /// the app.
 type Props<'env
   when 'env :> IProvideClock
+  and 'env :> IProvideUiClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
@@ -24,6 +26,7 @@ type Props<'env
 /// minute at a time and hidden while nobody is live.
 type Page<'env
   when 'env :> IProvideClock
+  and 'env :> IProvideUiClock
   and 'env :> IProvideNonceSource
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp

@@ -12,8 +12,10 @@ open DevNull.Client.Remotes
 open DevNull.Client.SettingsStore
 open DevNull.Client.Stores
 open DevNull.Client.UiClock
+open Navs
 
-/// One remotes page, self-contained: mounts the MVUish program.
+/// One remotes page, self-contained: the shared mount composed through
+/// the two-pane frame; the route context owns the mount lifetime.
 type Page<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
@@ -30,5 +32,5 @@ type Page<'env
   and 'env :> IProvideRemotes
   and 'env :> IProvideBrowser
   and 'env :> IProvideLogging> =
-  new: props: Props<'env> -> Page<'env>
+  new: props: Props<'env> * context: RouteContext -> Page<'env>
   inherit UserControl

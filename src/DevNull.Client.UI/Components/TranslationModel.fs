@@ -1,4 +1,4 @@
-﻿module DevNull.Client.Views.TranslationModel
+module DevNull.Client.Components.TranslationModel
 
 open System
 open System.Globalization
@@ -61,17 +61,6 @@ let empty: State = {
 }
 
 let initial: Book = { States = Map.empty; Busy = Set.empty }
-
-let seed(translations: Map<string, CommitTranslation>) : Book = {
-  States =
-    translations
-    |> Map.map(fun _ translation -> {
-      empty with
-          Fetched = Some translation
-          Available = Some translation.Available
-    })
-  Busy = Set.empty
-}
 
 let inline stateOf(book: Book, commitId: string) : State =
   book.States |> Map.tryFind commitId |> Option.defaultValue empty

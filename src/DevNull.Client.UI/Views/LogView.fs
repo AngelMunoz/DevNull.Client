@@ -1,4 +1,4 @@
-﻿module DevNull.Client.Views.LogView
+module DevNull.Client.Views.LogView
 
 open System
 open System.Collections.Generic
@@ -14,7 +14,9 @@ open Navs
 open DevNull.Client
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Components
+open DevNull.Client.Components.CommitActions
 open DevNull.Client.Components.CommitCard
+open DevNull.Client.Components.TranslationModel
 open DevNull.Client.Components.UserFlyout
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
@@ -276,10 +278,7 @@ module State =
       initial with
           Pasteis = props.Session.Session.PasteisMode
           Automatic = props.Session.Session.AutomaticTranslation
-          Translations =
-            TranslationModel.seed(
-              (props.Env :> IProvideTranslations).Translations.Snapshot()
-            )
+          Translations = TranslationModel.initial
           Marker = marker
     },
     Cmd.OfAsync.perform fetch (props, None) Fetched
@@ -1151,8 +1150,9 @@ module State =
         (props.Env.Session.Observe |> Observable.map SessionChanged)
 
       if model.Attached then
-        Sub.interval "since-poll" (TimeSpan.FromMinutes 1.0) (fun () ->
-          CheckNew)
+        Sub.fromObservable
+          "since-poll"
+          (props.Env.UiClock.Minute |> Observable.map(fun _ -> CheckNew))
 
       if model.Attached then
         Sub.fromObservable "chrome" chromeRequests
@@ -1488,6 +1488,7 @@ module Parts =
       |> Observable.map(fun _ -> 0.0)
 
     Feed.view {
+      Header = ValueNone
       Items = rows
       KeyOf = State.keyOf
       Row = fun logRow -> row(args, logRow)
@@ -1659,6 +1660,7 @@ let view
                   dispatch State.ShareClosed
                   dispatch State.Shared
               Close = fun () -> dispatch State.ShareClosed
+              OnPushed = ValueNone
             }
           | ValueNone -> Panel()
       Scrim = true

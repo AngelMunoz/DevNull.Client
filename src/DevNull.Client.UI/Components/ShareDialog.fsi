@@ -25,6 +25,10 @@ type Props<'env
   Commit: Commit
   Sent: User -> unit
   Close: unit -> unit
+  /// When present, the Editor frame's remote-tab sink: the dialog
+  /// hands the recipient to it instead of checking the conversation
+  /// out in the store. Website and Workbench leave it empty.
+  OnPushed: (User -> unit) voption
 }
 
 /// The share flow: find a developer the commit can reach, see the

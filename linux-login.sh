@@ -27,4 +27,4 @@ esac
 
 dotnet publish src/DevNull.Client.Linux -c Release -r "$rid" --self-contained
 
-exec "src/DevNull.Client.Linux/bin/Release/net10.0/$rid/publish/DevNull.Client"
+exec "src/DevNull.Client.Linux/bin/Release/net11.0/$rid/publish/DevNull.Client"

@@ -116,6 +116,7 @@ let feedColumn(feed: FeedProps<'row>) : Control =
       .Children(PageChrome.loadMore(feed.HasMore, feed.OnMore), endLine)
 
   Feed.view {
+    Header = ValueNone
     Items = feed.Items
     KeyOf = feed.KeyOf
     Row = feed.Row

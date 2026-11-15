@@ -96,6 +96,22 @@ let tests =
 
         do! clickWhenShown(window, "Load more")
 
+        let! requested =
+          waitForAsync(
+            5000,
+            (fun () ->
+              api.Requests
+              |> List.exists(fun request ->
+                request.Target.Contains "cursor=next"
+                && request.Target.StartsWith
+                  "/api/v1/organizations/devnull/mentions")),
+            id
+          )
+
+        Expect.isTrue
+          requested
+          "the organization mentions cursor was never read"
+
         let! next = showsText(window, "Second commit.")
 
         Expect.isTrue next "the organization mentions cursor page never loaded"

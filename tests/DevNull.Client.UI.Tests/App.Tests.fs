@@ -1,4 +1,4 @@
-﻿module DevNull.Client.UI.Tests.App
+module DevNull.Client.UI.Tests.App
 
 // The shell checks: the boot route follows the session, the timeline
 // renders through the signed API with fakes, the sidebar navigates, and
@@ -579,6 +579,27 @@ let notificationDayTests =
       })
   ]
 
+/// The api of the timezone picker test: the settings carry no zone,
+/// so picking one makes the save dirty, and the save answers with the
+/// account.
+let zonePickerApi() : FakeApi =
+  FakeApi(fun request ->
+    if request.Method = "GET" && request.Target = "/api/v1/me/settings" then
+      ok
+        """{"data":{"timezone":null,"show_local_time":false,"translation_language":null,"automatic_translation":true,"translation_languages":[{"code":"en","name":"English","native_name":"English"}],"is_admin":false}}"""
+    elif request.Method = "PUT" && request.Target = "/api/v1/me/timezone" then
+      ok meJson
+    elif request.Method = "GET" && request.Target = "/api/v1/me/devices" then
+      ok """{"data":[]}"""
+    elif request.Target = "/api/v1/me" then
+      ok meJson
+    elif request.Target.StartsWith "/api/v1/log/" then
+      ok logPageJson
+    else
+      (match accountAnswer request with
+       | ValueSome answer -> answer
+       | ValueNone -> ok "{}"))
+
 let tests =
   testList "app shell" [
     testCaseAsync
@@ -788,17 +809,17 @@ let tests =
              detail) =
           bounds
 
-        // The box ends one card inset in from the column edge, the same
-        // 16px the cards keep on the right.
+        // The box ends one card inset plus the composer's own side
+        // gutter in from the column edge.
         Expect.isLessThan
-          (abs((rowRight - boxRight) - 16.0))
+          (abs((rowRight - boxRight) - 28.0))
           0.5
           $"the composer box misses the right inset ({detail})"
 
-        // The box starts on the content column's left edge, the same
-        // line the day header labels start on.
+        // The box starts inside the content column by the composer's
+        // own left gutter, so its edge is not flush with the day row.
         Expect.isLessThan
-          (abs(boxLeft - labelLeft))
+          (abs((boxLeft - labelLeft) - 12.0))
           0.5
           "the composer box is offset"
 
@@ -1748,13 +1769,13 @@ let tests =
     testCaseAsync
       "scrolling recycles rows and realizes them again"
       (async {
-        let! window = startShell(signedInStore(), manyCardsApi() :> IHttp)
+        let! window = startShell(signedInStore(), longCardsApi() :> IHttp)
 
         let! shown = showsText(window, "Card 1.")
 
         Expect.isTrue shown "the first card never rendered"
 
-        // The small window makes the six-card feed overflow the viewport
+        // The small window makes the 20-card feed overflow the viewport
         // plus its cache band, so scrolling must recycle the top rows.
         do!
           onUiAsync(fun () ->
@@ -5388,6 +5409,12 @@ let tests =
               (control :?> TextBox).Text <-
                 "https://www.youtube.com/watch?v=NeutralVid1"))
 
+        let before =
+          api.Requests
+          |> Seq.filter(fun request ->
+            request.Method = "GET" && request.Target = "/api/v1/users/octocat")
+          |> Seq.length
+
         do!
           onUiAsync(fun () ->
             controlByName(window, "GoLive")
@@ -5419,7 +5446,7 @@ let tests =
                   request.Method = "GET"
                   && request.Target = "/api/v1/users/octocat")
 
-              fetches.Length >= 3)
+              fetches.Length > before)
           )
 
         Expect.isTrue refetched "the post-submit refetch never fired"
@@ -7441,6 +7468,107 @@ let tests =
           waitForAsync(5000, (fun () -> saves.Count), (fun count -> count = 1))
 
         Expect.isTrue saved "the save hook never ran"
+      })
+
+    testCaseAsync
+      "the timezone picker loads on search and saves"
+      (async {
+        let api = zonePickerApi()
+        let! window = startShell(signedInStore(), api :> IHttp)
+
+        let! shown = showsText(window, "The Octocat")
+
+        Expect.isTrue shown "the log never rendered"
+
+        do! clickWhenShown(window, "Settings")
+
+        let! timezone = showsText(window, "Timezone")
+
+        Expect.isTrue timezone "the timezone row never rendered"
+
+        let zoneRows() =
+          buttons window
+          |> List.filter(fun button ->
+            match button.Content with
+            | :? string as text -> text.EndsWith "Europe/Budapest"
+            | _ -> false)
+
+        let searchBoxes() =
+          window.GetVisualDescendants()
+          |> Seq.choose(fun visual ->
+            match visual with
+            | :? TextBox as box when box.PlaceholderText = "Search" -> Some box
+            | _ -> None)
+          |> List.ofSeq
+
+        // The empty query offers no rows, only the hint.
+        let! hint = showsText(window, "Type to search zones.")
+
+        Expect.isTrue hint "the zone hint never rendered"
+
+        let! none = probeUiAsync(fun () -> zoneRows())
+
+        Expect.isEmpty none "the zone rows loaded before any search"
+
+        let! boxes = probeUiAsync(fun () -> searchBoxes())
+
+        Expect.equal boxes.Length 2 "the pickers never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            searchBoxes()
+            |> List.tryHead
+            |> Option.iter(fun box -> box.Text <- "budapest"))
+
+        let! row =
+          waitForAsync(
+            5000,
+            (fun () -> zoneRows()),
+            (fun rows -> not rows.IsEmpty)
+          )
+
+        Expect.isTrue row "the matching zone never appeared"
+
+        do! onUiAsync(fun () -> zoneRows() |> List.tryHead |> Option.iter click)
+
+        // Clearing the search drops the row again.
+        do!
+          onUiAsync(fun () ->
+            searchBoxes()
+            |> List.tryHead
+            |> Option.iter(fun box -> box.Text <- ""))
+
+        let! gone = waitForAsync(5000, (fun () -> zoneRows()), List.isEmpty)
+
+        Expect.isTrue gone "the zone row stayed after the search cleared"
+
+        let! armed =
+          waitForAsync(
+            5000,
+            (fun () -> buttonWithText(window, "Save timezone")),
+            (fun button ->
+              button |> Option.map _.IsEnabled |> Option.defaultValue false)
+          )
+
+        Expect.isTrue armed "the timezone save never armed"
+
+        do! clickWhenShown(window, "Save timezone")
+
+        let! saved =
+          waitForAsync(
+            5000,
+            (fun () ->
+              api.Requests
+              |> List.filter(fun request ->
+                request.Target = "/api/v1/me/timezone")
+              |> List.filter(fun request ->
+                match request.Body with
+                | Text body -> body.Contains "Europe/Budapest"
+                | _ -> false)),
+            fun requests -> not requests.IsEmpty
+          )
+
+        Expect.isTrue saved "the timezone was never saved"
       })
 
     testCaseAsync

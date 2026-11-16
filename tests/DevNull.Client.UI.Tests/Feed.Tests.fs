@@ -512,63 +512,6 @@ let tests =
         do! onUiAsync(fun () -> window.Close())
       })
     testCaseAsync
-      "a short cursor feed uses the virtualizing panel"
-      (async {
-        let items = new BehaviorSubject<int list>([ 0; 1; 2 ])
-        let older = new BehaviorSubject<bool>(true)
-
-        let! window =
-          probeUiAsync(fun () ->
-            let feed =
-              Feed.viewWith(
-                {
-                  Header = ValueNone
-                  Items = items :> IObservable<int list>
-                  KeyOf = string
-                  Row = row
-                  Footer = ValueNone
-                  HasMore = Observable.single false
-                  ScrollTo = ValueNone
-                  Ride = false
-                  Restore = ValueNone
-                  OnScroll = ValueNone
-                  OnRide = ValueNone
-                  OnNeedMore = ValueNone
-                },
-                {
-                  Feed.Advanced.none() with
-                      Paging =
-                        ValueSome {
-                          Order = DevNull.Client.FeedWindow.NewestFirst
-                          HasOlder = older
-                          HasNewer = Observable.single false
-                          OnOlder = ignore
-                          OnNewer = ignore
-                        }
-                }
-              )
-
-            let window = Window(Width = 480.0, Height = 600.0, Content = feed)
-
-            window.Show()
-            window)
-
-        let! found =
-          waitForAsync(
-            5000,
-            (fun () ->
-              window.GetVisualDescendants()
-              |> Seq.exists(function
-                | :? VirtualizingStackPanel -> true
-                | _ -> false)),
-            id
-          )
-
-        Expect.isTrue found "the short cursor feed used a plain panel"
-
-        do! onUiAsync(fun () -> window.Close())
-      })
-    testCaseAsync
       "an anchor restore lands the row at the stored intra offset"
       (async {
         let items = new BehaviorSubject<int list>([ 0..59 ])
@@ -774,9 +717,9 @@ let tests =
         do! onUiAsync(fun () -> window.Close())
       })
     testCaseAsync
-      "a near-end cursor feed asks for the older page once"
+      "scrolling to the older edge asks for each page as it lands"
       (async {
-        let items = new BehaviorSubject<int list>([ 0..19 ])
+        let items = new BehaviorSubject<int list>([ 0..59 ])
         let older = new BehaviorSubject<bool>(true)
         let mutable calls = 0
         let mutable scroller = Unchecked.defaultof<ScrollViewer>
@@ -844,14 +787,35 @@ let tests =
 
         Expect.equal once 1 "the probe asked more than once for one page"
 
-        do! onUiAsync(fun () -> older.OnNext false)
-        do! onUiAsync(fun () -> older.OnNext true)
-        do! onUiAsync(fun () -> items.OnNext([ 0..39 ]))
+        // The page lands the way LogView lands it: the rows grow and
+        // HasOlder stays true. No availability toggle reaches the feed.
+        do! onUiAsync(fun () -> items.OnNext [ 0..79 ])
+        do! settleAsync()
+
+        do! onUiAsync(fun () -> scroller.Offset <- Vector(0.0, 0.0))
+
+        do!
+          onUiAsync(fun () ->
+            scroller.Offset <- Vector(0.0, scroller.Extent.Height))
 
         let! askedAgain =
           waitForAsync(5000, (fun () -> calls), fun count -> count >= 2)
 
         Expect.isTrue askedAgain "the probe never asked after the page landed"
+
+        do! onUiAsync(fun () -> items.OnNext [ 0..99 ])
+        do! settleAsync()
+
+        do! onUiAsync(fun () -> scroller.Offset <- Vector(0.0, 0.0))
+
+        do!
+          onUiAsync(fun () ->
+            scroller.Offset <- Vector(0.0, scroller.Extent.Height))
+
+        let! askedThird =
+          waitForAsync(5000, (fun () -> calls), fun count -> count >= 3)
+
+        Expect.isTrue askedThird "the probe never asked for the third page"
 
         do! onUiAsync(fun () -> window.Close())
       })

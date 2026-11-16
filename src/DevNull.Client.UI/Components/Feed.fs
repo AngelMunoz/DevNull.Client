@@ -304,6 +304,12 @@ type PagingWatch(paging: Paging) =
       | DevNull.Client.FeedWindow.NewestFirst -> nearStart
       | DevNull.Client.FeedWindow.OldestFirst -> nearEnd
 
+    if not olderEdge then
+      olderAsked <- false
+
+    if not newerEdge then
+      newerAsked <- false
+
     if olderEdge && hasOlder && not olderAsked then
       olderAsked <- true
       paging.OnOlder()

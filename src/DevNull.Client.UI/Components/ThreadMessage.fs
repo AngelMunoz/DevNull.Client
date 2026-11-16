@@ -393,7 +393,7 @@ let reactionChip(chip: ReactionChip, onReact: string -> unit) : Control =
           .Orientation(Orientation.Horizontal)
           .Spacing(4.0)
           .Children(
-            TextBlock().Text(chip.Emoji),
+            TextBlock().Text(chip.Emoji).FontFamily(Theme.Fonts.emoji),
             TextBlock()
               .Classes(Theme.name Theme.Mono)
               .FontSize(11.0)
@@ -487,7 +487,7 @@ let reactionTray
               .Classes(Theme.name Theme.GhostButton)
               .Padding(4.0)
               .FontSize(size)
-              .Content(mark)
+              .Content(TextBlock().Text(mark).FontFamily(Theme.Fonts.emoji))
               .OnClickHandler(fun _ args ->
                 args.Handled <- true
                 tray.IsOpen <- false

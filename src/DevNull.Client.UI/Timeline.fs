@@ -5,6 +5,24 @@ open System.Collections.Generic
 open System.Reactive.Subjects
 open DevNull.Client.Core.ApiTypes
 
+[<Struct>]
+type Surface =
+  | Log of LogKind
+  | ProfileCommits of username: string
+  | ProfileReplies of username: string
+  | Saved
+
+module Surface =
+  let inline log(log: LogKind) : Surface = Log log
+
+  let profile(username: string, replies: bool) : Surface =
+    if replies then
+      ProfileReplies username
+    else
+      ProfileCommits username
+
+  let saved: Surface = Saved
+
 type Request =
   | Reload
   | ScrollToTop
@@ -19,6 +37,8 @@ type TimelineService =
   abstract Deletions: IObservable<string>
   abstract Remember: log: LogKind * offset: float -> unit
   abstract OffsetOf: log: LogKind -> float
+  abstract PlaceOf: surface: Surface -> FeedWindow.Place option
+  abstract RememberPlace: surface: Surface * place: FeedWindow.Place -> unit
   abstract RememberLog: log: LogKind -> unit
   abstract LastLog: LogKind option
   abstract RememberDraft: commitId: string * text: string -> unit
@@ -38,6 +58,7 @@ module TimelineService =
     LastAccepted: BehaviorSubject<DateTimeOffset>
     LastLog: BehaviorSubject<LogKind option>
     Scrolls: Dictionary<LogKind, float>
+    Places: Dictionary<Surface, FeedWindow.Place>
     Drafts: Dictionary<string, string>
   }
 
@@ -70,6 +91,17 @@ module TimelineService =
     | true, offset -> offset
     | false, _ -> 0.0
 
+  let placeOf(state: State, surface: Surface) : FeedWindow.Place option =
+    match state.Places.TryGetValue surface with
+    | true, place -> Some place
+    | false, _ -> None
+
+  let rememberPlace(state: State, surface: Surface, place: FeedWindow.Place) =
+    if place.Anchor.IsNone then
+      state.Places.Remove surface |> ignore
+    else
+      state.Places[surface] <- place
+
   let rememberLog(state: State, log: LogKind) = state.LastLog.OnNext(Some log)
 
   let lastLog(state: State) : LogKind option = state.LastLog.Value
@@ -96,6 +128,7 @@ module TimelineService =
         new BehaviorSubject<DateTimeOffset>(DateTimeOffset.MinValue)
       LastLog = new BehaviorSubject<LogKind option>(None)
       Scrolls = Dictionary<LogKind, float>()
+      Places = Dictionary<Surface, FeedWindow.Place>()
       Drafts = Dictionary<string, string>()
     }
 
@@ -109,6 +142,10 @@ module TimelineService =
         member _.Deletions = deletions state
         member _.Remember(log, offset) = remember(state, log, offset)
         member _.OffsetOf(log) = offsetOf(state, log)
+        member _.PlaceOf(surface) = placeOf(state, surface)
+
+        member _.RememberPlace(surface, place) =
+          rememberPlace(state, surface, place)
 
         member _.RememberLog(log) = rememberLog(state, log)
         member _.LastLog = lastLog state

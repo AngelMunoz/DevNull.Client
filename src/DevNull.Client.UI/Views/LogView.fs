@@ -87,9 +87,9 @@ module State =
   type Model = {
     Loading: bool
     Error: AppError option
-    Items: CommitNode list
-    NextCursor: string option
+    Feed: FeedWindow.Window<CommitNode>
     Head: string option
+    Anchor: FeedWindow.Anchor voption
     NewCount: int option
     ScrollRequests: int
     Ranked: bool
@@ -118,14 +118,17 @@ module State =
     Relations: Map<string, AuthorRelation>
     // The commit whose menu action is in flight, so its items disable.
     MenuBusy: string option
-    HeardIds: string list
   }
 
   type Msg =
-    | Fetched of Result<LogPage, AppError>
+    | Fetched of cursor: string option * Result<LogPage, AppError>
     | ReloadRequested
-    | Appended of Result<LogPage, AppError>
+    | Appended of cursor: string option * Result<LogPage, AppError>
     | MoreRequested
+    | NewerRequested
+    | Prepended of cursor: string option * Result<LogPage, AppError>
+    | AnchorMoved of FeedWindow.Anchor
+    | CommitOpened of Commit
     | StarToggled of Commit
     | StarDone of Result<Commit, AppError>
     | PastelGiven of Commit
@@ -171,9 +174,9 @@ module State =
   let initial = {
     Loading = true
     Error = None
-    Items = []
-    NextCursor = None
+    Feed = FeedWindow.empty(FeedWindow.NewestFirst, 300)
     Head = None
+    Anchor = ValueNone
     NewCount = None
     ScrollRequests = 0
     Ranked = false
@@ -193,7 +196,6 @@ module State =
     ReportOpen = ValueNone
     Relations = Map.empty
     MenuBusy = None
-    HeardIds = []
   }
 
   // The id of the newest commit in a page: the head the since-poll
@@ -204,18 +206,81 @@ module State =
       | LiveCommit commit -> Some commit.Id
       | Tombstone _ -> None)
 
-  // One late commit lands among the loaded ones by its moment: the
-  // first live row older than it. Tombstones never move.
-  let insertLate(late: Commit, items: CommitNode list) : CommitNode list =
-    let at =
-      items
-      |> List.tryFindIndex(function
-        | Tombstone _ -> false
-        | LiveCommit commit -> commit.CreatedAt < late.CreatedAt)
+  let windowLimit = 300
 
-    match at with
-    | Some index -> items |> List.insertAt index (LiveCommit late)
-    | None -> items @ [ LiveCommit late ]
+  let ops: FeedWindow.Ops<CommitNode> = {
+    KeyOf = DevNull.Client.Components.FeedParts.nodeKey
+  }
+
+  let spanOf
+    (request: string option, page: LogPage)
+    : FeedWindow.Chunk<CommitNode> = {
+    Request = ValueOption.ofOption request
+    Items = Array.ofList page.Page.Items
+    Older = ValueOption.ofOption page.Page.NextCursor
+    Newer = ValueOption.ofOption page.Page.PrevCursor
+  }
+
+  let windowOf
+    (request: string option, page: LogPage)
+    : FeedWindow.Window<CommitNode> = {
+    Order = FeedWindow.NewestFirst
+    Chunks = [ spanOf(request, page) ]
+    Limit = windowLimit
+  }
+
+  let itemsOf(model: Model) : CommitNode list = FeedWindow.items model.Feed
+
+  let withPage
+    (items: CommitNode list, nextCursor: string option, model: Model)
+    : Model = {
+    model with
+        Feed = {
+          Order = FeedWindow.NewestFirst
+          Chunks = [
+            {
+              Request = ValueNone
+              Items = Array.ofList items
+              Older = ValueOption.ofOption nextCursor
+              Newer = ValueNone
+            }
+          ]
+          Limit = windowLimit
+        }
+  }
+
+  let olderOf(model: Model) : string voption = FeedWindow.older model.Feed
+
+  let newerOf(model: Model) : string voption = FeedWindow.newer model.Feed
+
+  let trimWindow
+    (window: FeedWindow.Window<CommitNode>, anchor: FeedWindow.Anchor voption)
+    : FeedWindow.Window<CommitNode> =
+    let items = FeedWindow.items window
+    let count = items.Length
+
+    let index =
+      anchor
+      |> ValueOption.bind(fun place ->
+        items
+        |> List.tryFindIndex(fun node ->
+          DevNull.Client.Components.FeedParts.nodeKey node = place.Key)
+        |> ValueOption.ofOption)
+
+    let edge =
+      match index with
+      | ValueSome at when at < 40 -> FeedWindow.OlderEdge
+      | ValueSome at when at > count - 40 -> FeedWindow.NewerEdge
+      | _ -> FeedWindow.OlderEdge
+
+    FeedWindow.trim(
+      {
+        Ops = ops
+        Keep = anchor |> ValueOption.map _.Key
+        Edge = edge
+      },
+      window
+    )
 
   let fetch(props: Props<'env>, cursor: string option) =
     Logs.get(
@@ -232,13 +297,7 @@ module State =
       }
     )
 
-  let checkNew(props: Props<'env>, model: Model, head: string) =
-    let liveIds =
-      model.Items
-      |> List.choose(function
-        | LiveCommit commit -> Some commit.Id
-        | Tombstone _ -> None)
-
+  let checkNew(props: Props<'env>, _model: Model, head: string) =
     Logs.get(
       props.Env,
       {
@@ -246,10 +305,10 @@ module State =
         Log = props.Log
         Since = Some head
         Cursor = None
-        Arrived = if model.Ranked then [] else model.HeardIds
-        Pending = liveIds |> List.truncate 100
+        Arrived = []
+        Pending = []
         Everything = false
-        Through = liveIds |> List.rev |> List.truncate 20
+        Through = []
       }
     )
 
@@ -281,7 +340,15 @@ module State =
           Translations = TranslationModel.initial
           Marker = marker
     },
-    Cmd.OfAsync.perform fetch (props, None) Fetched
+    let surface = Surface.log props.Log
+
+    let cursor =
+      props.Env.Timeline.PlaceOf surface
+      |> Option.bind(fun place -> ValueOption.toOption place.Anchor)
+      |> Option.bind(fun anchor -> ValueOption.toOption anchor.Entry)
+
+    Cmd.OfAsync.perform fetch (props, cursor) (fun result ->
+      Fetched(cursor, result))
 
   // The bare translate call for one commit, in the language the settings
   // choose.
@@ -336,12 +403,6 @@ module State =
           newest
         ))
 
-  let replaceNode(items: CommitNode list, updated: Commit) : CommitNode list =
-    items
-    |> List.map(function
-      | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
-      | node -> node)
-
   // The marker one deleted commit folds to.
   let tombstoneOf(commit: Commit) : Tombstone = {
     Id = commit.Id
@@ -374,7 +435,7 @@ module State =
       if automatic && not model.AutoRan then
         TranslationModel.pending(
           model.Translations,
-          model.Items
+          itemsOf model
           |> List.choose(function
             | LiveCommit commit -> Some commit
             | Tombstone _ -> None)
@@ -413,7 +474,7 @@ module State =
       Cmd.ofAction(fun () -> failure what error)
 
     match msg with
-    | Fetched result ->
+    | Fetched(cursor, result) ->
       match result with
       | Ok page ->
         let next, batch =
@@ -423,12 +484,10 @@ module State =
               model with
                   Loading = false
                   Error = None
-                  Items = page.Page.Items
-                  NextCursor = page.Page.NextCursor
+                  Feed = windowOf(cursor, page)
                   Head = headOf page.Page.Items
                   NewCount = None
                   Ranked = page.IsRanked
-                  HeardIds = []
             }
           )
 
@@ -470,15 +529,17 @@ module State =
           },
           Cmd.none
         else
+          let nodes = itemsOf model
+
           let loaded =
-            model.Items
+            nodes
             |> List.choose(function
               | LiveCommit commit -> Some commit.Id
               | Tombstone _ -> None)
             |> Set.ofList
 
           let headAt =
-            model.Items
+            nodes
             |> List.tryPick(function
               | LiveCommit commit when Some commit.Id = model.Head ->
                 Some commit.CreatedAt
@@ -504,28 +565,26 @@ module State =
           let merged =
             late
             |> List.fold
-              (fun items arrival -> insertLate(arrival, items))
-              model.Items
-
-          let mergedLoaded =
-            merged
-            |> List.choose(function
-              | LiveCommit commit -> Some commit.Id
-              | Tombstone _ -> None)
-            |> Set.ofList
-
-          let heard =
-            (model.HeardIds @ (unloaded |> List.filter isNewer |> List.map _.Id))
-            |> List.distinct
-            |> List.filter(fun id -> not(Set.contains id mergedLoaded))
-            |> List.truncate 100
+              (fun window arrival ->
+                FeedWindow.insert(
+                  {
+                    Ops = ops
+                    Item = LiveCommit arrival
+                    Before =
+                      (function
+                      | LiveCommit commit ->
+                        commit.CreatedAt < arrival.CreatedAt
+                      | Tombstone _ -> false)
+                  },
+                  window
+                ))
+              model.Feed
 
           {
             model with
-                Items = merged
+                Feed = merged
                 NewCount =
                   page.NewCommitsCount |> Option.filter(fun count -> count > 0)
-                HeardIds = heard
           },
           Cmd.none
       | Error error -> model, failed "the new-commit check" error
@@ -535,31 +594,25 @@ module State =
     | NewFetched result ->
       match result with
       | Ok page ->
-        // The pill's refresh replaces the feed with the fresh first
-        // page, the way the site reloads its log; no duplicate can
-        // survive. The reader lands at the top with the new commits:
-        // the keyed diff keeps the scroller's old place, so the page
-        // itself must ask for the scroll.
-        let replaced = {
+        // The pill adds the fresh first page at the newer edge and
+        // keeps the reader on the same post. A page that overlaps the
+        // loaded head merges; a page with no new key leaves the window
+        // unchanged.
+        let merged =
+          FeedWindow.mergeNewerPage(ops, spanOf(None, page), model.Feed)
+
+        {
           model with
-              Items = page.Page.Items
-              NextCursor = page.Page.NextCursor
+              Feed = trimWindow(merged, model.Anchor)
               Head = headOf page.Page.Items
               Ranked = page.IsRanked
-              HeardIds = []
-        }
-
-        replaced,
-        Cmd.batch [
-          Cmd.ofEffect(fun _ -> props.Env.Timeline.ScrollToTop())
-
-          Cmd.ofAction(fun () ->
-            log.LogDebug(
-              "The {Log} log refreshed with {Count} commits.",
-              kind,
-              page.Page.Items.Length
-            ))
-        ]
+        },
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The {Log} log refreshed with {Count} commits.",
+            kind,
+            page.Page.Items.Length
+          ))
       | Error error ->
         { model with Error = Some error },
         failed $"the {kind} log refresh" error
@@ -569,7 +622,8 @@ module State =
             Loading = true
             Error = None
       },
-      Cmd.OfAsync.perform fetch (props, None) Fetched
+      Cmd.OfAsync.perform fetch (props, None) (fun result ->
+        Fetched(None, result))
     | ReplyToggled commit ->
       let replyingTo =
         if Option.contains commit.Id model.ReplyingTo then
@@ -646,7 +700,7 @@ module State =
       | Ok updated ->
         {
           model with
-              Items = replaceNode(model.Items, updated)
+              Feed = FeedWindow.replace(ops, LiveCommit updated, model.Feed)
               Voting = None
               PollChoices = model.PollChoices |> Map.remove updated.Id
         },
@@ -705,25 +759,32 @@ module State =
       | Error error ->
         { model with Error = Some error }, failed "the thread preview" error
     | MoreRequested ->
-      // A cursor means the next page; no cursor means the feed ended,
-      // so a restore chase past the end asks for nothing.
-      match model.NextCursor with
-      | Some _ ->
+      match olderOf model with
+      | ValueSome cursor ->
         model,
         Cmd.batch [
-          Cmd.OfAsync.perform fetch (props, model.NextCursor) Appended
+          Cmd.OfAsync.perform fetch (props, Some cursor) (fun result ->
+            Appended(Some cursor, result))
 
           Cmd.ofAction(fun () ->
             log.LogTrace("The {Log} log asks for its next page.", kind))
         ]
-      | None -> model, Cmd.none
-    | Appended result ->
+      | ValueNone -> model, Cmd.none
+    | NewerRequested ->
+      match newerOf model with
+      | ValueSome cursor ->
+        model,
+        Cmd.OfAsync.perform fetch (props, Some cursor) (fun result ->
+          Prepended(Some cursor, result))
+      | ValueNone -> model, Cmd.none
+    | Appended(cursor, result) ->
       match result with
       | Ok page ->
+        let grown = FeedWindow.addOlder(ops, spanOf(cursor, page), model.Feed)
+
         {
           model with
-              Items = model.Items @ page.Page.Items
-              NextCursor = page.Page.NextCursor
+              Feed = trimWindow(grown, model.Anchor)
         },
         Cmd.ofAction(fun () ->
           log.LogDebug(
@@ -733,6 +794,46 @@ module State =
           ))
       | Error error ->
         { model with Error = Some error }, failed "the next page" error
+    | Prepended(cursor, result) ->
+      match result with
+      | Ok page ->
+        let grown = FeedWindow.addNewer(ops, spanOf(cursor, page), model.Feed)
+
+        {
+          model with
+              Feed = trimWindow(grown, model.Anchor)
+        },
+        Cmd.none
+      | Error error ->
+        { model with Error = Some error }, failed "the newer page" error
+    | AnchorMoved anchor -> { model with Anchor = ValueSome anchor }, Cmd.none
+    | CommitOpened commit ->
+      // The open parks the clicked commit as the log place, so the
+      // thread's back line restores that commit instead of the edge of
+      // the page the scroll anchor came from. A commit outside the
+      // loaded feed (a thread preview reply) holds no chunk here, so
+      // the scroll place stands.
+      let anchor: FeedWindow.Anchor voption =
+        itemsOf model
+        |> List.exists(fun node -> FeedParts.nodeKey node = commit.Id)
+        |> function
+          | true ->
+            ValueSome {
+              Key = commit.Id
+              Offset = 0.0
+              Entry = FeedWindow.entryOf(ops, commit.Id, model.Feed)
+            }
+          | false -> model.Anchor
+
+      { model with Anchor = anchor },
+      Cmd.ofAction(fun () ->
+        anchor
+        |> ValueOption.iter(fun place ->
+          let parked: FeedWindow.Place = { Anchor = ValueSome place }
+
+          props.Env.Timeline.RememberPlace(Surface.log props.Log, parked))
+
+        Navigation.go(props.Nav, "/commit/" + commit.Id, ignore))
     | StarToggled commit ->
       { model with Error = None },
       Cmd.batch [
@@ -749,7 +850,7 @@ module State =
       | Ok updated ->
         {
           model with
-              Items = replaceNode(model.Items, updated)
+              Feed = FeedWindow.replace(ops, LiveCommit updated, model.Feed)
         },
         Cmd.ofAction(fun () ->
           log.LogDebug("The star on {Commit} settled.", updated.Id))
@@ -770,7 +871,8 @@ module State =
       | Ok pastel ->
         {
           model with
-              Items = replaceNode(model.Items, pastel.Commit)
+              Feed =
+                FeedWindow.replace(ops, LiveCommit pastel.Commit, model.Feed)
         },
         Cmd.ofAction(fun () ->
           log.LogDebug("The pastel on {Commit} landed.", pastel.Commit.Id))
@@ -1092,12 +1194,21 @@ module State =
         // toast and owns the restore.
         {
           model with
-              Items =
-                model.Items
-                |> List.map(function
-                  | LiveCommit commit when commit.Id = commitId ->
-                    Tombstone(tombstoneOf commit)
-                  | node -> node)
+              Feed =
+                FeedWindow.items model.Feed
+                |> List.tryPick(function
+                  | LiveCommit commit when commit.Id = commitId -> Some commit
+                  | _ -> None)
+                |> Option.map(fun commit ->
+                  FeedWindow.replaceKey(
+                    {
+                      Ops = ops
+                      Key = commit.Id
+                      Item = Tombstone(tombstoneOf commit)
+                    },
+                    model.Feed
+                  ))
+                |> Option.defaultValue model.Feed
               MenuBusy = None
         },
         Cmd.batch [
@@ -1436,49 +1547,97 @@ module Parts =
   // The row inputs the page compares by reference, so a tick that
   // left them the same does not reshape the feed.
   let rowInputsComparer = {
-    new IEqualityComparer<CommitNode list * bool * DateTimeOffset option> with
+    new IEqualityComparer<
+      FeedWindow.Window<CommitNode> * bool * DateTimeOffset option
+         > with
       member _.Equals
         (
-          (leftItems, leftRanked, leftMarker),
-          (rightItems, rightRanked, rightMarker)
+          (leftFeed, leftRanked, leftMarker),
+          (rightFeed, rightRanked, rightMarker)
         ) =
-        ReferenceEqualityComparer.Instance.Equals(leftItems, rightItems)
+        ReferenceEqualityComparer.Instance.Equals(
+          leftFeed.Chunks,
+          rightFeed.Chunks
+        )
         && leftRanked = rightRanked
         && ReferenceEqualityComparer.Instance.Equals(leftMarker, rightMarker)
 
-      member _.GetHashCode((items, ranked, marker)) =
+      member _.GetHashCode((feed, ranked, marker)) =
         HashCode.Combine(
-          RuntimeHelpers.GetHashCode items,
+          RuntimeHelpers.GetHashCode feed.Chunks,
           ranked,
           RuntimeHelpers.GetHashCode marker
         )
   }
 
+  // One feed row with the chunk request cursor that fetched it, so
+  // the anchor the feed reports names the page the row came from.
+  [<Struct>]
+  type AnchoredRow = { Row: LogRow; Entry: string option }
+
   // The timeline itself: the virtualized feed over the page's rows.
   // The shared chrome's return-to-top signal reaches the page model,
-  // and the scroller's place parks in the timeline service, so the
-  // next page of this log picks it back up.
+  // and the reader's post parks in the timeline service, so the next
+  // page of this log picks it back up.
   let feed(args: FeedArgs<'env>) : Control =
     let props = args.Props
     let model = args.Model
-    let place = props.Env.Timeline.OffsetOf props.Log
-    let hasMore = model |> Observable.map _.NextCursor.IsSome
+    let surface = Surface.log props.Log
+    let place = props.Env.Timeline.PlaceOf surface
+
+    let restoreAnchor =
+      place |> Option.bind(fun place -> ValueOption.toOption place.Anchor)
+
+    let hasOlder =
+      model
+      |> Observable.map(fun current ->
+        State.olderOf current |> ValueOption.isSome)
+      |> Observable.distinctUntilChanged
+      |> Slices.share
+
+    let hasNewer =
+      model
+      |> Observable.map(fun current ->
+        State.newerOf current |> ValueOption.isSome)
+      |> Observable.distinctUntilChanged
+      |> Slices.share
+
+    let anchorKeyOf(anchored: AnchoredRow) : string option =
+      match anchored.Row with
+      | LogRow.Node _
+      | LogRow.TombstoneRow _ -> Some(State.keyOf anchored.Row)
+      | LogRow.Day _
+      | LogRow.LastVisitRow -> None
+
+    let entryOf(anchored: AnchoredRow) : string option = anchored.Entry
 
     let rows =
       model
       |> Observable.map(fun current ->
-        current.Items, current.Ranked, current.Marker)
+        current.Feed, current.Ranked, current.Marker)
       |> Observable.distinctUntilChangedCompare(rowInputsComparer)
-      |> Observable.map(fun (items, ranked, marker) ->
+      |> Observable.map(fun (feed, ranked, marker) ->
         State.toRows(
-          items,
+          FeedWindow.items feed,
           ranked,
           marker
           |> Option.map(fun visitedAt -> {
             VisitedAt = visitedAt
             ViewerId = props.Session.Session.User.Id
           })
-        ))
+        )
+        |> List.map(fun logRow -> {
+          Row = logRow
+          Entry =
+            match logRow with
+            | LogRow.Node _
+            | LogRow.TombstoneRow _ ->
+              FeedWindow.entryOf(State.ops, State.keyOf logRow, feed)
+              |> ValueOption.toOption
+            | LogRow.Day _
+            | LogRow.LastVisitRow -> None
+        }))
+      |> Slices.share
 
     let scrollTo =
       model
@@ -1487,27 +1646,42 @@ module Parts =
       |> Observable.skip 1
       |> Observable.map(fun _ -> 0.0)
 
-    Feed.view {
-      Header = ValueNone
-      Items = rows
-      KeyOf = State.keyOf
-      Row = fun logRow -> row(args, logRow)
-      Footer =
-        ValueSome(
-          PageChrome.loadMore(
-            hasMore,
-            fun () -> args.Dispatch State.MoreRequested
-          )
-        )
-      HasMore = hasMore
-      ScrollTo = ValueSome scrollTo
-      Ride = false
-      Restore = (if place > 0.0 then ValueSome place else ValueNone)
-      OnScroll =
-        ValueSome(fun offset -> props.Env.Timeline.Remember(props.Log, offset))
-      OnRide = ValueNone
-      OnNeedMore = ValueSome(fun () -> args.Dispatch State.MoreRequested)
-    }
+    Feed.viewWith(
+      {
+        Header = ValueNone
+        Items = rows
+        KeyOf = fun anchored -> State.keyOf anchored.Row
+        Row = fun anchored -> row(args, anchored.Row)
+        Footer = ValueNone
+        HasMore = hasOlder
+        ScrollTo = ValueSome scrollTo
+        Ride = false
+        Restore = ValueNone
+        OnScroll = ValueNone
+        OnRide = ValueNone
+        OnNeedMore = ValueNone
+      },
+      {
+        Feed.Advanced.none() with
+            AnchorKeyOf = ValueSome anchorKeyOf
+            EntryCursorOf = ValueSome entryOf
+            RestoreAnchor = restoreAnchor |> ValueOption.ofOption
+            OnAnchor =
+              ValueSome(fun anchor ->
+                let place: FeedWindow.Place = { Anchor = ValueSome anchor }
+
+                props.Env.Timeline.RememberPlace(surface, place)
+                args.Dispatch(State.AnchorMoved anchor))
+            Paging =
+              ValueSome {
+                Order = FeedWindow.NewestFirst
+                HasOlder = hasOlder
+                HasNewer = hasNewer
+                OnOlder = (fun () -> args.Dispatch State.MoreRequested)
+                OnNewer = (fun () -> args.Dispatch State.NewerRequested)
+              }
+      }
+    )
 
 let view
   (props: Props<'env>)
@@ -1520,8 +1694,7 @@ let view
       {
         OnEvent =
           function
-          | CommitCard.Opened c ->
-            Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
+          | CommitCard.Opened c -> dispatch(State.CommitOpened c)
           | CommitCard.MoreRepliesRequested c ->
             dispatch(State.PreviewMoreRequested c)
           | CommitCard.QuoteRequested c ->
@@ -1614,7 +1787,9 @@ let view
       Empty =
         fun current ->
           if
-            not current.Loading && current.Error.IsNone && current.Items.IsEmpty
+            not current.Loading
+            && current.Error.IsNone
+            && (FeedWindow.items current.Feed).IsEmpty
           then
             PageChrome.Words "Nothing here yet. Commit something."
           else

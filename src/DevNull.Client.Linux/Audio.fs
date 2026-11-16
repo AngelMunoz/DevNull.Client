@@ -191,9 +191,9 @@ type Capture(stream: nativeint, log: ILogger) =
 
   let gate = obj()
   let taken = ResizeArray<byte>()
-  let running = ref true
-  let peak = ref 0.0
-  let failedWith: string option ref = ref None
+  let mutable running = true
+  let mutable peak = 0.0
+  let mutable failedWith: string option = None
   let chunk: byte[] = Array.zeroCreate 1600
   let started = Stopwatch.StartNew()
 
@@ -201,7 +201,7 @@ type Capture(stream: nativeint, log: ILogger) =
     let mutable error = 0
 
     let heard =
-      running.Value
+      running
       && Pulse.pa_simple_read(stream, chunk, unativeint chunk.Length, &error)
          >= 0
 
@@ -211,12 +211,12 @@ type Capture(stream: nativeint, log: ILogger) =
 
         let loudest = loudestOf chunk
 
-        if loudest > peak.Value then
-          peak.Value <- loudest)
+        if loudest > peak then
+          peak <- loudest)
 
       step()
-    elif running.Value then
-      failedWith.Value <- Some(Pulse.pa_strerror error)
+    elif running then
+      failedWith <- Some(Pulse.pa_strerror error)
 
   let reader = Thread(ThreadStart step, IsBackground = true)
 
@@ -226,14 +226,14 @@ type Capture(stream: nativeint, log: ILogger) =
 
     member _.Level() =
       lock gate (fun () ->
-        let current = peak.Value
-        peak.Value <- 0.0
+        let current = peak
+        peak <- 0.0
         current)
 
     member _.Stop() = asyncEx {
       return!
         Task.Run(fun () ->
-          running.Value <- false
+          running <- false
           reader.Join()
 
           let voice =
@@ -244,7 +244,7 @@ type Capture(stream: nativeint, log: ILogger) =
 
           Pulse.pa_simple_free stream
 
-          match failedWith.Value with
+          match failedWith with
           | Some why ->
             log.LogWarning(
               "The recording stopped early after {Seconds} seconds: {Why}",
@@ -264,7 +264,7 @@ type Capture(stream: nativeint, log: ILogger) =
     }
 
     member _.Cancel() =
-      running.Value <- false
+      running <- false
       reader.Join()
       Pulse.pa_simple_free stream
 
@@ -280,9 +280,9 @@ type Capture(stream: nativeint, log: ILogger) =
 // as it is written, so a move lands on the note while it sounds.
 type Playback(stream: nativeint, data: byte[], volume: float, log: ILogger) =
 
-  let running = ref true
-  let written = ref 0
-  let loudness = ref volume
+  let mutable running = true
+  let mutable written = 0
+  let mutable loudness = volume
   let finished = Event<unit>()
   let started = Stopwatch.StartNew()
 
@@ -294,7 +294,7 @@ type Playback(stream: nativeint, data: byte[], volume: float, log: ILogger) =
     let out =
       samples
       |> Array.map(fun sample ->
-        Math.Clamp(int(float sample * loudness.Value), -32768, 32767) |> int16)
+        Math.Clamp(int(float sample * loudness), -32768, 32767) |> int16)
 
     let bytes: byte[] = Array.zeroCreate(out.Length * 2)
     Buffer.BlockCopy(out, 0, bytes, 0, bytes.Length)
@@ -307,12 +307,12 @@ type Playback(stream: nativeint, data: byte[], volume: float, log: ILogger) =
     let piece = scaled data[offset .. offset + take - 1]
 
     if
-      running.Value
+      running
       && offset < data.Length
       && Pulse.pa_simple_write(stream, piece, unativeint piece.Length, &error)
          >= 0
     then
-      written.Value <- offset + take
+      written <- offset + take
       writeAt(offset + take)
 
   let writer =
@@ -321,7 +321,7 @@ type Playback(stream: nativeint, data: byte[], volume: float, log: ILogger) =
 
       let mutable error = 0
 
-      if running.Value && Pulse.pa_simple_drain(stream, &error) >= 0 then
+      if running && Pulse.pa_simple_drain(stream, &error) >= 0 then
         log.LogDebug(
           "The note played through ({Bytes} bytes, {Seconds} seconds).",
           data.Length,
@@ -329,7 +329,7 @@ type Playback(stream: nativeint, data: byte[], volume: float, log: ILogger) =
         )
 
         finished.Trigger()
-      elif running.Value then
+      elif running then
         // A drain that fails never fires `Ended`, so the reader would
         // wait forever; the log names why the note stopped short.
         log.LogWarning(
@@ -347,7 +347,7 @@ type Playback(stream: nativeint, data: byte[], volume: float, log: ILogger) =
 
   interface IAudioPlayback with
     member _.Stop() =
-      running.Value <- false
+      running <- false
       writer.Join()
 
       log.LogDebug(
@@ -355,13 +355,13 @@ type Playback(stream: nativeint, data: byte[], volume: float, log: ILogger) =
         started.Elapsed.TotalSeconds
       )
 
-    member _.SetVolume(volume: float) = loudness.Value <- volume
+    member _.SetVolume(volume: float) = loudness <- volume
 
     member _.Ended = finished.Publish
 
     // 16 kHz mono 16-bit stands at 32,000 bytes a second; the writer
     // counts what it has pushed.
-    member _.Position = TimeSpan.FromSeconds(float written.Value / 32000.0)
+    member _.Position = TimeSpan.FromSeconds(float written / 32000.0)
 
     // The simple API streams forward only; a scrub asks and the note
     // plays on from where it stands.

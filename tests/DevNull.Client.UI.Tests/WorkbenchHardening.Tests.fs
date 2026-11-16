@@ -449,7 +449,11 @@ let tests =
         let initial, _ = HistoryColumn.init props
 
         let model, _ =
-          HistoryColumn.update(props, HistoryColumn.Fetched(Ok page), initial)
+          HistoryColumn.update(
+            props,
+            HistoryColumn.Fetched(None, Ok page),
+            initial
+          )
 
         let commit =
           match page.Page.Items with
@@ -463,7 +467,9 @@ let tests =
             model
           )
 
-        Expect.isEmpty model.Items "the unstared saved node stayed in the model"
+        Expect.isEmpty
+          (HistoryColumn.itemsOf model)
+          "the unstared saved node stayed in the model"
       })
 
     testCaseAsync
@@ -511,19 +517,6 @@ let tests =
           api.Requests
           (fun request -> request.Target.StartsWith "/api/v1/starred")
           "the saved center never read Stars.index"
-
-        let! more =
-          waitForAsync(
-            5000,
-            (fun () -> buttonWithText(window, "Load more")),
-            Option.isSome
-          )
-
-        Expect.isTrue more "the saved center offered no cursor"
-
-        do!
-          onUiAsync(fun () ->
-            buttonWithText(window, "Load more") |> Option.iter click)
 
         let! secondRow =
           waitForAsync(
@@ -756,7 +749,11 @@ let tests =
         let initial, _ = HistoryColumn.init props
 
         let model, _ =
-          HistoryColumn.update(props, HistoryColumn.Fetched(Ok page), initial)
+          HistoryColumn.update(
+            props,
+            HistoryColumn.Fetched(None, Ok page),
+            initial
+          )
 
         let model = {
           model with

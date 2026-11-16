@@ -147,15 +147,15 @@ let tests =
     testCaseAsync
       "the account-off panel names both actions"
       (async {
-        let enabled = ref false
-        let website = ref false
+        let mutable enabled = false
+        let mutable website = false
 
         let! window =
           probeUiAsync(fun () ->
             let panel =
               RemotesMount.disabledPanel(
-                (fun () -> enabled.Value <- true),
-                (fun () -> website.Value <- true)
+                (fun () -> enabled <- true),
+                (fun () -> website <- true)
               )
 
             let window = Window(Content = panel)
@@ -181,7 +181,7 @@ let tests =
         let! fired =
           waitForAsync(
             5000,
-            (fun () -> enabled.Value, website.Value),
+            (fun () -> enabled, website),
             (fun (on, web) -> on && web)
           )
 

@@ -1,5 +1,6 @@
 namespace DevNull.Client.Editor
 
+open DevNull.Client
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.RemotesState
 
@@ -124,19 +125,22 @@ module EditorTab =
   /// as zero.
   val withDirty: count: int * tab: EditorTab -> EditorTab
 
-/// One ref's reading place: the feed's scroll offset and the newest
+/// One ref's reading place: the feed's reading anchor and the newest
 /// commit the last first page carried. The root holds one per ref.
 [<Struct>]
-type EditorPlace = { Scroll: float; Head: string option }
+type EditorPlace = {
+  Anchor: FeedWindow.Anchor voption
+  Head: string option
+}
 
 module EditorPlace =
 
   /// No place read yet.
   val empty: EditorPlace
 
-  /// The same place at another scroll offset; a negative offset reads
-  /// as zero.
-  val withScroll: scroll: float * place: EditorPlace -> EditorPlace
+  /// The same place at another reading anchor.
+  val withAnchor:
+    anchor: FeedWindow.Anchor voption * place: EditorPlace -> EditorPlace
 
   /// The same place over another head.
   val withHead: head: string option * place: EditorPlace -> EditorPlace

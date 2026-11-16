@@ -359,8 +359,8 @@ module RemotesThread =
 
       let carried, reading = readCmd(ctx, seen)
       withThread(carried, reading)
-    | State.ThreadScrolled offset ->
-      thread, Cmd.ofAction(fun () -> store.RememberScroll(key, offset))
+    | State.ThreadAnchorMoved anchor ->
+      thread, Cmd.ofAction(fun () -> store.RememberPlace(key, anchor))
     | State.GhostWanted messageId ->
       { thread with Landing = None },
       Cmd.OfAsync.perform walkTo (store, target, messageId) (fun found ->

@@ -11,28 +11,37 @@ open MVUish.Avalonia
 open DevNull.Client
 open DevNull.Client.UI.Tests.Harness
 
+/// The counters one probe program ticks: init once per program start,
+/// one update tick, and one view tick per program start.
+type private ProbeCounters = {
+  mutable Started: int
+  mutable Updated: int
+  mutable Viewed: int
+  mutable Sets: int
+}
+
 /// The recording probe program: init ticks once per program start, the
 /// init command drives one update tick, and the view ticks once per
 /// program start.
 let private probeProgram
-  (started: int ref, updated: int ref, viewed: int ref)
+  (counters: ProbeCounters)
   : Program<unit, int, unit, Control> =
   Program.mkProgram
     (fun () ->
-      incr started
+      counters.Started <- counters.Started + 1
       0, Cmd.ofMsg())
     (fun _ model ->
-      incr updated
+      counters.Updated <- counters.Updated + 1
       model, Cmd.none)
     (fun _ _ ->
-      incr viewed
+      counters.Viewed <- counters.Viewed + 1
       Border(Name = "AttachProbe") :> Control)
 
 /// Builds a detached scope and starts it through the attach gate. The
 /// scope stays detached until the test shows it, so the test reads the
 /// quiet counters first.
 let private startDetached
-  (started: int ref, updated: int ref, viewed: int ref, sets: int ref)
+  (counters: ProbeCounters)
   : Async<ContentControl * System.IDisposable> =
   probeUiAsync(fun () ->
     let scope = ContentControl(Name = "AttachScope")
@@ -41,9 +50,9 @@ let private startDetached
       Programs.runComponentOnAttach(
         scope,
         ui,
-        probeProgram(started, updated, viewed),
+        probeProgram counters,
         fun root ->
-          incr sets
+          counters.Sets <- counters.Sets + 1
           scope.Content <- root
       )
 
@@ -54,21 +63,23 @@ let tests =
     testCaseAsync
       "a detached scope starts nothing; the first attach starts one program"
       (async {
-        let started = ref 0
-        let updated = ref 0
-        let viewed = ref 0
-        let sets = ref 0
+        let counters = {
+          Started = 0
+          Updated = 0
+          Viewed = 0
+          Sets = 0
+        }
 
-        let! scope, handle = startDetached(started, updated, viewed, sets)
+        let! scope, handle = startDetached counters
 
         do! settleAsync()
 
         let! quiet =
           probeUiAsync(fun () ->
-            started.Value = 0
-            && updated.Value = 0
-            && viewed.Value = 0
-            && sets.Value = 0)
+            counters.Started = 0
+            && counters.Updated = 0
+            && counters.Viewed = 0
+            && counters.Sets = 0)
 
         Expect.isTrue quiet "a detached scope started its program"
 
@@ -81,7 +92,11 @@ let tests =
         let! startedOnce =
           waitForAsync(
             5000,
-            (fun () -> started.Value, updated.Value, viewed.Value, sets.Value),
+            (fun () ->
+              counters.Started,
+              counters.Updated,
+              counters.Viewed,
+              counters.Sets),
             fun counts -> counts = (1, 1, 1, 1)
           )
 
@@ -100,7 +115,7 @@ let tests =
 
         let! again =
           probeUiAsync(fun () ->
-            started.Value, updated.Value, viewed.Value, sets.Value)
+            counters.Started, counters.Updated, counters.Viewed, counters.Sets)
 
         Expect.equal again (1, 1, 1, 1) "a re-attach started a second program"
 
@@ -111,7 +126,8 @@ let tests =
         do! settleAsync()
 
         let! stopped =
-          probeUiAsync(fun () -> started.Value, viewed.Value, sets.Value)
+          probeUiAsync(fun () ->
+            counters.Started, counters.Viewed, counters.Sets)
 
         Expect.equal
           stopped
@@ -124,12 +140,14 @@ let tests =
     testCaseAsync
       "disposing before attach cancels the pending start"
       (async {
-        let started = ref 0
-        let updated = ref 0
-        let viewed = ref 0
-        let sets = ref 0
+        let counters = {
+          Started = 0
+          Updated = 0
+          Viewed = 0
+          Sets = 0
+        }
 
-        let! scope, handle = startDetached(started, updated, viewed, sets)
+        let! scope, handle = startDetached counters
 
         do! onUiAsync(fun () -> handle.Dispose())
         do! onUiAsync(fun () -> handle.Dispose())
@@ -144,10 +162,10 @@ let tests =
 
         let! silent =
           probeUiAsync(fun () ->
-            started.Value = 0
-            && updated.Value = 0
-            && viewed.Value = 0
-            && sets.Value = 0)
+            counters.Started = 0
+            && counters.Updated = 0
+            && counters.Viewed = 0
+            && counters.Sets = 0)
 
         Expect.isTrue silent "a canceled start ran on attach"
 

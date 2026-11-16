@@ -3,6 +3,7 @@ module DevNull.Client.Workbench.HistoryColumn
 open System
 open Avalonia.Controls
 open MVUish.Avalonia
+open DevNull.Client
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
@@ -22,8 +23,8 @@ open DevNull.Client.UserSettingsStore
 type Model = {
   Loading: bool
   Error: AppError option
-  Items: CommitNode list
-  NextCursor: string option
+  Feed: FeedWindow.Window<CommitNode>
+  Anchor: FeedWindow.Anchor voption
   Head: string option
   NewCount: int option
   Ranked: bool
@@ -33,14 +34,15 @@ type Model = {
   Busy: string option
   PollChoices: Map<string, string>
   Pasteis: bool
-  HeardIds: string list
-  Offset: float
 }
 
-/// One history column's place on its ref: the scroll offset and the
+/// One history column's place on its ref: the reading anchor and the
 /// newest commit id it had loaded.
 [<Struct>]
-type Place = { Offset: float; Head: string option }
+type Place = {
+  Anchor: FeedWindow.Anchor voption
+  Head: string option
+}
 
 /// What a history column reports to its host: the place it holds and
 /// the last page fetch time.
@@ -55,9 +57,12 @@ type Report = {
 /// reply, and quote intents, and the card's star, pastel, and vote
 /// actions.
 type Msg =
-  | Fetched of Result<LogPage, AppError>
+  | Fetched of cursor: string option * Result<LogPage, AppError>
   | MoreRequested
-  | Appended of Result<LogPage, AppError>
+  | NewerRequested
+  | Appended of cursor: string option * Result<LogPage, AppError>
+  | Prepended of cursor: string option * Result<LogPage, AppError>
+  | AnchorMoved of FeedWindow.Anchor
   | CheckNew
   | NewChecked of Result<LogPage, AppError>
   | NewRequested
@@ -65,7 +70,6 @@ type Msg =
   | ClockTicked of moment: DateTimeOffset
   | RefreshRequested
   | PollingChanged of active: bool
-  | Scrolled of offset: float
   | Opened of Commit
   | QuoteRequested of Commit
   | ReplyRequested of Commit
@@ -116,6 +120,16 @@ type Props<'env
   OnReport: Report -> unit
   OnDialog: RowActions.Dialog -> unit
 }
+
+/// The rows the window holds, in display order.
+val internal itemsOf: model: Model -> CommitNode list
+
+/// The older cursor of the window.
+val internal olderOf: model: Model -> string voption
+
+/// A model with one loaded page, for tests and fixtures.
+val internal withPage:
+  items: CommitNode list * nextCursor: string option * model: Model -> Model
 
 /// The column's first state and its first page fetch.
 val init: props: Props<'env> -> Model * Cmd<Msg>

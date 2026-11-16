@@ -247,7 +247,7 @@ let builtIn
       // mount exists; the slot is filled once, right after the call
       // returns, before any message can run. Without the fill the
       // author and profile sinks would stay silent.
-      let sendToWorkbench: (WorkbenchHost.Msg -> unit) ref = ref ignore
+      let mutable sendToWorkbench: WorkbenchHost.Msg -> unit = ignore
 
       let workbenchRoot, workbenchLifetime =
         WorkbenchHost.mount(
@@ -261,7 +261,7 @@ let builtIn
               workbenchZone((env :> IProvideUserSettings).UserSettings.Current)
             OnOpenAuthor =
               fun handle ->
-                let send = sendToWorkbench.Value
+                let send = sendToWorkbench
                 send(WorkbenchHost.RefSelected(Build.repository handle))
             OnOpenExternal =
               fun url -> (env :> IProvideBrowser).Browser.Open url |> ignore
@@ -272,8 +272,7 @@ let builtIn
           }
         )
 
-      sendToWorkbench.Value <-
-        (workbenchLifetime :?> WorkbenchHost.MountedHost).Send
+      sendToWorkbench <- (workbenchLifetime :?> WorkbenchHost.MountedHost).Send
 
       {
         new ILayout with

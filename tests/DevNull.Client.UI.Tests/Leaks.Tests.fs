@@ -546,23 +546,29 @@ let hundredHistoryModel() : HistoryColumn.Model =
     | Error failure ->
       failwith $"the canned log page never decoded: {failure.Message}"
 
-  {
-    Loading = false
-    Error = None
-    Items = page.Page.Items
-    NextCursor = None
-    Head = Some "018f4c1e-6f8a-7c3a-9b2d-0001"
-    NewCount = None
-    Ranked = false
-    Polling = false
-    Now = workbenchNow
-    FetchedAt = Some(workbenchNow.AddMinutes -12.0)
-    Busy = None
-    PollChoices = Map.empty
-    Pasteis = false
-    HeardIds = []
-    Offset = 0.0
-  }
+  HistoryColumn.withPage(
+    page.Page.Items,
+    None,
+    {
+      Loading = false
+      Error = None
+      Feed =
+        DevNull.Client.FeedWindow.empty(
+          DevNull.Client.FeedWindow.NewestFirst,
+          300
+        )
+      Anchor = ValueNone
+      Head = Some "018f4c1e-6f8a-7c3a-9b2d-0001"
+      NewCount = None
+      Ranked = false
+      Polling = false
+      Now = workbenchNow
+      FetchedAt = Some(workbenchNow.AddMinutes -12.0)
+      Busy = None
+      PollChoices = Map.empty
+      Pasteis = false
+    }
+  )
 
 /// The history column over a throwaway api: the model already carries
 /// its hundred rows, so the api never serves.
@@ -662,14 +668,23 @@ let mountHundredNotifications
   : Async<Window * BehaviorSubject<NotificationsCenter.Model>> = async {
   let env = TestEnv(signedInStore(), FakeApi("{}") :> IHttp)
 
-  let model: NotificationsCenter.Model = {
-    Loading = false
-    More = false
-    Error = None
-    Items = hundredNotificationItems()
-    Cursor = None
-    Now = workbenchNow
-  }
+  let model: NotificationsCenter.Model =
+    NotificationsCenter.withPage(
+      hundredNotificationItems(),
+      None,
+      {
+        Loading = false
+        More = false
+        Error = None
+        Feed =
+          DevNull.Client.FeedWindow.empty(
+            DevNull.Client.FeedWindow.NewestFirst,
+            300
+          )
+        Anchor = ValueNone
+        Now = workbenchNow
+      }
+    )
 
   let subject = new BehaviorSubject<NotificationsCenter.Model>(model)
 

@@ -119,7 +119,12 @@ let scheduleButton(props: Props) : Control =
 // body selection before the press hands focus to the button, and the
 // click that follows consumes it; a keyboard click reads the body as it
 // stands.
-let emojiButton(props: Props, pressed: (int * int) option ref) : Button =
+let emojiButton
+  (
+    props: Props,
+    takePressed: unit -> (int * int) option,
+    clearPressed: unit -> unit
+  ) : Button =
   let button =
     Button()
       .Name("EmojiButton")
@@ -130,12 +135,11 @@ let emojiButton(props: Props, pressed: (int * int) option ref) : Button =
       .Content(Icons.iconAt(Glyph.Reaction, 20.0))
       .IsEnabled(props.Busy |> Observable.map not)
       .OnClickHandler(fun _ _ ->
-        let selection = pressed.Value |> Option.defaultWith props.BodySelection
+        let selection = takePressed() |> Option.defaultWith props.BodySelection
 
-        pressed.Value <- None
         props.OnEmoji selection)
 
-  button.PointerCaptureLost.Add(fun _ -> pressed.Value <- None)
+  button.PointerCaptureLost.Add(fun _ -> clearPressed())
 
   AutomationProperties.SetName(button, "Add emoji")
   ToolTip.SetTip(button, "Add emoji")
@@ -177,8 +181,16 @@ let errorLine(props: Props) : Control =
     .IsVisible(props.Error |> Observable.map Option.isSome)
 
 let view(props: Props) : View =
-  let pressed = ref None
-  let trigger = emojiButton(props, pressed)
+  let mutable pressed: (int * int) option = None
+
+  let takePressed() =
+    let selection = pressed
+    pressed <- None
+    selection
+
+  let clearPressed() = pressed <- None
+
+  let trigger = emojiButton(props, takePressed, clearPressed)
 
   let row =
     DockPanel()
@@ -206,7 +218,7 @@ let view(props: Props) : View =
         onTrigger
         && args.GetCurrentPoint(trigger).Properties.IsLeftButtonPressed
       then
-        pressed.Value <- Some(props.BodySelection())),
+        pressed <- Some(props.BodySelection())),
     RoutingStrategies.Tunnel
   )
 

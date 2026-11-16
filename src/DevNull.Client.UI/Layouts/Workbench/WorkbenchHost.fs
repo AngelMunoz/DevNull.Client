@@ -1106,10 +1106,18 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   match msg with
   | RefSelected ref ->
     let data = sessionData props
+    let same = ref = model.Selected
+
+    let places =
+      if same then
+        model.Places |> Map.remove ref
+      else
+        model.Places
 
     let cleared = {
       model with
           Selected = ref
+          Places = places
           History = None
           FetchedAt = None
           ThreadId = None
@@ -1195,7 +1203,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
     | None ->
       let start: HistoryStart = {
         Ref = ref
-        Place = model.Places |> Map.tryFind ref
+        Place = places |> Map.tryFind ref
         Session = data.Session
         KeyFile = data.KeyFile
         ViewerId = data.ViewerId

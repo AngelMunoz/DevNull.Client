@@ -19,6 +19,11 @@ type FeedProps<'row when 'row: equality> = {
   HasMore: IObservable<bool>
   OnMore: unit -> unit
   OnRide: (Feed.Ride -> unit) voption
+  AnchorKeyOf: ('row -> string option) voption
+  EntryCursorOf: ('row -> string option) voption
+  RestoreAnchor: FeedWindow.Anchor voption
+  OnAnchor: (FeedWindow.Anchor -> unit) voption
+  Paging: Feed.Paging voption
   End: IObservable<string option>
 }
 
@@ -113,22 +118,40 @@ let feedColumn(feed: FeedProps<'row>) : Control =
   let footer =
     StackPanel()
       .Spacing(8.0)
-      .Children(PageChrome.loadMore(feed.HasMore, feed.OnMore), endLine)
+      .Children(
+        [|
+          match feed.Paging with
+          | ValueSome _ -> ()
+          | ValueNone -> PageChrome.loadMore(feed.HasMore, feed.OnMore)
 
-  Feed.view {
-    Header = ValueNone
-    Items = feed.Items
-    KeyOf = feed.KeyOf
-    Row = feed.Row
-    Footer = ValueSome footer
-    HasMore = feed.HasMore
-    ScrollTo = ValueNone
-    Ride = false
-    Restore = ValueNone
-    OnScroll = ValueNone
-    OnRide = feed.OnRide
-    OnNeedMore = ValueNone
-  }
+          endLine
+        |]
+      )
+
+  Feed.viewWith(
+    {
+      Header = ValueNone
+      Items = feed.Items
+      KeyOf = feed.KeyOf
+      Row = feed.Row
+      Footer = ValueSome footer
+      HasMore = feed.HasMore
+      ScrollTo = ValueNone
+      Ride = false
+      Restore = ValueNone
+      OnScroll = ValueNone
+      OnRide = feed.OnRide
+      OnNeedMore = ValueNone
+    },
+    {
+      Feed.Advanced.none() with
+          AnchorKeyOf = feed.AnchorKeyOf
+          EntryCursorOf = feed.EntryCursorOf
+          RestoreAnchor = feed.RestoreAnchor
+          OnAnchor = feed.OnAnchor
+          Paging = feed.Paging
+    }
+  )
 
 let feedLabel(label: string) : Control =
   TextBlock()

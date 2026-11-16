@@ -123,7 +123,7 @@ let firstModel(log: LogKind) =
   let page = pageOf logPageJson
 
   let model, _ =
-    HistoryColumn.update(p, HistoryColumn.Fetched(Ok page), initial)
+    HistoryColumn.update(p, HistoryColumn.Fetched(None, Ok page), initial)
 
   p, model
 
@@ -139,10 +139,14 @@ let tests =
       let page = pageOf logPageJson
 
       let model, _ =
-        HistoryColumn.update(p, HistoryColumn.Fetched(Ok page), initial)
+        HistoryColumn.update(p, HistoryColumn.Fetched(None, Ok page), initial)
 
-      Expect.equal model.Items page.Page.Items "the page rows"
-      Expect.equal model.NextCursor (Some "next") "the next cursor"
+      Expect.equal (HistoryColumn.itemsOf model) page.Page.Items "the page rows"
+
+      Expect.equal
+        (HistoryColumn.olderOf model)
+        (ValueSome "next")
+        "the next cursor"
 
       Expect.equal
         model.Head
@@ -160,12 +164,15 @@ let tests =
       let model, _ =
         HistoryColumn.update(
           props Latest,
-          HistoryColumn.Appended(Ok next),
+          HistoryColumn.Appended(Some "next", Ok next),
           first
         )
 
-      Expect.equal model.Items.Length 2 "the appended rows"
-      Expect.isNone model.NextCursor "the cursor is spent"
+      Expect.equal (HistoryColumn.itemsOf model).Length 2 "the appended rows"
+
+      Expect.isTrue
+        (ValueOption.isNone(HistoryColumn.olderOf model))
+        "the cursor is spent"
 
     testCase "the poll sets the new count and the pill fetch clears it"
     <| fun () ->
@@ -205,8 +212,7 @@ let tests =
 
       Expect.equal kept.NewCount (Some 3) "the count survived"
 
-    testCase
-      "a heard newer commit rides the next poll and a page fetch clears it"
+    testCase "a newer commit counts without merging and a page fetch clears it"
     <| fun () ->
       let p, first = firstModel Following
 
@@ -218,23 +224,21 @@ let tests =
         )
 
       Expect.equal
-        heard.HeardIds
-        [ "018f4c1e-9999-7c3a-9b2d-5e6f7a8b9c0d" ]
-        "the newer commit was heard"
-
-      Expect.equal
-        heard.Items.Length
+        (HistoryColumn.itemsOf heard).Length
         1
         "the newer commit stays out of the loaded rows"
+
+      let requested, _ =
+        HistoryColumn.update(p, HistoryColumn.NewRequested, heard)
 
       let cleared, _ =
         HistoryColumn.update(
           p,
           HistoryColumn.NewFetched(Ok(newCountPage 0)),
-          heard
+          requested
         )
 
-      Expect.isEmpty cleared.HeardIds "the page fetch cleared the heard set"
+      Expect.isNone cleared.NewCount "the page fetch cleared the dot"
 
     testCase "the polling flag gates the one-minute poll"
     <| fun () ->

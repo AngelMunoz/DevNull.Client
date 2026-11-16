@@ -129,7 +129,7 @@ let props(log: LogKind) : HistoryTab.Props<FakeEnv> = {
   Restore = ValueNone
   Refresh = Observable.empty
   OnSnapshot = ignore
-  OnScroll = ignore
+  OnAnchor = ignore
   OnOpen = ignore
   OnReplyRequested = ignore
   OnQuoteRequested = ignore
@@ -200,8 +200,16 @@ let tests =
           HistoryTab.State.initial
         )
 
-      Expect.equal next.Items.Length 1 "the first page's rows"
-      Expect.equal next.NextCursor (Some "next") "the cursor"
+      Expect.equal
+        (HistoryTab.State.itemsOf next).Length
+        1
+        "the first page's rows"
+
+      Expect.equal
+        (HistoryTab.State.olderOf next)
+        (ValueSome "next")
+        "the cursor"
+
       Expect.isFalse next.Loading "the loading flag"
 
       Expect.equal
@@ -210,10 +218,14 @@ let tests =
         "the fetch moment")
 
     testCase "the next page appends under the loaded rows" (fun () ->
-      let next, _ = update(HistoryTab.State.Appended(Ok secondPage), loaded)
+      let next, _ =
+        update(HistoryTab.State.Appended(Some "next", Ok secondPage), loaded)
 
-      Expect.equal next.Items.Length 2 "the appended rows"
-      Expect.equal next.NextCursor None "the cursor")
+      Expect.equal (HistoryTab.State.itemsOf next).Length 2 "the appended rows"
+
+      Expect.isTrue
+        (ValueOption.isNone(HistoryTab.State.olderOf next))
+        "the cursor")
 
     testCase "the poll reports the page's own new count" (fun () ->
       let next, _ = update(HistoryTab.State.NewChecked(Ok(pollPage 3)), loaded)
@@ -244,38 +256,26 @@ let tests =
       Expect.isFalse idle.Polling "the idle model kept polling")
 
     testCase "no cursor asks for no page" (fun () ->
-      let model = { loaded with NextCursor = None }
+      let model = HistoryTab.State.withPage([], None, loaded)
       let next, _ = update(HistoryTab.State.MoreRequested, model)
 
       Expect.equal next model "the model moved without a cursor")
 
     testCase
-      "a heard newer commit rides the next poll and a page fetch clears it"
+      "a newer commit counts without merging and a page fetch clears it"
       (fun () ->
-        let first = commitOf firstPage.Page.Items[0]
-        let newer = commitOf newerPage.Page.Items[0]
-
         let heard, _ =
           update(HistoryTab.State.NewChecked(Ok newerPage), loaded)
 
-        Expect.equal heard.HeardIds [ newer.Id ] "the heard ids"
         Expect.equal heard.NewCount (Some 1) "the dirty count"
-        Expect.equal heard.Items.Length 1 "a newer commit merged"
 
-        let head =
-          heard.Head
-          |> Option.defaultWith(fun () -> failwith "the head is unset")
-
-        let request =
-          HistoryTab.State.pollRequest(props Following, heard, head)
-
-        Expect.equal request.Arrived [ newer.Id ] "the poll's arrived ids"
-        Expect.equal request.Pending [ first.Id ] "the poll's pending ids"
-        Expect.equal request.Through [ first.Id ] "the poll's loaded range"
+        Expect.equal
+          (HistoryTab.State.itemsOf heard).Length
+          1
+          "a newer commit merged"
 
         let cleared, _ = update(HistoryTab.State.Fetched(Ok firstPage), heard)
 
-        Expect.equal cleared.HeardIds [] "the full fetch kept a heard id"
         Expect.equal cleared.NewCount None "the full fetch kept the dot")
 
     testCase "a late older commit lands between the loaded rows" (fun () ->
@@ -283,19 +283,21 @@ let tests =
       let older = commitOf firstPage.Page.Items[0]
       let late = commitOf latePage.Page.Items[0]
 
-      let model = {
-        loaded with
-            Items = [ LiveCommit newer; LiveCommit older ]
-            Head = Some newer.Id
-      }
+      let model =
+        HistoryTab.State.withPage(
+          [ LiveCommit newer; LiveCommit older ],
+          None,
+          loaded
+        )
+        |> fun model -> { model with Head = Some newer.Id }
 
       let next, _ = update(HistoryTab.State.NewChecked(Ok latePage), model)
 
       Expect.equal
-        (next.Items |> List.map(fun node -> (commitOf node).Id))
+        (HistoryTab.State.itemsOf next
+         |> List.map(fun node -> (commitOf node).Id))
         [ newer.Id; late.Id; older.Id ]
         "the late commit did not land in place"
 
-      Expect.equal next.HeardIds [] "the late commit was heard"
       Expect.equal next.NewCount (Some 1) "the dirty count")
   ]

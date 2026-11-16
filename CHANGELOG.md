@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Feeds:** cursor-paged feeds keep the post under the reader when new rows arrive, page older and newer content at the scroll edges, restore the same post after navigation, and keep a bounded 300-row window. The log, profile, Workbench history, Editor history, and remotes thread feeds use it, and their Load more buttons are gone.
+
 ## [0.16.0] - 2026-11-14
 
 ### Added

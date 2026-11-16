@@ -308,11 +308,11 @@ let tests =
       (async {
         let api = threadApi()
         let env = TestEnv(signedInStore(), api :> IHttp)
-        let asked = ref false
+        let mutable asked = false
 
         let props = {
           EditorFrame.props env with
-              OnUseDefaultLayout = fun () -> asked.Value <- true
+              OnUseDefaultLayout = fun () -> asked <- true
         }
 
         let! window, handle =
@@ -344,7 +344,7 @@ let tests =
         Expect.isTrue queueRow "the queue row never appeared"
 
         do! clickName(window, "EditorDefaultLayout")
-        Expect.isTrue asked.Value "the default layout affordance did nothing"
+        Expect.isTrue asked "the default layout affordance did nothing"
 
         let! privateHelp =
           probeUiAsync(fun () ->
@@ -365,15 +365,18 @@ let tests =
         let api = churnApi()
         let env = TestEnv(signedInStore(), api :> IHttp)
 
-        let! window, handleRef, weak =
+        let mutable handle: IDisposable option = None
+
+        let! window, weak =
           probeUiAsync(fun () ->
-            let control, handle = EditorRoot.mount(ui, EditorFrame.props env)
+            let control, mounted = EditorRoot.mount(ui, EditorFrame.props env)
 
             let window =
               Window(Width = 1600.0, Height = 900.0, Content = control)
 
             window.Show()
-            window, ref(Some handle), WeakReference(control))
+            handle <- Some mounted
+            window, WeakReference(control))
 
         let! shown =
           waitForAsync(
@@ -468,9 +471,9 @@ let tests =
           onUiAsync(fun () ->
             window.Close()
 
-            handleRef.Value |> Option.iter(fun handle -> handle.Dispose())
+            handle |> Option.iter(fun mounted -> mounted.Dispose())
 
-            handleRef.Value <- None)
+            handle <- None)
 
         collect()
 

@@ -11,6 +11,7 @@ open DevNull.Client.UI.Tests.Search
 open DevNull.Client.UI.Tests.Share
 open DevNull.Client.UI.Tests.Stargazers
 open DevNull.Client.UI.Tests.Formatting
+open DevNull.Client.UI.Tests.FeedWindow
 open DevNull.Client.UI.Tests.HistoryColumnTests
 open DevNull.Client.UI.Tests.InspectorTests
 open DevNull.Client.UI.Tests.ThreadModeTests
@@ -49,6 +50,7 @@ let main argv =
       CommitMenu.tests
       Stargazers.tests
       Formatting.tests
+      FeedWindow.tests
       ProfilePictures.tests
       SearchLatest.tests
       HistoryTab.tests

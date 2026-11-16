@@ -936,7 +936,7 @@ let tests =
         let fetched, _ =
           LogView.State.update
             props
-            (LogView.State.Fetched(Ok page))
+            (LogView.State.Fetched(None, Ok page))
             LogView.State.initial
 
         Expect.isTrue fetched.Ranked "the fetch never took the ranked flag"
@@ -1749,15 +1749,13 @@ let tests =
       })
 
     testCaseAsync
-      "load more appends the next page"
+      "scrolling appends the next page"
       (async {
         let! window = startShell(signedInStore(), logApi() :> IHttp)
 
         let! shown = showsText(window, "It was DNS.")
 
         Expect.isTrue shown "the first page never rendered"
-
-        do! clickWhenShown(window, "Load more")
 
         do! scrollFeedToEndAsync window
 
@@ -7898,7 +7896,7 @@ let tests =
       })
 
     testCaseAsync
-      "a since check stages the new count, and the pill replaces the feed"
+      "a since check stages the new count, and the pill merges the fresh page"
       (async {
         let session = signedInSession()
 
@@ -7922,34 +7920,45 @@ let tests =
 
         // The since read answers the same first page; only the envelope
         // count is news, so the items never stage behind the pill.
-        let model = {
-          LogView.State.initial with
-              Head = Some "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
-              Items =
-                match newer.Page.Items with
-                | [ node ] -> [ node ]
-                | nodes -> nodes
-        }
+        let items =
+          match newer.Page.Items with
+          | [ node ] -> [ node ]
+          | nodes -> nodes
+
+        let model =
+          LogView.State.withPage(
+            items,
+            None,
+            {
+              LogView.State.initial with
+                  Head = Some "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+            }
+          )
 
         let staged, _ =
           LogView.State.update props (LogView.State.NewChecked(Ok newer)) model
 
         Expect.equal staged.NewCount (Some 1) "the new count never staged"
 
-        Expect.equal staged.Items model.Items "the since read touched the feed"
+        Expect.equal
+          (LogView.State.itemsOf staged)
+          (LogView.State.itemsOf model)
+          "the since read touched the feed"
 
-        // The pill fetches the fresh first page and replaces the feed:
-        // every id lands once, so the keyed diff can never see a
-        // repeated key.
+        // The pill merges the fresh first page at the newer edge: every
+        // id lands once, so the keyed diff can never see a repeated key.
         let refreshed, _ =
           LogView.State.update props LogView.State.NewRequested staged
 
         Expect.isNone refreshed.NewCount "the pill never cleared"
 
-        Expect.equal refreshed.Items model.Items "the refresh was never staged"
+        Expect.equal
+          (LogView.State.itemsOf refreshed)
+          (LogView.State.itemsOf model)
+          "the refresh was never staged"
 
         Expect.equal
-          (refreshed.Items
+          (LogView.State.itemsOf refreshed
            |> List.map(fun node ->
              match node with
              | LiveCommit commit ->
@@ -7958,12 +7967,11 @@ let tests =
                LogView.State.keyOf(LogView.LogRow.TombstoneRow tombstone))
            |> List.distinct
            |> List.length)
-          (refreshed.Items |> List.length)
+          (LogView.State.itemsOf refreshed |> List.length)
           "the refreshed feed carries a repeated key"
 
-        // The landed page returns its reader to the top: the command
-        // the fresh page carries asks the timeline to scroll, the way
-        // the keyed feed's own diff never will.
+        // The pill keeps the reader's place: it never asks the timeline
+        // to scroll to the top.
         let timeline =
           (env :> DevNull.Client.Timeline.IProvideTimeline).Timeline
 
@@ -7979,10 +7987,9 @@ let tests =
         landed ignore ignore
         listen.Dispose()
 
-        Expect.contains
-          scrolled
-          Timeline.ScrollToTop
-          "the fresh first page never scrolled the feed to its top"
+        Expect.isFalse
+          (scrolled.Contains Timeline.ScrollToTop)
+          "the pill scrolled the feed to its top"
       })
 
     testCaseAsync
@@ -8023,11 +8030,15 @@ let tests =
           | Error failure ->
             failwith $"the loaded page never decoded: {failure.Message}"
 
-        let model = {
-          LogView.State.initial with
-              Head = Some "0a0a0a0a-0000-0000-0000-000000000001"
-              Items = loaded.Page.Items
-        }
+        let model =
+          LogView.State.withPage(
+            loaded.Page.Items,
+            None,
+            {
+              LogView.State.initial with
+                  Head = Some "0a0a0a0a-0000-0000-0000-000000000001"
+            }
+          )
 
         let late =
           match LogPage.decode latePageJson with
@@ -8042,11 +8053,13 @@ let tests =
 
         Expect.isNone staged.NewCount "the late commit staged the pill"
 
-        Expect.equal 2 staged.Items.Length "the late commit never landed"
+        Expect.equal
+          2
+          (LogView.State.itemsOf staged).Length
+          "the late commit never landed"
 
-        Expect.equal [] staged.HeardIds "the late commit never became heard"
-
-        let rows = LogView.State.toRows(staged.Items, false, None)
+        let rows =
+          LogView.State.toRows(LogView.State.itemsOf staged, false, None)
 
         Expect.contains
           (rows |> List.map LogView.State.keyOf)
@@ -8070,11 +8083,9 @@ let tests =
           "the newer commit never staged the pill"
 
         Expect.equal
-          [ "0a0a0a0a-0000-0000-0000-000000000003" ]
-          heard.HeardIds
-          "the newer commit never became heard"
-
-        Expect.equal model.Items heard.Items "the newer commit touched the feed"
+          (LogView.State.itemsOf model)
+          (LogView.State.itemsOf heard)
+          "the newer commit touched the feed"
 
         let _, polled = LogView.State.update props LogView.State.CheckNew heard
 
@@ -8086,27 +8097,26 @@ let tests =
             (fun () -> api.Requests),
             fun requests ->
               requests
-              |> List.exists(fun request ->
-                request.Target.Contains "arrived[]=")
+              |> List.exists(fun request -> request.Target.Contains "since=")
           )
 
-        Expect.isTrue sent "the next poll never sent the heard ids"
+        Expect.isTrue sent "the next poll never read the since head"
 
         let poll =
           api.Requests
-          |> List.find(fun request -> request.Target.Contains "arrived[]=")
+          |> List.find(fun request -> request.Target.Contains "since=")
 
-        Expect.isTrue
-          (poll.Target.Contains "arrived[]=0a0a0a0a-0000-0000-0000-000000000003")
-          "the heard id never rode the poll"
+        Expect.isFalse
+          (poll.Target.Contains "arrived[]")
+          "the poll sent a dead arrived parameter"
 
-        Expect.isTrue
-          (poll.Target.Contains "pending[]=")
-          "the loaded ids never rode the poll"
+        Expect.isFalse
+          (poll.Target.Contains "pending[]")
+          "the poll sent a dead pending parameter"
 
-        Expect.isTrue
+        Expect.isFalse
           (poll.Headers |> List.exists(fun (name, _) -> name = "X-Log-Through"))
-          "the oldest range never rode the poll"
+          "the poll sent a dead through header"
       })
 
     testCaseAsync
@@ -8141,11 +8151,15 @@ let tests =
           | Error failure ->
             failwith $"the head page never decoded: {failure.Message}"
 
-        let model = {
-          LogView.State.initial with
-              Head = Some "0a0a0a0a-0000-0000-0000-000000000001"
-              Items = loaded.Page.Items
-        }
+        let model =
+          LogView.State.withPage(
+            loaded.Page.Items,
+            None,
+            {
+              LogView.State.initial with
+                  Head = Some "0a0a0a0a-0000-0000-0000-000000000001"
+            }
+          )
 
         let olderJson =
           datedCommitJson(
@@ -8171,7 +8185,10 @@ let tests =
         let staged, _ =
           LogView.State.update props (LogView.State.NewChecked(Ok burst)) model
 
-        Expect.equal 3 staged.Items.Length "the burst never landed together"
+        Expect.equal
+          3
+          (LogView.State.itemsOf staged).Length
+          "the burst never landed together"
 
         Expect.isNone staged.NewCount "the burst staged the pill"
 
@@ -8181,11 +8198,184 @@ let tests =
             "0a0a0a0a-0000-0000-0000-000000000000"
             "0a0a0a0a-0000-0000-0000-000000000010"
           ]
-          (staged.Items
+          (LogView.State.itemsOf staged
            |> List.map(function
              | LiveCommit commit -> commit.Id
              | Tombstone tombstone -> tombstone.Id))
           "the burst landed out of order"
+      })
+
+    testCaseAsync
+      "opening a commit parks that commit as the log place"
+      (async {
+        let navigated = ResizeArray<string>()
+
+        let nav = {
+          new Navs.INavigable with
+            member _.Navigate(url) =
+              fun _ ->
+                navigated.Add url
+
+                System.Threading.Tasks.Task.FromResult(
+                  Error(Navs.NavigationError.RouteNotFound url)
+                )
+
+            member _.NavigateByName(_, _) =
+              fun _ ->
+                System.Threading.Tasks.Task.FromResult(
+                  Error(Navs.NavigationError.RouteNotFound "")
+                )
+
+            member _.Back() =
+              fun _ ->
+                System.Threading.Tasks.Task.FromResult(
+                  Error(Navs.NavigationError.RouteNotFound "")
+                )
+
+            member _.Forward() =
+              fun _ ->
+                System.Threading.Tasks.Task.FromResult(
+                  Error(Navs.NavigationError.RouteNotFound "")
+                )
+        }
+
+        let env = TestEnv(signedInStore(), twoDaysLogApi() :> IHttp)
+
+        let props: LogView.Props<TestEnv> = {
+          Env = env
+          Log = Latest
+          Session = signedInSession()
+          Nav = nav
+          Context = Unchecked.defaultof<Navs.RouteContext>
+        }
+
+        let pageOneJson =
+          sprintf
+            "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":\"page2-cursor\",\"prev_cursor\":null},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
+            (datedCommitJson(
+              "0a0a0a0a-0000-0000-0000-000000000001",
+              "aaa1111",
+              "First landing.",
+              "2020-04-03T12:00:00Z"
+            ))
+
+        let pageTwoJson =
+          sprintf
+            "{\"data\":[%s,%s],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":\"page1-cursor\"},\"log\":\"latest\",\"is_ranked\":false,\"new_commits_count\":null,\"suggestions\":[]}"
+            (datedCommitJson(
+              "0a0a0a0a-0000-0000-0000-000000000002",
+              "bbb2222",
+              "The clicked one.",
+              "2020-04-02T12:00:00Z"
+            ))
+            (datedCommitJson(
+              "0a0a0a0a-0000-0000-0000-000000000003",
+              "ccc3333",
+              "Third landing.",
+              "2020-04-01T12:00:00Z"
+            ))
+
+        let pageOne =
+          match LogPage.decode pageOneJson with
+          | Ok page -> page
+          | Error failure ->
+            failwith $"page one never decoded: {failure.Message}"
+
+        let pageTwo =
+          match LogPage.decode pageTwoJson with
+          | Ok page -> page
+          | Error failure ->
+            failwith $"page two never decoded: {failure.Message}"
+
+        let nodes = pageOne.Page.Items @ pageTwo.Page.Items
+
+        let commits =
+          nodes
+          |> List.choose(function
+            | LiveCommit commit -> Some commit
+            | Tombstone _ -> None)
+
+        let clicked = commits[1]
+
+        // The reader sits on the first commit of page one; the clicked
+        // commit lands through the older-page update, so the two-page
+        // window comes from production code.
+        let scrollAnchor: DevNull.Client.FeedWindow.Anchor = {
+          Key = commits[0].Id
+          Offset = 12.0
+          Entry = ValueNone
+        }
+
+        let unfocused =
+          LogView.State.withPage(
+            pageOne.Page.Items,
+            pageOne.Page.NextCursor,
+            LogView.State.initial
+          )
+
+        let fed, _ =
+          LogView.State.update
+            props
+            (LogView.State.Appended(Some "page2-cursor", Ok pageTwo))
+            unfocused
+
+        let model = {
+          fed with
+              Anchor = ValueSome scrollAnchor
+        }
+
+        let opened, openedCmd =
+          LogView.State.update props (LogView.State.CommitOpened clicked) model
+
+        let clickAnchor: DevNull.Client.FeedWindow.Anchor = {
+          Key = clicked.Id
+          Offset = 0.0
+          Entry = ValueSome "page2-cursor"
+        }
+
+        Expect.equal
+          opened.Anchor
+          (ValueSome clickAnchor)
+          "the open kept the scroll anchor instead of the clicked commit"
+
+        openedCmd ignore ignore
+
+        let timeline =
+          (env :> DevNull.Client.Timeline.IProvideTimeline).Timeline
+
+        Expect.equal
+          (timeline.PlaceOf(Surface.log Latest)
+           |> Option.bind(fun place -> ValueOption.toOption place.Anchor))
+          (Some clickAnchor)
+          "the open never parked the clicked commit in the timeline"
+
+        Expect.contains
+          (List.ofSeq navigated)
+          ("/commit/" + clicked.Id)
+          "the open never navigated to the commit"
+
+        // A commit outside the loaded feed (a thread preview reply)
+        // keeps the parked place: no chunk of this feed restores it.
+        let outside = {
+          clicked with
+              Id = "0a0a0a0a-0000-0000-0000-000000000099"
+        }
+
+        let kept, keptCmd =
+          LogView.State.update props (LogView.State.CommitOpened outside) opened
+
+        Expect.equal
+          kept.Anchor
+          (ValueSome clickAnchor)
+          "an outside open moved the log place"
+
+        keptCmd ignore ignore
+
+        Expect.equal
+          (timeline.PlaceOf(Surface.log Latest)
+           |> Option.bind(fun place -> ValueOption.toOption place.Anchor))
+          (Some clickAnchor)
+          "an outside open overwrote the parked log place"
       })
 
     testCaseAsync

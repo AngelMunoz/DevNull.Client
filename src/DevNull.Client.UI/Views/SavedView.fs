@@ -1,8 +1,9 @@
-﻿module DevNull.Client.Views.SavedView
+module DevNull.Client.Views.SavedView
 
 open System
 open Avalonia.Controls
 open NXUI.Extensions
+open FSharp.Control.Reactive
 open MVUish.Avalonia
 open Navs
 open DevNull.Client
@@ -55,8 +56,8 @@ module State =
   type Model = {
     Loading: bool
     Error: AppError option
-    Items: CommitNode list
-    NextCursor: string option
+    Feed: FeedWindow.Window<CommitNode>
+    Anchor: FeedWindow.Anchor voption
     Now: DateTimeOffset
     Pasteis: bool
     Voting: string option
@@ -73,9 +74,12 @@ module State =
   }
 
   type Msg =
-    | Fetched of Result<Page<CommitNode>, AppError>
-    | Appended of Result<Page<CommitNode>, AppError>
+    | Fetched of cursor: string option * Result<Page<CommitNode>, AppError>
+    | Appended of cursor: string option * Result<Page<CommitNode>, AppError>
     | MoreRequested
+    | NewerRequested
+    | Prepended of cursor: string option * Result<Page<CommitNode>, AppError>
+    | AnchorMoved of FeedWindow.Anchor
     | StarToggled of Commit
     | StarDone of Result<Commit, AppError>
     | PollChoiceChanged of Commit * PollOption * chosen: bool
@@ -100,11 +104,64 @@ module State =
     | DeleteRequested of Commit
     | Deleted of commitId: string * Result<unit, AppError>
 
+  let windowLimit = 300
+
+  let ops: FeedWindow.Ops<CommitNode> = { KeyOf = FeedParts.nodeKey }
+
+  let spanOf
+    (request: string option, page: Page<CommitNode>)
+    : FeedWindow.Chunk<CommitNode> = {
+    Request = ValueOption.ofOption request
+    Items = Array.ofList page.Items
+    Older = ValueOption.ofOption page.NextCursor
+    Newer = ValueOption.ofOption page.PrevCursor
+  }
+
+  let windowOf
+    (request: string option, page: Page<CommitNode>)
+    : FeedWindow.Window<CommitNode> = {
+    Order = FeedWindow.NewestFirst
+    Chunks = [ spanOf(request, page) ]
+    Limit = windowLimit
+  }
+
+  let olderOf(model: Model) : string voption = FeedWindow.older model.Feed
+
+  let newerOf(model: Model) : string voption = FeedWindow.newer model.Feed
+
+  let trimWindow
+    (window: FeedWindow.Window<CommitNode>, anchor: FeedWindow.Anchor voption)
+    : FeedWindow.Window<CommitNode> =
+    let items = FeedWindow.items window
+    let count = items.Length
+
+    let index =
+      anchor
+      |> ValueOption.bind(fun place ->
+        items
+        |> List.tryFindIndex(fun node -> FeedParts.nodeKey node = place.Key)
+        |> ValueOption.ofOption)
+
+    let edge =
+      match index with
+      | ValueSome at when at < 40 -> FeedWindow.OlderEdge
+      | ValueSome at when at > count - 40 -> FeedWindow.NewerEdge
+      | _ -> FeedWindow.OlderEdge
+
+    FeedWindow.trim(
+      {
+        Ops = ops
+        Keep = anchor |> ValueOption.map _.Key
+        Edge = edge
+      },
+      window
+    )
+
   let initial = {
     Loading = true
     Error = None
-    Items = []
-    NextCursor = None
+    Feed = FeedWindow.empty(FeedWindow.NewestFirst, windowLimit)
+    Anchor = ValueNone
     Now = DateTimeOffset.UtcNow
     Pasteis = false
     Voting = None
@@ -125,13 +182,21 @@ module State =
     )
 
   let init (props: Props<'env>) () =
+    let surface = Surface.saved
+
+    let cursor =
+      props.Env.Timeline.PlaceOf surface
+      |> Option.bind(fun place -> ValueOption.toOption place.Anchor)
+      |> Option.bind(fun anchor -> ValueOption.toOption anchor.Entry)
+
     {
       initial with
           Pasteis = props.Session.Session.PasteisMode
           Automatic = props.Session.Session.AutomaticTranslation
           Translations = TranslationModel.initial
     },
-    Cmd.OfAsync.perform fetch (props.Env, props.Session, None) Fetched
+    Cmd.OfAsync.perform fetch (props.Env, props.Session, cursor) (fun result ->
+      Fetched(cursor, result))
 
   // Runs one commit's translate call: the language its own translation or
   // the settings pick, and the 503 retries.
@@ -154,12 +219,6 @@ module State =
           }
         )
     )
-
-  let replaceNode(items: CommitNode list, updated: Commit) : CommitNode list =
-    items
-    |> List.map(function
-      | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
-      | node -> node)
 
   // The marker one deleted commit folds to.
   let tombstoneOf(commit: Commit) : Tombstone = {
@@ -193,15 +252,14 @@ module State =
       Cmd.ofAction(fun () -> failure what error)
 
     match msg with
-    | Fetched result ->
+    | Fetched(cursor, result) ->
       match result with
       | Ok page ->
         {
           model with
               Loading = false
               Error = None
-              Items = page.Items
-              NextCursor = page.NextCursor
+              Feed = windowOf(cursor, page)
         },
         Cmd.ofAction(fun () ->
           log.LogDebug(
@@ -216,18 +274,31 @@ module State =
         },
         failed "the saved list fetch" error
     | MoreRequested ->
-      model,
-      Cmd.OfAsync.perform
-        fetch
-        (props.Env, props.Session, model.NextCursor)
-        Appended
-    | Appended result ->
+      match olderOf model with
+      | ValueSome cursor ->
+        model,
+        Cmd.OfAsync.perform
+          fetch
+          (props.Env, props.Session, Some cursor)
+          (fun result -> Appended(Some cursor, result))
+      | ValueNone -> model, Cmd.none
+    | NewerRequested ->
+      match newerOf model with
+      | ValueSome cursor ->
+        model,
+        Cmd.OfAsync.perform
+          fetch
+          (props.Env, props.Session, Some cursor)
+          (fun result -> Prepended(Some cursor, result))
+      | ValueNone -> model, Cmd.none
+    | Appended(cursor, result) ->
       match result with
       | Ok page ->
+        let grown = FeedWindow.addOlder(ops, spanOf(cursor, page), model.Feed)
+
         {
           model with
-              Items = model.Items @ page.Items
-              NextCursor = page.NextCursor
+              Feed = trimWindow(grown, model.Anchor)
         },
         Cmd.ofAction(fun () ->
           log.LogDebug(
@@ -237,6 +308,19 @@ module State =
       | Error error ->
         { model with Error = Some error },
         failed "the saved list next page" error
+    | Prepended(cursor, result) ->
+      match result with
+      | Ok page ->
+        let grown = FeedWindow.addNewer(ops, spanOf(cursor, page), model.Feed)
+
+        {
+          model with
+              Feed = trimWindow(grown, model.Anchor)
+        },
+        Cmd.none
+      | Error error ->
+        { model with Error = Some error }, failed "the newer page" error
+    | AnchorMoved anchor -> { model with Anchor = ValueSome anchor }, Cmd.none
     | StarToggled commit ->
       { model with Error = None },
       Cmd.OfAsync.perform
@@ -248,7 +332,7 @@ module State =
       | Ok updated ->
         {
           model with
-              Items = replaceNode(model.Items, updated)
+              Feed = FeedWindow.replace(ops, LiveCommit updated, model.Feed)
         },
         Cmd.ofAction(fun () ->
           log.LogDebug("The star on {Commit} settled.", updated.Id))
@@ -289,7 +373,7 @@ module State =
       | Ok updated ->
         {
           model with
-              Items = replaceNode(model.Items, updated)
+              Feed = FeedWindow.replace(ops, LiveCommit updated, model.Feed)
               Voting = None
               PollChoices = model.PollChoices |> Map.remove updated.Id
         },
@@ -317,7 +401,8 @@ module State =
       | Ok pastel ->
         {
           model with
-              Items = replaceNode(model.Items, pastel.Commit)
+              Feed =
+                FeedWindow.replace(ops, LiveCommit pastel.Commit, model.Feed)
         },
         Cmd.ofAction(fun () ->
           log.LogDebug("The pastel on {Commit} landed.", pastel.Commit.Id))
@@ -591,12 +676,21 @@ module State =
         // toast and owns the restore.
         {
           model with
-              Items =
-                model.Items
-                |> List.map(function
-                  | LiveCommit commit when commit.Id = commitId ->
-                    Tombstone(tombstoneOf commit)
-                  | node -> node)
+              Feed =
+                FeedWindow.items model.Feed
+                |> List.tryPick(function
+                  | LiveCommit commit when commit.Id = commitId -> Some commit
+                  | _ -> None)
+                |> Option.map(fun commit ->
+                  FeedWindow.replaceKey(
+                    {
+                      Ops = ops
+                      Key = commit.Id
+                      Item = Tombstone(tombstoneOf commit)
+                    },
+                    model.Feed
+                  ))
+                |> Option.defaultValue model.Feed
               MenuBusy = None
         },
         Cmd.batch [
@@ -633,41 +727,106 @@ module State =
 // The page's semantic regions; the view only composes these.
 module Parts =
 
+  // One feed row with the chunk request cursor that fetched it, so
+  // the anchor the feed reports names the page the row came from.
+  [<Struct>]
+  type AnchoredNode = {
+    Node: CommitNode
+    Entry: string option
+  }
+
   // The saved list itself: the virtualized feed over the rows.
   let feed
     (
+      props: Props<'env>,
       dispatch: Dispatch<State.Msg>,
       model: IObservable<State.Model>,
       ctx: CommitCard.RowProps
     ) : Control =
-    let hasMore = model |> Observable.map _.NextCursor.IsSome
+    let surface = Surface.saved
+    let place = props.Env.Timeline.PlaceOf surface
 
-    Feed.view {
-      Header = ValueNone
-      Items = model |> Observable.map _.Items
-      KeyOf = FeedParts.nodeKey
-      Row =
-        fun node ->
-          let card = CommitCard.feedRow ctx node
+    let restoreAnchor =
+      place |> Option.bind(fun place -> ValueOption.toOption place.Anchor)
 
-          match node with
-          | LiveCommit commit ->
-            StackPanel()
-              .Children(card, CommitCard.replyBlock(ctx, commit, ValueNone))
-            : Control
-          | Tombstone _ -> card
-      Footer =
-        ValueSome(
-          PageChrome.loadMore(hasMore, fun () -> dispatch State.MoreRequested)
-        )
-      HasMore = hasMore
-      ScrollTo = ValueNone
-      Ride = false
-      Restore = ValueNone
-      OnScroll = ValueNone
-      OnRide = ValueNone
-      OnNeedMore = ValueNone
-    }
+    let hasOlder =
+      model
+      |> Observable.map(fun current ->
+        State.olderOf current |> ValueOption.isSome)
+      |> Observable.distinctUntilChanged
+      |> Slices.share
+
+    let hasNewer =
+      model
+      |> Observable.map(fun current ->
+        State.newerOf current |> ValueOption.isSome)
+      |> Observable.distinctUntilChanged
+      |> Slices.share
+
+    let items =
+      model
+      |> Observable.map(fun current -> current.Feed)
+      |> Slices.gateByRef
+      |> Observable.map(fun feed ->
+        FeedWindow.items feed
+        |> List.map(fun node -> {
+          Node = node
+          Entry =
+            FeedWindow.entryOf(State.ops, FeedParts.nodeKey node, feed)
+            |> ValueOption.toOption
+        }))
+      |> Slices.share
+
+    let anchorKeyOf(anchored: AnchoredNode) : string option =
+      Some(FeedParts.nodeKey anchored.Node)
+
+    let entryOf(anchored: AnchoredNode) : string option = anchored.Entry
+
+    Feed.viewWith(
+      {
+        Header = ValueNone
+        Items = items
+        KeyOf = fun anchored -> FeedParts.nodeKey anchored.Node
+        Row =
+          fun anchored ->
+            let card = CommitCard.feedRow ctx anchored.Node
+
+            match anchored.Node with
+            | LiveCommit commit ->
+              StackPanel()
+                .Children(card, CommitCard.replyBlock(ctx, commit, ValueNone))
+              : Control
+            | Tombstone _ -> card
+        Footer = ValueNone
+        HasMore = hasOlder
+        ScrollTo = ValueNone
+        Ride = false
+        Restore = ValueNone
+        OnScroll = ValueNone
+        OnRide = ValueNone
+        OnNeedMore = ValueNone
+      },
+      {
+        Feed.Advanced.none() with
+            AnchorKeyOf = ValueSome anchorKeyOf
+            EntryCursorOf = ValueSome entryOf
+            RestoreAnchor = restoreAnchor |> ValueOption.ofOption
+            OnAnchor =
+              ValueSome(fun anchor ->
+                let place: FeedWindow.Place = { Anchor = ValueSome anchor }
+
+                props.Env.Timeline.RememberPlace(surface, place)
+                dispatch(State.AnchorMoved anchor))
+            Paging =
+              ValueSome {
+                Order = FeedWindow.NewestFirst
+                HasOlder = hasOlder
+                HasNewer = hasNewer
+                OnOlder = (fun () -> dispatch State.MoreRequested)
+                OnNewer = (fun () -> dispatch State.NewerRequested)
+              }
+      }
+    )
 
 let view
   (props: Props<'env>)
@@ -776,13 +935,15 @@ let view
     Empty =
       fun current ->
         if
-          not current.Loading && current.Error.IsNone && current.Items.IsEmpty
+          not current.Loading
+          && current.Error.IsNone
+          && (FeedWindow.items current.Feed).IsEmpty
         then
           PageChrome.Words "Save commits to find them here."
         else
           PageChrome.Off
     Header = []
-    Body = Parts.feed(dispatch, model, ctx)
+    Body = Parts.feed(props, dispatch, model, ctx)
   }
 
 type Page<'env

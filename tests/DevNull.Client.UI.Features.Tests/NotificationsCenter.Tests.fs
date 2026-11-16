@@ -189,8 +189,16 @@ let tests =
           model
         )
 
-      Expect.equal model.Items first.Page.Items "the first page"
-      Expect.equal model.Cursor (Some "next") "the cursor"
+      Expect.equal
+        (NotificationsCenter.itemsOf model)
+        first.Page.Items
+        "the first page"
+
+      Expect.equal
+        (NotificationsCenter.olderOf model)
+        (ValueSome "next")
+        "the cursor"
+
       Expect.isFalse model.Loading "the first page settled"
 
       let model, _ =
@@ -210,21 +218,23 @@ let tests =
       let model, _ =
         NotificationsCenter.update(
           p,
-          NotificationsCenter.Appended(Ok second),
+          NotificationsCenter.Appended(Some "next", Ok second),
           model
         )
 
       Expect.equal
-        model.Items
+        (NotificationsCenter.itemsOf model)
         (first.Page.Items @ second.Page.Items)
         "the appended order stayed"
 
-      Expect.isNone model.Cursor "the cursor is spent"
+      Expect.isTrue
+        (ValueOption.isNone(NotificationsCenter.olderOf model))
+        "the cursor is spent"
 
     testCase "a manual refresh keeps the server's read state"
     <| fun () ->
       let p, model = shownModel ignore
-      let unread = model.Items |> List.map _.UnreadCount
+      let unread = NotificationsCenter.itemsOf model |> List.map _.UnreadCount
 
       let model, _ =
         NotificationsCenter.update(
@@ -243,7 +253,7 @@ let tests =
         )
 
       Expect.equal
-        (model.Items |> List.map _.UnreadCount)
+        (NotificationsCenter.itemsOf model |> List.map _.UnreadCount)
         unread
         "the read state moved"
   ]

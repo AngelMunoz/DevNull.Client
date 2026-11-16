@@ -149,7 +149,12 @@ let tests =
             Expect.equal model.LiveHistory 1 "the first history program"
 
             let place: HistoryColumn.Place = {
-              Offset = 120.0
+              Anchor =
+                ValueSome {
+                  Key = "head-a"
+                  Offset = 120.0
+                  Entry = ValueNone
+                }
               Head = Some "head-a"
             }
 
@@ -176,29 +181,34 @@ let tests =
               following
             ]
 
-            let observations =
+            let observations, finalModel =
               switches
-              |> List.map(fun entry ->
-                let model, cmd =
-                  WorkbenchHost.update(
-                    props,
-                    WorkbenchHost.RefSelected entry,
-                    model
-                  )
+              |> List.fold
+                (fun (seen, model) entry ->
+                  let next, cmd =
+                    WorkbenchHost.update(
+                      props,
+                      WorkbenchHost.RefSelected entry,
+                      model
+                    )
 
-                let model = runEngine(props, model, cmd)
+                  let next = runEngine(props, next, cmd)
 
-                let restore = model.History |> Option.bind _.Restore
+                  let restore = next.History |> Option.bind _.Restore
 
-                let live = model.LiveHistory
-                let checkout = model.CheckoutId
-                (entry, live, restore, checkout))
+                  let live = next.LiveHistory
+                  let checkout = next.CheckoutId
+                  (entry, live, restore, checkout) :: seen, next)
+                ([], model)
+              |> fun (seen, finalModel) -> List.rev seen, finalModel
 
-            model.History |> Option.iter(fun child -> child.Handle.Dispose())
+            finalModel.History
+            |> Option.iter(fun child -> child.Handle.Dispose())
 
-            model.Inspector |> Option.iter(fun child -> child.Handle.Dispose())
+            finalModel.Inspector
+            |> Option.iter(fun child -> child.Handle.Dispose())
 
-            observations, model.LiveHistory)
+            observations, finalModel.LiveHistory)
 
         Expect.isTrue
           (observations |> List.forall(fun (_, live, _, _) -> live <= 1))
@@ -210,7 +220,16 @@ let tests =
           (observations
            |> List.exists(fun (entry, _, restore, _) ->
              entry = following
-             && restore = Some { Offset = 120.0; Head = Some "head-a" }))
+             && restore =
+               Some {
+                 Anchor =
+                   ValueSome {
+                     Key = "head-a"
+                     Offset = 120.0
+                     Entry = ValueNone
+                   }
+                 Head = Some "head-a"
+               }))
           "the saved place never came back"
 
         Expect.isTrue
@@ -284,6 +303,41 @@ let tests =
         Expect.equal finalCheckout (Some checkoutA) "the last checkout"
         Expect.equal finalLive 1 "the last inspector program"
       })
+
+    testCase
+      "a second click on the active ref clears its saved place"
+      (fun () ->
+        let env = TestEnv(signedInStore(), api :> IHttp)
+        let props = hostProps(env, WorkbenchSettings.initial)
+        let model, _ = WorkbenchHost.init props
+
+        let place: HistoryColumn.Place = {
+          Anchor =
+            ValueSome {
+              Key = "head-a"
+              Offset = 120.0
+              Entry = ValueNone
+            }
+          Head = Some "head-a"
+        }
+
+        let model = {
+          model with
+              Places = model.Places |> Map.add following place
+        }
+
+        let next, _ =
+          WorkbenchHost.update(
+            props,
+            WorkbenchHost.RefSelected following,
+            model
+          )
+
+        Expect.isFalse
+          (next.Places |> Map.containsKey following)
+          "the active ref kept its saved place"
+
+        Expect.isNone next.History "the active history stayed live")
 
     testCaseAsync
       "the host emits ref and checkout changes as plain state"
@@ -556,7 +610,12 @@ let tests =
               | _ -> false
 
             let place: HistoryColumn.Place = {
-              Offset = 222.0
+              Anchor =
+                ValueSome {
+                  Key = "head-a"
+                  Offset = 222.0
+                  Entry = ValueNone
+                }
               Head = Some "head-a"
             }
 
@@ -596,7 +655,7 @@ let tests =
             let placeKept =
               model.Places
               |> Map.tryFind following
-              |> Option.exists(fun kept -> kept.Offset = place.Offset)
+              |> Option.exists(fun kept -> kept.Anchor = place.Anchor)
 
             model.History |> Option.iter(fun child -> child.Handle.Dispose())
 
@@ -639,7 +698,12 @@ let tests =
             let model = runEngine(props, model, cmd)
 
             let place: HistoryColumn.Place = {
-              Offset = 333.0
+              Anchor =
+                ValueSome {
+                  Key = "head-r"
+                  Offset = 333.0
+                  Entry = ValueNone
+                }
               Head = Some "head-r"
             }
 
@@ -694,7 +758,7 @@ let tests =
             let placeKept =
               model.Places
               |> Map.tryFind following
-              |> Option.exists(fun kept -> kept.Offset = place.Offset)
+              |> Option.exists(fun kept -> kept.Anchor = place.Anchor)
 
             let repositoryGone =
               model.Repository.IsNone && model.LiveRepository = 0
@@ -719,7 +783,15 @@ let tests =
 
         Expect.equal
           restored
-          (Some { Offset = 333.0; Head = Some "head-r" })
+          (Some {
+            Anchor =
+              ValueSome {
+                Key = "head-r"
+                Offset = 333.0
+                Entry = ValueNone
+              }
+            Head = Some "head-r"
+          })
           "the history place did not come back"
 
         Expect.isTrue placeKept "the stored history place was dropped"

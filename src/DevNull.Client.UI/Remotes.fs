@@ -1,6 +1,7 @@
 namespace DevNull.Client.Remotes
 
 open System
+open DevNull.Client
 open System.Reactive.Linq
 open System.Reactive.Subjects
 open FSharp.UMX
@@ -35,8 +36,8 @@ type RemotesStore =
   abstract LastActivityAt: target: ChatTarget -> DateTimeOffset voption
   abstract SetWindowActive: active: bool -> unit
   abstract SetOpenTarget: target: ChatTarget option -> unit
-  abstract RememberScroll: key: string * offset: float -> unit
-  abstract ScrollPlaceOf: key: string -> float voption
+  abstract RememberPlace: key: string * anchor: FeedWindow.Anchor -> unit
+  abstract PlaceOf: key: string -> FeedWindow.Anchor voption
   abstract RememberTarget: target: ChatTarget -> unit
   abstract WatchThread: target: ChatTarget -> IDisposable
   abstract PollThread: target: ChatTarget -> Async<unit>
@@ -200,21 +201,20 @@ module RemotesStore =
     )
 
   /// Parks one thread's reading place, so a page that returns restores
-  /// its scroll.
-  let rememberScroll(store: State, key: string, offset: float) : unit =
+  /// its reading anchor.
+  let rememberPlace
+    (store: State, key: string, anchor: FeedWindow.Anchor)
+    : unit =
     apply(
       store,
       fun state -> {
         state with
-            ScrollPlaces =
-              (match offset with
-               | 0.0 -> Map.remove key state.ScrollPlaces
-               | moved -> Map.add key moved state.ScrollPlaces)
+            ScrollPlaces = Map.add key anchor state.ScrollPlaces
       }
     )
 
   /// Where one thread's reading last stood, or none for a fresh read.
-  let scrollPlaceOf(store: State, key: string) : float voption =
+  let placeOf(store: State, key: string) : FeedWindow.Anchor voption =
     store.Published.Value.ScrollPlaces
     |> Map.tryFind key
     |> ValueOption.ofOption
@@ -1372,10 +1372,9 @@ module RemotesStore =
         member _.SetWindowActive(active) = setWindowActive(store, active)
         member _.SetOpenTarget(target) = setOpenTarget(store, target)
 
-        member _.RememberScroll(key, offset) =
-          rememberScroll(store, key, offset)
+        member _.RememberPlace(key, anchor) = rememberPlace(store, key, anchor)
 
-        member _.ScrollPlaceOf(key) = scrollPlaceOf(store, key)
+        member _.PlaceOf(key) = placeOf(store, key)
         member _.RememberTarget(target) = rememberTarget(store, target)
         member _.WatchThread(target) = watchThread(store, target)
         member _.PollThread(target) = pollThread(store, target)

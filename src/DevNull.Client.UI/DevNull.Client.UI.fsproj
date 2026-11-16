@@ -66,6 +66,8 @@
     <Compile Include="UserSettingsStore.fs" />
     <Compile Include="TranslationCache.fsi" />
     <Compile Include="TranslationCache.fs" />
+    <Compile Include="FeedWindow.fsi" />
+    <Compile Include="FeedWindow.fs" />
     <Compile Include="Timeline.fsi" />
     <Compile Include="Timeline.fs" />
     <Compile Include="Search.fsi" />

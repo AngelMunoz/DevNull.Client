@@ -1,5 +1,6 @@
 namespace DevNull.Client.Editor
 
+open DevNull.Client
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.RemotesState
 
@@ -127,15 +128,18 @@ module EditorTab =
   let withDirty(count: int, tab: EditorTab) = { tab with Dirty = max 0 count }
 
 [<Struct>]
-type EditorPlace = { Scroll: float; Head: string option }
+type EditorPlace = {
+  Anchor: FeedWindow.Anchor voption
+  Head: string option
+}
 
 module EditorPlace =
 
-  let empty = { Scroll = 0.0; Head = None }
+  let empty = { Anchor = ValueNone; Head = None }
 
-  let withScroll(scroll: float, place: EditorPlace) = {
+  let withAnchor(anchor: FeedWindow.Anchor voption, place: EditorPlace) = {
     place with
-        Scroll = max 0.0 scroll
+        Anchor = anchor
   }
 
   let withHead(head: string option, place: EditorPlace) = {

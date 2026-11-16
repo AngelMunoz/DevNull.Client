@@ -2,6 +2,7 @@ module DevNull.Client.Views.LogView
 
 open System
 open Avalonia.Controls
+open DevNull.Client
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Components.CommitCard
 open DevNull.Client.Core.ApiTypes
@@ -87,9 +88,9 @@ module State =
   type Model = {
     Loading: bool
     Error: AppError option
-    Items: CommitNode list
-    NextCursor: string option
+    Feed: FeedWindow.Window<CommitNode>
     Head: string option
+    Anchor: FeedWindow.Anchor voption
     NewCount: int option
     /// The number of return-to-top requests the page has taken; the
     /// feed's scroll binds to changes in it.
@@ -137,15 +138,18 @@ module State =
     /// The newer-than-head commits the poll heard while the pill
     /// waited; the next poll reports them as arrived, and a landed
     /// refresh or a row that loaded clears them.
-    HeardIds: string list
   }
 
   /// The messages of the log page, including the since-poll pair.
   type Msg =
-    | Fetched of Result<LogPage, AppError>
+    | Fetched of cursor: string option * Result<LogPage, AppError>
     | ReloadRequested
-    | Appended of Result<LogPage, AppError>
+    | Appended of cursor: string option * Result<LogPage, AppError>
     | MoreRequested
+    | NewerRequested
+    | Prepended of cursor: string option * Result<LogPage, AppError>
+    | AnchorMoved of FeedWindow.Anchor
+    | CommitOpened of Commit
     | StarToggled of Commit
     | StarDone of Result<Commit, AppError>
     | PastelGiven of Commit
@@ -192,6 +196,13 @@ module State =
 
   /// The fresh page state.
   val initial: Model
+
+  /// The rows one window holds, in display order.
+  val internal itemsOf: model: Model -> CommitNode list
+
+  /// A model with one loaded page, for tests and fixtures.
+  val internal withPage:
+    items: CommitNode list * nextCursor: string option * model: Model -> Model
 
   /// Interleaves day separators between the commits of different days,
   /// carrying the day across tombstones. A ranked log is score ordered,

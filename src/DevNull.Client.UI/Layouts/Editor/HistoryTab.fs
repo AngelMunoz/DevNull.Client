@@ -58,7 +58,7 @@ type Props<'env
   Restore: EditorPlace voption
   Refresh: IObservable<unit>
   OnSnapshot: Snapshot -> unit
-  OnScroll: float -> unit
+  OnAnchor: FeedWindow.Anchor -> unit
   OnOpen: Commit -> unit
   OnReplyRequested: Commit -> unit
   OnQuoteRequested: Commit -> unit
@@ -66,6 +66,23 @@ type Props<'env
   OnShared: User -> unit
   OnFetch: Result<unit, string> -> unit
 }
+
+let keyOf(node: CommitNode) =
+  match node with
+  | LiveCommit commit -> commit.Id
+  | Tombstone tombstone -> tombstone.Id
+
+let ops: FeedWindow.Ops<CommitNode> = { KeyOf = keyOf }
+
+// One feed row with the chunk request cursor that fetched it, so
+// the anchor the feed reports names the page the row came from.
+[<Struct>]
+type AnchoredNode = {
+  Node: CommitNode
+  Entry: string option
+}
+
+let entryOf(anchored: AnchoredNode) : string option = anchored.Entry
 
 let cardsProps(props: Props<'env>) : EditorCards.Props<'env> = {
   Env = props.Env
@@ -82,11 +99,10 @@ module State =
   type Model = {
     Loading: bool
     Error: AppError option
-    Items: CommitNode list
-    NextCursor: string option
+    Feed: FeedWindow.Window<CommitNode>
+    Anchor: FeedWindow.Anchor voption
     Head: string option
     NewCount: int option
-    HeardIds: string list
     Ranked: bool
     Polling: bool
     FetchedAt: DateTimeOffset option
@@ -97,7 +113,10 @@ module State =
   type Msg =
     | Fetched of Result<LogPage, AppError>
     | MoreRequested
-    | Appended of Result<LogPage, AppError>
+    | Appended of cursor: string option * Result<LogPage, AppError>
+    | NewerRequested
+    | Prepended of cursor: string option * Result<LogPage, AppError>
+    | AnchorMoved of FeedWindow.Anchor
     | ActiveChanged of active: bool
     | ClockTicked of moment: DateTimeOffset
     | CheckNew
@@ -106,14 +125,15 @@ module State =
     | CardMsg of EditorCards.Msg
     | RefreshRequested
 
+  let windowLimit = 300
+
   let initial = {
     Loading = true
     Error = None
-    Items = []
-    NextCursor = None
+    Feed = FeedWindow.empty(FeedWindow.NewestFirst, windowLimit)
+    Anchor = ValueNone
     Head = None
     NewCount = None
-    HeardIds = []
     Ranked = false
     Polling = false
     FetchedAt = None
@@ -122,6 +142,48 @@ module State =
   }
 
   let polling(model: Model) = model.Polling
+
+  let itemsOf(model: Model) = FeedWindow.items model.Feed
+
+  let olderOf(model: Model) = FeedWindow.older model.Feed
+
+  let newerOf(model: Model) = FeedWindow.newer model.Feed
+
+  let spanOf
+    (cursor: string option, page: LogPage)
+    : FeedWindow.Chunk<CommitNode> = {
+    Request = ValueOption.ofOption cursor
+    Items = Array.ofList page.Page.Items
+    Older = ValueOption.ofOption page.Page.NextCursor
+    Newer = ValueNone
+  }
+
+  let trimFeed(model: Model, feed: FeedWindow.Window<CommitNode>) =
+    FeedWindow.trim(
+      {
+        Ops = ops
+        Keep = model.Anchor |> ValueOption.map _.Key
+        Edge = FeedWindow.OlderEdge
+      },
+      feed
+    )
+
+  let withPage
+    (items: CommitNode list, nextCursor: string option, model: Model)
+    : Model = {
+    model with
+        Feed =
+          FeedWindow.addOlder(
+            ops,
+            {
+              Request = ValueNone
+              Items = Array.ofList items
+              Older = ValueOption.ofOption nextCursor
+              Newer = ValueNone
+            },
+            FeedWindow.empty(FeedWindow.NewestFirst, windowLimit)
+          )
+  }
 
   let snapshot(model: Model) = {
     NewCount = model.NewCount |> Option.defaultValue 0
@@ -142,11 +204,8 @@ module State =
       | LiveCommit commit -> Some commit.Id
       | Tombstone _ -> None)
 
-  let replaceNode(items: CommitNode list, updated: Commit) =
-    items
-    |> List.map(function
-      | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
-      | node -> node)
+  let replaceNode(feed: FeedWindow.Window<CommitNode>, updated: Commit) =
+    FeedWindow.replace(ops, LiveCommit updated, feed)
 
   let tombstoneOf(commit: Commit) : Tombstone = {
     Id = commit.Id
@@ -155,16 +214,18 @@ module State =
     RepliesCount = commit.RepliesCount
   }
 
-  let insertLate(late: Commit, items: CommitNode list) : CommitNode list =
-    let at =
-      items
-      |> List.tryFindIndex(function
-        | Tombstone _ -> false
-        | LiveCommit commit -> commit.CreatedAt < late.CreatedAt)
-
-    match at with
-    | Some index -> items |> List.insertAt index (LiveCommit late)
-    | None -> items @ [ LiveCommit late ]
+  let insertLate(late: Commit, feed: FeedWindow.Window<CommitNode>) =
+    FeedWindow.insert(
+      {
+        Ops = ops
+        Item = LiveCommit late
+        Before =
+          function
+          | Tombstone _ -> false
+          | LiveCommit commit -> commit.CreatedAt < late.CreatedAt
+      },
+      feed
+    )
 
   let fetch(props: Props<'env>, cursor: string option) =
     Logs.get(
@@ -188,10 +249,10 @@ module State =
     Log = props.Log
     Since = Some head
     Cursor = None
-    Arrived = if model.Ranked then [] else model.HeardIds
-    Pending = liveIds model.Items |> List.truncate 100
+    Arrived = []
+    Pending = []
     Everything = false
-    Through = liveIds model.Items |> List.rev |> List.truncate 20
+    Through = []
   }
 
   let checkNew(props: Props<'env>, model: Model, head: string) =
@@ -214,7 +275,8 @@ module State =
       initial with
           Cards = EditorCards.initial(cardsProps props)
           Now = props.Now()
-          Head = restore.Head
+          Head = (restore: EditorPlace).Head
+          Anchor = (restore: EditorPlace).Anchor
     }
 
     model,
@@ -230,15 +292,21 @@ module State =
 
       match result with
       | Ok page ->
+        let feed =
+          FeedWindow.addOlder(
+            ops,
+            spanOf(None, page),
+            FeedWindow.empty(FeedWindow.NewestFirst, windowLimit)
+          )
+          |> fun feed -> trimFeed(model, feed)
+
         let next = {
           model with
               Loading = false
               Error = None
-              Items = page.Page.Items
-              NextCursor = page.Page.NextCursor
+              Feed = feed
               Head = headOf page.Page.Items
               NewCount = None
-              HeardIds = []
               Ranked = page.IsRanked
               FetchedAt = Some(props.Now())
         }
@@ -253,27 +321,52 @@ module State =
 
         next, announce(props, next)
     | MoreRequested ->
-      match model.NextCursor with
-      | Some _ ->
-        model, Cmd.OfAsync.perform fetch (props, model.NextCursor) Appended
-      | None -> model, Cmd.none
-    | Appended result ->
+      match olderOf model with
+      | ValueSome cursor ->
+        model,
+        Cmd.OfAsync.perform fetch (props, Some cursor) (fun result ->
+          Appended(Some cursor, result))
+      | ValueNone -> model, Cmd.none
+    | Appended(cursor, result) ->
       reportFetch(props, result)
 
       match result with
       | Ok page ->
-        let next = {
-          model with
-              Error = None
-              Items = model.Items @ page.Page.Items
-              NextCursor = page.Page.NextCursor
-        }
+        let feed =
+          FeedWindow.addOlder(ops, spanOf(cursor, page), model.Feed)
+          |> fun feed -> trimFeed(model, feed)
+
+        let next = { model with Error = None; Feed = feed }
 
         next, Cmd.none
       | Error error ->
         let next = { model with Error = Some error }
 
         next, Cmd.none
+    | NewerRequested ->
+      match newerOf model with
+      | ValueSome cursor ->
+        model,
+        Cmd.OfAsync.perform fetch (props, Some cursor) (fun result ->
+          Prepended(Some cursor, result))
+      | ValueNone -> model, Cmd.none
+    | Prepended(cursor, result) ->
+      reportFetch(props, result)
+
+      match result with
+      | Ok page ->
+        let feed = FeedWindow.addNewer(ops, spanOf(cursor, page), model.Feed)
+
+        let next = { model with Error = None; Feed = feed }
+
+        next, Cmd.none
+      | Error error ->
+        let next = { model with Error = Some error }
+
+        next, Cmd.none
+    | AnchorMoved anchor ->
+      props.OnAnchor anchor
+      { model with Anchor = ValueSome anchor }, Cmd.none
     | ActiveChanged active ->
       let next = { model with Polling = active }
 
@@ -299,17 +392,27 @@ module State =
             match effect with
             | EditorCards.CommitChanged updated -> {
                 current with
-                    Items = replaceNode(current.Items, updated)
+                    Feed = replaceNode(current.Feed, updated)
               }
             | EditorCards.CommitDeleted commitId ->
-              let items =
-                current.Items
-                |> List.map(function
-                  | LiveCommit commit when commit.Id = commitId ->
-                    Tombstone(tombstoneOf commit)
-                  | node -> node)
-
-              { current with Items = items }
+              itemsOf current
+              |> List.tryPick(function
+                | LiveCommit commit when commit.Id = commitId ->
+                  Some(Tombstone(tombstoneOf commit))
+                | _ -> None)
+              |> Option.map(fun item -> {
+                current with
+                    Feed =
+                      FeedWindow.replaceKey(
+                        {
+                          Ops = ops
+                          Key = commitId
+                          Item = item
+                        },
+                        current.Feed
+                      )
+              })
+              |> Option.defaultValue current
             | EditorCards.PinChanged _ -> current
             | EditorCards.Failed error -> { current with Error = Some error })
           { model with Cards = cards }
@@ -333,10 +436,11 @@ module State =
 
           next, announce(props, next)
         else
-          let loaded = liveIds model.Items |> Set.ofList
+          let items = itemsOf model
+          let loaded = liveIds items |> Set.ofList
 
           let headAt =
-            model.Items
+            items
             |> List.tryPick(function
               | LiveCommit commit when Some commit.Id = model.Head ->
                 Some commit.CreatedAt
@@ -359,28 +463,16 @@ module State =
             |> List.filter(fun commit -> not(isNewer commit))
             |> List.sortByDescending(fun commit -> commit.CreatedAt)
 
-          let merged =
+          let mergedFeed =
             late
             |> List.fold
-              (fun items arrival -> insertLate(arrival, items))
-              model.Items
-
-          let mergedLoaded = merged |> liveIds |> Set.ofList
-
-          let heard =
-            (model.HeardIds
-             @ (unloaded
-                |> List.filter isNewer
-                |> List.map(fun commit -> commit.Id)))
-            |> List.distinct
-            |> List.filter(fun id -> not(Set.contains id mergedLoaded))
-            |> List.truncate 100
+              (fun feed arrival -> insertLate(arrival, feed))
+              model.Feed
 
           let next = {
             model with
-                Items = merged
+                Feed = mergedFeed
                 NewCount = count
-                HeardIds = heard
           }
 
           next, announce(props, next)
@@ -414,18 +506,39 @@ module State =
     ]
     |> Sub.batch
 
-  let keyOf(node: CommitNode) =
-    match node with
-    | LiveCommit commit -> commit.Id
-    | Tombstone tombstone -> tombstone.Id
-
 let view
   (
     props: Props<'env>,
     model: IObservable<State.Model>,
     dispatch: Dispatch<State.Msg>
   ) : Control =
-  let hasMore = model |> Observable.map _.NextCursor.IsSome |> Slices.share
+  let hasOlder =
+    model
+    |> Observable.map(fun current ->
+      State.olderOf current |> ValueOption.isSome)
+    |> Slices.share
+
+  let hasNewer =
+    model
+    |> Observable.map(fun current ->
+      State.newerOf current |> ValueOption.isSome)
+    |> Slices.share
+
+  let restoreAnchor =
+    props.Restore |> ValueOption.bind(fun (place: EditorPlace) -> place.Anchor)
+
+  let items =
+    model
+    |> Observable.map(fun current -> current.Feed)
+    |> Slices.gateByRef
+    |> Observable.map(fun feed ->
+      FeedWindow.items feed
+      |> List.map(fun node -> {
+        Node = node
+        Entry =
+          FeedWindow.entryOf(ops, keyOf node, feed) |> ValueOption.toOption
+      }))
+    |> Slices.share
 
   let cards = model |> Observable.map _.Cards |> Slices.share
 
@@ -448,24 +561,38 @@ let view
     }
 
   let feed =
-    DevNull.Client.Components.Feed.view {
-      Header = ValueNone
-      Items = model |> Observable.map(fun current -> current.Items)
-      KeyOf = State.keyOf
-      Row = fun node -> feedRow rowProps node
-      Footer =
-        ValueSome(loadMore(hasMore, fun () -> dispatch State.MoreRequested))
-      HasMore = hasMore
-      ScrollTo = ValueNone
-      Ride = false
-      Restore =
-        props.Restore
-        |> ValueOption.map(fun place -> place.Scroll)
-        |> ValueOption.filter(fun scroll -> scroll > 0.0)
-      OnScroll = ValueSome(fun offset -> props.OnScroll offset)
-      OnRide = ValueNone
-      OnNeedMore = ValueSome(fun () -> dispatch State.MoreRequested)
-    }
+    DevNull.Client.Components.Feed.viewWith(
+      {
+        Header = ValueNone
+        Items = items
+        KeyOf = fun anchored -> keyOf anchored.Node
+        Row = fun anchored -> feedRow rowProps anchored.Node
+        Footer = ValueNone
+        HasMore = hasOlder
+        ScrollTo = ValueNone
+        Ride = false
+        Restore = ValueNone
+        OnScroll = ValueNone
+        OnRide = ValueNone
+        OnNeedMore = ValueNone
+      },
+      {
+        DevNull.Client.Components.Feed.Advanced.none() with
+            AnchorKeyOf = ValueSome(fun anchored -> Some(keyOf anchored.Node))
+            EntryCursorOf = ValueSome entryOf
+            RestoreAnchor = restoreAnchor
+            OnAnchor =
+              ValueSome(fun anchor -> dispatch(State.AnchorMoved anchor))
+            Paging =
+              ValueSome {
+                Order = FeedWindow.NewestFirst
+                HasOlder = hasOlder
+                HasNewer = hasNewer
+                OnOlder = (fun () -> dispatch State.MoreRequested)
+                OnNewer = (fun () -> dispatch State.NewerRequested)
+              }
+      }
+    )
 
   let error = errorPanel(model |> Observable.map(fun current -> current.Error))
 

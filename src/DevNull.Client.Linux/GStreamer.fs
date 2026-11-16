@@ -220,8 +220,8 @@ type Player
   ) =
 
   let gate = obj()
-  let running = ref true
-  let rate = ref speed
+  let mutable running = true
+  let mutable rate = speed
   let finished = Event<unit>()
   let started = Stopwatch.StartNew()
 
@@ -281,7 +281,7 @@ type Player
         let why = whyOf refusal
 
         Gst.gst_message_unref refusal
-        running.Value <- false
+        running <- false
 
         // A refused note never fires `Ended`, so the reader would
         // wait forever; the log names why the note stopped short.
@@ -292,7 +292,7 @@ type Player
 
         if endOfStream <> 0n then
           Gst.gst_message_unref endOfStream
-          running.Value <- false
+          running <- false
 
           log.LogDebug(
             "The note played through ({Bytes} bytes, {Seconds} seconds).",
@@ -301,7 +301,7 @@ type Player
           )
 
           finished.Trigger()
-        elif running.Value then
+        elif running then
           loop()
 
     loop()
@@ -316,7 +316,7 @@ type Player
   interface IAudioPlayback with
 
     member _.Stop() =
-      running.Value <- false
+      running <- false
       watcher.Join()
 
       log.LogDebug(
@@ -325,7 +325,7 @@ type Player
       )
 
     member _.SetVolume(volume: float) =
-      if running.Value then
+      if running then
         lock gate (fun () -> setVolume(element, volume))
 
     member _.Ended = finished.Publish
@@ -335,7 +335,7 @@ type Player
         let mutable at = 0L
 
         if
-          running.Value
+          running
           && Gst.gst_element_query_position(element, Gst.FormatTime, &at) <> 0
         then
           TimeSpan.FromTicks(at / 100L)
@@ -343,11 +343,11 @@ type Player
           TimeSpan.Zero)
 
     member _.Seek(to': TimeSpan) =
-      if running.Value then
+      if running then
         lock gate (fun () ->
           Gst.gst_element_seek(
             element,
-            !rate,
+            rate,
             Gst.FormatTime,
             Gst.SeekFlush ||| Gst.SeekAccurate,
             Gst.SeekSet,

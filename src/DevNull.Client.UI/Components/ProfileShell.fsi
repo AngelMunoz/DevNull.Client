@@ -3,6 +3,7 @@ module DevNull.Client.Components.ProfileShell
 open System
 open Avalonia
 open Avalonia.Controls
+open DevNull.Client
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Errors
 
@@ -17,6 +18,16 @@ type FeedProps<'row when 'row: equality> = {
   /// Reports the feed's reading place, so the host can drive its own
   /// pinned areas.
   OnRide: (Feed.Ride -> unit) voption
+  /// The post key of a row; separator and caption rows answer none.
+  AnchorKeyOf: ('row -> string option) voption
+  /// The request cursor of the page holding the row.
+  EntryCursorOf: ('row -> string option) voption
+  /// The reading place the feed picks up.
+  RestoreAnchor: FeedWindow.Anchor voption
+  /// Reports the visible post after a settled scroll.
+  OnAnchor: (FeedWindow.Anchor -> unit) voption
+  /// Enables two-way edge paging. When set, the shell omits Load more.
+  Paging: Feed.Paging voption
   /// The sentence the feed shows once its last page has no cursor.
   End: IObservable<string option>
 }

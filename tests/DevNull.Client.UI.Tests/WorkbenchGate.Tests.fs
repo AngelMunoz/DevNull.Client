@@ -379,23 +379,29 @@ let columnTests =
 
         let subject =
           new BehaviorSubject<HistoryColumn.Model>(
-            {
-              Loading = false
-              Error = None
-              Items = page.Page.Items
-              NextCursor = page.Page.NextCursor
-              Head = Some "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
-              NewCount = None
-              Ranked = false
-              Polling = false
-              Now = now
-              FetchedAt = Some(now.AddMinutes -12.0)
-              Busy = None
-              PollChoices = Map.empty
-              Pasteis = false
-              HeardIds = []
-              Offset = 0.0
-            }
+            HistoryColumn.withPage(
+              page.Page.Items,
+              page.Page.NextCursor,
+              {
+                Loading = false
+                Error = None
+                Feed =
+                  DevNull.Client.FeedWindow.empty(
+                    DevNull.Client.FeedWindow.NewestFirst,
+                    300
+                  )
+                Anchor = ValueNone
+                Head = Some "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+                NewCount = None
+                Ranked = false
+                Polling = false
+                Now = now
+                FetchedAt = Some(now.AddMinutes -12.0)
+                Busy = None
+                PollChoices = Map.empty
+                Pasteis = false
+              }
+            )
           )
 
         let env = TestEnv(signedInStore(), FakeApi("{}") :> IHttp)

@@ -1,6 +1,7 @@
 namespace DevNull.Client.Views
 
 open System
+open DevNull.Client
 open FSharp.UMX
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Core
@@ -135,7 +136,7 @@ module State =
     | Settled of taken: bool
     | OlderWanted
     | RideMoved of riding: bool * behind: bool
-    | ThreadScrolled of offset: float
+    | ThreadAnchorMoved of anchor: FeedWindow.Anchor
     | GhostWanted of messageId: int
     | Walked of messageId: int * found: bool
     /// The landing's row stands realized, so its flash beat starts:

@@ -1,4 +1,4 @@
-﻿module DevNull.Client.Views.ConnectionsView
+module DevNull.Client.Views.ConnectionsView
 
 open System
 open Avalonia
@@ -775,6 +775,11 @@ let view
       HasMore = model |> Observable.map _.NextCursor.IsSome
       OnMore = fun () -> dispatch State.MorePeople
       OnRide = ValueNone
+      AnchorKeyOf = ValueNone
+      EntryCursorOf = ValueNone
+      RestoreAnchor = ValueNone
+      OnAnchor = ValueNone
+      Paging = ValueNone
       End = emptyLine
     }
   }

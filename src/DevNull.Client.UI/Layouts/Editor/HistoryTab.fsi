@@ -1,6 +1,7 @@
 module DevNull.Client.Editor.HistoryTab
 
 open System
+open DevNull.Client
 open DevNull.Client.Editor
 open Avalonia.Controls
 open Avalonia.Threading
@@ -60,8 +61,8 @@ type Props<'env
   /// A named nudge from the host: read the first page once more.
   Refresh: IObservable<unit>
   OnSnapshot: Snapshot -> unit
-  /// The feed's settled scroll offset, so the host can park the place.
-  OnScroll: float -> unit
+  /// The feed's reading anchor, so the host can park the place.
+  OnAnchor: FeedWindow.Anchor -> unit
   /// A card click: the host opens the commit's thread tab.
   OnOpen: Commit -> unit
   /// The inline reply action opens the terminal on this commit.
@@ -86,13 +87,12 @@ module State =
   type Model = {
     Loading: bool
     Error: AppError option
-    Items: CommitNode list
-    NextCursor: string option
+    Feed: FeedWindow.Window<CommitNode>
+    Anchor: FeedWindow.Anchor voption
     Head: string option
     NewCount: int option
     /// The newer commits a poll heard but did not add; the next
     /// poll reports them as arrived.
-    HeardIds: string list
     Ranked: bool
     /// Whether the one-minute poll runs.
     Polling: bool
@@ -107,7 +107,10 @@ module State =
   type Msg =
     | Fetched of Result<LogPage, AppError>
     | MoreRequested
-    | Appended of Result<LogPage, AppError>
+    | Appended of cursor: string option * Result<LogPage, AppError>
+    | NewerRequested
+    | Prepended of cursor: string option * Result<LogPage, AppError>
+    | AnchorMoved of FeedWindow.Anchor
     | ActiveChanged of active: bool
     | ClockTicked of moment: DateTimeOffset
     | CheckNew
@@ -118,6 +121,19 @@ module State =
 
   /// The fresh state: the first page is on its way.
   val initial: Model
+
+  /// The rows the window holds, in display order.
+  val internal itemsOf: model: Model -> CommitNode list
+
+  /// The older cursor of the window.
+  val internal olderOf: model: Model -> string voption
+
+  /// The newer cursor of the window.
+  val internal newerOf: model: Model -> string voption
+
+  /// A model with one loaded page, for tests and fixtures.
+  val internal withPage:
+    items: CommitNode list * nextCursor: string option * model: Model -> Model
 
   /// Whether this model's subscription set carries the one-minute
   /// poll.
@@ -140,8 +156,8 @@ module State =
   /// host's active stream holds true.
   val subscribe: props: Props<'env> * model: Model -> Sub<Msg>
 
-/// The tab's view: one virtualized feed over the loaded commits, the
-/// error card over it, and the load-more footer under the last row.
+/// The tab's view: one virtualized feed over the loaded commits, with
+/// edge paging and the error card over it.
 val view:
   props: Props<'env> *
   model: IObservable<State.Model> *

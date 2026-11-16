@@ -133,7 +133,7 @@ let private clientIdOf(body: string) =
     (tail.Split '"')[3]
 
 let private remotesApi
-  (hubotThread: string ref, bobThread: string ref)
+  (hubotThread: unit -> string, bobThread: unit -> string)
   : FakeApi =
   FakeApi(fun request ->
     if
@@ -169,9 +169,9 @@ let private remotesApi
     then
       ok "{}"
     elif request.Target.StartsWith "/api/v1/remotes/@hubot/messages" then
-      ok hubotThread.Value
+      ok(hubotThread())
     elif request.Target.StartsWith "/api/v1/remotes/@bob/messages" then
-      ok bobThread.Value
+      ok(bobThread())
     elif request.Target.StartsWith "/api/v1/remotes/candidates" then
       ok """{"candidates":[]}"""
     elif request.Target.StartsWith "/api/v1/remotes" then
@@ -196,9 +196,10 @@ let private remotesApi
       | ValueNone -> ok "{}")
 
 let private apiWithThreads() =
-  let hubotThread = ref(emptyThreadFor hubotJson)
-  let bobThread = ref(emptyThreadFor bobJson)
-  remotesApi(hubotThread, bobThread), hubotThread, bobThread
+  let hubotThread = emptyThreadFor hubotJson
+  let mutable bobThread = emptyThreadFor bobJson
+  let api = remotesApi((fun () -> hubotThread), (fun () -> bobThread))
+  api, (fun (value: string) -> bobThread <- value)
 
 let private editorProps(env: TestEnv) =
   let baseProps = DevNull.Client.UI.Tests.EditorFrame.props env
@@ -308,7 +309,7 @@ let tests =
     testCaseAsync
       "remotes activity opens the bottom-pane inbox and history closes it"
       (async {
-        let api, _, _ = apiWithThreads()
+        let api, _ = apiWithThreads()
         let env = TestEnv(storeWithRemotes(), api :> IHttp)
         do! pumpAsync()
 
@@ -366,7 +367,7 @@ let tests =
     testCaseAsync
       "narrow width keeps the inbox in the panel sheet and a click opens a tab"
       (async {
-        let api, _, _ = apiWithThreads()
+        let api, _ = apiWithThreads()
         let env = TestEnv(storeWithRemotes(), api :> IHttp)
         do! pumpAsync()
 
@@ -442,7 +443,7 @@ let tests =
     testCaseAsync
       "two tabs hold their drafts and a send pushes once for its target"
       (async {
-        let api, _, _ = apiWithThreads()
+        let api, _ = apiWithThreads()
         let env = TestEnv(storeWithRemotes(), api :> IHttp)
         do! pumpAsync()
 
@@ -594,7 +595,7 @@ let tests =
     testCaseAsync
       "closing one tab drops its watch and closing the layout zeroes all"
       (async {
-        let api, _, _ = apiWithThreads()
+        let api, _ = apiWithThreads()
         let env = TestEnv(storeWithRemotes(), api :> IHttp)
         do! pumpAsync()
 
@@ -695,7 +696,7 @@ let tests =
     testCaseAsync
       "an inactive tab shows the dirty dot and selecting it marks read"
       (async {
-        let api, _, bobThread = apiWithThreads()
+        let api, setBobThread = apiWithThreads()
         let env = TestEnv(storeWithRemotes(), api :> IHttp)
         do! pumpAsync()
 
@@ -737,8 +738,9 @@ let tests =
         do! selectTab(window, "EditorTab-remote:hubot")
         do! settleAsync()
 
-        bobThread.Value <-
+        setBobThread(
           threadWith(bobJson, [ messageJson(1, bobId, "hey", "c-1") ], 0)
+        )
 
         let! dotted =
           waitForAsync(
@@ -805,7 +807,7 @@ let tests =
     testCaseAsync
       "the account-off panel enables and the list follows"
       (async {
-        let api, _, _ = apiWithThreads()
+        let api, _ = apiWithThreads()
         let env = TestEnv(signedInStore(), api :> IHttp)
         do! pumpAsync()
 
@@ -882,7 +884,7 @@ let tests =
     testCaseAsync
       "the ping button sends a ping"
       (async {
-        let api, _, _ = apiWithThreads()
+        let api, _ = apiWithThreads()
         let env = TestEnv(storeWithRemotes(), api :> IHttp)
         do! pumpAsync()
 
@@ -949,7 +951,7 @@ let tests =
     testCaseAsync
       "a share landing opens the tab without reading the store target"
       (async {
-        let api, _, _ = apiWithThreads()
+        let api, _ = apiWithThreads()
         let env = TestEnv(storeWithRemotes(), api :> IHttp)
         do! pumpAsync()
 

@@ -93,7 +93,7 @@ type RemotesState = {
   WatchCounts: Map<string, int>
   WindowActive: bool
   OpenTarget: ChatTarget option
-  ScrollPlaces: Map<string, float>
+  ScrollPlaces: Map<string, FeedWindow.Anchor>
 }
 
 type FreshThread =

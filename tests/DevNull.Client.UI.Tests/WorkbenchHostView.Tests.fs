@@ -252,14 +252,23 @@ let private unreadNotifications = {
 }
 
 let private notificationsViewOf(env: TestEnv) : Control =
-  let model: NotificationsCenter.Model = {
-    Loading = false
-    More = false
-    Error = None
-    Items = unreadNotifications.Page.Items
-    Cursor = Some "next"
-    Now = now
-  }
+  let model: NotificationsCenter.Model =
+    NotificationsCenter.withPage(
+      unreadNotifications.Page.Items,
+      Some "next",
+      {
+        Loading = false
+        More = false
+        Error = None
+        Feed =
+          DevNull.Client.FeedWindow.empty(
+            DevNull.Client.FeedWindow.NewestFirst,
+            300
+          )
+        Anchor = ValueNone
+        Now = now
+      }
+    )
 
   let props: NotificationsCenter.Props<TestEnv> = {
     Env = env

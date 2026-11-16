@@ -127,8 +127,8 @@ type RemotesState = {
   /// returns reopens it without a cached route.
   OpenTarget: ChatTarget option
   /// Where each thread's reading last stood, so a page that returns
-  /// restores its scroll.
-  ScrollPlaces: Map<string, float>
+  /// restores its reading anchor.
+  ScrollPlaces: Map<string, FeedWindow.Anchor>
 }
 
 /// One inbox thread page, whichever kind of thread it came from.

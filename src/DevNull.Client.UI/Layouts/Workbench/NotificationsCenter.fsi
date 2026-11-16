@@ -22,15 +22,15 @@ open DevNull.Client.Formatting
 open DevNull.Client.ImageCache
 open DevNull.Client.Theme
 
-/// The inbox's state: the loaded notifications in API order, the
-/// cursor, what is loading, the failure, and the clock the rows read
-/// against.
+/// The inbox's state: the loaded notifications in a bounded window,
+/// the reading anchor, what is loading, the failure, and the clock the
+/// rows read against.
 type Model = {
   Loading: bool
   More: bool
   Error: AppError option
-  Items: Notification list
-  Cursor: string option
+  Feed: FeedWindow.Window<Notification>
+  Anchor: FeedWindow.Anchor voption
   Now: DateTimeOffset
 }
 
@@ -39,7 +39,8 @@ type Model = {
 type Msg =
   | Fetched of Result<NotificationPage, AppError>
   | MoreRequested
-  | Appended of Result<NotificationPage, AppError>
+  | Appended of cursor: string option * Result<NotificationPage, AppError>
+  | AnchorMoved of FeedWindow.Anchor
   | RefreshRequested
   | ClockTicked of moment: DateTimeOffset
   | Opened of Notification
@@ -66,6 +67,16 @@ val groupLine: notification: Notification -> string option
 
 /// True while the server reports the row unread.
 val inline isUnread: notification: Notification -> bool
+
+/// The rows the window holds, in display order.
+val internal itemsOf: model: Model -> Notification list
+
+/// The older cursor of the window.
+val internal olderOf: model: Model -> string voption
+
+/// A model with one loaded page, for tests and fixtures.
+val internal withPage:
+  items: Notification list * nextCursor: string option * model: Model -> Model
 
 /// The inbox's first state and its first page read.
 val init: props: Props<'env> -> Model * Cmd<Msg>

@@ -2,7 +2,6 @@ module DevNull.Client.UserSettingsStore
 
 open System
 open System.Reactive.Subjects
-open System.Threading
 open Avalonia.Threading
 open Microsoft.Extensions.Logging
 open DevNull.Client.Core.ApiTypes
@@ -34,7 +33,6 @@ module UserSettingsStore =
     Fetch: unit -> Async<Result<UserSettings, AppError>>
     Log: ILogger
     Subject: BehaviorSubject<UserSettings option>
-    Reading: int ref
     Dispatcher: IDispatcher
   }
 
@@ -70,35 +68,45 @@ module UserSettingsStore =
       state.Log.LogWarning(ex, "The user settings did not arrive.")
   }
 
-  let refresh(state: State) =
-    if Interlocked.CompareExchange(state.Reading, 1, 0) = 0 then
-      Async.Start(
-        asyncEx {
-          try
-            do! read state
-          finally
-            state.Reading.Value <- 0
-        }
-      )
-
   let current(state: State) : UserSettings option = state.Subject.Value
 
   let observe(state: State) : IObservable<UserSettings option> = state.Subject
 
   let create(setup: UserSettingsStoreSetup) =
+    let gate = obj()
+    let mutable reading = false
+
     let state: State = {
       Session = setup.Session
       Fetch = setup.Fetch
       Log = setup.Log
       Subject = new BehaviorSubject<UserSettings option>(None)
-      Reading = ref 0
       Dispatcher = setup.Dispatcher
     }
+
+    let refresh() =
+      let start =
+        lock gate (fun () ->
+          if reading then
+            false
+          else
+            reading <- true
+            true)
+
+      if start then
+        Async.Start(
+          asyncEx {
+            try
+              do! read state
+            finally
+              lock gate (fun () -> reading <- false)
+          }
+        )
 
     {
       new UserSettingsStore with
         member _.Current = current state
         member _.Observe = observe state
-        member _.Refresh() = refresh state
+        member _.Refresh() = refresh()
         member _.Apply(settings) = apply(state, settings)
     }

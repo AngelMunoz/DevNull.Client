@@ -1,4 +1,4 @@
-﻿module DevNull.Client.Views.OrganizationView
+module DevNull.Client.Views.OrganizationView
 
 open System
 open Avalonia
@@ -1305,6 +1305,11 @@ let view
           (State.nextCursorOf(current.Tab, current)).IsSome)
       OnMore = fun () -> dispatch State.MoreRequested
       OnRide = ValueNone
+      AnchorKeyOf = ValueNone
+      EntryCursorOf = ValueNone
+      RestoreAnchor = ValueNone
+      OnAnchor = ValueNone
+      Paging = ValueNone
       End = endSentence
     }
   }

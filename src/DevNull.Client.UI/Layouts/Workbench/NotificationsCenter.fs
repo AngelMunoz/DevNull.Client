@@ -23,15 +23,16 @@ type Model = {
   Loading: bool
   More: bool
   Error: AppError option
-  Items: Notification list
-  Cursor: string option
+  Feed: FeedWindow.Window<Notification>
+  Anchor: FeedWindow.Anchor voption
   Now: DateTimeOffset
 }
 
 type Msg =
   | Fetched of Result<NotificationPage, AppError>
   | MoreRequested
-  | Appended of Result<NotificationPage, AppError>
+  | Appended of cursor: string option * Result<NotificationPage, AppError>
+  | AnchorMoved of FeedWindow.Anchor
   | RefreshRequested
   | ClockTicked of moment: DateTimeOffset
   | Opened of Notification
@@ -115,18 +116,74 @@ let fetch
     }
   )
 
+let windowLimit = 300
+
+let ops: FeedWindow.Ops<Notification> = {
+  KeyOf = fun notification -> notification.Id
+}
+
+let itemsOf(model: Model) = FeedWindow.items model.Feed
+
+let olderOf(model: Model) = FeedWindow.older model.Feed
+
+let spanOf
+  (cursor: string option, page: NotificationPage)
+  : FeedWindow.Chunk<Notification> = {
+  Request = ValueOption.ofOption cursor
+  Items = Array.ofList page.Page.Items
+  Older = ValueOption.ofOption page.Page.NextCursor
+  Newer = ValueNone
+}
+
+let withPage
+  (items: Notification list, nextCursor: string option, model: Model)
+  : Model = {
+  model with
+      Feed =
+        FeedWindow.addOlder(
+          ops,
+          {
+            Request = ValueNone
+            Items = Array.ofList items
+            Older = ValueOption.ofOption nextCursor
+            Newer = ValueNone
+          },
+          FeedWindow.empty(FeedWindow.NewestFirst, windowLimit)
+        )
+}
+
+let trimFeed(model: Model, feed: FeedWindow.Window<Notification>) =
+  FeedWindow.trim(
+    {
+      Ops = ops
+      Keep = model.Anchor |> ValueOption.map _.Key
+      Edge = FeedWindow.OlderEdge
+    },
+    feed
+  )
+
 let commitOf(notification: Notification) : Commit option =
   match notification.Commit with
   | Some(LiveCommit commit) -> Some commit
   | _ -> None
+
+// One feed row with the chunk request cursor that fetched it, so
+// the anchor the feed reports names the page the row came from.
+[<Struct>]
+type AnchoredNotification = {
+  Notification: Notification
+  Entry: string option
+}
+
+let entryOf(anchored: AnchoredNotification) : string option = anchored.Entry
 
 let init(props: Props<'env>) : Model * Cmd<Msg> =
   {
     Loading = true
     More = false
     Error = None
-    Items = []
-    Cursor = None
+    Feed = FeedWindow.empty(FeedWindow.NewestFirst, windowLimit)
+    Anchor = ValueNone
     Now = DateTimeOffset.UtcNow
   },
   Cmd.OfAsync.perform fetch (props, None) Fetched
@@ -136,12 +193,19 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
   | Fetched result ->
     match result with
     | Ok page ->
+      let feed =
+        FeedWindow.addOlder(
+          ops,
+          spanOf(None, page),
+          FeedWindow.empty(FeedWindow.NewestFirst, windowLimit)
+        )
+        |> fun feed -> trimFeed(model, feed)
+
       {
         model with
             Loading = false
             Error = None
-            Items = page.Page.Items
-            Cursor = page.Page.NextCursor
+            Feed = feed
       },
       Cmd.none
     | Error error ->
@@ -152,20 +216,24 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
       },
       Cmd.none
   | MoreRequested ->
-    match model.Cursor with
-    | Some cursor when not model.More && not model.Loading ->
+    match olderOf model with
+    | ValueSome cursor when not model.More && not model.Loading ->
       { model with More = true; Error = None },
-      Cmd.OfAsync.perform fetch (props, Some cursor) Appended
+      Cmd.OfAsync.perform fetch (props, Some cursor) (fun result ->
+        Appended(Some cursor, result))
     | _ -> model, Cmd.none
-  | Appended result ->
+  | Appended(cursor, result) ->
     match result with
     | Ok page ->
+      let feed =
+        FeedWindow.addOlder(ops, spanOf(cursor, page), model.Feed)
+        |> fun feed -> trimFeed(model, feed)
+
       {
         model with
             More = false
             Error = None
-            Items = model.Items @ page.Page.Items
-            Cursor = page.Page.NextCursor
+            Feed = feed
       },
       Cmd.none
     | Error error ->
@@ -185,6 +253,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
             Error = None
       },
       Cmd.OfAsync.perform fetch (props, None) Fetched
+  | AnchorMoved anchor -> { model with Anchor = ValueSome anchor }, Cmd.none
   | ClockTicked moment -> { model with Now = moment }, Cmd.none
   | Opened notification ->
     match commitOf notification with
@@ -325,10 +394,10 @@ let view
   let loadingLine =
     PageChrome.collapsingMessagePanel(
       model
-      |> Slices.gateByRefKey (fun current -> current.Items) (fun current ->
+      |> Slices.gateByRefKey (fun current -> itemsOf current) (fun current ->
         current.Loading)
       |> Observable.map(fun current ->
-        if current.Loading && current.Items.IsEmpty then
+        if current.Loading && (itemsOf current).IsEmpty then
           "Reading the inbox…"
         elif current.Loading then
           "Refreshing…"
@@ -341,11 +410,13 @@ let view
   let emptyLine =
     PageChrome.collapsingMessagePanel(
       model
-      |> Slices.gateByRefKey (fun current -> current.Items) (fun current ->
+      |> Slices.gateByRefKey (fun current -> itemsOf current) (fun current ->
         current.Loading, current.Error)
       |> Observable.map(fun current ->
         if
-          current.Error.IsNone && not current.Loading && current.Items.IsEmpty
+          current.Error.IsNone
+          && not current.Loading
+          && (itemsOf current).IsEmpty
         then
           "Nothing here yet."
         else
@@ -356,15 +427,24 @@ let view
 
   let errorLine = PageChrome.errorPanel(model |> Observable.map _.Error)
 
-  let more =
-    PageChrome.loadMore(
-      model
-      |> Observable.map(fun current ->
-        current.Cursor.IsSome && not current.More),
-      fun () -> dispatch MoreRequested
-    )
+  let hasOlder =
+    model
+    |> Observable.map(fun current -> olderOf current |> ValueOption.isSome)
+    |> Slices.share
 
-  let hasMore = model |> Observable.map(fun current -> current.Cursor.IsSome)
+  let items =
+    model
+    |> Observable.map(fun current -> current.Feed)
+    |> Slices.gateByRef
+    |> Observable.map(fun feed ->
+      FeedWindow.items feed
+      |> List.map(fun notification -> {
+        Notification = notification
+        Entry =
+          FeedWindow.entryOf(ops, notification.Id, feed)
+          |> ValueOption.toOption
+      }))
+    |> Slices.share
 
   let header =
     StackPanel()
@@ -372,26 +452,41 @@ let view
       .Margin(Thickness(16.0, 16.0, 16.0, 8.0))
       .Children(head, notice, loadingLine, emptyLine, errorLine)
 
-  (Feed.view {
-    Header = ValueSome header
-    Items = model |> Observable.map _.Items |> Slices.gateByRef
-    KeyOf = fun notification -> notification.Id
-    Row =
-      fun notification ->
-        if isNull(box notification) then
-          Panel() :> Control
-        else
-          row notification
-    Footer = ValueSome more
-    HasMore = hasMore
-    ScrollTo = ValueNone
-    Ride = false
-    Restore = ValueNone
-    OnScroll = ValueNone
-    OnRide = ValueNone
-    OnNeedMore = ValueSome(fun () -> dispatch MoreRequested)
-  })
-    .Name("NotificationsCenter")
+  let feed =
+    Feed.viewWith(
+      {
+        Header = ValueSome header
+        Items = items
+        KeyOf = fun anchored -> anchored.Notification.Id
+        Row = fun anchored -> row anchored.Notification
+        Footer = ValueNone
+        HasMore = hasOlder
+        ScrollTo = ValueNone
+        Ride = false
+        Restore = ValueNone
+        OnScroll = ValueNone
+        OnRide = ValueNone
+        OnNeedMore = ValueNone
+      },
+      {
+        Feed.Advanced.none() with
+            AnchorKeyOf =
+              ValueSome(fun anchored -> Some anchored.Notification.Id)
+            EntryCursorOf = ValueSome entryOf
+            RestoreAnchor = ValueNone
+            OnAnchor = ValueSome(fun anchor -> dispatch(AnchorMoved anchor))
+            Paging =
+              ValueSome {
+                Order = FeedWindow.NewestFirst
+                HasOlder = hasOlder
+                HasNewer = Observable.single false
+                OnOlder = (fun () -> dispatch MoreRequested)
+                OnNewer = ignore
+              }
+      }
+    )
+
+  feed.Name("NotificationsCenter")
 
 let program(props: Props<'env>) =
   Program.mkProgram

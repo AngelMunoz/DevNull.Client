@@ -149,7 +149,7 @@ type Msg =
   | ThreadChanged of string * ThreadTab.Snapshot
   | RemoteOpened of ChatTarget
   | RemoteChanged of string * RemoteThreadTab.Snapshot
-  | Scrolled of LogKind * float
+  | PlaceMoved of LogKind * FeedWindow.Anchor
   | SessionChanged of SessionState
   | RemotesChanged of count: int
   | SavedChanged of count: int
@@ -180,7 +180,7 @@ type Msg =
 [<Struct>]
 type HistorySinks = {
   Snapshot: HistoryTab.Snapshot -> unit
-  Scroll: float -> unit
+  Anchor: FeedWindow.Anchor -> unit
   Open: Commit -> unit
   Reply: Commit -> unit
   Quote: Commit -> unit
@@ -211,7 +211,7 @@ type ProgramArgs<'env
   Runtime: Runtime
   Props: Props<'env>
   History: IObservable<HistoryTab.Snapshot>
-  Scrolls: IObservable<LogKind * float>
+  Scrolls: IObservable<LogKind * FeedWindow.Anchor>
   Threads: IObservable<string * ThreadTab.Snapshot>
   RemoteOpens: IObservable<ChatTarget>
   RemoteSnapshots: IObservable<string * RemoteThreadTab.Snapshot>
@@ -308,7 +308,7 @@ let historyProps(args: HistoryArgs<'env>) : HistoryTab.Props<'env> = {
   Restore = ValueSome args.Place
   Refresh = args.Refresh
   OnSnapshot = args.Sinks.Snapshot
-  OnScroll = args.Sinks.Scroll
+  OnAnchor = args.Sinks.Anchor
   OnOpen = args.Sinks.Open
   OnReplyRequested = args.Sinks.Reply
   OnQuoteRequested = args.Sinks.Quote
@@ -506,8 +506,16 @@ let openList(args: UpdateArgs<'env>, kind: ListTab.Kind, model: Model) =
 let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
   match msg with
   | RefSelected log ->
+    let same = log = EditorState.selectedRef model.Frame
+
+    let places =
+      if same then
+        model.Places |> Map.remove log
+      else
+        model.Places
+
     let place =
-      model.Places |> Map.tryFind log |> Option.defaultValue EditorPlace.empty
+      places |> Map.tryFind log |> Option.defaultValue EditorPlace.empty
 
     let frame =
       EditorState.setDirty(
@@ -521,6 +529,7 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
       model with
           Frame = frame
           History = HistoryTab.State.snapshot HistoryTab.State.initial
+          Places = places
           FlyoutOpen = false
     }
 
@@ -736,11 +745,11 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
             Frame = EditorState.setDirty(id, snapshot.Unread, frame)
       },
       Cmd.none
-  | Scrolled(log, offset) ->
+  | PlaceMoved(log, anchor) ->
     let place =
       model.Places |> Map.tryFind log |> Option.defaultValue EditorPlace.empty
 
-    let next = EditorPlace.withScroll(offset, place)
+    let next = EditorPlace.withAnchor(ValueSome anchor, place)
 
     if next = place then
       model, Cmd.none
@@ -1034,7 +1043,7 @@ let subscribe(args: ProgramArgs<'env>, _model: Model) : Sub<Msg> =
 
     Sub.fromObservable "threads" (args.Threads |> Observable.map ThreadChanged)
 
-    Sub.fromObservable "scrolls" (args.Scrolls |> Observable.map Scrolled)
+    Sub.fromObservable "places" (args.Scrolls |> Observable.map PlaceMoved)
 
     Sub.fromObservable "opens" (args.Opens |> Observable.map OpenThread)
 
@@ -1464,7 +1473,8 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
   let selected =
     new BehaviorSubject<LogKind>(StoredState.selectedRef props.Stored)
 
-  let scrolls = new System.Reactive.Subjects.Subject<LogKind * float>()
+  let places =
+    new System.Reactive.Subjects.Subject<LogKind * FeedWindow.Anchor>()
 
   let threadSnapshots =
     new System.Reactive.Subjects.Subject<string * ThreadTab.Snapshot>()
@@ -1632,10 +1642,10 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
               fun snapshot ->
                 if selected.Value = log then
                   snapshots.OnNext snapshot
-            Scroll =
-              fun offset ->
+            Anchor =
+              fun anchor ->
                 if selected.Value = log then
-                  scrolls.OnNext(log, offset)
+                  places.OnNext(log, anchor)
             Open =
               fun commit ->
                 if selected.Value = log then
@@ -1993,7 +2003,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
     Runtime = runtime
     Props = props
     History = snapshots
-    Scrolls = scrolls
+    Scrolls = places
     Threads = threadSnapshots
     RemoteOpens = remoteOpens
     RemoteSnapshots = remoteSnapshots
@@ -2069,8 +2079,8 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
       snapshots.Dispose()
       selected.OnCompleted()
       selected.Dispose()
-      scrolls.OnCompleted()
-      scrolls.Dispose()
+      places.OnCompleted()
+      places.Dispose()
       threadSnapshots.OnCompleted()
       threadSnapshots.Dispose()
       remoteOpens.OnCompleted()

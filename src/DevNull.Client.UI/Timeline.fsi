@@ -3,6 +3,31 @@ module DevNull.Client.Timeline
 open System
 open DevNull.Client.Core.ApiTypes
 
+/// One surface that parks a reading place: a log feed, one tab of a
+/// profile feed, or the saved feed. The timeline keys its places by
+/// this value, so a read and a write of the same case name the same
+/// entry, whatever tab or log the page shows.
+[<Struct>]
+type Surface =
+  | Log of LogKind
+  | ProfileCommits of username: string
+  | ProfileReplies of username: string
+  | Saved
+
+/// The constructors the pages park and restore through: `profile`
+/// picks the tab by its replies flag, so the write of the open tab
+/// and the read of the same tab name the same surface.
+module Surface =
+
+  /// The surface of one log feed.
+  val inline log: log: LogKind -> Surface
+
+  /// The surface of one profile tab: `replies = true` names Replies.
+  val profile: username: string * replies: bool -> Surface
+
+  /// The surface of the saved feed.
+  val saved: Surface
+
 /// What the shared log chrome asks the open timeline to do.
 type Request =
   | Reload
@@ -46,6 +71,12 @@ type TimelineService =
 
   /// The scroll place a log left, or its top.
   abstract OffsetOf: log: LogKind -> float
+
+  /// The reading place one surface parked, or none.
+  abstract PlaceOf: surface: Surface -> FeedWindow.Place option
+
+  /// Parks one surface's reading place. An empty anchor removes it.
+  abstract RememberPlace: surface: Surface * place: FeedWindow.Place -> unit
 
   /// Parks the log page the reader last had open, so a thread's back
   /// line returns to it. The log page calls this when it builds.

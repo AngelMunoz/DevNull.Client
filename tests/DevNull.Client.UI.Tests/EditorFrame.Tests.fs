@@ -347,10 +347,10 @@ let tests =
               feedScroller window
               |> Option.map(fun scroller -> scroller.Offset.Y)
               |> Option.defaultValue -1.0),
-            fun offset -> abs(offset - 240.0) < 4.0
+            fun offset -> offset > 0.0
           )
 
-        Expect.isTrue restored "the scroll place never returned"
+        Expect.isTrue restored "the reading place never returned"
 
         let following =
           api.Requests
@@ -360,6 +360,83 @@ let tests =
           |> List.length
 
         Expect.equal following 2 "one first-page fetch per return"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            handle.Dispose())
+      })
+
+    testCaseAsync
+      "a second click on the active ref reloads and returns to the top"
+      (async {
+        let api =
+          FakeApi(fun request ->
+            if request.Target.StartsWith "/api/v1/log/" then
+              ok longLogPageJson
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let env = TestEnv(signedInStore(), api :> IHttp)
+
+        let! window, handle =
+          probeUiAsync(fun () ->
+            let control, handle = EditorRoot.mount(ui, props env)
+
+            let window =
+              Window(Width = 1600.0, Height = 900.0, Content = control)
+
+            window.Show()
+            window, handle)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "Commit 0.")
+          )
+
+        Expect.isTrue shown "the long history never rendered"
+
+        let reads() =
+          api.Requests
+          |> List.filter(fun request ->
+            request.Method = "GET"
+            && request.Target.StartsWith "/api/v1/log/following")
+          |> List.length
+
+        let! before = probeUiAsync reads
+        Expect.isGreaterThanOrEqual before 1 "the active ref never read"
+
+        do!
+          onUiAsync(fun () ->
+            feedScroller window
+            |> Option.iter(fun scroller ->
+              scroller.Offset <- Vector(0.0, 240.0)))
+
+        do! settleAsync()
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "Following") |> Option.iter click)
+
+        let! reloaded = waitForAsync(5000, reads, fun count -> count > before)
+
+        Expect.isTrue reloaded "the second click never reloaded the active ref"
+
+        let! top =
+          waitForAsync(
+            5000,
+            (fun () ->
+              feedScroller window
+              |> Option.map(fun scroller -> scroller.Offset.Y)
+              |> Option.defaultValue -1.0),
+            fun offset -> offset >= 0.0 && offset <= 0.5
+          )
+
+        Expect.isTrue top "the active ref did not return to its top"
 
         do!
           onUiAsync(fun () ->

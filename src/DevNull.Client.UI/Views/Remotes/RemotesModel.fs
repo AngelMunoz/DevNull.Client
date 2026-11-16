@@ -376,7 +376,7 @@ module RemotesModel =
     | Settled _ -> model, Cmd.none
     | OlderWanted
     | RideMoved _
-    | ThreadScrolled _
+    | ThreadAnchorMoved _
     | GhostWanted _
     | Walked _
     | FlashSeen _

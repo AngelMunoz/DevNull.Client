@@ -272,7 +272,7 @@ module ThreadPane =
   type FeedAsk = {
     Ctx: RowCtx
     Key: string
-    Restore: float
+    Restore: FeedWindow.Anchor voption
     Thread: IObservable<ThreadState>
   }
 
@@ -326,32 +326,43 @@ module ThreadPane =
     let hasOlder = ask.Thread |> Observable.map _.HasOlder
 
     let scroller =
-      (Feed.view {
-        Header = ValueNone
-        Items = rowItems
-        KeyOf = RemotesRows.threadRowKey
-        Row = row
-        Footer = ValueNone
-        HasMore = hasOlder
-        ScrollTo = ValueSome scrollTo
-        Ride = true
-        Restore =
-          (if ask.Restore > 0.0 then
-             ValueSome ask.Restore
-           else
-             ValueNone)
-        OnScroll =
-          ValueSome(fun offset -> ctx.Dispatch(State.ThreadScrolled offset))
-        OnRide =
-          ValueSome(fun ride ->
-            if ride.Offset < 240.0 && ride.Room > 0.0 then
-              ctx.Dispatch State.OlderWanted
-
-            ctx.Dispatch(
-              State.RideMoved(ride.Riding, ride.FromEnd > ride.Viewport)
-            ))
-        OnNeedMore = ValueSome(fun () -> ctx.Dispatch State.OlderWanted)
-      })
+      (Feed.viewWith(
+        {
+          Header = ValueNone
+          Items = rowItems
+          KeyOf = RemotesRows.threadRowKey
+          Row = row
+          Footer = ValueNone
+          HasMore = hasOlder
+          ScrollTo = ValueSome scrollTo
+          Ride = true
+          Restore = ValueNone
+          OnScroll = ValueNone
+          OnRide =
+            ValueSome(fun ride ->
+              ctx.Dispatch(
+                State.RideMoved(ride.Riding, ride.FromEnd > ride.Viewport)
+              ))
+          OnNeedMore = ValueNone
+        },
+        {
+          Feed.Advanced.none() with
+              AnchorKeyOf = ValueSome(RemotesRows.threadRowKey >> Some)
+              EntryCursorOf = ValueNone
+              RestoreAnchor = ask.Restore
+              OnAnchor =
+                ValueSome(fun anchor ->
+                  ctx.Dispatch(State.ThreadAnchorMoved anchor))
+              Paging =
+                ValueSome {
+                  Order = FeedWindow.OldestFirst
+                  HasOlder = hasOlder
+                  HasNewer = Observable.single false
+                  OnOlder = (fun () -> ctx.Dispatch State.OlderWanted)
+                  OnNewer = ignore
+                }
+        }
+      ))
         .Name("RemotesThread")
 
     // The landing asks: one message a ghost named, or the present
@@ -507,8 +518,7 @@ module ThreadPane =
 
     let thread = model |> Observable.map _.Thread
 
-    let restore =
-      props.Env.Remotes.ScrollPlaceOf key |> ValueOption.defaultValue 0.0
+    let restore = props.Env.Remotes.PlaceOf key
 
     let header =
       let identity: Control =

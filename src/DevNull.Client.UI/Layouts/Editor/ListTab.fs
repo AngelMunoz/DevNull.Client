@@ -66,13 +66,23 @@ let title(kind: Kind) =
   | Saved -> "SAVED"
   | Queue -> "QUEUE"
 
+// One feed row with the chunk request cursor that fetched it, so
+// the anchor the feed reports names the page the row came from.
+[<Struct>]
+type AnchoredNode = {
+  Node: CommitNode
+  Entry: string option
+}
+
+let entryOf(anchored: AnchoredNode) : string option = anchored.Entry
+
 module State =
 
   type Model = {
     Loading: bool
     Error: AppError option
-    Saved: CommitNode list
-    SavedCursor: string option
+    SavedFeed: FeedWindow.Window<CommitNode>
+    SavedAnchor: FeedWindow.Anchor voption
     Queue: ScheduledCommit list
     QueuePage: int
     QueueLast: int
@@ -82,7 +92,10 @@ module State =
 
   type Msg =
     | SavedFetched of Result<Page<CommitNode>, AppError>
-    | SavedAppended of Result<Page<CommitNode>, AppError>
+    | SavedAppended of
+      cursor: string option *
+      Result<Page<CommitNode>, AppError>
+    | SavedAnchorMoved of FeedWindow.Anchor
     | QueueFetched of Result<ScheduledPage, AppError>
     | QueueAppended of Result<ScheduledPage, AppError>
     | MoreSaved
@@ -92,8 +105,8 @@ module State =
   let initial(now: DateTimeOffset) = {
     Loading = true
     Error = None
-    Saved = []
-    SavedCursor = None
+    SavedFeed = FeedWindow.empty(FeedWindow.NewestFirst, 300)
+    SavedAnchor = ValueNone
     Queue = []
     QueuePage = 1
     QueueLast = 1
@@ -115,11 +128,30 @@ module State =
     Page = page
   }
 
-  let replaceSaved(items: CommitNode list, updated: Commit) =
-    items
-    |> List.map(function
-      | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
-      | node -> node)
+  let savedOps: FeedWindow.Ops<CommitNode> = {
+    KeyOf =
+      fun node ->
+        match node with
+        | LiveCommit commit -> commit.Id
+        | Tombstone tombstone -> tombstone.Id
+  }
+
+  let savedItems(model: Model) = FeedWindow.items model.SavedFeed
+
+  let savedOlder(model: Model) = FeedWindow.older model.SavedFeed
+
+  let trimSaved(model: Model, feed: FeedWindow.Window<CommitNode>) =
+    FeedWindow.trim(
+      {
+        Ops = savedOps
+        Keep = model.SavedAnchor |> ValueOption.map _.Key
+        Edge = FeedWindow.OlderEdge
+      },
+      feed
+    )
+
+  let replaceSaved(feed: FeedWindow.Window<CommitNode>, updated: Commit) =
+    FeedWindow.replace(savedOps, LiveCommit updated, feed)
 
   let tombstoneOf(commit: Commit) : Tombstone = {
     Id = commit.Id
@@ -163,12 +195,24 @@ module State =
     | SavedFetched result ->
       (match result with
        | Ok page ->
+         let feed =
+           FeedWindow.addOlder(
+             savedOps,
+             {
+               Request = ValueNone
+               Items = Array.ofList page.Items
+               Older = ValueOption.ofOption page.NextCursor
+               Newer = ValueNone
+             },
+             FeedWindow.empty(FeedWindow.NewestFirst, 300)
+           )
+           |> fun feed -> trimSaved(model, feed)
+
          {
            model with
                Loading = false
                Error = None
-               Saved = page.Items
-               SavedCursor = page.NextCursor
+               SavedFeed = feed
          },
          Cmd.none
        | Error error ->
@@ -178,15 +222,27 @@ module State =
                Error = Some error
          },
          Cmd.none)
-    | SavedAppended result ->
+    | SavedAppended(cursor, result) ->
       (match result with
        | Ok page ->
+         let feed =
+           FeedWindow.addOlder(
+             savedOps,
+             {
+               Request = ValueOption.ofOption cursor
+               Items = Array.ofList page.Items
+               Older = ValueOption.ofOption page.NextCursor
+               Newer = ValueNone
+             },
+             model.SavedFeed
+           )
+           |> fun feed -> trimSaved(model, feed)
+
          {
            model with
                Loading = false
                Error = None
-               Saved = model.Saved @ page.Items
-               SavedCursor = page.NextCursor
+               SavedFeed = feed
          },
          Cmd.none
        | Error error ->
@@ -235,14 +291,20 @@ module State =
          },
          Cmd.none)
     | MoreSaved ->
-      match model.SavedCursor with
-      | Some cursor ->
+      match savedOlder model with
+      | ValueSome cursor ->
         { model with Loading = true },
         Cmd.OfAsync.perform
           Stars.index
           (props.Env, savedRequest(props, Some cursor))
-          SavedAppended
-      | None -> model, Cmd.none
+          (fun result -> SavedAppended(Some cursor, result))
+      | ValueNone -> model, Cmd.none
+    | SavedAnchorMoved anchor ->
+      {
+        model with
+            SavedAnchor = ValueSome anchor
+      },
+      Cmd.none
     | MoreQueue ->
       if model.QueuePage < model.QueueLast then
         { model with Loading = true },
@@ -263,17 +325,27 @@ module State =
             match effect with
             | EditorCards.CommitChanged updated -> {
                 current with
-                    Saved = replaceSaved(current.Saved, updated)
+                    SavedFeed = replaceSaved(current.SavedFeed, updated)
               }
             | EditorCards.CommitDeleted commitId ->
-              let saved =
-                current.Saved
-                |> List.map(function
-                  | LiveCommit commit when commit.Id = commitId ->
-                    Tombstone(tombstoneOf commit)
-                  | node -> node)
-
-              { current with Saved = saved }
+              savedItems current
+              |> List.tryPick(function
+                | LiveCommit commit when commit.Id = commitId ->
+                  Some(Tombstone(tombstoneOf commit))
+                | _ -> None)
+              |> Option.map(fun item -> {
+                current with
+                    SavedFeed =
+                      FeedWindow.replaceKey(
+                        {
+                          Ops = savedOps
+                          Key = commitId
+                          Item = item
+                        },
+                        current.SavedFeed
+                      )
+              })
+              |> Option.defaultValue current
             | EditorCards.PinChanged _ -> current
             | EditorCards.Failed error -> { current with Error = Some error })
           { model with Cards = cards }
@@ -344,14 +416,15 @@ let savedFeed
   let headerBody =
     rebuildOn(
       model,
-      (fun current -> current.Loading, current.Saved.IsEmpty, current.Error),
+      (fun current ->
+        current.Loading, (State.savedItems current).IsEmpty, current.Error),
       fun current ->
         let empty: Control =
-          if current.Loading && current.Saved.IsEmpty then
+          if current.Loading && (State.savedItems current).IsEmpty then
             TextBlock()
               .Text("Loading saved commits…")
               .Classes(Theme.name Theme.Muted)
-          elif current.Saved.IsEmpty then
+          elif (State.savedItems current).IsEmpty then
             TextBlock()
               .Text("No saved commits.")
               .Classes(Theme.name Theme.Muted)
@@ -369,32 +442,64 @@ let savedFeed
           )
     )
 
-  let more =
-    loadMore(
-      model |> Observable.map(fun current -> current.SavedCursor.IsSome),
-      fun () -> dispatch State.MoreSaved
-    )
-      .Name("ListTabMoreSaved")
+  let hasOlder =
+    model
+    |> Observable.map(fun current ->
+      State.savedOlder current |> ValueOption.isSome)
+    |> Slices.share
 
-  (Feed.view {
-    Header = ValueSome(ContentControl().Content(headerBody |> _.ToBinding()))
-    Items = model |> Observable.map _.Saved
-    KeyOf =
-      fun node ->
-        match node with
-        | LiveCommit commit -> commit.Id
-        | Tombstone tombstone -> tombstone.Id
-    Row = fun node -> feedRow rowProps node
-    Footer = ValueSome more
-    HasMore = model |> Observable.map(_.SavedCursor.IsSome)
-    ScrollTo = ValueNone
-    Ride = false
-    Restore = ValueNone
-    OnScroll = ValueNone
-    OnRide = ValueNone
-    OnNeedMore = ValueSome(fun () -> dispatch State.MoreSaved)
-  })
-    .Name($"EditorListTab-{title props.Kind}")
+  let items =
+    model
+    |> Observable.map(fun current -> current.SavedFeed)
+    |> Slices.gateByRef
+    |> Observable.map(fun feed ->
+      FeedWindow.items feed
+      |> List.map(fun node -> {
+        Node = node
+        Entry =
+          FeedWindow.entryOf(State.savedOps, State.savedOps.KeyOf node, feed)
+          |> ValueOption.toOption
+      }))
+    |> Slices.share
+
+  let feed =
+    Feed.viewWith(
+      {
+        Header =
+          ValueSome(ContentControl().Content(headerBody |> _.ToBinding()))
+        Items = items
+        KeyOf = fun anchored -> State.savedOps.KeyOf anchored.Node
+        Row = fun anchored -> feedRow rowProps anchored.Node
+        Footer = ValueNone
+        HasMore = hasOlder
+        ScrollTo = ValueNone
+        Ride = false
+        Restore = ValueNone
+        OnScroll = ValueNone
+        OnRide = ValueNone
+        OnNeedMore = ValueNone
+      },
+      {
+        Feed.Advanced.none() with
+            AnchorKeyOf =
+              ValueSome(fun anchored ->
+                Some(State.savedOps.KeyOf anchored.Node))
+            EntryCursorOf = ValueSome entryOf
+            RestoreAnchor = ValueNone
+            OnAnchor =
+              ValueSome(fun anchor -> dispatch(State.SavedAnchorMoved anchor))
+            Paging =
+              ValueSome {
+                Order = FeedWindow.NewestFirst
+                HasOlder = hasOlder
+                HasNewer = Observable.single false
+                OnOlder = (fun () -> dispatch State.MoreSaved)
+                OnNewer = ignore
+              }
+      }
+    )
+
+  feed.Name($"EditorListTab-{title props.Kind}")
 
 let queueFeed
   (

@@ -130,16 +130,16 @@ let automaticApi() =
     | _ -> ok "{}")
 
 let retryApi() =
-  let attempts = ref 0
+  let mutable attempts = 0
 
   FakeApi(fun request ->
     match request.Method, request.Target with
     | "GET", target when target.StartsWith "/api/v1/log/" ->
       ok translatedPageJson
     | "POST", target when target.EndsWith "/translation" ->
-      attempts.Value <- attempts.Value + 1
+      attempts <- attempts + 1
 
-      if attempts.Value = 1 then
+      if attempts = 1 then
         {
           Status = 503
           Headers = []
@@ -157,13 +157,13 @@ let tests =
     testCaseAsync
       "a 503 waits and tries again"
       (async {
-        let attempts = ref 0
+        let mutable attempts = 0
 
         let attempt() = async {
-          attempts.Value <- attempts.Value + 1
+          attempts <- attempts + 1
 
           return
-            if attempts.Value < 3 then
+            if attempts < 3 then
               Error(
                 Refused(
                   503,
@@ -180,23 +180,23 @@ let tests =
 
         let! result = execute([ 0; 0 ], attempt)
 
-        Expect.equal 3 attempts.Value "attempts"
+        Expect.equal 3 attempts "attempts"
         Expect.isOk result "answer"
       })
 
     testCaseAsync
       "a 429 comes back at once"
       (async {
-        let attempts = ref 0
+        let mutable attempts = 0
 
         let attempt() = async {
-          attempts.Value <- attempts.Value + 1
+          attempts <- attempts + 1
           return Error(Refused(429, None, "Too Many Attempts."))
         }
 
         let! _ = execute([ 0; 0 ], attempt)
 
-        Expect.equal 1 attempts.Value "attempts"
+        Expect.equal 1 attempts "attempts"
       })
 
     testCaseAsync
@@ -722,29 +722,29 @@ let tests =
       "construction lists and reads no file"
       (async {
         let tier = MemoryFiles()
-        let lists = ref 0
-        let reads = ref 0
+        let mutable lists = 0
+        let mutable reads = 0
         let inner = tier.Files
 
         let counting: TranslationCache.Files = {
           Read =
             fun path -> async {
-              reads.Value <- reads.Value + 1
+              reads <- reads + 1
               return! inner.Read path
             }
           Keep = inner.Keep
           Drop = inner.Drop
           List =
             fun () ->
-              lists.Value <- lists.Value + 1
+              lists <- lists + 1
               inner.List()
         }
 
         TranslationCache.createWith("cache", counting, NullLogger.Instance)
         |> ignore
 
-        Expect.equal 0 lists.Value "list calls"
-        Expect.equal 0 reads.Value "read calls"
+        Expect.equal 0 lists "list calls"
+        Expect.equal 0 reads "read calls"
       })
     testCaseAsync
       "a fetched translation is not posted again after a restart"

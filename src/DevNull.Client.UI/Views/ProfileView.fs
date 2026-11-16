@@ -1,4 +1,4 @@
-﻿module DevNull.Client.Views.ProfileView
+module DevNull.Client.Views.ProfileView
 
 open System
 open System.Collections.Generic
@@ -89,8 +89,8 @@ module State =
     Loading: bool
     Error: AppError option
     Details: ProfileDetails option
-    Commits: CommitNode list
-    NextCursor: string option
+    Feed: FeedWindow.Window<CommitNode>
+    Anchor: FeedWindow.Anchor voption
     Tab: Tab
     Now: DateTimeOffset
     Pasteis: bool
@@ -122,9 +122,16 @@ module State =
 
   type Msg =
     | Fetched of Result<ProfileDetails, AppError>
-    | CommitsFetched of Result<Page<CommitNode>, AppError>
+    | CommitsFetched of
+      cursor: string option *
+      Result<Page<CommitNode>, AppError>
+    | CommitsPrepended of
+      cursor: string option *
+      Result<Page<CommitNode>, AppError>
     | CommitsRefreshed of Result<Page<CommitNode>, AppError>
     | MoreCommits
+    | NewerCommits
+    | AnchorMoved of FeedWindow.Anchor
     | TabChosen of Tab
     | HeaderChosen of HeaderForm
     | FeedRead of Components.Feed.Ride
@@ -165,12 +172,6 @@ module State =
     | EndLiveRequested
     | EndLiveDone of Result<Me, AppError>
 
-  let replaceNode(items: CommitNode list, updated: Commit) : CommitNode list =
-    items
-    |> List.map(function
-      | LiveCommit commit when commit.Id = updated.Id -> LiveCommit updated
-      | node -> node)
-
   // The marker one deleted commit folds to.
   let tombstoneOf(commit: Commit) : Tombstone = {
     Id = commit.Id
@@ -200,6 +201,64 @@ module State =
     | PinnedNode node -> "pinned:" + FeedParts.nodeKey node
     | FeedNode node -> FeedParts.nodeKey node
 
+  let windowLimit = 300
+
+  let ops: FeedWindow.Ops<CommitNode> = { KeyOf = FeedParts.nodeKey }
+
+  let spanOf
+    (request: string option, page: Page<CommitNode>)
+    : FeedWindow.Chunk<CommitNode> = {
+    Request = ValueOption.ofOption request
+    Items = Array.ofList page.Items
+    Older = ValueOption.ofOption page.NextCursor
+    Newer = ValueOption.ofOption page.PrevCursor
+  }
+
+  let windowOf
+    (request: string option, page: Page<CommitNode>)
+    : FeedWindow.Window<CommitNode> = {
+    Order = FeedWindow.NewestFirst
+    Chunks = [ spanOf(request, page) ]
+    Limit = windowLimit
+  }
+
+  let itemsOf(model: Model) : CommitNode list = FeedWindow.items model.Feed
+
+  let olderOf(model: Model) : string voption = FeedWindow.older model.Feed
+
+  let newerOf(model: Model) : string voption = FeedWindow.newer model.Feed
+
+  let trimWindow
+    (window: FeedWindow.Window<CommitNode>, anchor: FeedWindow.Anchor voption)
+    : FeedWindow.Window<CommitNode> =
+    let items = FeedWindow.items window
+    let count = items.Length
+
+    let index =
+      anchor
+      |> ValueOption.bind(fun place ->
+        items
+        |> List.tryFindIndex(fun node -> FeedParts.nodeKey node = place.Key)
+        |> ValueOption.ofOption)
+
+    let edge =
+      match index with
+      | ValueSome at when at < 40 -> FeedWindow.OlderEdge
+      | ValueSome at when at > count - 40 -> FeedWindow.NewerEdge
+      | _ -> FeedWindow.OlderEdge
+
+    FeedWindow.trim(
+      {
+        Ops = ops
+        Keep = anchor |> ValueOption.map _.Key
+        Edge = edge
+      },
+      window
+    )
+
+  let surfaceOf(username: string, tab: Tab) : Surface =
+    Surface.profile(username, tab = Replies)
+
   // The rows one profile render lists: the pinned commit under its
   // caption first — the Commits tab only, as the site shows it — then
   // the feed.
@@ -209,14 +268,14 @@ module State =
       | Commits, Some node -> [ PinnedCaption; PinnedNode node ]
       | _ -> []
 
-    pinned @ (model.Commits |> List.map FeedNode)
+    pinned @ (FeedWindow.items model.Feed |> List.map FeedNode)
 
   let initial = {
     Loading = true
     Error = None
     Details = None
-    Commits = []
-    NextCursor = None
+    Feed = FeedWindow.empty(FeedWindow.NewestFirst, windowLimit)
+    Anchor = ValueNone
     Tab = Commits
     Now = DateTimeOffset.UtcNow
     Pasteis = false
@@ -267,6 +326,13 @@ module State =
     )
 
   let init (props: Props<'env>) () =
+    let surface = surfaceOf(props.Username, Commits)
+
+    let cursor =
+      props.Env.Timeline.PlaceOf surface
+      |> Option.bind(fun place -> ValueOption.toOption place.Anchor)
+      |> Option.bind(fun anchor -> ValueOption.toOption anchor.Entry)
+
     {
       initial with
           Pasteis = props.Session.Session.PasteisMode
@@ -290,9 +356,9 @@ module State =
            Session = props.Session
            Username = props.Username
            Replies = false
-           Cursor = None
+           Cursor = cursor
          })
-        CommitsFetched
+        (fun result -> CommitsFetched(cursor, result))
     ]
 
   // Runs one commit's translate call: the language its own translation or
@@ -336,7 +402,7 @@ module State =
            Replies = replies
            Cursor = None
          })
-        CommitsFetched
+        (fun result -> CommitsFetched(None, result))
 
     // Every log line is an effect: update returns it as a command,
     // and the loop writes it after the computation.
@@ -364,14 +430,15 @@ module State =
               Error = Some error
         },
         failed $"the profile of {username}" error
-    | CommitsFetched result ->
+    | CommitsFetched(cursor, result) ->
       match result with
       | Ok page ->
+        let grown = FeedWindow.addOlder(ops, spanOf(cursor, page), model.Feed)
+
         {
           model with
               Loading = false
-              Commits = model.Commits @ page.Items
-              NextCursor = page.NextCursor
+              Feed = trimWindow(grown, model.Anchor)
         },
         Cmd.ofAction(fun () ->
           log.LogDebug(
@@ -382,18 +449,58 @@ module State =
       | Error error ->
         { model with Error = Some error },
         failed $"the commits of {username}" error
+    | CommitsPrepended(cursor, result) ->
+      match result with
+      | Ok page ->
+        let grown = FeedWindow.addNewer(ops, spanOf(cursor, page), model.Feed)
+
+        {
+          model with
+              Feed = trimWindow(grown, model.Anchor)
+        },
+        Cmd.none
+      | Error error ->
+        { model with Error = Some error },
+        failed $"the newer commits of {username}" error
     | MoreCommits ->
-      model,
-      Cmd.OfAsync.perform
-        fetchCommits
-        (props.Env,
-         {
-           Session = props.Session
-           Username = username
-           Replies = model.Tab = Replies
-           Cursor = model.NextCursor
-         })
-        CommitsFetched
+      match olderOf model with
+      | ValueSome cursor ->
+        model,
+        Cmd.OfAsync.perform
+          fetchCommits
+          (props.Env,
+           {
+             Session = props.Session
+             Username = username
+             Replies = model.Tab = Replies
+             Cursor = Some cursor
+           })
+          (fun result -> CommitsFetched(Some cursor, result))
+      | ValueNone -> model, Cmd.none
+    | NewerCommits ->
+      match newerOf model with
+      | ValueSome cursor ->
+        model,
+        Cmd.OfAsync.perform
+          fetchCommits
+          (props.Env,
+           {
+             Session = props.Session
+             Username = username
+             Replies = model.Tab = Replies
+             Cursor = Some cursor
+           })
+          (fun result -> CommitsPrepended(Some cursor, result))
+      | ValueNone -> model, Cmd.none
+    | AnchorMoved anchor ->
+      { model with Anchor = ValueSome anchor },
+      Cmd.ofAction(fun () ->
+        let place: FeedWindow.Place = { Anchor = ValueSome anchor }
+
+        props.Env.Timeline.RememberPlace(
+          surfaceOf(props.Username, model.Tab),
+          place
+        ))
     | TabChosen kind ->
       if kind = model.Tab then
         model, Cmd.none
@@ -402,8 +509,8 @@ module State =
           model with
               Loading = true
               Error = None
-              Commits = []
-              NextCursor = None
+              Feed = FeedWindow.empty(FeedWindow.NewestFirst, windowLimit)
+              Anchor = ValueNone
               Tab = kind
         },
         refetch(kind = Replies)
@@ -418,7 +525,7 @@ module State =
       | Ok updated ->
         {
           model with
-              Commits = replaceNode(model.Commits, updated)
+              Feed = FeedWindow.replace(ops, LiveCommit updated, model.Feed)
         },
         Cmd.ofAction(fun () ->
           log.LogDebug("The star on {Commit} settled.", updated.Id))
@@ -471,12 +578,15 @@ module State =
                   (if pinned then Some(LiveCommit updated) else None)
           })
 
-        let commits =
+        let feed =
           if pinned then
-            model.Commits
-            |> List.filter(fun node -> FeedParts.nodeKey node <> updated.Id)
+            FeedWindow.remove(
+              ops,
+              FeedParts.nodeKey(LiveCommit updated),
+              model.Feed
+            )
           else
-            model.Commits
+            model.Feed
 
         {
           model with
@@ -489,7 +599,7 @@ module State =
                     "Commit unpinned."
                 )
               Details = details
-              Commits = commits
+              Feed = feed
         },
         Cmd.batch [
           Cmd.OfAsync.perform
@@ -532,8 +642,7 @@ module State =
       | Ok page ->
         {
           model with
-              Commits = page.Items
-              NextCursor = page.NextCursor
+              Feed = windowOf(None, page)
         },
         Cmd.ofAction(fun () ->
           log.LogDebug("The commits of {User} were read again.", username))
@@ -573,7 +682,7 @@ module State =
       | Ok updated ->
         {
           model with
-              Commits = replaceNode(model.Commits, updated)
+              Feed = FeedWindow.replace(ops, LiveCommit updated, model.Feed)
               Voting = None
               PollChoices = model.PollChoices |> Map.remove updated.Id
         },
@@ -601,7 +710,8 @@ module State =
       | Ok pastel ->
         {
           model with
-              Commits = replaceNode(model.Commits, pastel.Commit)
+              Feed =
+                FeedWindow.replace(ops, LiveCommit pastel.Commit, model.Feed)
         },
         Cmd.ofAction(fun () ->
           log.LogDebug("The pastel on {Commit} landed.", pastel.Commit.Id))
@@ -972,12 +1082,21 @@ module State =
         // commit when it is pinned, so it folds there too.
         {
           model with
-              Commits =
-                model.Commits
-                |> List.map(function
-                  | LiveCommit commit when commit.Id = commitId ->
-                    Tombstone(tombstoneOf commit)
-                  | node -> node)
+              Feed =
+                FeedWindow.items model.Feed
+                |> List.tryPick(function
+                  | LiveCommit commit when commit.Id = commitId -> Some commit
+                  | _ -> None)
+                |> Option.map(fun commit ->
+                  FeedWindow.replaceKey(
+                    {
+                      Ops = ops
+                      Key = commit.Id
+                      Item = Tombstone(tombstoneOf commit)
+                    },
+                    model.Feed
+                  ))
+                |> Option.defaultValue model.Feed
               Details =
                 model.Details
                 |> Option.map(fun details ->
@@ -1782,22 +1901,34 @@ module Parts =
 // The row inputs the page compares by reference, so a tick that left
 // them the same does not reshape the feed.
 let rowInputsComparer = {
-  new IEqualityComparer<ProfileDetails option * CommitNode list * State.Tab> with
+  new IEqualityComparer<
+    ProfileDetails option * FeedWindow.Window<CommitNode> * State.Tab
+       > with
     member _.Equals
-      (
-        (leftDetails, leftCommits, leftTab),
-        (rightDetails, rightCommits, rightTab)
-      ) =
+      ((leftDetails, leftFeed, leftTab), (rightDetails, rightFeed, rightTab))
+      =
       leftTab = rightTab
       && ReferenceEqualityComparer.Instance.Equals(leftDetails, rightDetails)
-      && ReferenceEqualityComparer.Instance.Equals(leftCommits, rightCommits)
+      && ReferenceEqualityComparer.Instance.Equals(
+        leftFeed.Chunks,
+        rightFeed.Chunks
+      )
 
-    member _.GetHashCode((details, commits, tab)) =
+    member _.GetHashCode((details, feed, tab)) =
       HashCode.Combine(
         RuntimeHelpers.GetHashCode details,
-        RuntimeHelpers.GetHashCode commits,
+        RuntimeHelpers.GetHashCode feed.Chunks,
         tab.GetHashCode()
       )
+}
+
+// One feed row with the chunk request cursor that fetched it, so the
+// anchor the feed reports names the page the row came from. Pinned
+// rows carry none: they sit above the feed, outside any page.
+[<Struct>]
+type AnchoredRow = {
+  Row: State.FeedRow
+  Entry: string option
 }
 
 let view
@@ -1893,6 +2024,32 @@ let view
       })
     )
 
+  let anchorKeyOf(anchored: AnchoredRow) : string option =
+    match anchored.Row with
+    | State.PinnedCaption -> None
+    | State.PinnedNode _
+    | State.FeedNode _ -> Some(State.rowKey anchored.Row)
+
+  let entryOf(anchored: AnchoredRow) : string option = anchored.Entry
+
+  let hasOlder =
+    model
+    |> Observable.map(fun current ->
+      FeedWindow.older current.Feed |> ValueOption.isSome)
+    |> Observable.distinctUntilChanged
+    |> Slices.share
+
+  let hasNewer =
+    model
+    |> Observable.map(fun current ->
+      FeedWindow.newer current.Feed |> ValueOption.isSome)
+    |> Observable.distinctUntilChanged
+    |> Slices.share
+
+  let restoreAnchor =
+    props.Env.Timeline.PlaceOf(State.surfaceOf(props.Username, State.Commits))
+    |> Option.bind(fun place -> ValueOption.toOption place.Anchor)
+
   let page =
     ProfileShell.view {
       Model = model
@@ -1920,7 +2077,7 @@ let view
           if
             not current.Loading
             && current.Error.IsNone
-            && current.Commits.IsEmpty
+            && (FeedWindow.items current.Feed).IsEmpty
             && not pinned
           then
             PageChrome.Words(
@@ -1954,18 +2111,47 @@ let view
         Items =
           model
           |> Observable.distinctUntilChangedKeyCompare
-            (fun current -> current.Details, current.Commits, current.Tab)
+            (fun current -> current.Details, current.Feed, current.Tab)
             rowInputsComparer
-          |> Observable.map State.rowsOf
-        KeyOf = State.rowKey
+          |> Observable.map(fun current ->
+            State.rowsOf current
+            |> List.map(fun feedRow -> {
+              Row = feedRow
+              Entry =
+                match feedRow with
+                | State.FeedNode node ->
+                  FeedWindow.entryOf(
+                    State.ops,
+                    FeedParts.nodeKey node,
+                    current.Feed
+                  )
+                  |> ValueOption.toOption
+                | State.PinnedCaption
+                | State.PinnedNode _ -> None
+            }))
+          |> Slices.share
+        KeyOf = fun anchored -> State.rowKey anchored.Row
         Row =
-          function
-          | State.PinnedCaption -> FeedParts.pinnedRow()
-          | State.PinnedNode node -> ProfileShell.commitRow(ctx, node)
-          | State.FeedNode node -> ProfileShell.commitRow(ctx, node)
-        HasMore = model |> Observable.map _.NextCursor.IsSome
+          fun anchored ->
+            match anchored.Row with
+            | State.PinnedCaption -> FeedParts.pinnedRow()
+            | State.PinnedNode node -> ProfileShell.commitRow(ctx, node)
+            | State.FeedNode node -> ProfileShell.commitRow(ctx, node)
+        HasMore = hasOlder
         OnMore = fun () -> dispatch State.MoreCommits
         OnRide = ValueSome(State.FeedRead >> dispatch)
+        AnchorKeyOf = ValueSome anchorKeyOf
+        EntryCursorOf = ValueSome entryOf
+        RestoreAnchor = restoreAnchor |> ValueOption.ofOption
+        OnAnchor = ValueSome(fun anchor -> dispatch(State.AnchorMoved anchor))
+        Paging =
+          ValueSome {
+            Order = FeedWindow.NewestFirst
+            HasOlder = hasOlder
+            HasNewer = hasNewer
+            OnOlder = (fun () -> dispatch State.MoreCommits)
+            OnNewer = (fun () -> dispatch State.NewerCommits)
+          }
         End = System.Reactive.Linq.Observable.Return(None: string option)
       }
     }

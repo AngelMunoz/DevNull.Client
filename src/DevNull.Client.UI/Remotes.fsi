@@ -1,6 +1,7 @@
 namespace DevNull.Client.Remotes
 
 open System
+open DevNull.Client
 open FSharp.UMX
 open Microsoft.Extensions.Logging
 open DevNull.Client.Core
@@ -51,11 +52,11 @@ type RemotesStore =
   abstract SetOpenTarget: target: ChatTarget option -> unit
 
   /// Parks one thread's reading place, so a page that returns restores
-  /// its scroll.
-  abstract RememberScroll: key: string * offset: float -> unit
+  /// its reading anchor.
+  abstract RememberPlace: key: string * anchor: FeedWindow.Anchor -> unit
 
   /// Where one thread's reading last stood, or none for a fresh read.
-  abstract ScrollPlaceOf: key: string -> float voption
+  abstract PlaceOf: key: string -> FeedWindow.Anchor voption
 
   /// Opens one target's slot before anything was written in it, so a
   /// composer can park a draft against a thread that never loaded.

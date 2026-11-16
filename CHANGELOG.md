@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Feeds:** cursor-paged feeds keep the post under the reader when new rows arrive, page older and newer content at the scroll edges, restore the same post after navigation, and keep a bounded 300-row window. The log, profile, Workbench history, Editor history, and remotes thread feeds use it, and their Load more buttons are gone.
+
 ### Fixed
 
 - **Emoji:** Unicode emoji render with the native platform font on Windows and Linux; the Flatpak bundle includes Noto Color Emoji. Emoji-heavy bodies count against the server's limit in Unicode code points, not UTF-16 units.

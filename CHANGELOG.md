@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-11-16
+
+### Fixed
+
+- **Feeds:** scrolling a cursor feed to the end now loads the next page on each arrival at the edge, so the log, profile, saved, history, and remotes thread feeds no longer stop after the first loaded page.
+
 ## [0.17.0] - 2026-11-16
 
 ### Added

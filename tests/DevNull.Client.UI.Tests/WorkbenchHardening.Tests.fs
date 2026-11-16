@@ -101,14 +101,14 @@ let private controlByName(root: Control, name: string) : Control option =
 let private hasTextFragment(root: Control, fragment: string) : bool =
   root.GetVisualDescendants()
   |> Seq.exists(function
-    | :? TextBlock as block ->
-      block.Text <> null && block.Text.Contains fragment
+    | :? TextBlock as block -> (blockText block).Contains fragment
     | _ -> false)
 
 let private hasVisibleText(root: Control, text: string) : bool =
   root.GetVisualDescendants()
   |> Seq.exists(function
-    | :? TextBlock as block -> block.Text = text && block.IsEffectivelyVisible
+    | :? TextBlock as block ->
+      textBlockShows(block, text) && block.IsEffectivelyVisible
     | _ -> false)
 
 let private hasClass(control: Control, name: string) : bool =
@@ -122,7 +122,7 @@ let private pressKey(source: Interactive, key: Key) : unit =
 let private starInRow(root: Control, body: string) : Button option =
   root.GetVisualDescendants()
   |> Seq.tryFind(function
-    | :? TextBlock as block -> block.Text = body
+    | :? TextBlock as block -> textBlockShows(block, body)
     | _ -> false)
   |> Option.bind(fun found ->
     found.GetVisualAncestors()

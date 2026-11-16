@@ -179,7 +179,7 @@ let textBlockWith(root: Control, text: string) : TextBlock option =
   root.GetVisualDescendants()
   |> Seq.tryPick(fun visual ->
     match visual with
-    | :? TextBlock as block when block.Text = text -> Some block
+    | :? TextBlock as block when textBlockShows(block, text) -> Some block
     | _ -> None)
 
 /// True when the named control and every ancestor stand visible.
@@ -2395,7 +2395,7 @@ let showsText(root: Control, text: string) : bool =
   root.GetVisualDescendants()
   |> Seq.exists(fun visual ->
     match visual with
-    | :? TextBlock as block when block.Text = text ->
+    | :? TextBlock as block when textBlockShows(block, text) ->
       block.IsVisible
       && block.GetVisualAncestors()
          |> Seq.forall(fun ancestor ->

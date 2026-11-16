@@ -184,11 +184,26 @@ let mountAsync(control: Control) : Async<Window> =
     window.Show()
     window)
 
-/// True when a TextBlock renders the text: as its own text, or as one
-/// inline run — a line built of runs (the search identity lines)
-/// carries its pieces there.
+/// The full text a TextBlock renders: its own text, or the inline
+/// runs joined — a body built of runs (emoji, tags, links) carries
+/// its words there and leaves Text empty.
+let blockText(block: TextBlock) : string =
+  match Option.ofObj block.Text with
+  | Some text -> text
+  | None when block.Inlines <> null ->
+    block.Inlines
+    |> Seq.choose(fun inlineNode ->
+      match inlineNode with
+      | :? Avalonia.Controls.Documents.Run as run -> Option.ofObj run.Text
+      | _ -> None)
+    |> String.concat ""
+  | None -> ""
+
+/// True when a TextBlock renders the text: as its full rendered
+/// text, or as one inline run — a line built of runs (the search
+/// identity lines) carries its pieces there.
 let textBlockShows(block: TextBlock, text: string) : bool =
-  block.Text = text
+  blockText block = text
   || (block.Inlines <> null
       && block.Inlines
          |> Seq.exists(fun inlineNode ->

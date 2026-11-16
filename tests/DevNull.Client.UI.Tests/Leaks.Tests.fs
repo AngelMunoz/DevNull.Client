@@ -58,7 +58,7 @@ let textBlockWith(root: Control, text: string) : TextBlock option =
   root.GetVisualDescendants()
   |> Seq.tryPick(fun visual ->
     match visual with
-    | :? TextBlock as block when block.Text = text -> Some block
+    | :? TextBlock as block when textBlockShows(block, text) -> Some block
     | _ -> None)
 
 /// The first control under the root carrying the name.

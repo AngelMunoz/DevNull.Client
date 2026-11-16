@@ -547,7 +547,9 @@ let notificationDayTests =
             |> Seq.choose(fun visual ->
               match visual with
               | :? TextBlock as block when effectiveVisible block ->
-                Option.ofObj block.Text
+                match blockText block with
+                | "" -> None
+                | text -> Some text
               | _ -> None)
             |> Seq.toList)
 
@@ -1914,7 +1916,7 @@ let tests =
         let rowStarNames(body: string) =
           window.GetVisualDescendants()
           |> Seq.tryFind(function
-            | :? TextBlock as block when block.Text = body -> true
+            | :? TextBlock as block when textBlockShows(block, body) -> true
             | _ -> false)
           |> Option.bind(fun found ->
             found.GetVisualAncestors()
@@ -4139,7 +4141,9 @@ let tests =
             let quiet =
               window.GetVisualDescendants()
               |> Seq.tryFind(function
-                | :? TextBlock as block when block.Text = "Quiet commit." ->
+                | :? TextBlock as block when
+                  textBlockShows(block, "Quiet commit.")
+                  ->
                   true
                 | _ -> false)
 
@@ -4189,7 +4193,10 @@ let tests =
             let cardBottom =
               window.GetVisualDescendants()
               |> Seq.tryFind(function
-                | :? TextBlock as block when block.Text = "It was DNS." -> true
+                | :? TextBlock as block when
+                  textBlockShows(block, "It was DNS.")
+                  ->
+                  true
                 | _ -> false)
               |> Option.bind(fun body ->
                 body.GetVisualAncestors()

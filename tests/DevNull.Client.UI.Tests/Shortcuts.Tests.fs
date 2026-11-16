@@ -83,7 +83,7 @@ let focusedCardText(window: Window) : string =
     |> Seq.choose(fun visual ->
       match visual with
       | :? TextBlock as block ->
-        block.Text
+        blockText block
         |> Option.ofObj
         |> Option.filter(fun text -> text.StartsWith "Card ")
       | _ -> None)

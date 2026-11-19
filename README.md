@@ -83,6 +83,22 @@ registration, so run the script again whenever you need a new login.
 Alternatively, export `DOTNET_ROOT` for the whole session through
 `~/.config/environment.d/` and log in from any build.
 
+### macOS: first login
+
+macOS only lets an app bundle claim the `devnull://` scheme, and it
+hands the callback to the running app as an activation rather than a
+command-line argument. Sign in once with a self-contained bundle:
+
+    ./mac-login.sh
+
+The script publishes the app with its own runtime, wraps it into
+`dist/DevNull.Client.app`, ad-hoc signs it (no notarization needed for
+local dev), registers the scheme with LaunchServices, and launches it.
+The browser sign-in returns to the running app. The session, the device
+key, and the settings live in `~/Library/Application Support/DevNull`
+(the standard `LocalApplicationData` folder) and are shared with the
+Debug build: after this one login,
+`dotnet run --project src/DevNull.Client.Mac` starts signed in.
 ## Going deeper
 
 - `AGENTS.md` — the architecture map and the working rules for this

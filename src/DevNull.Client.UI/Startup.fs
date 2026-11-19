@@ -4,12 +4,14 @@ open System
 open System.IO
 open Avalonia
 open Avalonia.Media
+open IcedTasks
 open Avalonia.Threading
 open Avalonia.Controls.ApplicationLifetimes
 open Avalonia.Themes.Fluent
 open Microsoft.Extensions.Logging
 open Serilog
 open Serilog.Events
+open FSharp.Control.Reactive
 open DevNull.Client.DeviceAuth
 open DevNull.Client.Env
 open DevNull.Client.Natives
@@ -133,6 +135,42 @@ let completeCallback
   : unit =
   DeviceAuth.finish(env, uri, log) |> Async.Ignore |> Async.RunSynchronously
 
+// macOS hands the devnull:// callback to the running app as a protocol
+// activation rather than an argument. The other desktop heads deliver
+// it in argv and bind no activatable lifetime, so this watch is a no-op
+// there. The completion records the session exactly as the headless
+// second instance does; the sign-in page's own file watch picks the
+// stored session up too.
+let watchProtocolActivation
+  (env: AppEnv, log: Microsoft.Extensions.Logging.ILogger)
+  : unit =
+  Application.Current
+  |> Option.ofObj
+  |> Option.bind(_.TryGetFeature<IActivatableLifetime>() >> Option.ofObj)
+  |> Option.iter(fun lifetime ->
+    lifetime.Activated
+    |> Observable.take 1
+    |> Observable.add(fun args ->
+      match args with
+      | :? ProtocolActivatedEventArgs as protocol when
+        protocol.Uri.Scheme = "devnull"
+        ->
+        log.LogInformation("The sign-in callback arrived as an activation.")
+
+        asyncEx {
+          let! outcome = DeviceAuth.finish(env, string protocol.Uri, log)
+
+          match outcome with
+          | Ok session ->
+            (env :> IProvideSession).Session.Enter {
+              Session = session
+              KeyFile = devicePrivateKeyPath
+            }
+          | Error _ -> ()
+        }
+        |> Async.StartImmediate
+      | _ -> ()))
+
 let emojiFallback(name: string) =
   let fallback = FontFallback()
   fallback.FontFamily <- FontFamily(name)
@@ -144,6 +182,7 @@ let fontOptions() =
 
   options.FontFallbacks <- [|
     emojiFallback "Segoe UI Emoji"
+    emojiFallback "Apple Color Emoji"
     emojiFallback "Noto Color Emoji"
   |]
 
@@ -241,5 +280,6 @@ let start(logging: ILoggerFactory, natives: NativeServices, argv: string[]) =
       .UsePlatformDetect()
       .With(fontOptions())
       .AfterSetup(fun _ ->
-        Theme.apply((env :> IProvideSettings).Settings.Current.Theme))
+        Theme.apply((env :> IProvideSettings).Settings.Current.Theme)
+        watchProtocolActivation(env, log))
       .StartWithClassicDesktopLifetime(argv)

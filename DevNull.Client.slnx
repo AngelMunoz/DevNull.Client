@@ -4,6 +4,7 @@
     <Project Path="src/DevNull.Client.UI/DevNull.Client.UI.fsproj" />
     <Project Path="src/DevNull.Client.Windows/DevNull.Client.Windows.fsproj" />
     <Project Path="src/DevNull.Client.Linux/DevNull.Client.Linux.fsproj" />
+    <Project Path="src/DevNull.Client.Mac/DevNull.Client.Mac.fsproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/DevNull.Client.Core.Tests/DevNull.Client.Core.Tests.fsproj" />

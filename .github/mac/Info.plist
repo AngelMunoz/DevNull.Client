@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>me.tunaxor.devnull.client</string>
+  <key>CFBundleName</key><string>DevNull.Client</string>
+  <key>CFBundleDisplayName</key><string>DevNull.Client</string>
+  <key>CFBundleExecutable</key><string>DevNull.Client</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>@VERSION@</string>
+  <key>CFBundleVersion</key><string>@VERSION@</string>
+  <key>LSMinimumSystemVersion</key><string>10.15</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSPrincipalClass</key><string>NSApplication</string>
+  <key>NSMicrophoneUsageDescription</key><string>Voice notes use the microphone.</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key><string>me.tunaxor.devnull.client</string>
+      <key>CFBundleURLSchemes</key><array><string>devnull</string></array>
+    </dict>
+  </array>
+</dict>
+</plist>

@@ -508,3 +508,6 @@ docs/notas-*.md
 .alta/tasks/
 !.alta/derived/rejections.md
 audits/
+
+# macOS dev bundle assembled by mac-login.sh (self-contained publish + Info.plist)
+dist/

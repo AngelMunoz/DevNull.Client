@@ -9,6 +9,7 @@ type Glyph =
   | Remotes
   | Profile
   | Saved
+  | Guild
   | Settings
   | Commit
   | Collapse

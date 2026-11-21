@@ -1,4 +1,4 @@
-﻿module DevNull.Client.UI.Tests.Search
+module DevNull.Client.UI.Tests.Search
 
 // The search session checks: one call per pause of typing, the
 // latest-wins rule, the slow-down answer, and the server's own bounds.
@@ -106,6 +106,7 @@ let tests =
                   : Result<ProfileMatches, AppError>
               }),
             (fun _ -> async { return Ok [] }),
+            (fun _ -> async { return Ok [] }),
             NullLogger.Instance
           )
 
@@ -153,6 +154,7 @@ let tests =
 
               return Ok []: Result<CommitNode list, AppError>
             }),
+            (fun _ -> async { return Ok [] }),
             NullLogger.Instance
           )
 
@@ -190,6 +192,7 @@ let tests =
                   )
                 )
             }),
+            (fun _ -> async { return Ok [] }),
             NullLogger.Instance
           )
 
@@ -223,6 +226,7 @@ let tests =
                 )
             }),
             (fun _ -> async { return Ok [] }),
+            (fun _ -> async { return Ok [] }),
             NullLogger.Instance
           )
 
@@ -255,6 +259,7 @@ let tests =
             (fun term ->
               calls.Add term
               async { return Ok [] }),
+            (fun _ -> async { return Ok [] }),
             NullLogger.Instance
           )
 
@@ -262,6 +267,52 @@ let tests =
         do! settle()
 
         Expect.equal 0 calls.Count "a short term never asked"
+      })
+
+    testCaseAsync
+      "the guild channel asks once per pause and never without a term"
+      (async {
+        let calls = ResizeArray<string>()
+        let found = ResizeArray<GuildsFound>()
+
+        use session =
+          new Session(
+            (fun _ -> async {
+              return
+                Ok { Users = []; Organizations = [] }
+                : Result<ProfileMatches, AppError>
+            }),
+            (fun _ -> async { return Ok [] }),
+            (fun term ->
+              calls.Add term
+              async { return Ok [] }),
+            NullLogger.Instance
+          )
+
+        session.Guilds
+        |> Observable.filter(fun answer -> answer.Query <> "")
+        |> Observable.add found.Add
+
+        // A blank term never asks; the same term twice asks once.
+        session.SetGuilds "  "
+        session.SetGuilds "ka"
+        session.SetGuilds "ka"
+
+        let! first = settledWhen(fun () -> calls.Count = 1 && found.Count = 1)
+
+        Expect.isTrue first "the pause never answered"
+
+        // The mark leaves the term: the second pause asks ops.
+        session.SetGuilds "#ops"
+
+        let! second = settledWhen(fun () -> calls.Count = 2 && found.Count = 2)
+
+        Expect.isTrue second "the marked term never asked"
+
+        Expect.equal
+          [ "ka"; "ops" ]
+          (calls |> Seq.toList)
+          "the asks carried the gated terms"
       })
   ]
 
@@ -292,6 +343,7 @@ let completionTests =
                       : Result<MentionResults, AppError>
                   }
               Issue = fun _ -> async { return Ok None }
+              Guilds = fun _ -> async { return Ok [] }
               Remember = true
             },
             NullLogger.Instance
@@ -336,6 +388,7 @@ let completionTests =
 
                   async { return Ok { Users = []; Organizations = [] } }
               Issue = fun _ -> async { return Ok None }
+              Guilds = fun _ -> async { return Ok [] }
               Remember = true
             },
             NullLogger.Instance
@@ -372,6 +425,7 @@ let completionTests =
 
                   async { return Ok { Users = []; Organizations = [] } }
               Issue = fun _ -> async { return Ok None }
+              Guilds = fun _ -> async { return Ok [] }
               Remember = false
             },
             NullLogger.Instance
@@ -407,6 +461,7 @@ let completionTests =
                     )
                 }
               Issue = fun _ -> async { return Ok None }
+              Guilds = fun _ -> async { return Ok [] }
               Remember = true
             },
             NullLogger.Instance
@@ -433,6 +488,7 @@ let completionTests =
             {
               Mentions = fun _ -> async { return failwith "boom" }
               Issue = fun _ -> async { return Ok None }
+              Guilds = fun _ -> async { return Ok [] }
               Remember = true
             },
             NullLogger.Instance
@@ -467,6 +523,7 @@ let completionTests =
 
                   async { return Ok { Users = []; Organizations = [] } }
               Issue = fun _ -> async { return Ok None }
+              Guilds = fun _ -> async { return Ok [] }
               Remember = true
             },
             NullLogger.Instance

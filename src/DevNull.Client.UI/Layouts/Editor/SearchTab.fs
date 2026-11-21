@@ -57,6 +57,7 @@ type Props<'env
   OnReply: Commit -> unit
   OnQuote: Commit -> unit
   OnOpenRepo: string -> unit
+  OnOpenGuild: string -> unit
   OnShared: User -> unit
 }
 
@@ -81,6 +82,7 @@ module State =
     Surface = EditorCards.Feed
     Now = props.Now
     OnOpenRepo = props.OnOpenRepo
+    OnOpenGuild = props.OnOpenGuild
     OnShared = props.OnShared
   }
 
@@ -333,6 +335,19 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
             Limit = Some 20
           }
         )),
+      (fun term -> async {
+        let! page =
+          Guilds.list(
+            props.Env,
+            {
+              KeyFile = props.Session.KeyFile
+              Query = Some term
+              Page = 1
+            }
+          )
+
+        return page |> Result.map(fun answered -> answered.Items)
+      }),
       log
     )
 

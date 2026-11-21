@@ -64,6 +64,7 @@ let props: RepoTab.Props<FakeEnv> = {
   OnReply = ignore
   OnQuote = ignore
   OnOpenRepo = ignore
+  OnOpenGuild = ignore
   OnShared = ignore
 }
 

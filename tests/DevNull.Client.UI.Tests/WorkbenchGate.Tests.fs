@@ -283,6 +283,7 @@ let tests =
           Fetch = fun _ -> async { return None }
           OnOpen = fun handle -> opened.Add handle
           OnOpenOrg = ignore
+          OnOpenGuild = ignore
           OnOpenTag = ignore
           Cache = {
             new ImageCacheService with

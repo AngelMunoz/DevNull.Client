@@ -16,6 +16,7 @@ type View = {
   Caption: bool
   Users: User list
   Organizations: Organization list
+  Guilds: Guild list
   Issue: Issue option
   Searching: bool
   Throttled: bool
@@ -27,6 +28,7 @@ type View = {
 type Actions = {
   PickPerson: User -> unit
   PickOrganization: Organization -> unit
+  PickGuild: Guild -> unit
   PickIssue: Issue -> unit
   Hovered: int -> unit
 }

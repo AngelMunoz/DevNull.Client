@@ -20,6 +20,12 @@ module TabId =
   /// The scheduled queue list tab's identity.
   val queue: TabId
 
+  /// The guild directory tab's identity.
+  val guilds: TabId
+
+  /// The identity of one guild board tab: its handle.
+  val guild: handle: string -> TabId
+
   /// The identity of one ordinary tab, from its stable key.
   val ordinary: key: string -> TabId
 
@@ -50,6 +56,15 @@ module TabId =
 
   /// Whether this is one of the two list tabs.
   val isList: id: TabId -> bool
+
+  /// Whether this is the guild directory tab's identity.
+  val isGuilds: id: TabId -> bool
+
+  /// Whether this is a guild board tab's identity.
+  val isGuild: id: TabId -> bool
+
+  /// The handle of a guild board tab, when it is one.
+  val guildHandle: id: TabId -> string option
 
   /// Whether this is a repository tab's identity.
   val isRepo: id: TabId -> bool
@@ -85,6 +100,12 @@ module EditorTab =
 
   /// One repository tab: ordinary and titled from its handle.
   val repo: id: TabId * handle: string -> EditorTab
+
+  /// The guild directory tab: ordinary and titled GUILDS.
+  val guilds: EditorTab
+
+  /// One guild board tab: ordinary and titled from its handle.
+  val guild: id: TabId * handle: string -> EditorTab
 
   /// One search results tab: ordinary and titled from its term.
   val search: id: TabId * term: string -> EditorTab

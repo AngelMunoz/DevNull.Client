@@ -13,10 +13,12 @@ type Props = {
   Saved: int
   Queue: int
   QueueHint: string option
+  GuildCount: int
   Viewer: string
   OnSelectRef: LogKind -> unit
   OnOpenSaved: unit -> unit
   OnOpenQueue: unit -> unit
+  OnOpenGuilds: unit -> unit
   OnOpenViewer: unit -> unit
 }
 
@@ -129,49 +131,55 @@ let queueHint(hint: string) : Control =
 
 let view(props: Props) : Control =
   let content: Control array = [|
-    yield section "HISTORY"
+    section "HISTORY"
 
     yield!
       [ Following; Latest; Trending ] |> List.map(fun log -> refRow(props, log))
 
-    yield section "SAVED"
+    section "SAVED"
 
-    yield
-      countRow {
-        Title = "Stars.index"
-        Name = "SAVED"
-        Count = props.Saved
-        OnOpen = props.OnOpenSaved
-      }
+    countRow {
+      Title = "Stars.index"
+      Name = "SAVED"
+      Count = props.Saved
+      OnOpen = props.OnOpenSaved
+    }
 
-    yield section "QUEUE"
+    section "QUEUE"
 
-    yield
-      countRow {
-        Title = "Scheduled"
-        Name = "QUEUE"
-        Count = props.Queue
-        OnOpen = props.OnOpenQueue
-      }
+    countRow {
+      Title = "Scheduled"
+      Name = "QUEUE"
+      Count = props.Queue
+      OnOpen = props.OnOpenQueue
+    }
 
     match props.QueueHint with
-    | Some hint -> yield queueHint hint
+    | Some hint -> queueHint hint
     | None -> ()
 
-    yield section "ACCOUNT"
+    section "GUILDS"
 
-    yield
-      Button()
-        .Name("EditorExplorerViewer")
-        .Classes(Theme.name Theme.NavItem)
-        .HorizontalAlignment(HorizontalAlignment.Stretch)
-        .MinHeight(28.0)
-        .Margin(Thickness(10.0, 0.0, 0.0, 0.0))
-        .Padding(Thickness(8.0, 4.0))
-        .Content(
-          TextBlock().Text($"@{props.Viewer}").Classes(Theme.name Theme.Mono)
-        )
-        .OnClickHandler(fun _ _ -> props.OnOpenViewer())
+    countRow {
+      Title = "Guilds.index"
+      Name = "GUILDS"
+      Count = props.GuildCount
+      OnOpen = props.OnOpenGuilds
+    }
+
+    section "ACCOUNT"
+
+    Button()
+      .Name("EditorExplorerViewer")
+      .Classes(Theme.name Theme.NavItem)
+      .HorizontalAlignment(HorizontalAlignment.Stretch)
+      .MinHeight(28.0)
+      .Margin(Thickness(10.0, 0.0, 0.0, 0.0))
+      .Padding(Thickness(8.0, 4.0))
+      .Content(
+        TextBlock().Text($"@{props.Viewer}").Classes(Theme.name Theme.Mono)
+      )
+      .OnClickHandler(fun _ _ -> props.OnOpenViewer())
   |]
 
   let header =
@@ -187,7 +195,7 @@ let view(props: Props) : Control =
     .Classes(Theme.name Theme.SurfaceBack, Theme.name Theme.Hairline)
     .BorderThickness(Thickness(0.0, 0.0, 1.0, 0.0))
     .Width(240.0)
-    .Padding(Thickness(12.0, 10.0))
+    .Padding(Thickness(12.0, Theme.bandHeight + 10.0, 12.0, 10.0))
     .Child(
       StackPanel()
         .Orientation(Orientation.Vertical)

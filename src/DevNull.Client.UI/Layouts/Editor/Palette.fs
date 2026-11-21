@@ -61,6 +61,7 @@ type Props<'env
   Session: SignedInSession
   OnOpenRepo: string -> unit
   OnOpenCommit: string -> unit
+  OnOpenGuild: string -> unit
   OnOpenOrg: string -> unit
   OnOpenSearch: string -> unit
   OnSelectRef: LogKind -> unit
@@ -162,6 +163,19 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) : Control * IDisposable =
             Limit = Some 5
           }
         )),
+      (fun term -> async {
+        let! page =
+          Guilds.list(
+            props.Env,
+            {
+              KeyFile = props.Session.KeyFile
+              Query = Some term
+              Page = 1
+            }
+          )
+
+        return page |> Result.map(fun answered -> answered.Items)
+      }),
       log
     )
 
@@ -175,6 +189,7 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) : Control * IDisposable =
         InitialTerm = None
         Recents = (props.Env :> IProvideRecentSearches).RecentSearches
         Nav = searchNav props
+        OnOpenGuild = props.OnOpenGuild
         OpenCompose = props.OnOpenCompose
         Close = props.OnClose
       }

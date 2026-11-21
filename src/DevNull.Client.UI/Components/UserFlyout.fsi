@@ -7,13 +7,15 @@ open DevNull.Client.ImageCache
 /// What one hover card needs from its host: the profile fetch, the
 /// profile navigation, the organization navigation a body's
 /// org-kind mention rides, the search navigation a body's hashtag
-/// rides, and the image cache.
+/// rides, the guild navigation a body's guild chip rides, and the
+/// image cache.
 [<Struct>]
 type Source = {
   Fetch: string -> Async<ProfileDetails option>
   OnOpen: string -> unit
   OnOpenOrg: string -> unit
   OnOpenTag: string -> unit
+  OnOpenGuild: string -> unit
   Cache: ImageCacheService
 }
 

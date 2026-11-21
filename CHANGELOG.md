@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Guilds:** A commit posted to a guild names it under the body in every feed. The composer can target a guild board with `#handle` completion, and guilds ride the search dialog.
+- **Website:** The sidebar gains a Guilds entry that opens the guild directory, searched and paged like the site. A guild opens its board in the app: identity header, a composer aimed at the board, and the pinned commit first.
+- **Workbench:** The refs rail gains a Guilds row that opens the directory as a dense registry. A guild opens as `#handle` with its board as the center log, and the staging composer opens aimed at the selected board. A paused board is never aimed.
+- **Editor:** The explorer gains a GUILDS branch that opens the directory as a tab. A guild opens as a `#handle` board tab, and the terminal opens aimed at the active board. A post refreshes the board.
+
+### Fixed
+
+- **Editor:** The reserved strip at the top of the window now takes the chrome color instead of the white window background, and the search icon no longer stands on a white block.
+- **Editor:** A reply in a thread opens in its own tab when clicked, and its reply button opens the terminal on that commit.
+
 ## [0.17.1] - 2026-11-16
 
 ### Fixed

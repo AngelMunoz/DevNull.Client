@@ -106,6 +106,7 @@ type Props<'env
   Surface: Surface
   Now: unit -> DateTimeOffset
   OnOpenRepo: string -> unit
+  OnOpenGuild: string -> unit
   OnShared: User -> unit
 }
 
@@ -593,6 +594,7 @@ let row(args: RowArgs<'env>) : RowProps =
         Fetch = args.Props.Env.Profiles.Fetch
         OnOpen = args.Props.OnOpenRepo
         OnOpenOrg = ignore
+        OnOpenGuild = args.Props.OnOpenGuild
         OnOpenTag = ignore
         Cache = args.Props.Env.ImageCache
       }

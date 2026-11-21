@@ -27,6 +27,9 @@ open DevNull.Client.UI.Tests.Palette
 open DevNull.Client.UI.Tests.EditorPanel
 open DevNull.Client.UI.Tests.Translation
 open DevNull.Client.UI.Tests.WhoToFollow
+open DevNull.Client.UI.Tests.Guilds
+open DevNull.Client.UI.Tests.WorkbenchGuilds
+open DevNull.Client.UI.Tests.EditorGuilds
 
 [<EntryPoint>]
 let main argv =
@@ -58,6 +61,9 @@ let main argv =
       RepoTab.tests
       Palette.tests
       EditorPanel.tests
+      Guilds.tests
+      WorkbenchGuilds.tests
+      EditorGuilds.tests
     ]
 
   // Every UI test shares the one headless session thread, so a pool the

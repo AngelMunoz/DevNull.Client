@@ -20,6 +20,7 @@ module Flyout = DevNull.Client.Components.Completion
 [<Struct>]
 type Choice =
   | PersonChosen of handle: string
+  | GuildChosen of handle: string
   | IssueChosen of number: int
 
 type Event =
@@ -52,6 +53,7 @@ let closedFlyout: Flyout.View = {
   Caption = false
   Users = []
   Organizations = []
+  Guilds = []
   Issue = None
   Searching = false
   Throttled = false
@@ -69,7 +71,10 @@ let closedSnapshot: Snapshot = {
 let countOf(flyout: Flyout.View) : int =
   match flyout.Issue with
   | Some _ -> 1
-  | None -> List.length flyout.Users + List.length flyout.Organizations
+  | None ->
+    List.length flyout.Users
+    + List.length flyout.Organizations
+    + List.length flyout.Guilds
 
 // The armed row, clamped into the rows the newest state holds.
 let activeOf(flyout: Flyout.View) : int =
@@ -96,6 +101,21 @@ let completeMention(props: Props, snapshot: Snapshot, handle: string) : unit =
     props.Events(Picked(PersonChosen handle))
   // The caret already left the mention behind.
   | ValueSome(IssueRef _)
+  | ValueSome(GuildTag _)
+  | ValueNone -> ()
+
+let completeGuild(props: Props, snapshot: Snapshot, guild: Guild) : unit =
+  match snapshot.Trigger with
+  | ValueSome(GuildTag _ as trigger) ->
+    let text = props.Body.Text |> Option.ofObj |> Option.defaultValue ""
+
+    let next, caret = guildCompleted(text, trigger, guild.Handle)
+
+    applied(props, next, caret)
+    props.Events(Picked(GuildChosen guild.Handle))
+  // The caret already left the tag behind.
+  | ValueSome(Mention _)
+  | ValueSome(IssueRef _)
   | ValueNone -> ()
 
 let completeIssue(props: Props, snapshot: Snapshot, issue: Issue) : unit =
@@ -109,6 +129,7 @@ let completeIssue(props: Props, snapshot: Snapshot, issue: Issue) : unit =
     props.Events(Picked(IssueChosen issue.Number))
   // The caret already left the reference behind.
   | ValueSome(Mention _)
+  | ValueSome(GuildTag _)
   | ValueNone -> ()
 
 // The pick the keys answer: the armed row.
@@ -128,6 +149,10 @@ let picked(props: Props, snapshot: Snapshot) : unit =
       |> List.tryItem(at - List.length flyout.Users)
       |> Option.iter(fun organization ->
         completeMention(props, snapshot, organization.Handle))
+  | ValueSome(GuildTag _), at when at >= 0 ->
+    flyout.Guilds
+    |> List.tryItem at
+    |> Option.iter(fun guild -> completeGuild(props, snapshot, guild))
   // Nothing stands at the armed place.
   | _ -> ()
 
@@ -138,6 +163,7 @@ let flyoutActions
   PickOrganization =
     fun organization ->
       completeMention(props, standing.Value, organization.Handle)
+  PickGuild = fun guild -> completeGuild(props, standing.Value, guild)
   PickIssue = fun issue -> completeIssue(props, standing.Value, issue)
   Hovered = fun index -> props.Events(Hovered index)
 }
@@ -189,6 +215,7 @@ let lane
         match trigger with
         | ValueSome(Mention(_, query)) -> ValueSome query
         | ValueSome(IssueRef _)
+        | ValueSome(GuildTag _)
         | ValueNone -> ValueNone)
       |> Observable.distinctUntilChanged
       |> Observable.subscribe props.Session.Set
@@ -199,9 +226,21 @@ let lane
         match trigger with
         | ValueSome(IssueRef(_, digits)) -> ValueSome(IssueNumber.value digits)
         | ValueSome(Mention _)
+        | ValueSome(GuildTag _)
         | ValueNone -> ValueNone)
       |> Observable.distinctUntilChanged
       |> Observable.subscribe props.Session.SetIssue
+
+    let guilds =
+      props.Trigger
+      |> Observable.map(fun trigger ->
+        match trigger with
+        | ValueSome(GuildTag(_, query)) -> ValueSome query
+        | ValueSome(Mention _)
+        | ValueSome(IssueRef _)
+        | ValueNone -> ValueNone)
+      |> Observable.distinctUntilChanged
+      |> Observable.subscribe props.Session.SetGuilds
 
     // The house sets a popup's open by hand; an observable binding
     // never opens it.
@@ -213,7 +252,7 @@ let lane
     {
       new IDisposable with
         member _.Dispose() =
-          for feed in [ queries; digits; standingFeed; opened ] do
+          for feed in [ queries; digits; guilds; standingFeed; opened ] do
             feed.Dispose()
 
           standing.OnCompleted()

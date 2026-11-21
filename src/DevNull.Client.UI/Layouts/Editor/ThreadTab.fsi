@@ -62,10 +62,13 @@ type Props<'env
   OnSnapshot: Snapshot -> unit
   /// One read's result, for the frame's output log.
   OnFetch: Result<unit, string> -> unit
+  /// A reply row click: the frame opens that commit's own thread tab.
+  OnOpenThread: Commit -> unit
   OnQuote: Commit -> unit
   OnReplyRequested: Commit -> unit
   /// Opens the repository tab of one handle, from the author flyout.
   OnOpenRepo: string -> unit
+  OnOpenGuild: string -> unit
   /// A share sends its recipient here: the frame opens the chat as a
   /// remote tab. Runs on the UI thread.
   OnShared: User -> unit

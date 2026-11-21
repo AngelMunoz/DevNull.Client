@@ -25,6 +25,7 @@ module IssueNumber =
 [<Struct>]
 type Trigger =
   | Mention of start: int * query: string
+  | GuildTag of start: int * query: string
   | IssueRef of start: int * digits: IssueNumber
 
 // The "@handle" being typed right before the caret, kept in step with
@@ -81,6 +82,12 @@ let colorPattern =
 // none opening with a zero.
 let issueReference = Regex("(?:^|[\\s([{])#([1-9][0-9]{0,9})$")
 
+// The `#handle` at the end of a prose chunk: a letter opens the tag,
+// then the site's own hashtag word class, with the hashtag pattern's
+// left boundary. Digits stay the issue reference's own.
+let guildTag =
+  Regex("(?<![\\p{L}\\p{M}\\p{N}_&/#>-])#(\\p{L}[\\p{L}\\p{M}\\p{N}_]*)$")
+
 let wordCharacter = Regex("^[\\p{L}\\p{N}_/#-]")
 
 let mentionAt(text: string, caret: int) =
@@ -121,13 +128,40 @@ let issueAt(text: string, caret: int) =
       | ValueSome number -> ValueSome(IssueRef(start, number))
       | ValueNone -> ValueNone
 
+let guildAt(text: string, caret: int) =
+  let nearest =
+    proseChunks(typedSplitter, text.Substring(0, caret))
+    |> List.tryLast
+    |> Option.defaultValue ""
+
+  let matched = guildTag.Match nearest
+
+  let colored(start: int) =
+    withoutCode text
+    |> colorPattern.Matches
+    |> Seq.exists(fun found -> found.Index = start)
+
+  if not matched.Success then
+    ValueNone
+  else
+    let followed =
+      caret < text.Length && wordCharacter.IsMatch(text.Substring(caret, 1))
+
+    let query = matched.Groups[1].Value
+    let start = caret - query.Length - 1
+
+    if followed || colored start then
+      ValueNone
+    else
+      ValueSome(GuildTag(start, query))
+
 let triggerAt(text: string, caret: int) =
   if caret < 0 || caret > text.Length then
     ValueNone
   else
-    match mentionAt(text, caret) with
-    | ValueSome found -> ValueSome found
-    | ValueNone -> issueAt(text, caret)
+    mentionAt(text, caret)
+    |> ValueOption.orElseWith(fun () -> guildAt(text, caret))
+    |> ValueOption.orElseWith(fun () -> issueAt(text, caret))
 
 /// The trigger as the text must still hold it: where it starts, the
 /// mark that opens it, and its query.
@@ -185,6 +219,7 @@ let triggerCaret(text: string, trigger: Trigger) =
   let caret =
     match trigger with
     | Mention(start, query) -> start + 1 + query.Length
+    | GuildTag(start, query) -> start + 1 + query.Length
     | IssueRef(start, digits) -> start + 1 + (IssueNumber.value digits).Length
 
   min text.Length (max 0 caret)
@@ -211,7 +246,34 @@ let mentionCompleted(text: string, trigger: Trigger, handle: string) =
       }
     )
   | IssueRef _ // an issue reference never completes as a mention
+  | GuildTag _ // a guild tag never completes as a mention
   | Mention _ -> // the text no longer holds the trigger
+    text, triggerCaret(text, trigger)
+
+let guildCompleted(text: string, trigger: Trigger, handle: string) =
+  match trigger with
+  | GuildTag(start, query) when
+    held(
+      text,
+      {
+        Start = start
+        Mark = '#'
+        Query = query
+      }
+    )
+    ->
+    replace(
+      text,
+      {
+        Start = start
+        QueryLength = query.Length
+        Token = "#" + handle
+        CaretAfterSpacing = true
+      }
+    )
+  | Mention _ // a mention never completes as a guild tag
+  | IssueRef _ // an issue reference never completes as a guild tag
+  | GuildTag _ -> // the text no longer holds the trigger
     text, triggerCaret(text, trigger)
 
 let issueCompleted(text: string, trigger: Trigger, url: string) =
@@ -238,5 +300,6 @@ let issueCompleted(text: string, trigger: Trigger, url: string) =
       }
     )
   | Mention _ // a mention never completes as an issue reference
+  | GuildTag _ // a guild tag never completes as an issue reference
   | IssueRef _ -> // the text no longer holds the trigger
     text, triggerCaret(text, trigger)

@@ -67,9 +67,11 @@ type Props<'env
   Now: unit -> DateTimeOffset
   OnSnapshot: Snapshot -> unit
   OnFetch: Result<unit, string> -> unit
+  OnOpenThread: Commit -> unit
   OnQuote: Commit -> unit
   OnReplyRequested: Commit -> unit
   OnOpenRepo: string -> unit
+  OnOpenGuild: string -> unit
   OnShared: User -> unit
 }
 
@@ -245,6 +247,7 @@ module State =
     Surface = EditorCards.Detail
     Now = props.Now
     OnOpenRepo = props.OnOpenRepo
+    OnOpenGuild = props.OnOpenGuild
     OnShared = props.OnShared
   }
 
@@ -388,6 +391,10 @@ module State =
         next, Cmd.none
     | CardEvent event ->
       match event with
+      | Opened commit ->
+        model, Cmd.ofAction(fun () -> props.OnOpenThread commit)
+      | MoreRepliesRequested commit ->
+        model, Cmd.ofAction(fun () -> props.OnOpenThread commit)
       | QuoteRequested commit ->
         model, Cmd.ofAction(fun () -> props.OnQuote commit)
       | ReplyToggled commit ->

@@ -31,6 +31,13 @@ type CommitsFound = {
   Throttled: bool
 }
 
+[<Struct>]
+type GuildsFound = {
+  Query: string
+  Guilds: Guild list
+  Throttled: bool
+}
+
 // Everything one search channel reads.
 [<Struct>]
 type Channel<'items, 'found> = {
@@ -109,6 +116,7 @@ type Session
   (
     profiles: string -> Async<Result<ProfileMatches, AppError>>,
     commits: string -> Async<Result<CommitNode list, AppError>>,
+    guilds: string -> Async<Result<Guild list, AppError>>,
     log: ILogger
   ) =
 
@@ -118,6 +126,8 @@ type Session
   let profileGate = new BehaviorSubject<string voption>(ValueNone)
 
   let commitGate = new BehaviorSubject<string voption>(ValueNone)
+
+  let guildGate = new BehaviorSubject<string voption>(ValueNone)
 
   // The answers replay their latest to late subscribers: a page's
   // first search fires from its init, and the program's subscription
@@ -140,6 +150,13 @@ type Session
         Throttled = false
       }
     )
+
+  let guildsFound =
+    new BehaviorSubject<GuildsFound> {
+      Query = ""
+      Guilds = []
+      Throttled = false
+    }
 
   let profileChannel: Channel<ProfileMatches, ProfilesFound> = {
     Gate = profileGate
@@ -196,6 +213,32 @@ type Session
     What = "commit"
   }
 
+  let guildChannel: Channel<Guild list, GuildsFound> = {
+    Gate = guildGate
+    Call = guilds
+    Found = guildsFound
+    Build =
+      fun query found -> {
+        Query = query
+        Guilds = found
+        Throttled = false
+      }
+    Empty =
+      fun query -> {
+        Query = query
+        Guilds = []
+        Throttled = false
+      }
+    Throttled =
+      fun query -> {
+        Query = query
+        Guilds = []
+        Throttled = true
+      }
+    Log = log
+    What = "guild search"
+  }
+
   let pipeOf(channel: Channel<'items, 'found>, window: TimeSpan) =
     channel.Gate
     |> timed window
@@ -205,6 +248,8 @@ type Session
 
   let commitPipe = pipeOf(commitChannel, commitWindow)
 
+  let guildPipe = pipeOf(guildChannel, peopleWindow)
+
   member _.Set(term: string) =
     profileGate.OnNext(SearchTerms.peopleTerm term)
     commitGate.OnNext(SearchTerms.commitTerm term)
@@ -212,16 +257,23 @@ type Session
   member _.SetCommits(term: string) =
     commitGate.OnNext(SearchTerms.commitTerm term)
 
+  member _.SetGuilds(term: string) =
+    guildGate.OnNext(SearchTerms.guildTerm term)
+
   member _.Profiles: IObservable<ProfilesFound> = profilesFound
 
   member _.Commits: IObservable<CommitsFound> = commitsFound
+
+  member _.Guilds: IObservable<GuildsFound> = guildsFound
 
   interface IDisposable with
     member _.Dispose() =
       profilePipe.Dispose()
       commitPipe.Dispose()
+      guildPipe.Dispose()
       profilesFound.OnCompleted()
       commitsFound.OnCompleted()
+      guildsFound.OnCompleted()
 
 [<Struct>]
 type MentionsFound = {
@@ -241,6 +293,7 @@ type IssueFound = {
 type CompletionCalls = {
   Mentions: string -> Async<Result<MentionResults, AppError>>
   Issue: string -> Async<Result<Issue option, AppError>>
+  Guilds: string -> Async<Result<Guild list, AppError>>
   Remember: bool
 }
 
@@ -248,6 +301,7 @@ type CompletionSession(calls: CompletionCalls, log: ILogger) =
 
   let mentionGate = new BehaviorSubject<string voption>(ValueNone)
   let issueGate = new BehaviorSubject<string voption>(ValueNone)
+  let guildGate = new BehaviorSubject<string voption>(ValueNone)
 
   let emptyMentions = {
     Query = ""
@@ -261,6 +315,13 @@ type CompletionSession(calls: CompletionCalls, log: ILogger) =
     new BehaviorSubject<IssueFound> {
       Digits = ""
       Issue = None
+      Throttled = false
+    }
+
+  let guildFound =
+    new BehaviorSubject<GuildsFound> {
+      Query = ""
+      Guilds = []
       Throttled = false
     }
 
@@ -326,6 +387,32 @@ type CompletionSession(calls: CompletionCalls, log: ILogger) =
     What = "issue completion"
   }
 
+  let guildChannel: Channel<Guild list, GuildsFound> = {
+    Gate = guildGate
+    Call = calls.Guilds
+    Found = guildFound
+    Build =
+      fun query guilds -> {
+        Query = query
+        Guilds = guilds
+        Throttled = false
+      }
+    Empty =
+      fun query -> {
+        Query = query
+        Guilds = []
+        Throttled = false
+      }
+    Throttled =
+      fun query -> {
+        Query = query
+        Guilds = []
+        Throttled = true
+      }
+    Log = log
+    What = "guild completion"
+  }
+
   // The mention pipe answers from memory first; the issue pipe is the
   // plain gated pipe the search session runs.
   let mentionPipe =
@@ -351,6 +438,11 @@ type CompletionSession(calls: CompletionCalls, log: ILogger) =
     |> timed peopleWindow
     |> Observable.subscribe(fun gated -> run(issueChannel, gated))
 
+  let guildPipe =
+    guildGate
+    |> timed peopleWindow
+    |> Observable.subscribe(fun gated -> run(guildChannel, gated))
+
   member _.Set(query: string voption) =
     if mentionGate.Value <> query then
       mentionGate.OnNext query
@@ -361,13 +453,19 @@ type CompletionSession(calls: CompletionCalls, log: ILogger) =
 
   member _.SetIssue(digits: string voption) = issueGate.OnNext digits
 
+  member _.SetGuilds(query: string voption) = guildGate.OnNext query
+
   member _.Mentions: IObservable<MentionsFound> = mentionFound :> _
 
   member _.Issues: IObservable<IssueFound> = issueFound :> _
+
+  member _.Guilds: IObservable<GuildsFound> = guildFound :> _
 
   interface IDisposable with
     member _.Dispose() =
       mentionPipe.Dispose()
       issuePipe.Dispose()
+      guildPipe.Dispose()
       mentionFound.OnCompleted()
       issueFound.OnCompleted()
+      guildFound.OnCompleted()

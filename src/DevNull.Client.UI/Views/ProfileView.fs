@@ -1968,6 +1968,13 @@ let view
                 Navigation.go(props.Nav, "/profile/" + username, ignore)
             OnOpenOrg =
               fun handle -> Navigation.go(props.Nav, "/org/" + handle, ignore)
+            OnOpenGuild =
+              fun handle ->
+                Navigation.go(
+                  props.Nav,
+                  "/guilds/" + Uri.EscapeDataString handle,
+                  ignore
+                )
             OnOpenTag =
               fun tag ->
                 Navigation.go(

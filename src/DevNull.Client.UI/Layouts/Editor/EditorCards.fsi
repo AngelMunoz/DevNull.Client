@@ -91,6 +91,8 @@ type Props<'env
   Surface: Surface
   Now: unit -> DateTimeOffset
   OnOpenRepo: string -> unit
+  /// A guild chip on a card opens that guild's board tab.
+  OnOpenGuild: string -> unit
   /// A share sends its recipient here: the frame opens the chat as a
   /// remote tab. Runs on the UI thread.
   OnShared: User -> unit

@@ -8,6 +8,8 @@ type Ref =
   | ScheduledRef
   | NotificationsRef
   | RemotesRef
+  | GuildsRef
+  | GuildRef of handle: string
   | RepositoryRef of handle: string
 
 type HistorySource =
@@ -33,6 +35,8 @@ module Ref =
     | ScheduledRef -> "Scheduled"
     | NotificationsRef -> "Notifications"
     | RemotesRef -> "Remotes"
+    | GuildsRef -> "Guilds"
+    | GuildRef handle -> "#" + handle
     | RepositoryRef handle -> "@" + handle
 
   let stored(ref: Ref) =
@@ -42,6 +46,8 @@ module Ref =
     | ScheduledRef -> "scheduled"
     | NotificationsRef -> "notifications"
     | RemotesRef -> "remotes"
+    | GuildsRef -> "guilds"
+    | GuildRef handle -> "guild:" + handle
     | RepositoryRef handle -> "repository:" + handle
 
   let log(ref: Ref) =
@@ -51,6 +57,8 @@ module Ref =
     | ScheduledRef
     | NotificationsRef
     | RemotesRef
+    | GuildsRef
+    | GuildRef _
     | RepositoryRef _ -> None
 
   let source(ref: Ref) =
@@ -60,6 +68,8 @@ module Ref =
     | ScheduledRef
     | NotificationsRef
     | RemotesRef
+    | GuildsRef
+    | GuildRef _
     | RepositoryRef _ -> None
 
   let repository(ref: Ref) =
@@ -76,6 +86,16 @@ module Ref =
     match ref with
     | RemotesRef -> true
     | _ -> false
+
+  let guilds(ref: Ref) =
+    match ref with
+    | GuildsRef -> true
+    | _ -> false
+
+  let guild(ref: Ref) =
+    match ref with
+    | GuildRef handle -> Some handle
+    | _ -> None
 
 module Checkout =
 
@@ -100,6 +120,10 @@ module Build =
   let notifications: Ref = NotificationsRef
 
   let remotes: Ref = RemotesRef
+
+  let guilds: Ref = GuildsRef
+
+  let guild(handle: string) : Ref = GuildRef handle
 
   let repository(handle: string) : Ref = RepositoryRef handle
 

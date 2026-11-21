@@ -32,9 +32,9 @@ val refs:
     Control
 
 /// The refs tree rows in display order: Latest, Following, Trending,
-/// then Saved, Scheduled, Notifications, and Remotes with their counts.
-/// The Remotes row always stands; its count is none while the account
-/// has remotes off.
+/// then Saved, Scheduled, Notifications, and Remotes with their counts,
+/// then the Guilds row. The Remotes row always stands; its count is
+/// none while the account has remotes off.
 val rows:
   saved: int * scheduled: int * unread: int * remotes: int option -> RefRow list
 

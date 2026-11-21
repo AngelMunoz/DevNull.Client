@@ -20,6 +20,7 @@ type Source = {
   OnOpen: string -> unit
   OnOpenOrg: string -> unit
   OnOpenTag: string -> unit
+  OnOpenGuild: string -> unit
   Cache: ImageCacheService
 }
 

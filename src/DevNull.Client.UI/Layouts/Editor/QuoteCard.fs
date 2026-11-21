@@ -48,6 +48,7 @@ type Props<'env
   OnReply: Commit -> unit
   OnQuote: Commit -> unit
   OnOpenRepo: string -> unit
+  OnOpenGuild: string -> unit
   OnShared: User -> unit
 }
 
@@ -66,6 +67,7 @@ let cardsProps(props: Props<'env>) : EditorCards.Props<'env> = {
   Surface = EditorCards.Detail
   Now = props.Now
   OnOpenRepo = props.OnOpenRepo
+  OnOpenGuild = props.OnOpenGuild
   OnShared = props.OnShared
 }
 

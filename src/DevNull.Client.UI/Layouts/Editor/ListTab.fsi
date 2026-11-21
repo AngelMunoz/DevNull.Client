@@ -50,6 +50,7 @@ type Props<'env
   OnReply: Commit -> unit
   OnQuote: Commit -> unit
   OnOpenRepo: string -> unit
+  OnOpenGuild: string -> unit
   /// A share sends its recipient here: the frame opens the chat as a
   /// remote tab. The saved surface never shares, so the frame passes
   /// a sink it never calls. Runs on the UI thread.

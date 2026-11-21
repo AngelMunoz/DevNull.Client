@@ -39,6 +39,7 @@ let createRequest: ScheduledCommits.CreateRequest = {
   Poll = None
   Card = FirstLink
   ScheduledAt = soon
+  GuildHandle = None
 }
 
 let momentTests =
@@ -206,6 +207,29 @@ let apiTests =
         Expect.equal "POST" sent.Method "method"
 
         Expect.equal "/api/v1/scheduled-commits" sent.Target "target"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "queues a guild post and names its board" {
+      let http = CapturingHttp(ok $"{{\"data\":{queuedJson}}}")
+
+      let request = {
+        createRequest with
+            GuildHandle = Some "ops"
+      }
+
+      let! (result: Result<ScheduledCommit, TestError>) =
+        ScheduledCommits.create(envFor http, request)
+
+      match result with
+      | Ok queued ->
+        Expect.equal "018f5a1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d" queued.Id "id"
+
+        let sent = http.Requests |> List.exactlyOne
+
+        Expect.isTrue
+          ((bodyText sent).Contains "\"guild_handle\":\"ops\"")
+          "the board rode the queued post"
       | Error error -> failtestf "%A" error
     }
 

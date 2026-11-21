@@ -46,6 +46,8 @@ type Props<'env
   OnOpenRepo: string -> unit
   /// Opens a commit thread tab by id.
   OnOpenCommit: string -> unit
+  /// Opens a guild board tab for a guild row the dialog picked.
+  OnOpenGuild: string -> unit
   /// The editor has no organization tab; the callback keeps the route
   /// explicit instead of dropping it in the adapter.
   OnOpenOrg: string -> unit

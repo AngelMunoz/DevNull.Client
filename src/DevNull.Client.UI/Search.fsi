@@ -25,19 +25,32 @@ type CommitsFound = {
   Throttled: bool
 }
 
+/// One settled guild answer: the query it answers, the guilds the
+/// call found — empty when nothing matched or the read failed — and
+/// whether the server asked to slow down.
+[<Struct>]
+type GuildsFound = {
+  Query: string
+  Guilds: Guild list
+  Throttled: bool
+}
+
 /// One surface's searches: the site's dialog and its results page each
 /// own one. `Set` takes the term as typed; the session trims it, gates
 /// it by the server's own rules, waits out the typing, and answers for
 /// the newest term only — a slower answer for an older term never
 /// shows. The profile channel waits 120 milliseconds and the commit
 /// channel 350, the site's own pauses, because every commit search
-/// pays for an embedding.
+/// pays for an embedding. The guild channel waits the profile's own
+/// pause, and only a surface that calls `SetGuilds` ever starts it,
+/// so guilds are read only where a reader can see them.
 type Session =
-  /// The calls are the two searches with their host's own limits
+  /// The calls are the three searches with their host's own limits
   /// closed in; the logger carries the session's lines.
   new:
     profiles: (string -> Async<Result<ProfileMatches, AppError>>) *
     commits: (string -> Async<Result<CommitNode list, AppError>>) *
+    guilds: (string -> Async<Result<Guild list, AppError>>) *
     log: Microsoft.Extensions.Logging.ILogger ->
       Session
 
@@ -48,11 +61,18 @@ type Session =
   /// searches commits the way its own submit does.
   member SetCommits: term: string -> unit
 
+  /// The term as typed, for the guild channel alone: a surface that
+  /// shows guild rows drives it, and one without them never calls it.
+  member SetGuilds: term: string -> unit
+
   /// Every settled profile answer, newest term only.
   member Profiles: IObservable<ProfilesFound>
 
   /// Every settled commit answer, newest term only.
   member Commits: IObservable<CommitsFound>
+
+  /// Every settled guild answer, newest term only.
+  member Guilds: IObservable<GuildsFound>
 
   interface IDisposable
 
@@ -82,6 +102,7 @@ type IssueFound = {
 type CompletionCalls = {
   Mentions: string -> Async<Result<MentionResults, AppError>>
   Issue: string -> Async<Result<Issue option, AppError>>
+  Guilds: string -> Async<Result<Guild list, AppError>>
   Remember: bool
 }
 
@@ -105,10 +126,16 @@ type CompletionSession =
   /// The issue digits as typed; the same digits again ask nothing.
   member SetIssue: digits: string voption -> unit
 
+  /// The guild query as typed; the same query again asks nothing.
+  member SetGuilds: query: string voption -> unit
+
   /// Every settled mention answer, newest query only.
   member Mentions: IObservable<MentionsFound>
 
   /// Every settled issue answer, newest digits only.
   member Issues: IObservable<IssueFound>
+
+  /// Every settled guild answer, newest query only.
+  member Guilds: IObservable<GuildsFound>
 
   interface IDisposable

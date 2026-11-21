@@ -22,6 +22,7 @@ open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
 open DevNull.Client.Core.Http
 open DevNull.Client.Env
+open DevNull.Client.Components.AsyncImage
 open DevNull.Client.Icons
 open DevNull.Client.ImageCache
 open DevNull.Client.Profiles
@@ -47,6 +48,7 @@ type Props<'env
   Nav: INavigable
   InitialTerm: string option
   OpenCompose: unit -> unit
+  OnOpenGuild: string -> unit
   Close: unit -> unit
 }
 
@@ -59,6 +61,7 @@ module State =
     | Compose
     | Person of User
     | Organization of Organization
+    | Guild of Guild
     | Found of Commit
     | SeeAll
     | Recent of string
@@ -73,12 +76,16 @@ module State =
     Now: DateTimeOffset
     // The term whose settle was last written to the recents.
     Remembered: string
+    // The guild answer that belongs to the term now typed; the
+    // group shows only its rows.
+    Guilds: GuildsFound voption
   }
 
   type Msg =
     | Typed of string
     | ProfilesArrived of ProfilesFound
     | CommitsArrived of CommitsFound
+    | GuildsArrived of GuildsFound
     | Moved of index: int
     | Stepped of step: int
     | Hovered of index: int
@@ -98,13 +105,16 @@ module State =
       Recents = props.Recents.Recent(props.SignedIn.Session.User.Id)
       Now = DateTimeOffset.UtcNow
       Remembered = ""
+      Guilds = ValueNone
     }
 
     let seed =
       if term.Trim() = "" then
         Cmd.none
       else
-        Cmd.ofAction(fun () -> props.Searches.Set term)
+        Cmd.ofAction(fun () ->
+          props.Searches.Set term
+          props.Searches.SetGuilds term)
 
     model, seed
 
@@ -121,6 +131,14 @@ module State =
         Organizations = []
         Throttled = false
       }
+
+  // The guild rows that belong to the term now typed, when the answer
+  // has settled: at most five, and none until one lands.
+  let guildsOf(model: Model) : Guild list =
+    match SearchTerms.guildTerm model.Term, model.Guilds with
+    | ValueSome term, ValueSome found when found.Query = term ->
+      found.Guilds |> List.truncate 5
+    | _ -> []
 
   // The commit answer that belongs to the term now typed, when it has
   // settled. A channel with nothing to search for counts as settled.
@@ -186,6 +204,11 @@ module State =
         for organization in answer.Organizations -> Organization organization
       ]
 
+      // The guild group: the settled answer's rows for the term now
+      // typed, at most five. A refused or failed read settles as an
+      // empty answer, so the group simply never shows.
+      let guilds = guildsOf model |> List.map Guild
+
       let found =
         if SearchParts.Intent.searchesCommits reading then
           commitsOf model
@@ -213,9 +236,11 @@ module State =
           yield! seeAll
           yield! people
           yield! organizations
+          yield! guilds
         | _ ->
           yield! people
           yield! organizations
+          yield! guilds
           yield! found
           yield! seeAll
       ]
@@ -289,7 +314,10 @@ module State =
     match msg with
     | Typed text ->
       { model with Term = text; Active = 0 },
-      Cmd.ofAction(fun () -> props.Searches.Set text)
+      Cmd.ofAction(fun () ->
+        props.Searches.Set text
+        props.Searches.SetGuilds text)
+    | GuildsArrived found -> { model with Guilds = ValueSome found }, Cmd.none
     | ProfilesArrived found ->
       let settled, remember =
         settle {
@@ -360,6 +388,12 @@ module State =
         model, closeAndGo("/profile/" + Uri.EscapeDataString user.Handle)
       | Organization organization ->
         model, closeAndGo("/org/" + Uri.EscapeDataString organization.Handle)
+      | Guild guild ->
+        model,
+        Cmd.batch [
+          Cmd.ofEffect(fun _ -> props.OnOpenGuild guild.Handle)
+          Cmd.ofAction props.Close
+        ]
       | Found commit -> model, closeAndGo("/commit/" + commit.Id)
       | SeeAll -> model, closeAndGo("/search/" + trimmed model)
       | Recent term
@@ -386,6 +420,10 @@ module State =
         (props.Searches.Commits |> Observable.map CommitsArrived)
 
       Sub.fromObservable
+        "guilds"
+        (props.Searches.Guilds |> Observable.map GuildsArrived)
+
+      Sub.fromObservable
         "clock"
         (props.Env.UiClock.Minute |> Observable.map ClockTicked)
     ]
@@ -393,6 +431,50 @@ module State =
 
 // The dialog's semantic regions.
 module Parts =
+
+  // One guild as a row's content: the icon or emoji, the name, and
+  // the handle on the quiet mono line.
+  let guildIdentity(images: ImageCacheService, guild: Guild) : Control =
+    let mark: Control =
+      match guild.IconUrl with
+      | Some url ->
+        Border()
+          .Width(24.0)
+          .Height(24.0)
+          .CornerRadius(CornerRadius 12.0)
+          .ClipToBounds(true)
+          .Child(
+            AsyncImage.view {
+              Cache = images
+              Url = url
+              DecodeWidth = 48
+              DecodeHeight = ValueNone
+              Stretch = Stretch.UniformToFill
+              ToolTip = ValueSome guild.Name
+            }
+          )
+      | None -> TextBlock().FontSize(16.0).Text(guild.Emoji)
+
+    StackPanel()
+      .Orientation(Orientation.Horizontal)
+      .Spacing(8.0)
+      .Children(
+        mark,
+        StackPanel()
+          .VerticalAlignment(VerticalAlignment.Center)
+          .Spacing(1.0)
+          .Children(
+            TextBlock()
+              .FontSize(13.0)
+              .FontWeight(FontWeight.SemiBold)
+              .Text(guild.Name)
+              .TextTrimming(TextTrimming.CharacterEllipsis),
+            TextBlock()
+              .Classes(Theme.name Theme.Mono, Theme.name Theme.Muted)
+              .FontSize(12.0)
+              .Text("#" + guild.Handle)
+          )
+      )
 
   // The status line the state asks for, or nothing: the slow-down
   // sentence, the lone-`@` hint, or the fatal line.
@@ -558,6 +640,7 @@ module Parts =
       | State.Person _ -> if seen <> "developer" then "Developers" else ""
       | State.Organization _ ->
         if seen <> "organization" then "Organizations" else ""
+      | State.Guild _ -> if seen <> "guild" then "Guilds" else ""
       | State.Found _ ->
         if seen <> "commit" then "Most relevant commits" else ""
       | State.SeeAll -> ""
@@ -570,6 +653,7 @@ module Parts =
       | State.Compose -> "action"
       | State.Person _ -> "developer"
       | State.Organization _ -> "organization"
+      | State.Guild _ -> "guild"
       | State.Found _ -> "commit"
       | State.SeeAll -> ""
       | State.Recent _ -> "recent"
@@ -611,6 +695,7 @@ module Parts =
           | State.Person user -> SearchParts.peopleIdentity(ctx, user)
           | State.Organization organization ->
             SearchParts.orgIdentity(ctx, organization)
+          | State.Guild guild -> guildIdentity(ctx.Images, guild)
           | State.Found commit -> SearchParts.commitIdentity(ctx, commit)
           | State.SeeAll -> SearchParts.seeAllIdentity()
           | State.Recent term
@@ -697,6 +782,13 @@ let view
             Navigation.go(
               props.Nav,
               "/org/" + Uri.EscapeDataString handle,
+              ignore
+            )
+        OnOpenGuild =
+          fun handle ->
+            Navigation.go(
+              props.Nav,
+              "/guilds/" + Uri.EscapeDataString handle,
               ignore
             )
         OnOpenTag =

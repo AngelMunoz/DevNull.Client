@@ -134,6 +134,7 @@ let props(log: LogKind) : HistoryTab.Props<FakeEnv> = {
   OnReplyRequested = ignore
   OnQuoteRequested = ignore
   OnOpenRepo = ignore
+  OnOpenGuild = ignore
   OnFetch = ignore
   OnShared = ignore
 }

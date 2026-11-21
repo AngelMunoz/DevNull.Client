@@ -71,6 +71,7 @@ type Props<'env
   OnQuoteRequested: Commit -> unit
   /// The author flyout opens this account's repository tab.
   OnOpenRepo: string -> unit
+  OnOpenGuild: string -> unit
   /// A share sends its recipient here: the frame opens the chat as a
   /// remote tab. Runs on the UI thread.
   OnShared: User -> unit

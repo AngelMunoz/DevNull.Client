@@ -916,6 +916,92 @@ let tests =
       })
 
     testCaseAsync
+      "a child commit opens its own tab and its reply opens the terminal"
+      (async {
+        let! window, handle = mountAt(1600.0, 900.0, listApi())
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "It was DNS.") |> Option.iter click)
+
+        let! thread =
+          waitForAsync(
+            8000,
+            (fun () -> controlByName(window, $"EditorTab-{commitId}")),
+            Option.isSome
+          )
+
+        Expect.isTrue thread "the thread tab never opened"
+
+        let! replyShown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "A reply.")
+          )
+
+        Expect.isTrue replyShown "the reply row never rendered"
+
+        // The child's ReplyButton: the last ReplyButton in visual
+        // order belongs to the reply row under the checked-out card.
+        do!
+          onUiAsync(fun () ->
+            let buttons =
+              window.GetVisualDescendants()
+              |> Seq.choose(function
+                | :? Button as button when button.Name = "ReplyButton" ->
+                  Some button
+                | _ -> None)
+              |> List.ofSeq
+
+            buttons |> List.last |> click)
+
+        let! composer =
+          waitForAsync(
+            8000,
+            (fun () -> textBoxWithWatermark(window, "Write your reply…")),
+            Option.isSome
+          )
+
+        Expect.isTrue composer "the child reply never opened the terminal"
+
+        let! strip =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "Replying to @octocat · d1e2f3a")
+          )
+
+        Expect.isTrue strip "the terminal does not answer the child commit"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "A reply.") |> Option.iter click)
+
+        let childId = "018f4c1e-7777-7c3a-9b2d-5e6f7a8b9c0d"
+
+        let! childTab =
+          waitForAsync(
+            8000,
+            (fun () -> controlByName(window, $"EditorTab-{childId}")),
+            Option.isSome
+          )
+
+        Expect.isTrue childTab "the child commit never opened its own tab"
+
+        do! close(window, handle)
+      })
+
+    testCaseAsync
       "E8: the quote terminal opens over the dimmed frame at 380 px"
       (async {
         let api = panelApi("", 0)

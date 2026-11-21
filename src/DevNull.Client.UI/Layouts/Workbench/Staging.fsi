@@ -21,19 +21,25 @@ type Queue = {
   Error: AppError option
 }
 
-/// The staging state the host owns: the draft text, the armed quote,
-/// and the scheduled queue.
+/// The staging state the host owns: the guild board the composer is
+/// aimed at, the draft text, the armed quote, and the scheduled
+/// queue. The aim is captured when the composer opens; a ref switch
+/// while a draft stands never changes it.
 [<Struct>]
 type Model = {
+  Aim: string option
   Draft: string
   Quote: Commit option
   Queue: Queue
 }
 
-/// The staging view: the host's open flag with the staging state.
+/// The staging view: the host's open flag with the staging state, and
+/// the guild rows the aimed composer's picker offers.
 [<Struct>]
 type View = {
   Open: bool
+  Aim: string option
+  Rows: Guild list
   Draft: string
   Quote: Commit option
   Queue: Queue

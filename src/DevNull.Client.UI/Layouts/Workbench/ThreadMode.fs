@@ -459,6 +459,8 @@ let view
         Target = Composer.ReplyTo commit.Id
         Participants =
           ValueSome(participantsOf(commit, current.ReplyParticipants))
+        Guilds = ValueNone
+        Guild = ValueNone
         OnCommitted = fun reply -> dispatch(Posted reply)
         OnScheduled = ValueNone
         OnOpenQueue = ValueNone

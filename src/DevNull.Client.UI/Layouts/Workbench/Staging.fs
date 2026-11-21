@@ -30,6 +30,7 @@ type Queue = {
 
 [<Struct>]
 type Model = {
+  Aim: string option
   Draft: string
   Quote: Commit option
   Queue: Queue
@@ -38,6 +39,8 @@ type Model = {
 [<Struct>]
 type View = {
   Open: bool
+  Aim: string option
+  Rows: Guild list
   Draft: string
   Quote: Commit option
   Queue: Queue
@@ -62,6 +65,7 @@ type Props<'env
 }
 
 let initial: Model = {
+  Aim = None
   Draft = ""
   Quote = None
   Queue = {
@@ -87,7 +91,12 @@ let stripText(current: View) =
     | Some _ -> "queue unavailable"
     | None -> scheduledLabel current.Queue.Total
 
-  $"STAGING: {draftLabel current.Draft} · {queue}"
+  let aim =
+    current.Aim
+    |> Option.map(fun handle -> " → #" + handle)
+    |> Option.defaultValue ""
+
+  $"STAGING{aim}: {draftLabel current.Draft} · {queue}"
 
 let queueMoment(entry: ScheduledCommit) =
   let at = entry.SubmittedAt |> Option.defaultValue entry.ScheduledAt
@@ -210,6 +219,11 @@ let composerFor
         Session = session
         Target = target
         Participants = ValueNone
+        Guilds =
+          (match current.Aim with
+           | Some _ -> ValueSome(fun () -> current.Rows)
+           | None -> ValueNone)
+        Guild = current.Aim |> ValueOption.ofOption
         OnCommitted = props.OnPosted
         OnScheduled = ValueSome props.OnScheduled
         OnOpenQueue = ValueSome openQueue
@@ -246,7 +260,10 @@ let openArea(props: Props<'env>, model: IObservable<View>) : Control =
       .Content(
         model
         |> Observable.distinctUntilChangedKey(fun current ->
-          current.Open, current.Quote |> Option.map _.Id)
+          current.Open,
+          current.Quote |> Option.map _.Id,
+          current.Aim,
+          current.Rows |> List.map _.Handle)
         |> Observable.map(fun current ->
           if current.Open then
             composerFor(props, current, fun () -> queueView.BringIntoView())

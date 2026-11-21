@@ -310,6 +310,33 @@ module Author =
     | Organization org ->
       org.Admins |> List.exists(fun admin -> admin.Id = viewerId)
 
+type GuildSummary = {
+  Handle: string
+  Name: string
+  Emoji: string
+  IconUrl: string option
+}
+
+type Guild = {
+  Handle: string
+  Name: string
+  Emoji: string
+  IconUrl: string option
+  Description: string option
+  MemberCount: int
+  IsJoined: bool
+  IsMuted: bool
+  IsPaused: bool
+  HtmlUrl: string
+}
+
+type GuildsPage = {
+  Items: Guild list
+  CurrentPage: int
+  LastPage: int
+  Total: int
+}
+
 type Commit = {
   Id: string
   ShortHash: string
@@ -336,6 +363,7 @@ type Commit = {
   ReplyPreview: ReplyPreview option
   /// The commit in the person's own language, when translations are on.
   Translation: CommitTranslation option
+  Guild: GuildSummary option
 }
 
 and CommitNode =
@@ -373,6 +401,16 @@ type Page<'value> = {
   NextCursor: string option
   PrevCursor: string option
   PerPage: int
+}
+
+type GuildBoard = {
+  Items: CommitNode list
+  CurrentPage: int
+  PerPage: int
+  HasMore: bool
+  Guild: Guild
+  PinnedCommit: CommitNode option
+  CanModerate: bool
 }
 
 type Profile = {
@@ -747,6 +785,7 @@ type ErrorCode =
   | TimedOut
   | Banned
   | CommitRulesRequired
+  | GuildPaused
   | Unknown of raw: string
 
 module ErrorCodes =
@@ -766,6 +805,7 @@ module ErrorCodes =
     | "timed_out" -> TimedOut
     | "banned" -> Banned
     | "commit_rules_required" -> CommitRulesRequired
+    | "guild_paused" -> GuildPaused
     | raw -> Unknown raw
 
   let wire(code: ErrorCode) =
@@ -783,6 +823,7 @@ module ErrorCodes =
     | TimedOut -> "timed_out"
     | Banned -> "banned"
     | CommitRulesRequired -> "commit_rules_required"
+    | GuildPaused -> "guild_paused"
     | Unknown raw -> raw
 
 /// One JSON value the decoder could not read.
@@ -1970,6 +2011,70 @@ let organizationProfileDecoder(element: JsonElement) = decode {
 }
 
 
+let guildSummaryDecoder
+  (element: JsonElement)
+  : Result<GuildSummary, JDeck.DecodeError> = decode {
+  let! handle = Required.Property.get ("handle", Required.string) element
+  let! name = Required.Property.get ("name", Required.string) element
+  let! emoji = Required.Property.get ("emoji", Required.string) element
+
+  let! iconUrl =
+    Optional.Property.get ("icon_url", Optional.string) element
+    |> Result.map Option.flatten
+
+  return {
+    Handle = handle
+    Name = name
+    Emoji = emoji
+    IconUrl = iconUrl
+  }
+}
+
+let guildDecoder(element: JsonElement) : Result<Guild, JDeck.DecodeError> =
+  decode {
+    let! handle = Required.Property.get ("handle", Required.string) element
+    let! name = Required.Property.get ("name", Required.string) element
+    let! emoji = Required.Property.get ("emoji", Required.string) element
+
+    let! iconUrl =
+      Optional.Property.get ("icon_url", Optional.string) element
+      |> Result.map Option.flatten
+
+    let! description =
+      Optional.Property.get ("description", Optional.string) element
+      |> Result.map Option.flatten
+
+    let! memberCount =
+      Required.Property.get ("member_count", Required.int) element
+
+    let! isJoined =
+      Optional.Property.get ("is_joined", Optional.boolean) element
+      |> Result.map Option.flatten
+
+    let! isMuted =
+      Optional.Property.get ("is_muted", Optional.boolean) element
+      |> Result.map Option.flatten
+
+    let! isPaused =
+      Optional.Property.get ("is_paused", Optional.boolean) element
+      |> Result.map Option.flatten
+
+    let! htmlUrl = Required.Property.get ("html_url", Required.string) element
+
+    return {
+      Handle = handle
+      Name = name
+      Emoji = emoji
+      IconUrl = iconUrl
+      Description = description
+      MemberCount = memberCount
+      IsJoined = Option.defaultValue false isJoined
+      IsMuted = Option.defaultValue false isMuted
+      IsPaused = Option.defaultValue false isPaused
+      HtmlUrl = htmlUrl
+    }
+  }
+
 let authorDecoder(element: JsonElement) = decode {
   let! kind =
     Optional.Property.get ("type", Optional.string) element
@@ -2068,6 +2173,10 @@ let rec commitDecoder
       element
     |> Result.map Option.flatten
 
+  let! guild =
+    Optional.Property.get ("guild", optionalDecoder guildSummaryDecoder) element
+    |> Result.map Option.flatten
+
   return {
     Id = id
     ShortHash = shortHash
@@ -2093,6 +2202,7 @@ let rec commitDecoder
     LinkPreview = linkPreview
     ReplyPreview = replyPreview
     Translation = translation
+    Guild = guild
   }
 }
 
@@ -3148,13 +3258,13 @@ let scheduledCommitDecoder(element: JsonElement) = decode {
   }
 }
 
-type ScheduledMeta = {
+type OffsetMeta = {
   CurrentPage: int
   LastPage: int
   Total: int
 }
 
-let scheduledMetaDecoder(element: JsonElement) = decode {
+let offsetMetaDecoder(element: JsonElement) = decode {
   let! currentPage =
     Required.Property.get ("current_page", Required.int) element
 
@@ -3170,13 +3280,76 @@ let scheduledMetaDecoder(element: JsonElement) = decode {
 
 let scheduledPageDecoder(element: JsonElement) = decode {
   let! items = Required.Property.list ("data", scheduledCommitDecoder) element
-  let! meta = Required.Property.get ("meta", scheduledMetaDecoder) element
+  let! meta = Required.Property.get ("meta", offsetMetaDecoder) element
 
   return {
     Items = items
     CurrentPage = meta.CurrentPage
     LastPage = meta.LastPage
     Total = meta.Total
+  }
+}
+
+let guildsPageDecoder
+  (element: JsonElement)
+  : Result<GuildsPage, JDeck.DecodeError> = decode {
+  let! items = Required.Property.list ("data", guildDecoder) element
+  let! meta = Required.Property.get ("meta", offsetMetaDecoder) element
+
+  return {
+    Items = items
+    CurrentPage = meta.CurrentPage
+    LastPage = meta.LastPage
+    Total = meta.Total
+  }
+}
+
+// The board is a simple paginator: its meta carries no cursors and no
+// totals, so the cursor page decoder cannot read it. The next link is
+// the only more-pages signal.
+type BoardMeta = { CurrentPage: int; PerPage: int }
+
+let boardMetaDecoder(element: JsonElement) = decode {
+  let! currentPage =
+    Required.Property.get ("current_page", Required.int) element
+
+  let! perPage = Required.Property.get ("per_page", Required.int) element
+
+  return {
+    CurrentPage = currentPage
+    PerPage = perPage
+  }
+}
+
+let guildBoardDecoder
+  (element: JsonElement)
+  : Result<GuildBoard, JDeck.DecodeError> = decode {
+  let! items = Required.Property.list ("data", commitNodeDecoder) element
+
+  let! links =
+    Optional.Property.get ("links", optionalDecoder pageLinksDecoder) element
+    |> Result.map Option.flatten
+
+  let! meta = Required.Property.get ("meta", boardMetaDecoder) element
+  let! guild = Required.Property.get ("guild", guildDecoder) element
+
+  let! pinnedCommit =
+    Optional.Property.get
+      ("pinned_commit", optionalDecoder commitNodeDecoder)
+      element
+    |> Result.map Option.flatten
+
+  let! canModerate =
+    Required.Property.get ("can_moderate", Required.boolean) element
+
+  return {
+    Items = items
+    CurrentPage = meta.CurrentPage
+    PerPage = meta.PerPage
+    HasMore = links |> Option.bind _.Next |> Option.isSome
+    Guild = guild
+    PinnedCommit = pinnedCommit
+    CanModerate = canModerate
   }
 }
 
@@ -3301,6 +3474,12 @@ let inline decodeScheduledCommit
   (body: string)
   : Result<ScheduledCommit, DecodeFailure> =
   parseBody body (Required.Property.get("data", scheduledCommitDecoder))
+
+let inline decodeGuildsPage(body: string) : Result<GuildsPage, DecodeFailure> =
+  parseBody body guildsPageDecoder
+
+let inline decodeGuildBoard(body: string) : Result<GuildBoard, DecodeFailure> =
+  parseBody body guildBoardDecoder
 
 module Me =
   let decode(body: string) = decodeMe body
@@ -3524,6 +3703,20 @@ module SearchTerms =
     else
       ValueSome trimmed
 
+  let guildTerm(raw: string) : string voption =
+    let trimmed = raw.Trim()
+
+    let withoutHash =
+      if trimmed.StartsWith("#", StringComparison.Ordinal) then
+        trimmed.Substring 1
+      else
+        trimmed
+
+    if withoutHash = "" then
+      ValueNone
+    else
+      ValueSome withoutHash
+
 module User =
   let decodePage(body: string) = decodeUserList body
 
@@ -3598,6 +3791,11 @@ module ScheduledCommits =
 module OrganizationProfile =
   let decode(body: string) =
     parseBody body (Required.Property.get("data", organizationProfileDecoder))
+
+module Guilds =
+  let decodePage(body: string) = decodeGuildsPage body
+
+  let decodeBoard(body: string) = decodeGuildBoard body
 
 type TransportError<'e> =
   static abstract TransportFailed: message: string -> 'e

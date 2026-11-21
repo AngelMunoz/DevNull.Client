@@ -528,6 +528,60 @@ module Parts =
   // The line under a body: the notice with Show original while a
   // translation shows, the Translate button otherwise, and the last
   // failure in the server's words.
+  // The guild chip under the body: the guild's emoji or icon beside
+  // its name, a ghost button whose click opens the host's guild
+  // surface. Full cards only; a dense row carries none.
+  let guildTag
+    (source: Source, guild: GuildSummary, cache: ImageCacheService)
+    : Control =
+    let mark: Control =
+      match guild.IconUrl with
+      | Some url ->
+        Border()
+          .Width(16.0)
+          .Height(16.0)
+          .CornerRadius(CornerRadius 8.0)
+          .ClipToBounds(true)
+          .Child(
+            AsyncImage.view {
+              Cache = cache
+              Url = url
+              DecodeWidth = 32
+              DecodeHeight = ValueNone
+              Stretch = Stretch.UniformToFill
+              ToolTip = ValueSome guild.Name
+            }
+          )
+      | None -> TextBlock().FontSize(12.0).Text(guild.Emoji)
+
+    Button()
+      .Name("GuildTag")
+      .Classes(Theme.name Theme.GhostButton)
+      .Padding(0.0)
+      .HorizontalAlignment(HorizontalAlignment.Left)
+      .VerticalAlignment(VerticalAlignment.Center)
+      .Content(
+        Border()
+          .Classes(Theme.name Theme.Chip)
+          .CornerRadius(999.0)
+          .Child(
+            StackPanel()
+              .Orientation(Orientation.Horizontal)
+              .Spacing(4.0)
+              .VerticalAlignment(VerticalAlignment.Center)
+              .Children(
+                mark,
+                TextBlock()
+                  .Classes(Theme.name Theme.Muted)
+                  .FontSize(11.0)
+                  .Text(guild.Name)
+              )
+          )
+      )
+      .OnClickHandler(fun _ args ->
+        args.Handled <- true
+        source.OnOpenGuild guild.Handle)
+
   let translationLine(props: Props, commit: Commit) : Control =
     let line(view: TranslationView voption) : Control =
       match view with
@@ -1620,6 +1674,11 @@ let view(props: Props) : Control =
 
     Parts.bodyView(props, commit)
     Parts.translationLine(props, commit)
+
+    match commit.Guild, props.Flyout with
+    | Some guild, ValueSome source when not dense ->
+      Parts.guildTag(source, guild, props.Images)
+    | _ -> ()
 
     match commit.Images with
     | [] -> ()

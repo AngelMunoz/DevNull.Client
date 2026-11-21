@@ -1154,6 +1154,62 @@ module Organizations =
       }
     )
 
+module Guilds =
+
+  type ListRequest = {
+    KeyFile: string
+    Query: string option
+    Page: int
+  }
+
+  type ShowRequest = {
+    KeyFile: string
+    Handle: string
+    Page: int
+  }
+
+  let list(env, request: ListRequest) =
+    let target =
+      Internal.withQuery(
+        "/api/v1/guilds",
+        Internal.optionalParameter(
+          "q",
+          request.Query |> Option.filter(fun term -> term <> "")
+        )
+        @ List.singleton("page", string request.Page)
+      )
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target = target
+        Body = ""
+        Headers = []
+        Decode = ApiTypes.Guilds.decodePage
+      }
+    )
+
+  let show(env, request: ShowRequest) =
+    let target =
+      Internal.withQuery(
+        "/api/v1/guilds/" + Uri.EscapeDataString request.Handle,
+        List.singleton("page", string request.Page)
+      )
+
+    Internal.sendSigned(
+      env,
+      {
+        KeyFile = request.KeyFile
+        Method = "GET"
+        Target = target
+        Body = ""
+        Headers = []
+        Decode = ApiTypes.Guilds.decodeBoard
+      }
+    )
+
 module Commits =
 
   type Target =
@@ -1169,6 +1225,7 @@ module Commits =
     ImageDescriptions: string option list
     Poll: PollSpec option
     ReplyRecipients: string list
+    GuildHandle: string option
   }
 
   type VoteRequest = {
@@ -1333,6 +1390,13 @@ module Commits =
     | New
     | Quote _ -> []
 
+  /// The guild board field, when the post aims at one.
+  let guildHandleField(handle: string option) =
+    handle
+    |> Option.map(fun board ->
+      List.singleton("guild_handle", Encode.string board))
+    |> Option.defaultValue []
+
   let create(env, request: CreateRequest) = asyncResult {
     let! body = CommitBodies.parse request.Body
 
@@ -1372,6 +1436,7 @@ module Commits =
           descriptionsField(descriptions, images)
           pollField poll
           recipientsField(request.Target, recipients)
+          guildHandleField request.GuildHandle
         ]
       )
       |> _.ToJsonString()
@@ -1662,6 +1727,7 @@ module ScheduledCommits =
     Poll: PollSpec option
     Card: LinkCard
     ScheduledAt: ScheduledMoment
+    GuildHandle: string option
   }
 
   type ActionRequest = {
@@ -1718,6 +1784,8 @@ module ScheduledCommits =
             "scheduled_at",
             Encode.string(ScheduledMoments.wire request.ScheduledAt)
           )
+
+          Commits.guildHandleField request.GuildHandle
         ]
       )
       |> _.ToJsonString()

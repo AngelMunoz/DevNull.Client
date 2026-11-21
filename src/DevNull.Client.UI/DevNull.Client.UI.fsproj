@@ -72,6 +72,8 @@
     <Compile Include="Timeline.fs" />
     <Compile Include="Search.fsi" />
     <Compile Include="Search.fs" />
+    <Compile Include="GuildBoard.fsi" />
+    <Compile Include="GuildBoard.fs" />
     <Compile Include="RouteStore.fsi" />
     <Compile Include="RouteStore.fs" />
     <Compile Include="RemotesState.fsi" />
@@ -154,6 +156,12 @@
     <Compile Include="Components\SearchDialog.fs" />
     <Compile Include="Components\ReplyPicker.fsi" />
     <Compile Include="Components\ReplyPicker.fs" />
+    <Compile Include="Components\GuildRow.fsi" />
+    <Compile Include="Components\GuildRow.fs" />
+    <Compile Include="Components\GuildPicker.fsi" />
+    <Compile Include="Components\GuildPicker.fs" />
+    <Compile Include="Components\GuildDirectory.fsi" />
+    <Compile Include="Components\GuildDirectory.fs" />
     <Compile Include="Components\Composer.fsi" />
     <Compile Include="Components\Composer.fs" />
     <Compile Include="Components\ProfileShell.fsi" />
@@ -228,6 +236,8 @@
     <Compile Include="Views\AboutView.fs" />
     <Compile Include="Views\SearchView.fsi" />
     <Compile Include="Views\SearchView.fs" />
+    <Compile Include="Views\GuildView.fsi" />
+    <Compile Include="Views\GuildView.fs" />
     <Compile Include="Views\Routes.fsi" />
     <Compile Include="Views\Routes.fs" />
     <Compile Include="Layouts\Website\WebsiteLayout.fsi" />

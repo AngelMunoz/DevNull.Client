@@ -7,6 +7,7 @@ open Navs
 open Navs.Avalonia
 open DevNull.Client
 open DevNull.Client.Components
+open DevNull.Client.Components.GuildDirectory
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
@@ -216,6 +217,53 @@ let savedPage
       }
   )
 
+// The guild directory: every guild the signed API lists, searched and
+// paged by the surface itself. A row opens the guild's board page.
+let guildsPage
+  (
+    env:
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideSession & #IProvideUiClock & #IProvideImageCache & #IProvideBrowser & #IProvideLogging,
+    nav: INavigable,
+    context: RouteContext
+  ) : Control =
+  signedIn(
+    env,
+    "Sign in to browse the guilds.",
+    fun session ->
+      GuildDirectory.Page {
+        Env = env
+        SignedIn = session
+        OnOpen =
+          fun guild ->
+            go(env, nav, "/guilds/" + Uri.EscapeDataString guild.Handle)
+        Title = "Guilds"
+      }
+  )
+
+// One guild's board: the identity card over the board feed the signed
+// API pages, the pinned commit keeping its place.
+let guildPage
+  (
+    env:
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideSession & #IProvideDispatcher & #IProvideUiClock & #IProvideImageCache & #IProvideUserSettings & #IProvideBrowser & #IProvideLogging,
+    nav: INavigable,
+    context: RouteContext
+  ) : Control =
+  signedIn(
+    env,
+    "Sign in to read the guild.",
+    fun session ->
+      match context.GetParam<string> "handle" with
+      | ValueSome handle ->
+        GuildView.Page {
+          Env = env
+          Session = session
+          Handle = handle
+          Nav = nav
+        }
+      | ValueNone -> Status.soon "The guild page needs a handle."
+  )
+
 // The scheduled queue: the private list of commits the composer's
 // Schedule action queued, one offset page at a time.
 let scheduledPage
@@ -377,6 +425,19 @@ let searchPage
                 Limit = None
               }
             )),
+          (fun term -> async {
+            let! page =
+              Guilds.list(
+                env,
+                {
+                  KeyFile = session.KeyFile
+                  Query = Some term
+                  Page = 1
+                }
+              )
+
+            return page |> Result.map(fun answered -> answered.Items)
+          }),
           log
         )
 
@@ -458,6 +519,20 @@ let build
       "saved",
       "/saved",
       fun context nav -> savedPage(env, nav, context)
+    )
+    |> gated
+
+    Route.define<Control>(
+      "guilds",
+      "/guilds",
+      fun context nav -> guildsPage(env, nav, context)
+    )
+    |> gated
+
+    Route.define<Control>(
+      "guild",
+      "/guilds/:handle",
+      fun context nav -> guildPage(env, nav, context)
     )
     |> gated
 

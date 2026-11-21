@@ -4465,6 +4465,7 @@ let tests =
           Fetch = fun _ -> async { return None }
           OnOpen = ignore
           OnOpenOrg = opened.Add
+          OnOpenGuild = ignore
           OnOpenTag = ignore
           Cache = (env :> IProvideImageCache).ImageCache
         }
@@ -4552,6 +4553,7 @@ let tests =
           Fetch = fun _ -> async { return None }
           OnOpen = ignore
           OnOpenOrg = ignore
+          OnOpenGuild = ignore
           OnOpenTag = opened.Add
           Cache = (env :> IProvideImageCache).ImageCache
         }
@@ -8570,6 +8572,7 @@ let tests =
             LinkPreview = None
             ReplyPreview = None
             Translation = None
+            Guild = None
           }
 
           // The row sits in a 360-wide host: the identity line must trim

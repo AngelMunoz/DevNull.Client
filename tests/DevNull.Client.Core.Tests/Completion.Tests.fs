@@ -164,4 +164,90 @@ let tests =
         Expect.equal ValueNone (IssueNumber.parse "") "empty"
         Expect.equal ValueNone (IssueNumber.parse "12345678901") "eleven"
         Expect.equal ValueNone (IssueNumber.parse "12a") "a letter")
+
+    testCase "a hash with letters is a guild tag" (fun () ->
+      Expect.equal
+        (ValueSome(GuildTag(11, "op")))
+        (triggerAt("ship it to #op", 14))
+        "the query stops at the caret"
+
+      Expect.equal
+        (ValueSome(GuildTag(0, "dev_null")))
+        (triggerAt("#dev_null", 9))
+        "the underscore rides the tag")
+
+    testCase "a bare hash triggers nothing" (fun () ->
+      Expect.equal ValueNone (triggerAt("#", 1)) "a letter must open the tag")
+
+    testCase "a hash with digits stays an issue reference" (fun () ->
+      Expect.equal
+        (ValueSome(IssueRef(4, issueNumber "12")))
+        (triggerAt("see #12", 7))
+        "digits are the issue's own")
+
+    testCase "a color is neither a tag nor an issue" (fun () ->
+      Expect.equal ValueNone (triggerAt("#abc", 4)) "three hex digits"
+      Expect.equal ValueNone (triggerAt("#dead", 5)) "four hex digits"
+      Expect.equal ValueNone (triggerAt("#facade", 7)) "six hex digits"
+      Expect.equal ValueNone (triggerAt("#000", 4)) "black")
+
+    testCase "a tag glued to a word never triggers" (fun () ->
+      Expect.equal ValueNone (triggerAt("a#dev", 5)) "glued to a word"
+      Expect.equal ValueNone (triggerAt("hi_#dev", 7)) "after an underscore")
+
+    testCase "a tag after a bracket triggers" (fun () ->
+      Expect.equal
+        (ValueSome(GuildTag(1, "dev")))
+        (triggerAt("(#dev", 5))
+        "the hashtag boundary")
+
+    testCase "a tag inside code never triggers" (fun () ->
+      Expect.equal ValueNone (triggerAt("`#dev`", 5)) "a settled span"
+      Expect.equal ValueNone (triggerAt("`#dev", 5)) "an open span")
+
+    testCase "a word character after the caret blocks the tag" (fun () ->
+      Expect.equal ValueNone (triggerAt("#devnull", 4)) "the tag runs on")
+
+    testCase
+      "completing a guild tag yields the handle and a trailing space"
+      (fun () ->
+        Expect.equal
+          ("ship it to #ops ", 16)
+          (guildCompleted("ship it to #op", GuildTag(11, "op"), "ops"))
+          "the caret lands past the spacing"
+
+        Expect.equal
+          ("#ops next", 4)
+          (guildCompleted("#op next", GuildTag(0, "op"), "ops"))
+          "whitespace already following takes no extra space")
+
+    testCase
+      "a stale guild tag keeps the text and the caret at its end"
+      (fun () ->
+        Expect.equal
+          ("other", 3)
+          (guildCompleted("other", GuildTag(0, "op"), "ops"))
+          "the text no longer holds the trigger")
+
+    testCase "a guild tag never completes as a mention or an issue" (fun () ->
+      Expect.equal
+        ("ship #op", 8)
+        (mentionCompleted("ship #op", GuildTag(5, "op"), "kai"))
+        "not a mention"
+
+      Expect.equal
+        ("ship #op", 8)
+        (issueCompleted("ship #op", GuildTag(5, "op"), "https://x.test/1"))
+        "not an issue")
+
+    testCase "a mention or an issue never completes as a guild tag" (fun () ->
+      Expect.equal
+        ("hi @ka", 6)
+        (guildCompleted("hi @ka", Mention(3, "ka"), "ops"))
+        "a mention stays"
+
+      Expect.equal
+        ("see #12", 7)
+        (guildCompleted("see #12", IssueRef(4, issueNumber "12"), "ops"))
+        "an issue stays")
   ]

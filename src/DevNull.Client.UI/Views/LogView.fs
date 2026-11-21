@@ -1371,6 +1371,7 @@ module Parts =
         fun username -> Navigation.go(props.Nav, "/profile/" + username, ignore)
       OnOpenOrg =
         fun handle -> Navigation.go(props.Nav, "/org/" + handle, ignore)
+      OnOpenGuild = ignore
       OnOpenTag =
         fun tag ->
           Navigation.go(
@@ -1467,6 +1468,8 @@ module Parts =
                   Session = props.Session
                   Target = Composer.ReplyTo commit.Id
                   Participants = participants
+                  Guilds = ValueNone
+                  Guild = ValueNone
                   OnCommitted =
                     fun _ ->
                       props.Env.Timeline.ForgetDraft commit.Id

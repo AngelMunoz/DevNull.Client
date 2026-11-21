@@ -1565,6 +1565,8 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
         Session = props.Session
         Target = target
         Participants = participants
+        Guilds = ValueNone
+        Guild = ValueNone
         OnCommitted = fun commit -> composerEvents.OnNext(Posted commit)
         OnScheduled =
           ValueSome(fun scheduled -> composerEvents.OnNext(Scheduled scheduled))

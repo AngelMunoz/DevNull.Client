@@ -11,6 +11,7 @@ open DevNull.Client.Search
 [<Struct>]
 type Choice =
   | PersonChosen of handle: string
+  | GuildChosen of handle: string
   | IssueChosen of number: int
 
 /// What the lane reports: the key walk, the close, the text and caret

@@ -83,6 +83,7 @@ let commitOf(translation: CommitTranslation option) : Commit = {
   LinkPreview = None
   ReplyPreview = None
   Translation = translation
+  Guild = None
 }
 
 let startShellWithTranslations

@@ -1,12 +1,14 @@
 module DevNull.Client.Components.Completion
 
 open System
+open Avalonia
 open Avalonia.Controls
 open Avalonia.Layout
 open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open DevNull.Client
+open DevNull.Client.Components.AsyncImage
 open DevNull.Client.Components.Avatar
 open DevNull.Client.Components.Palette
 open DevNull.Client.Core.ApiTypes
@@ -18,6 +20,7 @@ type View = {
   Caption: bool
   Users: User list
   Organizations: Organization list
+  Guilds: Guild list
   Issue: Issue option
   Searching: bool
   Throttled: bool
@@ -28,6 +31,7 @@ type View = {
 type Actions = {
   PickPerson: User -> unit
   PickOrganization: Organization -> unit
+  PickGuild: Guild -> unit
   PickIssue: Issue -> unit
   Hovered: int -> unit
 }
@@ -50,6 +54,7 @@ type Row =
   | Caption
   | Person of index: int * user: User
   | Organization of index: int * organization: Organization
+  | GuildRow of index: int * guild: Guild
   | IssueRow of issue: Issue
   | Quiet of text: string
 
@@ -131,6 +136,63 @@ let orgContent
         )
     )
 
+// One guild to tag: the icon or emoji, the name, and the handle on
+// the quiet mono line.
+let guildContent(images: ImageCacheService, guild: Guild) : Control =
+  let mark: Control =
+    match guild.IconUrl with
+    | Some url ->
+      Border()
+        .Width(28.0)
+        .Height(28.0)
+        .CornerRadius(CornerRadius 14.0)
+        .ClipToBounds(true)
+        .Child(
+          AsyncImage.view {
+            Cache = images
+            Url = url
+            DecodeWidth = 56
+            DecodeHeight = ValueNone
+            Stretch = Stretch.UniformToFill
+            ToolTip = ValueSome guild.Name
+          }
+        )
+    | None ->
+      Border()
+        .Classes(Theme.name Theme.SurfaceBack)
+        .Width(28.0)
+        .Height(28.0)
+        .CornerRadius(CornerRadius 14.0)
+        .Child(
+          TextBlock()
+            .FontSize(14.0)
+            .VerticalAlignment(VerticalAlignment.Center)
+            .HorizontalAlignment(HorizontalAlignment.Center)
+            .Text(guild.Emoji)
+        )
+
+  StackPanel()
+    .Orientation(Orientation.Horizontal)
+    .Spacing(8.0)
+    .Children(
+      mark,
+      StackPanel()
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Spacing(1.0)
+        .Children(
+          TextBlock()
+            .FontSize(13.0)
+            .FontWeight(FontWeight.SemiBold)
+            .Text(guild.Name)
+            .TextTrimming(TextTrimming.CharacterEllipsis),
+          TextBlock()
+            .Classes(Theme.name Theme.Mono, Theme.name Theme.Muted)
+            .FontSize(12.0)
+            .Text("#" + guild.Handle)
+            .TextTrimming(TextTrimming.CharacterEllipsis)
+        )
+    )
+
 // The issue card: its title over the repository label.
 let issueContent(issue: Issue) : Control =
   StackPanel()
@@ -191,6 +253,7 @@ let view
     | Caption -> box "caption"
     | Person(index, user) -> box(index, user)
     | Organization(index, organization) -> box(index, organization)
+    | GuildRow(index, guild) -> box(index, guild)
     | IssueRow issue -> box issue
     | Quiet text -> box text
 
@@ -206,20 +269,26 @@ let view
 
     match current.Issue with
     | Some issue -> [ IssueRow issue ]
-    | None -> [
-        if current.Caption then
-          Caption
+    | None ->
+      match current.Guilds with
+      | _ :: _ -> [
+          for index, guild in List.indexed current.Guilds ->
+            GuildRow(index, guild)
+        ]
+      | [] -> [
+          if current.Caption then
+            Caption
 
-        yield! mentions
+          yield! mentions
 
-        if mentions.IsEmpty && not current.Caption then
-          Quiet(
-            match current.Searching, current.Throttled with
-            | true, _ -> "Searching…"
-            | _, true -> "error: too many searches, give it a few seconds"
-            | _ -> $"fatal: no developers match '{current.Query}'"
-          )
-      ]
+          if mentions.IsEmpty && not current.Caption then
+            Quiet(
+              match current.Searching, current.Throttled with
+              | true, _ -> "Searching…"
+              | _, true -> "error: too many searches, give it a few seconds"
+              | _ -> $"fatal: no developers match '{current.Query}'"
+            )
+        ]
 
   let render(row: Row) : RenderedRow =
     match row with
@@ -254,6 +323,20 @@ let view
           Name = $"CompletionRow{index}"
           Pick = fun () -> actions.PickOrganization organization
           Content = orgContent(images, organization)
+        }
+
+      {
+        Leading = ValueNone
+        Control = control
+        Followed = ValueSome control
+      }
+    | GuildRow(index, guild) ->
+      let control =
+        buttonRow {
+          Index = index
+          Name = $"CompletionRow{index}"
+          Pick = fun () -> actions.PickGuild guild
+          Content = guildContent(images, guild)
         }
 
       {

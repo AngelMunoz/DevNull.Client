@@ -680,6 +680,7 @@ let view
     OnOpenOrg =
       fun handle ->
         Navigation.go(props.Nav, "/org/" + Uri.EscapeDataString handle, ignore)
+    OnOpenGuild = ignore
     OnOpenTag =
       fun tag ->
         Navigation.go(props.Nav, "/search/" + Uri.EscapeDataString tag, ignore)

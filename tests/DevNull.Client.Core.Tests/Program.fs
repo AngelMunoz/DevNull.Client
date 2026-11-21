@@ -28,6 +28,7 @@ let main args =
       Tests.Api.settingsTests
       Tests.Api.listApiTests
       Tests.Api.actionApiTests
+      Tests.Api.guildApiTests
       Tests.RemotesApi.tests
       Tests.Scheduled.momentTests
       Tests.Scheduled.apiTests

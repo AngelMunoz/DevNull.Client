@@ -15,8 +15,8 @@ open DevNull.Client.UiClock
 /// Everything the search dialog reads: the env it searches through,
 /// the signed account it searches as, the session that owns the
 /// debounced calls, the recents it shows when the box is empty, the
-/// router it opens finds on, and the two things beside finding —
-/// opening the composer and closing itself.
+/// router it opens finds on, and the three things beside finding —
+/// opening the composer, opening a guild, and closing itself.
 type Props<'env
   when 'env :> IProvideClock
   and 'env :> IProvideNonceSource
@@ -35,6 +35,9 @@ type Props<'env
   /// The term a center host opens with; the palette leaves it empty.
   InitialTerm: string option
   OpenCompose: unit -> unit
+  /// The host's guild surface: a guild pick is a callback, never a
+  /// URL route.
+  OnOpenGuild: string -> unit
   Close: unit -> unit
 }
 

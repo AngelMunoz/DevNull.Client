@@ -593,6 +593,7 @@ let row(args: RowArgs<'env>) : RowProps =
         Fetch = args.Props.Env.Profiles.Fetch
         OnOpen = args.Props.OnOpenRepo
         OnOpenOrg = ignore
+        OnOpenGuild = ignore
         OnOpenTag = ignore
         Cache = args.Props.Env.ImageCache
       }

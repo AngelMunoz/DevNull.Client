@@ -412,7 +412,9 @@ let threadPropsOf(env: TestEnv) : ThreadTab.Props<TestEnv> = {
   OnFetch = ignore
   OnQuote = ignore
   OnReplyRequested = ignore
+  OnOpenThread = ignore
   OnOpenRepo = ignore
+  OnOpenGuild = ignore
   OnShared = ignore
 }
 

@@ -162,4 +162,5 @@ let view(props: Props) : Control =
     .Name("EditorTabStrip")
     .Classes(Theme.name Theme.SurfaceBack, Theme.name Theme.Hairline)
     .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
+    .Padding(Thickness(0.0, Theme.bandHeight, 0.0, 0.0))
     .Child(strip)

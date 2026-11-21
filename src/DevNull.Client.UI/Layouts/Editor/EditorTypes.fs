@@ -14,6 +14,10 @@ module TabId =
 
   let queue = TabId "queue"
 
+  let guilds = TabId "guilds"
+
+  let guild(handle: string) = TabId("guild:" + handle)
+
   let ordinary(key: string) = TabId key
 
   let thread(commitId: string) = TabId commitId
@@ -34,6 +38,13 @@ module TabId =
   let isQueue id = id = queue
 
   let isList id = isSaved id || isQueue id
+
+  let isGuilds id = id = guilds
+
+  let isGuild id = key id |> _.StartsWith("guild:")
+
+  let guildHandle id =
+    if isGuild id then Some(key id |> _.Substring(6)) else None
 
   let isRepo id = key id |> _.StartsWith("repo:")
 
@@ -91,6 +102,10 @@ module EditorTab =
     }
 
   let repo(id: TabId, handle: string) = ordinary(id, $"@{handle} (repo)")
+
+  let guilds = ordinary(TabId.guilds, "GUILDS")
+
+  let guild(id: TabId, handle: string) = ordinary(id, $"#{handle} (guild)")
 
   let search(id: TabId, term: string) = ordinary(id, $"search: {term}")
 

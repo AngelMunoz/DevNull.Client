@@ -60,6 +60,76 @@ let tests =
         [ TabId.history ]
         "the repository tab did not close")
 
+    testCase "guild tabs are ordinary and close" (fun () ->
+      let directory = EditorTab.guilds
+      let board = EditorTab.guild(TabId.guild "rust", "rust")
+
+      Expect.equal
+        (TabId.key TabId.guilds)
+        "guilds"
+        "the directory key changed"
+
+      Expect.equal
+        (TabId.key(TabId.guild "rust"))
+        "guild:rust"
+        "the board key changed"
+
+      Expect.isTrue (TabId.isGuilds TabId.guilds) "the directory is not guilds"
+
+      Expect.isTrue
+        (TabId.isGuild(TabId.guild "rust"))
+        "the board is not a guild"
+
+      Expect.isFalse
+        (TabId.isGuild TabId.guilds)
+        "the directory read as a board"
+
+      Expect.equal
+        (TabId.guildHandle(TabId.guild "rust"))
+        (Some "rust")
+        "the board lost its handle"
+
+      Expect.equal
+        (TabId.guildHandle TabId.history)
+        None
+        "history gained a handle"
+
+      Expect.equal
+        (EditorTab.title directory)
+        "GUILDS"
+        "the directory title changed"
+
+      Expect.equal
+        (EditorTab.title board)
+        "#rust (guild)"
+        "the board title changed"
+
+      Expect.isFalse (EditorTab.isPinned board) "the board stayed pinned"
+
+      let opened =
+        EditorState.openTab(
+          board,
+          EditorState.openTab(directory, EditorState.initial Following)
+        )
+
+      let again =
+        EditorState.openTab(
+          EditorTab.guild(TabId.guild "rust", "rust"),
+          opened
+        )
+
+      Expect.equal
+        (EditorState.tabs again |> List.length)
+        3
+        "the board tab doubled"
+
+      let closed = EditorState.closeTab(TabId.guild "rust", again)
+
+      Expect.equal
+        (EditorState.tabs closed |> List.map EditorTab.id)
+        [ TabId.history; TabId.guilds ]
+        "the board tab did not close")
+
     testCase "the width ladder splits at 1000 and 700" (fun () ->
       Expect.equal (WidthBand.ofWidth 1200.0) Full "1200"
       Expect.equal (WidthBand.ofWidth 1000.0) Full "1000"

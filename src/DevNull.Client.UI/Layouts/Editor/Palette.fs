@@ -61,6 +61,7 @@ type Props<'env
   Session: SignedInSession
   OnOpenRepo: string -> unit
   OnOpenCommit: string -> unit
+  OnOpenGuild: string -> unit
   OnOpenOrg: string -> unit
   OnOpenSearch: string -> unit
   OnSelectRef: LogKind -> unit
@@ -188,7 +189,7 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) : Control * IDisposable =
         InitialTerm = None
         Recents = (props.Env :> IProvideRecentSearches).RecentSearches
         Nav = searchNav props
-        OnOpenGuild = ignore
+        OnOpenGuild = props.OnOpenGuild
         OpenCompose = props.OnOpenCompose
         Close = props.OnClose
       }

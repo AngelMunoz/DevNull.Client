@@ -138,10 +138,20 @@ let tests =
         let! topInset =
           probeUiAsync(fun () -> (window.Content :?> Control).Margin.Top)
 
-        Expect.equal
-          topInset
-          Theme.bandHeight
-          "the band still covers the tab strip"
+        Expect.equal topInset 0.0 "the root still insets the whole surface"
+
+        let! stripClear =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryFind(fun visual -> visual.Name = "EditorTabStrip")
+            |> Option.map(fun visual ->
+              (visual :?> Control).TranslatePoint(Point(0.0, 0.0), window))
+            |> Option.exists(fun point ->
+              point.HasValue && point.Value.Y = 0.0))
+
+        Expect.isTrue
+          stripClear
+          "the tab strip no longer paints through the band"
 
         let! centered =
           probeUiAsync(fun () ->
@@ -551,5 +561,130 @@ let tests =
           (snd shape)
           "⋯1"
           "the overflow count did not name the hidden tab"
+      })
+
+    testCaseAsync
+      "the explorer opens the guild directory and a board tab"
+      (async {
+        let guildRowJson =
+          """{"handle":"dev","name":"Dev Guild","description":null,"emoji":"🛠","icon_url":null,"member_count":1204,"is_joined":true,"is_muted":false,"is_paused":false,"html_url":"https://dev-null.sh/g/dev"}"""
+
+        let directoryJson =
+          sprintf
+            "{\"data\":[%s],\"links\":{},\"meta\":{\"current_page\":1,\"last_page\":1,\"total\":1}}"
+            guildRowJson
+
+        let boardJson =
+          sprintf
+            "{\"data\":[%s],\"links\":{\"first\":\"https://dev-null.sh/api/v1/guilds/dev?page=1\",\"last\":null,\"prev\":null,\"next\":null},\"meta\":{\"current_page\":1,\"per_page\":30,\"from\":1,\"to\":1,\"path\":\"https://dev-null.sh/api/v1/guilds/dev\"},\"guild\":%s,\"pinned_commit\":%s,\"can_moderate\":false}"
+            commitJson
+            guildRowJson
+            commitJson
+
+        let api =
+          FakeApi(fun request ->
+            if request.Target.StartsWith "/api/v1/guilds/dev" then
+              ok boardJson
+            elif request.Target.StartsWith "/api/v1/guilds" then
+              ok directoryJson
+            elif request.Target.StartsWith "/api/v1/log/" then
+              ok emptyLogPageJson
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let env = TestEnv(signedInStore(), api :> IHttp)
+
+        let! window, handle =
+          probeUiAsync(fun () ->
+            let control, handle = EditorRoot.mount(ui, props env)
+
+            let window =
+              Window(Width = 1600.0, Height = 900.0, Content = control)
+
+            window.Show()
+            window, handle)
+
+        let byName(name: string) =
+          window.GetVisualDescendants()
+          |> Seq.tryFind(fun visual -> visual.Name = name)
+          |> Option.bind(fun visual ->
+            match visual with
+            | :? Button as button -> Some button
+            | _ -> None)
+
+        let! explorerShown =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "GUILDS")
+          )
+
+        Expect.isTrue explorerShown "the GUILDS branch never rendered"
+
+        let boardBase = GuildTab.Live.current()
+        let directoryBase = GuildsTab.Live.current()
+
+        do!
+          onUiAsync(fun () -> byName "ExplorerOpen-GUILDS" |> Option.iter click)
+
+        let! directoryShown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "GUILDS · 1 guild · page 1/1")
+          )
+
+        Expect.isTrue directoryShown "the directory tab never read its page"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "Dev Guild") |> Option.iter click)
+
+        let! boardShown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "#dev · Public guild · 1k members")
+          )
+
+        Expect.isTrue boardShown "the board tab never read its guild"
+
+        let! tabShown =
+          waitForAsync(
+            5000,
+            (fun () -> window),
+            fun root -> hasText(root, "#dev (guild)")
+          )
+
+        Expect.isTrue tabShown "the board tab never took the strip"
+
+        let! live =
+          probeUiAsync(fun () ->
+            GuildTab.Live.current(), GuildsTab.Live.current())
+
+        Expect.equal
+          live
+          (boardBase + 1, directoryBase + 1)
+          "the guild programs did not mount"
+
+        do!
+          onUiAsync(fun () ->
+            byName "EditorTabClose-guild:dev" |> Option.iter click)
+
+        let! closed =
+          waitForAsync(
+            5000,
+            (fun () -> GuildTab.Live.current()),
+            fun count -> count = boardBase
+          )
+
+        Expect.isTrue closed "closing the board tab did not dispose its program"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            handle.Dispose())
       })
   ]

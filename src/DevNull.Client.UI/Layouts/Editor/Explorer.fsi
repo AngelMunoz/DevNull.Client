@@ -11,10 +11,13 @@ type Props = {
   Queue: int
   /// An optional line under the queue branch.
   QueueHint: string option
+  /// How many guilds the directory holds, once a read reports it.
+  GuildCount: int
   Viewer: string
   OnSelectRef: LogKind -> unit
   OnOpenSaved: unit -> unit
   OnOpenQueue: unit -> unit
+  OnOpenGuilds: unit -> unit
   OnOpenViewer: unit -> unit
 }
 

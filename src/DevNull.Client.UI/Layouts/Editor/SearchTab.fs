@@ -57,6 +57,7 @@ type Props<'env
   OnReply: Commit -> unit
   OnQuote: Commit -> unit
   OnOpenRepo: string -> unit
+  OnOpenGuild: string -> unit
   OnShared: User -> unit
 }
 
@@ -81,6 +82,7 @@ module State =
     Surface = EditorCards.Feed
     Now = props.Now
     OnOpenRepo = props.OnOpenRepo
+    OnOpenGuild = props.OnOpenGuild
     OnShared = props.OnShared
   }
 

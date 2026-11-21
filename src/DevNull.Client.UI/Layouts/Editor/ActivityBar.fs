@@ -99,7 +99,7 @@ let view(props: Props) : Control =
     .Classes(Theme.name Theme.SurfaceBack, Theme.name Theme.Hairline)
     .BorderThickness(Thickness(0.0, 0.0, 1.0, 0.0))
     .Width(52.0)
-    .Padding(Thickness(8.0, 12.0))
+    .Padding(Thickness(8.0, Theme.bandHeight + 12.0, 8.0, 12.0))
     .Child(
       StackPanel()
         .Orientation(Orientation.Vertical)

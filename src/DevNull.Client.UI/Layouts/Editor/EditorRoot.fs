@@ -103,6 +103,11 @@ type Runtime = {
   OpenSaved: unit -> unit
   OpenQueue: unit -> unit
   Lists: IObservable<Map<string, Control>>
+  OpenGuilds: unit -> unit
+  OpenGuild: string -> unit
+  CloseGuildTab: string -> unit
+  GuildTabs: IObservable<Map<string, Control>>
+  RefreshGuild: string -> unit
   /// One remote chat tab per open conversation.
   OpenRemote: ChatTarget -> unit
   CloseRemote: string -> unit
@@ -138,6 +143,8 @@ type Model = {
   PaletteOpen: bool
   UserId: string option
   AccountRemotes: MeRemotes option
+  Guilds: Map<string, Guild>
+  GuildCount: int
 }
 
 type Msg =
@@ -172,6 +179,11 @@ type Msg =
   | OpenSearch of string
   | OpenSaved
   | OpenQueue
+  | OpenGuilds
+  | OpenGuild of string
+  | GuildCounted of int
+  | GuildChanged of string * GuildTab.Snapshot
+  | StageGuild of string
   | OpenThreadById of string
   | OpenCompose
   | PaletteToggled
@@ -185,6 +197,7 @@ type HistorySinks = {
   Reply: Commit -> unit
   Quote: Commit -> unit
   OpenRepo: string -> unit
+  OpenGuild: string -> unit
   Shared: User -> unit
   Fetch: Result<unit, string> -> unit
 }
@@ -221,6 +234,8 @@ type ProgramArgs<'env
   ComposerEvents: IObservable<ComposerEvent>
   Fetches: IObservable<string * Result<unit, string>>
   RepoOpens: IObservable<string>
+  GuildCounts: IObservable<int>
+  GuildSnapshots: IObservable<string * GuildTab.Snapshot>
   PaletteClose: IObservable<unit>
   PaletteRefs: IObservable<LogKind>
   PalettePanels: IObservable<EditorPanel.Tab>
@@ -313,6 +328,7 @@ let historyProps(args: HistoryArgs<'env>) : HistoryTab.Props<'env> = {
   OnReplyRequested = args.Sinks.Reply
   OnQuoteRequested = args.Sinks.Quote
   OnOpenRepo = args.Sinks.OpenRepo
+  OnOpenGuild = args.Sinks.OpenGuild
   OnShared = args.Sinks.Shared
   OnFetch = args.Sinks.Fetch
 }
@@ -321,9 +337,11 @@ let historyProps(args: HistoryArgs<'env>) : HistoryTab.Props<'env> = {
 type ThreadHooks = {
   Snapshot: ThreadTab.Snapshot -> unit
   Fetch: Result<unit, string> -> unit
+  Open: Commit -> unit
   Quote: Commit -> unit
   Reply: Commit -> unit
   OpenRepo: string -> unit
+  OpenGuild: string -> unit
   Shared: User -> unit
 }
 
@@ -339,7 +357,9 @@ let threadProps
   OnFetch = hooks.Fetch
   OnQuote = hooks.Quote
   OnReplyRequested = hooks.Reply
+  OnOpenThread = hooks.Open
   OnOpenRepo = hooks.OpenRepo
+  OnOpenGuild = hooks.OpenGuild
   OnShared = hooks.Shared
 }
 
@@ -349,6 +369,7 @@ type RepoHooks = {
   OpenReply: Commit -> unit
   OpenQuote: Commit -> unit
   OpenRepo: string -> unit
+  OpenGuild: string -> unit
   Shared: User -> unit
 }
 
@@ -364,6 +385,7 @@ let repoProps
   OnReply = hooks.OpenReply
   OnQuote = hooks.OpenQuote
   OnOpenRepo = hooks.OpenRepo
+  OnOpenGuild = hooks.OpenGuild
   OnShared = hooks.Shared
 }
 
@@ -391,6 +413,8 @@ let initial(props: Props<'env>, history: HistoryTab.Snapshot) = {
   PaletteOpen = false
   UserId = Some props.Session.Session.User.Id
   AccountRemotes = props.Session.Session.Remotes
+  Guilds = Map.empty
+  GuildCount = 0
 }
 
 let unreadOf(state: SessionState) =
@@ -486,6 +510,26 @@ let openSearch(args: UpdateArgs<'env>, term: string, model: Model) =
   }
 
   next, Cmd.ofAction(fun () -> args.Runtime.OpenSearch term)
+
+let openGuilds(args: UpdateArgs<'env>, model: Model) =
+  let next = {
+    model with
+        Frame = EditorState.openTab(EditorTab.guilds, model.Frame)
+        FlyoutOpen = false
+  }
+
+  next, Cmd.ofAction(fun () -> args.Runtime.OpenGuilds())
+
+let openGuild(args: UpdateArgs<'env>, handle: string, model: Model) =
+  let tab = EditorTab.guild(TabId.guild handle, handle)
+
+  let next = {
+    model with
+        Frame = EditorState.openTab(tab, model.Frame)
+        FlyoutOpen = false
+  }
+
+  next, Cmd.ofAction(fun () -> args.Runtime.OpenGuild handle)
 
 let openList(args: UpdateArgs<'env>, kind: ListTab.Kind, model: Model) =
   let id, title, start =
@@ -636,6 +680,8 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
         Cmd.ofAction(fun () -> args.Runtime.CloseSearch(TabId.key id))
       elif closed && TabId.isRemote id then
         Cmd.ofAction(fun () -> args.Runtime.CloseRemote(TabId.key id))
+      elif closed && (TabId.isGuilds id || TabId.isGuild id) then
+        Cmd.ofAction(fun () -> args.Runtime.CloseGuildTab(TabId.key id))
       elif closed then
         Cmd.ofAction(fun () -> args.Runtime.CloseThread(TabId.key id))
       else
@@ -853,6 +899,25 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
   | OpenSearch term -> openSearch(args, term, model)
   | OpenSaved -> openList(args, ListTab.Saved, model)
   | OpenQueue -> openList(args, ListTab.Queue, model)
+  | OpenGuilds -> openGuilds(args, model)
+  | OpenGuild handle -> openGuild(args, handle, model)
+  | GuildCounted total -> { model with GuildCount = total }, Cmd.none
+  | GuildChanged(handle, snapshot) ->
+    let guilds =
+      match snapshot.Guild with
+      | Some guild -> model.Guilds |> Map.add handle guild
+      | None -> model.Guilds
+
+    { model with Guilds = guilds }, Cmd.none
+  | StageGuild _ ->
+    let next = {
+      model with
+          Panel = EditorPanel.openOn(EditorPanel.Terminal, model.Panel)
+          Activity = ActivityBar.Problems
+          FlyoutOpen = false
+    }
+
+    next, Cmd.ofAction(fun () -> args.Runtime.ShowTerminal FreshTerm)
   | PaletteToggled ->
     if model.PaletteOpen then
       { model with PaletteOpen = false },
@@ -1018,9 +1083,17 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
             Activity = ActivityBar.History
       }
 
+      let guildRefresh =
+        EditorState.activeTab model.Frame
+        |> TabId.guildHandle
+        |> Option.map(fun handle ->
+          Cmd.ofAction(fun () -> args.Runtime.RefreshGuild handle))
+        |> Option.defaultValue Cmd.none
+
       next,
       Cmd.batch [
         Cmd.ofAction(fun () -> args.Runtime.RefreshHistory())
+        guildRefresh
         Cmd.ofAction(fun () -> args.Runtime.ShowTerminal FreshTerm)
       ]
     | Scheduled _ ->
@@ -1048,6 +1121,16 @@ let subscribe(args: ProgramArgs<'env>, _model: Model) : Sub<Msg> =
     Sub.fromObservable "opens" (args.Opens |> Observable.map OpenThread)
 
     Sub.fromObservable "repos" (args.RepoOpens |> Observable.map OpenRepo)
+
+    Sub.fromObservable
+      "guild-counts"
+      (args.GuildCounts |> Observable.map GuildCounted)
+
+    Sub.fromObservable
+      "guild-snaps"
+      (args.GuildSnapshots
+       |> Observable.map(fun (handle, snapshot) ->
+         GuildChanged(handle, snapshot)))
 
     Sub.fromObservable
       "palette-close"
@@ -1151,17 +1234,20 @@ let view(args: ViewArgs<'env>) : Control =
       (fun current ->
         LogKinds.wire(EditorState.selectedRef current.Frame),
         current.Saved,
-        current.Queue),
+        current.Queue,
+        current.GuildCount),
       (fun current ->
         Explorer.view {
           Selected = EditorState.selectedRef current.Frame
           Saved = current.Saved
           Queue = current.Queue
           QueueHint = None
+          GuildCount = current.GuildCount
           Viewer = props.Session.Session.User.Handle
           OnSelectRef = fun log -> dispatch(RefSelected log)
           OnOpenSaved = fun () -> dispatch OpenSaved
           OnOpenQueue = fun () -> dispatch OpenQueue
+          OnOpenGuilds = fun () -> dispatch OpenGuilds
           OnOpenViewer =
             fun () -> dispatch(OpenRepo props.Session.Session.User.Handle)
         })
@@ -1198,9 +1284,10 @@ let view(args: ViewArgs<'env>) : Control =
   let search =
     Button()
       .Name("EditorSearch")
-      .Classes(Theme.name Theme.NavItem)
+      .Classes(Theme.name Theme.GhostButton)
       .Width(36.0)
       .Height(32.0)
+      .VerticalAlignment(VerticalAlignment.Center)
       .Padding(Thickness(6.0))
       .Content(iconAt(Glyph.Search, 16.0))
       .OnClickHandler(fun _ _ -> dispatch PaletteToggled)
@@ -1213,7 +1300,10 @@ let view(args: ViewArgs<'env>) : Control =
   header.ColumnDefinitions <- ColumnDefinitions("*,Auto")
   header.Children(tabStripHost.Column(0), search.Column(1)) |> ignore
 
-  let tabArea = ContentControl().Content(header)
+  let tabArea =
+    Border()
+      .Classes(Theme.name Theme.SurfaceBack)
+      .Child(ContentControl().Content(header))
 
   let loading =
     TextBlock()
@@ -1232,16 +1322,20 @@ let view(args: ViewArgs<'env>) : Control =
   let lists = args.Runtime.Lists
   let searches = args.Runtime.Searches
   let remotes = args.Runtime.Remotes
+  let guildTabs = args.Runtime.GuildTabs
 
   let frameThreads = Observable.combineLatest frame threads |> Slices.share
   let withRepos = Observable.combineLatest frameThreads repos |> Slices.share
   let withLists = Observable.combineLatest withRepos lists |> Slices.share
   let withSearches = Observable.combineLatest withLists searches |> Slices.share
 
+  let withRemotes =
+    Observable.combineLatest withSearches remotes |> Slices.share
+
   let activeContent =
-    Observable.combineLatest withSearches remotes
+    Observable.combineLatest withRemotes guildTabs
     |> Observable.map
-      (fun (((((frame, threads), repos), lists), searches), remotes) ->
+      (fun ((((((frame, threads), repos), lists), searches), remotes), guilds) ->
         let id = EditorState.activeTab frame
 
         if id = TabId.history then
@@ -1254,6 +1348,8 @@ let view(args: ViewArgs<'env>) : Control =
           searches |> Map.tryFind(TabId.key id) |> Option.defaultValue loading
         elif TabId.isRemote id then
           remotes |> Map.tryFind(TabId.key id) |> Option.defaultValue loading
+        elif TabId.isGuilds id || TabId.isGuild id then
+          guilds |> Map.tryFind(TabId.key id) |> Option.defaultValue loading
         else
           threads |> Map.tryFind(TabId.key id) |> Option.defaultValue loading)
     |> Observable.distinctUntilChanged
@@ -1393,7 +1489,6 @@ let view(args: ViewArgs<'env>) : Control =
     ColumnDefinitions = ColumnDefinitions "56,Auto,*"
   )
     .Name("EditorRoot")
-    .Margin(0.0, Theme.bandHeight, 0.0, 0.0)
     .Children(
       activityControl.Column(0),
       sidebar.Column(1),
@@ -1481,6 +1576,13 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
 
   let opens = new System.Reactive.Subjects.Subject<Commit>()
   let repoOpens = new System.Reactive.Subjects.Subject<string>()
+
+  let guildCounts = new System.Reactive.Subjects.Subject<int>()
+
+  let guildSnapshots =
+    new System.Reactive.Subjects.Subject<string * GuildTab.Snapshot>()
+
+  let guildRefresh = new System.Reactive.Subjects.Subject<string>()
   let remoteOpens = new System.Reactive.Subjects.Subject<ChatTarget>()
 
   let remoteSnapshots =
@@ -1508,6 +1610,8 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
   let searchEntries = new BehaviorSubject<Map<string, ThreadEntry>>(Map.empty)
 
   let remoteEntries = new BehaviorSubject<Map<string, ThreadEntry>>(Map.empty)
+
+  let guildEntries = new BehaviorSubject<Map<string, ThreadEntry>>(Map.empty)
 
   let content = ContentControl()
   let term = ContentControl()
@@ -1559,14 +1663,42 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
       | QuoteTerm commit -> ValueSome(stripFor("Quoting", commit))
       | ReplyTerm(commit, _) -> ValueSome(stripFor("Replying to", commit))
 
+    let guildAim =
+      match request with
+      | FreshTerm ->
+        current.Value
+        |> Option.bind(fun model ->
+          EditorState.activeTab model.Frame
+          |> TabId.guildHandle
+          |> Option.bind(fun handle ->
+            model.Guilds
+            |> Map.tryFind handle
+            |> Option.filter(fun guild -> not guild.IsPaused)
+            |> Option.map(fun _ -> handle)))
+        |> ValueOption.ofOption
+      | QuoteTerm _
+      | ReplyTerm _ -> ValueNone
+
+    let guildPicker =
+      let known =
+        current.Value
+        |> Option.map(fun model ->
+          model.Guilds |> Map.values |> Seq.filter _.IsJoined |> List.ofSeq)
+        |> Option.defaultValue []
+
+      if known.IsEmpty then
+        ValueNone
+      else
+        ValueSome(fun () -> known)
+
     let composer =
       DevNull.Client.Components.Composer.Page {
         Env = props.Env
         Session = props.Session
         Target = target
         Participants = participants
-        Guilds = ValueNone
-        Guild = ValueNone
+        Guilds = guildPicker
+        Guild = guildAim
         OnCommitted = fun commit -> composerEvents.OnNext(Posted commit)
         OnScheduled =
           ValueSome(fun scheduled -> composerEvents.OnNext(Scheduled scheduled))
@@ -1591,6 +1723,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
               OnReply = fun target -> replies.OnNext target
               OnQuote = fun target -> quotes.OnNext target
               OnOpenRepo = fun handle -> repoOpens.OnNext handle
+              OnOpenGuild = fun handle -> commandPath.OnNext(OpenGuild handle)
               OnShared = fun user -> remoteOpens.OnNext(Partner user)
             }
           )
@@ -1661,6 +1794,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
                 if selected.Value = log then
                   quotes.OnNext commit
             OpenRepo = fun handle -> repoOpens.OnNext handle
+            OpenGuild = fun handle -> commandPath.OnNext(OpenGuild handle)
             Shared = fun user -> remoteOpens.OnNext(Partner user)
             Fetch =
               fun result ->
@@ -1685,6 +1819,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
             Env = props.Env
             Session = props.Session
             OnOpenRepo = fun handle -> repoOpens.OnNext handle
+            OnOpenGuild = fun handle -> commandPath.OnNext(OpenGuild handle)
             OnOpenCommit =
               fun commitId -> commandPath.OnNext(OpenThreadById commitId)
             OnOpenOrg = ignore
@@ -1752,6 +1887,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
             OnReply = fun commit -> replies.OnNext commit
             OnQuote = fun commit -> quotes.OnNext commit
             OnOpenRepo = fun handle -> repoOpens.OnNext handle
+            OnOpenGuild = fun handle -> commandPath.OnNext(OpenGuild handle)
             OnShared = fun user -> remoteOpens.OnNext(Partner user)
           }
         )
@@ -1782,9 +1918,11 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
               Snapshot =
                 fun snapshot -> threadSnapshots.OnNext(commitId, snapshot)
               Fetch = fun result -> fetches.OnNext($"thread {commitId}", result)
+              Open = fun commit -> opens.OnNext commit
               Quote = fun commit -> quotes.OnNext commit
               Reply = fun commit -> replies.OnNext commit
               OpenRepo = fun handle -> repoOpens.OnNext handle
+              OpenGuild = fun handle -> commandPath.OnNext(OpenGuild handle)
               Shared = fun user -> remoteOpens.OnNext(Partner user)
             }
           )
@@ -1816,6 +1954,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
               OpenReply = fun commit -> replies.OnNext commit
               OpenQuote = fun commit -> quotes.OnNext commit
               OpenRepo = fun next -> repoOpens.OnNext next
+              OpenGuild = fun handle -> commandPath.OnNext(OpenGuild handle)
               Shared = fun user -> remoteOpens.OnNext(Partner user)
             }
           )
@@ -1849,6 +1988,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
             OnReply = fun commit -> replies.OnNext commit
             OnQuote = fun commit -> quotes.OnNext commit
             OnOpenRepo = fun handle -> repoOpens.OnNext handle
+            OnOpenGuild = fun handle -> commandPath.OnNext(OpenGuild handle)
             OnShared = fun user -> remoteOpens.OnNext(Partner user)
           }
         )
@@ -1861,6 +2001,71 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
     match Map.tryFind key searchEntries.Value with
     | Some entry ->
       searchEntries.OnNext(searchEntries.Value.Remove key)
+      entry.Lifetime.Dispose()
+    | None -> ()
+
+  let guildTabs =
+    guildEntries
+    |> Observable.map(fun map -> map |> Map.map(fun _ entry -> entry.View))
+    |> Slices.share
+
+  let openGuildsTab() =
+    let key = TabId.key TabId.guilds
+
+    if not(Map.containsKey key guildEntries.Value) then
+      let view, lifetime =
+        GuildsTab.mount(
+          dispatcher,
+          {
+            Env = props.Env
+            Session = props.Session
+            Zone = props.Zone
+            Now = props.Now
+            OnOpenGuild = fun handle -> commandPath.OnNext(OpenGuild handle)
+            OnCount = fun total -> guildCounts.OnNext total
+          }
+        )
+
+      guildEntries.OnNext(
+        guildEntries.Value.Add(key, { View = view; Lifetime = lifetime })
+      )
+
+  let openGuildTab(handle: string) =
+    let key = TabId.key(TabId.guild handle)
+
+    if not(Map.containsKey key guildEntries.Value) then
+      let view, lifetime =
+        GuildTab.mount(
+          dispatcher,
+          {
+            Env = props.Env
+            Session = props.Session
+            Handle = handle
+            Zone = props.Zone
+            Now = props.Now
+            Refresh =
+              guildRefresh
+              |> Observable.filter(fun target -> target = handle)
+              |> Observable.map(fun _ -> ())
+            OnSnapshot = fun snapshot -> guildSnapshots.OnNext(handle, snapshot)
+            OnOpenThread = fun commit -> opens.OnNext commit
+            OnReply = fun commit -> replies.OnNext commit
+            OnQuote = fun commit -> quotes.OnNext commit
+            OnOpenRepo = fun next -> repoOpens.OnNext next
+            OnShared = fun user -> remoteOpens.OnNext(Partner user)
+            OnOpenGuild = fun next -> commandPath.OnNext(OpenGuild next)
+            OnStage = fun target -> commandPath.OnNext(StageGuild target)
+          }
+        )
+
+      guildEntries.OnNext(
+        guildEntries.Value.Add(key, { View = view; Lifetime = lifetime })
+      )
+
+  let closeGuildTab(key: string) =
+    match Map.tryFind key guildEntries.Value with
+    | Some entry ->
+      guildEntries.OnNext(guildEntries.Value.Remove key)
       entry.Lifetime.Dispose()
     | None -> ()
 
@@ -1991,6 +2196,11 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
     OpenSaved = openSaved
     OpenQueue = openQueue
     Lists = lists
+    OpenGuilds = openGuildsTab
+    OpenGuild = openGuildTab
+    CloseGuildTab = closeGuildTab
+    GuildTabs = guildTabs
+    RefreshGuild = fun handle -> guildRefresh.OnNext handle
     OpenRemote = openRemote
     CloseRemote = closeRemote
     Remotes = remotes
@@ -2015,6 +2225,8 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
     ComposerEvents = composerEvents
     Fetches = fetches
     RepoOpens = repoOpens
+    GuildCounts = guildCounts
+    GuildSnapshots = guildSnapshots
     PaletteClose = paletteClose
     PaletteRefs = paletteRefs
     PalettePanels = palettePanels
@@ -2070,6 +2282,14 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
       remoteEntries.OnCompleted()
       remoteEntries.Dispose())
 
+  let guildsCleanup =
+    Disposable.Create(fun () ->
+      for KeyValue(_, entry) in guildEntries.Value do
+        entry.Lifetime.Dispose()
+
+      guildEntries.OnCompleted()
+      guildEntries.Dispose())
+
   let listCleanup =
     Disposable.Create(fun () ->
       listRoot.OnCompleted()
@@ -2093,6 +2313,12 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
       opens.Dispose()
       repoOpens.OnCompleted()
       repoOpens.Dispose()
+      guildCounts.OnCompleted()
+      guildCounts.Dispose()
+      guildSnapshots.OnCompleted()
+      guildSnapshots.Dispose()
+      guildRefresh.OnCompleted()
+      guildRefresh.Dispose()
       paletteClose.OnCompleted()
       paletteClose.Dispose()
       paletteRefs.OnCompleted()
@@ -2124,6 +2350,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
   handles.Add reposCleanup
   handles.Add searchesCleanup
   handles.Add remotesCleanup
+  handles.Add guildsCleanup
   handles.Add listLifetime
   handles.Add listCleanup
   handles.Add paletteLifetime

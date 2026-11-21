@@ -119,6 +119,7 @@ let unusedHttp: IHttp = {
 type Sinks = {
   Quote: Commit -> unit
   Reply: Commit -> unit
+  Open: Commit -> unit
   Snapshot: ThreadTab.Snapshot -> unit
   Fetch: Result<unit, string> -> unit
 }
@@ -126,6 +127,7 @@ type Sinks = {
 let quiet: Sinks = {
   Quote = ignore
   Reply = ignore
+  Open = ignore
   Snapshot = ignore
   Fetch = ignore
 }
@@ -145,7 +147,9 @@ let props
   OnFetch = sinks.Fetch
   OnQuote = sinks.Quote
   OnReplyRequested = sinks.Reply
+  OnOpenThread = sinks.Open
   OnOpenRepo = ignore
+  OnOpenGuild = ignore
   OnShared = ignore
 }
 
@@ -237,6 +241,41 @@ let tests =
         snapshot.Participants.Head.IsAuthor
         "the author is not first")
 
+    testCase
+      "a reply row click and its more-replies leave through the open sink"
+    <| fun () ->
+      let opened = ResizeArray<Commit>()
+
+      let sinks = {
+        quiet with
+            Open = fun commit -> opened.Add commit
+      }
+
+      let env = FakeEnv(unusedHttp)
+
+      let run(msg: ThreadTab.State.Msg) =
+        let _, cmd =
+          ThreadTab.State.update(
+            props(env, threadPage.Commit.Id, sinks),
+            msg,
+            showModel
+          )
+
+        cmd (fun _ -> ()) (fun (_, ex) -> failwith ex.Message)
+
+      let reply =
+        match firstReplies.Items |> List.head with
+        | LiveCommit commit -> commit
+        | Tombstone _ -> failwith "the reply fixture is live"
+
+      run(ThreadTab.State.CardEvent(Opened reply))
+      run(ThreadTab.State.CardEvent(MoreRepliesRequested reply))
+
+      Expect.equal
+        (opened |> Seq.map _.Id |> List.ofSeq)
+        [ reply.Id; reply.Id ]
+        "the reply row never reached the open sink"
+
     testCase "the card row carries the web action slots per surface" (fun () ->
       let env = FakeEnv(unusedHttp)
 
@@ -250,6 +289,7 @@ let tests =
         Surface = surface
         Now = fun () -> DateTimeOffset(2026, 11, 12, 12, 0, 0, TimeSpan.Zero)
         OnOpenRepo = ignore
+        OnOpenGuild = ignore
         OnShared = ignore
       }
 
@@ -467,6 +507,7 @@ let tests =
         let sinks = {
           Quote = fun commit -> quotes.Add commit
           Reply = fun commit -> replies.Add commit
+          Open = ignore
           Snapshot = ignore
           Fetch = ignore
         }

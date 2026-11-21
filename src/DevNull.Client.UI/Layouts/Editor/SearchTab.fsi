@@ -44,6 +44,7 @@ type Props<'env
   OnReply: Commit -> unit
   OnQuote: Commit -> unit
   OnOpenRepo: string -> unit
+  OnOpenGuild: string -> unit
   /// A share sends its recipient here: the frame opens the chat as a
   /// remote tab. Runs on the UI thread.
   OnShared: User -> unit

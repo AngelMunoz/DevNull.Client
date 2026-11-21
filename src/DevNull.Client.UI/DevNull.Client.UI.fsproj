@@ -302,6 +302,10 @@
     <Compile Include="Layouts\Editor\RemoteThreadTab.fs" />
     <Compile Include="Layouts\Editor\RemoteList.fsi" />
     <Compile Include="Layouts\Editor\RemoteList.fs" />
+    <Compile Include="Layouts\Editor\GuildsTab.fsi" />
+    <Compile Include="Layouts\Editor\GuildsTab.fs" />
+    <Compile Include="Layouts\Editor\GuildTab.fsi" />
+    <Compile Include="Layouts\Editor\GuildTab.fs" />
 <Compile Include="Layouts\Editor\EditorRoot.fsi" />
     <Compile Include="Layouts\Editor\EditorRoot.fs" />
     <Compile Include="Layouts.fsi" />

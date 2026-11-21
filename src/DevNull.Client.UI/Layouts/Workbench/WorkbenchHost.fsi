@@ -65,6 +65,19 @@ type RepositoryChild = {
 /// ends it.
 type NotificationsChild = { View: Control; Handle: IDisposable }
 
+/// One live guild registry: its root view and the handle that ends
+/// it.
+type GuildRegistryChild = { View: Control; Handle: IDisposable }
+
+/// One live guild board home: the handle it shows, its root view, the
+/// handle that ends it, and the named refresh inlet a post uses.
+type GuildChild = {
+  GuildHandle: string
+  View: Control
+  Handle: IDisposable
+  Refresh: unit -> unit
+}
+
 /// One live remotes mount: the shared inbox and thread controls, and
 /// the tracked handle that ends them.
 type RemotesChild = {
@@ -90,6 +103,7 @@ type SearchChild = {
 /// The host's state: the selected ref and checkout, the per-ref
 /// places, the staging flag and state, the open thread, the open
 /// repository home and its people list, the notifications center, the
+/// guild registry and the open guild board with its reported row, the
 /// search surfaces, the status bar's handle and fetch time, the
 /// counts, the fold, the clock, and the live child programs.
 type Model = {
@@ -103,6 +117,11 @@ type Model = {
   Repository: RepositoryChild option
   RepositoryListOpen: bool
   Notifications: NotificationsChild option
+  GuildRegistry: GuildRegistryChild option
+  Guild: GuildChild option
+  /// The guild row the open board child reported: the staging
+  /// composer's picker rows and the paused fact the aim reads.
+  GuildRow: Guild option
   SearchPalette: SearchPaletteChild option
   Search: SearchChild option
   SearchTerm: string option
@@ -134,6 +153,8 @@ type Model = {
   LiveThread: int
   LiveRepository: int
   LiveNotifications: int
+  LiveGuildRegistry: int
+  LiveGuild: int
   LiveSearchPalette: int
   LiveSearch: int
   LiveRemotes: int
@@ -144,8 +165,9 @@ type Model = {
 /// target the staging strip clears, the staging flag and its draft,
 /// post, schedule, and queue messages, the open thread and its back
 /// request, the repository home and its people-list report, the
-/// notifications and search surfaces, the fold, the clock and session,
-/// the history place report, and the host's open, external, and quote
+/// notifications, guild, and search surfaces, the guild board's
+/// report and stage request, the fold, the clock and session, the
+/// history place report, and the host's open, external, and quote
 /// requests.
 [<NoComparison>]
 type Msg =
@@ -176,6 +198,16 @@ type Msg =
   | RepositoryListChanged of open': bool
   | NotificationsReady of view: Control * handle: IDisposable
   | NotificationsStopped
+  | GuildRegistryReady of view: Control * handle: IDisposable
+  | GuildRegistryStopped
+  | GuildReady of
+    handle: string *
+    view: Control *
+    refresh: (unit -> unit) *
+    lifetime: IDisposable
+  | GuildStopped
+  | GuildReported of report: GuildHome.Report
+  | StageToGuild of handle: string
   | RemotesReady of mount: RemotesMount.Mount * handle: IDisposable
   | RemotesStopped
   | ChatSelected of target: ChatTarget option
@@ -272,6 +304,8 @@ type internal MountedHost =
   member LiveThread: int
   member LiveRepository: int
   member LiveNotifications: int
+  member LiveGuildRegistry: int
+  member LiveGuild: int
   member LiveSearchPalette: int
   member LiveSearch: int
   member LiveRemotes: int
@@ -296,8 +330,9 @@ val subscribe: props: Props<'env> -> model: Model -> Sub<Msg>
 /// chain above the inspector checkout. A selected repository ref
 /// replaces the history center with its home; an open people list
 /// takes the inspector's place. The notifications ref fills the
-/// center with its rows, and the search palette and center are
-/// workbench overlays over the selected ref.
+/// center with its rows; the guilds ref fills it with the registry,
+/// and a guild ref with the board's log. The search palette and
+/// center are workbench overlays over the selected ref.
 val view:
   props: Props<'env> ->
   model: IObservable<Model> ->

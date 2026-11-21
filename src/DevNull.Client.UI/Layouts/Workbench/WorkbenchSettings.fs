@@ -29,6 +29,11 @@ module WorkbenchSettings =
       | "scheduled" -> Some Build.scheduled
       | "notifications" -> Some Build.notifications
       | "remotes" -> Some Build.remotes
+      | "guilds" -> Some Build.guilds
+      | _ when token.StartsWith("guild:", StringComparison.Ordinal) ->
+        token.Substring("guild:".Length)
+        |> parseHandle
+        |> Option.map Build.guild
       | _ when token.StartsWith("repository:", StringComparison.Ordinal) ->
         token.Substring("repository:".Length)
         |> parseHandle

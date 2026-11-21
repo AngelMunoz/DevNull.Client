@@ -434,14 +434,13 @@ let view
         |> Observable.distinctUntilChanged
       )
 
+  // The board's rows in the order the shared `GuildBoard.ordered`
+  // states: the pinned commit leads, its marker above it.
   let rowsOf(board: BoardState) : BoardRow list =
-    match board.Pinned with
-    | Some pinned ->
-      Pinned pinned
-      :: (board.Commits
-          |> List.filter(fun node -> nodeId node <> nodeId pinned)
-          |> List.map Plain)
-    | None -> board.Commits |> List.map Plain
+    board
+    |> GuildBoard.ordered
+    |> List.map(fun (node, pinned) ->
+      if pinned then Pinned node else Plain node)
 
   let card = CommitCard.feedRow cards
 

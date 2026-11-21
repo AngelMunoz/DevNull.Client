@@ -73,6 +73,15 @@ type RepositoryChild = {
 
 type NotificationsChild = { View: Control; Handle: IDisposable }
 
+type GuildRegistryChild = { View: Control; Handle: IDisposable }
+
+type GuildChild = {
+  GuildHandle: string
+  View: Control
+  Handle: IDisposable
+  Refresh: unit -> unit
+}
+
 type RemotesChild = {
   Mount: RemotesMount.Mount
   Handle: IDisposable
@@ -97,6 +106,9 @@ type Model = {
   Repository: RepositoryChild option
   RepositoryListOpen: bool
   Notifications: NotificationsChild option
+  GuildRegistry: GuildRegistryChild option
+  Guild: GuildChild option
+  GuildRow: Guild option
   SearchPalette: SearchPaletteChild option
   Search: SearchChild option
   SearchTerm: string option
@@ -124,6 +136,8 @@ type Model = {
   LiveThread: int
   LiveRepository: int
   LiveNotifications: int
+  LiveGuildRegistry: int
+  LiveGuild: int
   LiveSearchPalette: int
   LiveSearch: int
   LiveRemotes: int
@@ -158,6 +172,16 @@ type Msg =
   | RepositoryListChanged of open': bool
   | NotificationsReady of view: Control * handle: IDisposable
   | NotificationsStopped
+  | GuildRegistryReady of view: Control * handle: IDisposable
+  | GuildRegistryStopped
+  | GuildReady of
+    handle: string *
+    view: Control *
+    refresh: (unit -> unit) *
+    lifetime: IDisposable
+  | GuildStopped
+  | GuildReported of report: GuildHome.Report
+  | StageToGuild of handle: string
   | RemotesReady of mount: RemotesMount.Mount * handle: IDisposable
   | RemotesStopped
   | ChatSelected of target: ChatTarget option
@@ -257,6 +281,10 @@ type internal MountedHost() =
 
   member val CurrentRepository: TrackedHandle option = None with get, set
 
+  member val CurrentGuildRegistry: TrackedHandle option = None with get, set
+
+  member val CurrentGuild: TrackedHandle option = None with get, set
+
   member val CurrentNotifications: TrackedHandle option = None with get, set
 
   member val CurrentSearchPalette: TrackedHandle option = None with get, set
@@ -276,6 +304,10 @@ type internal MountedHost() =
   member val LiveRepository = 0 with get, set
 
   member val LiveNotifications = 0 with get, set
+
+  member val LiveGuildRegistry = 0 with get, set
+
+  member val LiveGuild = 0 with get, set
 
   member val CurrentRemotes: TrackedHandle option = None with get, set
 
@@ -310,6 +342,8 @@ type internal MountedHost() =
     this.LiveThread <- model.LiveThread
     this.LiveRepository <- model.LiveRepository
     this.LiveNotifications <- model.LiveNotifications
+    this.LiveGuildRegistry <- model.LiveGuildRegistry
+    this.LiveGuild <- model.LiveGuild
     this.LiveRemotes <- model.LiveRemotes
     this.LiveSearchPalette <- model.LiveSearchPalette
     this.LiveSearch <- model.LiveSearch
@@ -325,6 +359,12 @@ type internal MountedHost() =
 
     this.CurrentRepository <-
       model.Repository |> Option.bind(fun child -> track child.Handle)
+
+    this.CurrentGuildRegistry <-
+      model.GuildRegistry |> Option.bind(fun child -> track child.Handle)
+
+    this.CurrentGuild <-
+      model.Guild |> Option.bind(fun child -> track child.Handle)
 
     this.CurrentNotifications <-
       model.Notifications |> Option.bind(fun child -> track child.Handle)
@@ -352,6 +392,8 @@ type internal MountedHost() =
       this.CurrentInspector |> Option.iter _.Dispose()
       this.CurrentThread |> Option.iter _.Dispose()
       this.CurrentRepository |> Option.iter _.Dispose()
+      this.CurrentGuildRegistry |> Option.iter _.Dispose()
+      this.CurrentGuild |> Option.iter _.Dispose()
       this.CurrentNotifications |> Option.iter _.Dispose()
       this.CurrentRemotes |> Option.iter _.Dispose()
       this.CurrentSearchPalette |> Option.iter _.Dispose()
@@ -362,6 +404,8 @@ type internal MountedHost() =
       this.LiveThread <- 0
       this.LiveRepository <- 0
       this.LiveNotifications <- 0
+      this.LiveGuildRegistry <- 0
+      this.LiveGuild <- 0
       this.LiveRemotes <- 0
       this.LiveSearchPalette <- 0
       this.LiveSearch <- 0
@@ -423,6 +467,22 @@ type RepositoryStart = {
 
 [<Struct>]
 type NotificationsStart = { KeyFile: string }
+
+/// The guild registry child's start: the signed-in session it reads
+/// as, when one stands.
+[<Struct>]
+type GuildRegistryStart = { Session: SignedInSession option }
+
+/// The guild board child's start: the guild's handle, the signed
+/// session, the signed key file and viewer, and the pastéis flag.
+[<Struct>]
+type GuildStart = {
+  Handle: string
+  Session: SignedInSession option
+  KeyFile: string
+  ViewerId: string
+  Pasteis: bool
+}
 
 [<Struct>]
 type SearchPaletteStart = { KeyFile: string }
@@ -491,7 +551,7 @@ let flyoutOf
     OnOpen = fun handle -> dispatch(RefSelected(Build.repository handle))
     // The workbench has no organization destination yet.
     OnOpenOrg = ignore
-    OnOpenGuild = ignore
+    OnOpenGuild = fun handle -> dispatch(RefSelected(Build.guild handle))
     OnOpenTag = fun tag -> dispatch(SearchCommitted tag)
     Cache = props.Env.ImageCache
   }
@@ -725,6 +785,10 @@ let navFor(props: Props<'env>, dispatch: Msg -> unit) =
             dispatch(OpenThread(after "/commit/"))
           elif url.StartsWith("/search/", StringComparison.Ordinal) then
             dispatch(SearchCommitted(after "/search/"))
+          elif url.StartsWith("/guilds/", StringComparison.Ordinal) then
+            dispatch(RefSelected(Build.guild(after "/guilds/")))
+          elif url = "/guilds" then
+            dispatch(RefSelected Build.guilds)
           else
             log.LogWarning("The workbench has no route for {Url}.", url)
 
@@ -754,7 +818,7 @@ let startSearchPalette
           Recents = (props.Env :> IProvideRecentSearches).RecentSearches
           Nav = navFor(props, dispatch)
           InitialTerm = None
-          OnOpenGuild = ignore
+          OnOpenGuild = fun handle -> dispatch(RefSelected(Build.guild handle))
           OpenCompose = fun () -> dispatch ComposeRequested
           Close = fun () -> dispatch SearchPaletteClosed
         }
@@ -781,7 +845,7 @@ let startSearch
           Recents = (props.Env :> IProvideRecentSearches).RecentSearches
           Nav = navFor(props, dispatch)
           InitialTerm = Some start.Term
-          OnOpenGuild = ignore
+          OnOpenGuild = fun handle -> dispatch(RefSelected(Build.guild handle))
           OpenCompose = fun () -> dispatch ComposeRequested
           Close = fun () -> dispatch SearchClosed
         }
@@ -863,6 +927,97 @@ let startRepositoryCmd
     | Some start ->
       let child = startRepository(props, dispatch, start)
       dispatch(RepositoryReady(start.Handle, child.View, child.Handle))
+    | None -> ())
+
+let startGuildRegistry
+  (props: Props<'env>, dispatch: Msg -> unit, start: GuildRegistryStart)
+  : GuildRegistryChild =
+  let childProps: GuildRegistry.Props<'env> = {
+    Env = props.Env
+    Session = start.Session
+    Images = props.Images
+    OnOpen = fun handle -> dispatch(RefSelected(Build.guild handle))
+  }
+
+  let view, rawHandle =
+    Programs.runPage(props.Env.Dispatcher, GuildRegistry.program childProps)
+
+  {
+    View = view
+    Handle = new TrackedHandle(rawHandle) :> IDisposable
+  }
+
+let startGuild
+  (props: Props<'env>, dispatch: Msg -> unit, start: GuildStart)
+  : GuildChild =
+  let refresh = new System.Reactive.Subjects.Subject<unit>()
+
+  let childProps: GuildHome.Props<'env> = {
+    Env = props.Env
+    Session = start.Session
+    Handle = start.Handle
+    KeyFile = start.KeyFile
+    ViewerId = start.ViewerId
+    Pasteis = start.Pasteis
+    Images = props.Images
+    Flyout = flyoutOf(props, dispatch)
+    Now = props.Now
+    Refresh = refresh :> IObservable<unit>
+    Zone = props.Zone
+    OnOpenExternal = fun url -> dispatch(OpenExternal url)
+    OnOpened = fun commit -> dispatch(CheckoutSet(Some commit.Id))
+    OnReply = fun commit -> dispatch(ReplyRequested commit.Id)
+    OnQuote = fun commit -> dispatch(Quote commit)
+    OnStage = fun handle -> dispatch(StageToGuild handle)
+    OnReport = fun report -> dispatch(GuildReported report)
+    OnDialog = DialogRequested >> dispatch
+  }
+
+  let view, rawHandle =
+    Programs.runPage(props.Env.Dispatcher, GuildHome.program childProps)
+
+  {
+    GuildHandle = start.Handle
+    View = view
+    Handle = new TrackedHandle(rawHandle) :> IDisposable
+    Refresh = fun () -> refresh.OnNext()
+  }
+
+let startGuildRegistryCmd
+  (props: Props<'env>, old: IDisposable option, start: GuildRegistryStart option) : Cmd<
+                                                                                      Msg
+                                                                                     >
+  =
+  Cmd.ofEffect(fun dispatch ->
+    match old with
+    | Some handle ->
+      handle.Dispose()
+      dispatch GuildRegistryStopped
+    | None -> ()
+
+    match start with
+    | Some start ->
+      let child = startGuildRegistry(props, dispatch, start)
+      dispatch(GuildRegistryReady(child.View, child.Handle))
+    | None -> ())
+
+let startGuildCmd
+  (props: Props<'env>, old: IDisposable option, start: GuildStart option)
+  : Cmd<Msg> =
+  Cmd.ofEffect(fun dispatch ->
+    match old with
+    | Some handle ->
+      handle.Dispose()
+      dispatch GuildStopped
+    | None -> ()
+
+    match start with
+    | Some start ->
+      let child = startGuild(props, dispatch, start)
+
+      dispatch(
+        GuildReady(start.Handle, child.View, child.Refresh, child.Handle)
+      )
     | None -> ())
 
 let stopHistoryCmd(old: IDisposable option) : Cmd<Msg> =
@@ -976,6 +1131,17 @@ let stateCmd
   : Cmd<Msg> =
   Cmd.ofAction(fun () -> props.OnStateChanged(Build.state(ref, checkoutId)))
 
+// The aim the staging composer captures when it opens: the selected
+// guild ref, unless its reported row says the board is paused — a
+// paused board refuses posts, so the composer stays unaimed and the
+// paused line stays with the board.
+let aimOf(model: Model) : string option =
+  Ref.guild model.Selected
+  |> Option.filter(fun handle ->
+    model.GuildRow
+    |> Option.map(fun guild -> guild.Handle = handle && not guild.IsPaused)
+    |> Option.defaultValue true)
+
 let init(props: Props<'env>) : Model * Cmd<Msg> =
   let data = sessionData props
   let selected = WorkbenchState.refOf props.Initial
@@ -1018,6 +1184,9 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     Repository = None
     RepositoryListOpen = false
     Notifications = None
+    GuildRegistry = None
+    Guild = None
+    GuildRow = None
     Remotes = None
     ChatTarget = None
     RemoteCount = 0
@@ -1045,6 +1214,8 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
     LiveThread = 0
     LiveRepository = 0
     LiveNotifications = 0
+    LiveGuildRegistry = 0
+    LiveGuild = 0
     LiveRemotes = 0
     LiveSearchPalette = 0
     LiveSearch = 0
@@ -1074,11 +1245,27 @@ let init(props: Props<'env>) : Model * Cmd<Msg> =
           Pasteis = data.Pasteis
         }
       )
-    | None when Ref.notifications selected ->
-      startNotificationsCmd(props, None, Some { KeyFile = data.KeyFile })
-    | None when Ref.remotes selected ->
-      startRemotesCmd(props, None, remotesStartFor(data, selected))
-    | None -> startHistoryCmd(props, None, historyStart)
+    | None when Ref.guilds selected ->
+      startGuildRegistryCmd(props, None, Some { Session = data.Session })
+    | None ->
+      (match Ref.guild selected with
+       | Some handle ->
+         startGuildCmd(
+           props,
+           None,
+           Some {
+             Handle = handle
+             Session = data.Session
+             KeyFile = data.KeyFile
+             ViewerId = data.ViewerId
+             Pasteis = data.Pasteis
+           }
+         )
+       | None when Ref.notifications selected ->
+         startNotificationsCmd(props, None, Some { KeyFile = data.KeyFile })
+       | None when Ref.remotes selected ->
+         startRemotesCmd(props, None, remotesStartFor(data, selected))
+       | None -> startHistoryCmd(props, None, historyStart))
 
   model,
   Cmd.batch [
@@ -1141,6 +1328,9 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
           Repository = None
           RepositoryListOpen = false
           Notifications = None
+          GuildRegistry = None
+          Guild = None
+          GuildRow = None
           Remotes = None
           ChatTarget = None
           SearchPalette = None
@@ -1165,6 +1355,14 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         model.Remotes |> Option.map _.Handle,
         remotesStartFor(data, ref)
       )
+
+      startGuildRegistryCmd(
+        props,
+        model.GuildRegistry |> Option.map _.Handle,
+        None
+      )
+
+      startGuildCmd(props, model.Guild |> Option.map _.Handle, None)
       stateCmd(props, ref, model.CheckoutId)
     ]
 
@@ -1217,27 +1415,82 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
         )
       ]
     | None ->
-      let start: HistoryStart = {
-        Ref = ref
-        Place = places |> Map.tryFind ref
-        Session = data.Session
-        KeyFile = data.KeyFile
-        ViewerId = data.ViewerId
-        Pasteis = data.Pasteis
-        Handle = data.Handle
-      }
+      (match Ref.guild ref, Ref.guilds ref with
+       | Some handle, _ ->
+         cleared,
+         Cmd.batch [
+           yield! common
+           stopHistoryCmd(model.History |> Option.map _.Handle)
+           startRepositoryCmd(
+             props,
+             model.Repository |> Option.map _.Handle,
+             None
+           )
 
-      cleared,
-      Cmd.batch [
-        yield! common
-        startHistoryCmd(props, model.History |> Option.map _.Handle, start)
-        startRepositoryCmd(props, model.Repository |> Option.map _.Handle, None)
-        startNotificationsCmd(
-          props,
-          model.Notifications |> Option.map _.Handle,
-          None
-        )
-      ]
+           startNotificationsCmd(
+             props,
+             model.Notifications |> Option.map _.Handle,
+             None
+           )
+
+           startGuildCmd(
+             props,
+             None,
+             Some {
+               Handle = handle
+               Session = data.Session
+               KeyFile = data.KeyFile
+               ViewerId = data.ViewerId
+               Pasteis = data.Pasteis
+             }
+           )
+         ]
+       | None, true ->
+         cleared,
+         Cmd.batch [
+           yield! common
+           stopHistoryCmd(model.History |> Option.map _.Handle)
+           startRepositoryCmd(
+             props,
+             model.Repository |> Option.map _.Handle,
+             None
+           )
+
+           startNotificationsCmd(
+             props,
+             model.Notifications |> Option.map _.Handle,
+             None
+           )
+
+           startGuildRegistryCmd(props, None, Some { Session = data.Session })
+         ]
+       | None, false ->
+         let start: HistoryStart = {
+           Ref = ref
+           Place = places |> Map.tryFind ref
+           Session = data.Session
+           KeyFile = data.KeyFile
+           ViewerId = data.ViewerId
+           Pasteis = data.Pasteis
+           Handle = data.Handle
+         }
+
+         cleared,
+         Cmd.batch [
+           yield! common
+           startHistoryCmd(props, model.History |> Option.map _.Handle, start)
+           startRepositoryCmd(
+             props,
+             model.Repository |> Option.map _.Handle,
+             None
+           )
+
+           startNotificationsCmd(
+             props,
+             model.Notifications |> Option.map _.Handle,
+             None
+           )
+         ])
   | CheckoutSet commitId when commitId = model.CheckoutId -> model, Cmd.none
   | CheckoutSet commitId -> checkout(commitId, false)
   | ReplyRequested commitId -> checkout(Some commitId, true)
@@ -1283,12 +1536,25 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
     },
     startThreadCmd(props, model.Thread |> Option.map _.Handle, None)
   | StagingToggled ->
+    let staging =
+      if model.StagingOpen then
+        model.Staging
+      else
+        { model.Staging with Aim = aimOf model }
+
     {
       model with
           StagingOpen = not model.StagingOpen
+          Staging = staging
     },
     Cmd.none
-  | ComposeRequested -> { model with StagingOpen = true }, Cmd.none
+  | ComposeRequested ->
+    {
+      model with
+          StagingOpen = true
+          Staging = { model.Staging with Aim = aimOf model }
+    },
+    Cmd.none
   | DraftChanged text ->
     if text = model.Staging.Draft then
       model, Cmd.none
@@ -1308,7 +1574,8 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
           }
     },
     Cmd.ofAction(fun () ->
-      model.History |> Option.iter(fun child -> child.Refresh()))
+      model.History |> Option.iter(fun child -> child.Refresh())
+      model.Guild |> Option.iter(fun child -> child.Refresh()))
   | StagingScheduled _ ->
     {
       model with
@@ -1440,6 +1707,7 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
           StagingOpen = true
           Staging = {
             model.Staging with
+                Aim = aimOf model
                 Quote = Some commit
           }
     },
@@ -1448,6 +1716,13 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
     {
       model with
           Staging = { model.Staging with Quote = None }
+    },
+    Cmd.none
+  | StageToGuild handle ->
+    {
+      model with
+          StagingOpen = true
+          Staging = { model.Staging with Aim = Some handle }
     },
     Cmd.none
   | HistoryStopped ->
@@ -1510,6 +1785,73 @@ let update(props: Props<'env>, msg: Msg, model: Model) : Model * Cmd<Msg> =
       Cmd.none
     else
       childHandle.Dispose()
+      model, Cmd.none
+  | GuildRegistryStopped ->
+    {
+      model with
+          LiveGuildRegistry = max 0 (model.LiveGuildRegistry - 1)
+    },
+    Cmd.none
+  | GuildRegistryReady(view, childHandle) ->
+    if Ref.guilds model.Selected then
+      model.GuildRegistry
+      |> Option.iter(fun current -> current.Handle.Dispose())
+
+      let live =
+        if model.GuildRegistry.IsSome then
+          model.LiveGuildRegistry
+        else
+          model.LiveGuildRegistry + 1
+
+      {
+        model with
+            GuildRegistry = Some { View = view; Handle = childHandle }
+            LiveGuildRegistry = live
+      },
+      Cmd.none
+    else
+      childHandle.Dispose()
+      model, Cmd.none
+  | GuildStopped ->
+    {
+      model with
+          LiveGuild = max 0 (model.LiveGuild - 1)
+    },
+    Cmd.none
+  | GuildReady(handle, view, refresh, childHandle) ->
+    if Some handle = Ref.guild model.Selected then
+      model.Guild |> Option.iter(fun current -> current.Handle.Dispose())
+
+      let live =
+        if model.Guild.IsSome then
+          model.LiveGuild
+        else
+          model.LiveGuild + 1
+
+      {
+        model with
+            Guild =
+              Some {
+                GuildHandle = handle
+                View = view
+                Handle = childHandle
+                Refresh = refresh
+              }
+            LiveGuild = live
+      },
+      Cmd.none
+    else
+      childHandle.Dispose()
+      model, Cmd.none
+  | GuildReported report ->
+    if model.Guild.IsSome then
+      {
+        model with
+            GuildRow = report.Guild
+            FetchedAt = report.FetchedAt |> Option.orElse model.FetchedAt
+      },
+      Cmd.none
+    else
       model, Cmd.none
   | RemotesStopped ->
     {
@@ -2023,6 +2365,18 @@ let view
     |> Observable.distinctUntilChanged
     |> Slices.share
 
+  let guildOpen =
+    model
+    |> Observable.map _.Guild.IsSome
+    |> Observable.distinctUntilChanged
+    |> Slices.share
+
+  let registryOpen =
+    model
+    |> Observable.map _.GuildRegistry.IsSome
+    |> Observable.distinctUntilChanged
+    |> Slices.share
+
   let notificationsOpen =
     model
     |> Observable.map _.Notifications.IsSome
@@ -2064,8 +2418,17 @@ let view
     Observable.combineLatest coveredThreadRepo notificationsOpen
     |> Observable.map(fun (covered, notifications) -> covered || notifications)
 
+  let guildCenterOpen =
+    Observable.combineLatest guildOpen registryOpen
+    |> Observable.map(fun (guild, registry) -> guild || registry)
+    |> Slices.share
+
+  let coveredThreadRepoNotificationsGuilds =
+    Observable.combineLatest coveredThreadRepoNotifications guildCenterOpen
+    |> Observable.map(fun (covered, guilds) -> covered || guilds)
+
   let coveredThreadRepoNotificationsRemotes =
-    Observable.combineLatest coveredThreadRepoNotifications remotesVisible
+    Observable.combineLatest coveredThreadRepoNotificationsGuilds remotesVisible
     |> Observable.map(fun (covered, remotes) -> covered || remotes)
 
   let centerCovered =
@@ -2121,6 +2484,65 @@ let view
       .IsVisible(repositoryVisible)
       .Margin(
         reserved |> Observable.map(fun right -> Thickness(0.0, 0.0, right, 0.0))
+      )
+
+  let guildPlaceholder = Panel()
+
+  let guildCenterBusy =
+    Observable.combineLatest threadOpen searchOpen
+    |> Observable.map(fun (thread, search) -> thread || search)
+    |> Slices.share
+
+  let guildSlice =
+    model
+    |> Observable.map(fun current -> current.Guild |> Option.map _.View)
+    |> Observable.distinctUntilChanged
+    |> Observable.map(Option.defaultValue guildPlaceholder)
+
+  let guildVisible =
+    Observable.combineLatest guildCenterBusy guildOpen
+    |> Observable.map(fun (busy, guild) -> guild && not busy)
+    |> Observable.distinctUntilChanged
+    |> Slices.share
+
+  let guildHost =
+    ContentControl()
+      .Name("GuildRegion")
+      .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+      .VerticalContentAlignment(VerticalAlignment.Stretch)
+      .Content(guildSlice |> _.ToBinding())
+      .IsVisible(guildVisible)
+      .Margin(
+        reserved
+        |> Observable.map(fun right ->
+          Thickness(0.0, Theme.bandHeight, right, 0.0))
+      )
+
+  let registryPlaceholder = Panel()
+
+  let registrySlice =
+    model
+    |> Observable.map(fun current -> current.GuildRegistry |> Option.map _.View)
+    |> Observable.distinctUntilChanged
+    |> Observable.map(Option.defaultValue registryPlaceholder)
+
+  let registryVisible =
+    Observable.combineLatest guildCenterBusy registryOpen
+    |> Observable.map(fun (busy, registry) -> registry && not busy)
+    |> Observable.distinctUntilChanged
+    |> Slices.share
+
+  let registryHost =
+    ContentControl()
+      .Name("GuildRegistryRegion")
+      .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+      .VerticalContentAlignment(VerticalAlignment.Stretch)
+      .Content(registrySlice |> _.ToBinding())
+      .IsVisible(registryVisible)
+      .Margin(
+        reserved
+        |> Observable.map(fun right ->
+          Thickness(0.0, Theme.bandHeight, right, 0.0))
       )
 
   let notificationsPlaceholder = Panel()
@@ -2426,6 +2848,8 @@ let view
         historyHost,
         notificationsHost,
         repositoryHost,
+        guildHost,
+        registryHost,
         searchHost,
         threadHost,
         remotesCenter,
@@ -2453,6 +2877,8 @@ let view
        |> Observable.map(fun current ->
          {
            Open = current.StagingOpen
+           Aim = current.Staging.Aim
+           Rows = current.GuildRow |> Option.toList
            Draft = current.Staging.Draft
            Quote = current.Staging.Quote
            Queue = current.Staging.Queue

@@ -262,6 +262,10 @@
     <Compile Include="Layouts\Workbench\RepositoryHome.fs" />
     <Compile Include="Layouts\Workbench\NotificationsCenter.fsi" />
     <Compile Include="Layouts\Workbench\NotificationsCenter.fs" />
+    <Compile Include="Layouts\Workbench\GuildRegistry.fsi" />
+    <Compile Include="Layouts\Workbench\GuildRegistry.fs" />
+    <Compile Include="Layouts\Workbench\GuildHome.fsi" />
+    <Compile Include="Layouts\Workbench\GuildHome.fs" />
     <Compile Include="Layouts\Workbench\WorkbenchHost.fsi" />
     <Compile Include="Layouts\Workbench\WorkbenchHost.fs" />
     <Compile Include="Layouts\Editor\EditorCards.fsi" />

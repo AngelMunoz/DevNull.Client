@@ -47,6 +47,7 @@ let private queueEntry: ScheduledCommit = {
 let private stagingOf(stagingOpen: bool) : Staging.Model =
   if stagingOpen then
     {
+      Aim = None
       Draft = "release notes"
       Quote = None
       Queue = {
@@ -370,6 +371,9 @@ let private modelOf(folded: bool, stagingOpen: bool) : WorkbenchHost.Model =
     Repository = None
     RepositoryListOpen = false
     Notifications = None
+    GuildRegistry = None
+    Guild = None
+    GuildRow = None
     Remotes = None
     ChatTarget = None
     RemoteCount = 0
@@ -409,6 +413,8 @@ let private modelOf(folded: bool, stagingOpen: bool) : WorkbenchHost.Model =
     LiveThread = 0
     LiveRepository = 0
     LiveNotifications = 0
+    LiveGuildRegistry = 0
+    LiveGuild = 0
     LiveRemotes = 0
     LiveSearchPalette = 0
     LiveSearch = 0
@@ -816,6 +822,8 @@ let tests =
 
             let model: Staging.View = {
               Open = true
+              Aim = None
+              Rows = []
               Draft = "release notes"
               Quote = None
               Queue = {

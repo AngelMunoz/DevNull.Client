@@ -35,6 +35,8 @@ let tests =
         "nope"
         "repository:"
         "repository:two words"
+        "guild:"
+        "guild:two words"
         "following|"
         "following|not-a-guid"
         "following|" + commitId + "|extra"
@@ -57,6 +59,8 @@ let tests =
         "scheduled"
         "notifications"
         "remotes"
+        "guilds"
+        "guild:rust"
         "repository:ana"
       ]
 
@@ -99,6 +103,25 @@ let tests =
         (WorkbenchSettings.store state)
         ("repository:ana|" + commitId)
         "the stored handle"
+
+    testCase "a guild ref keeps its parsed handle"
+    <| fun () ->
+      let state = stateOf "guild:rust"
+
+      Expect.equal (Ref.label(refOf "guild:rust")) "#rust" "the label"
+
+      Expect.equal (Ref.guild(refOf "guild:rust")) (Some "rust") "the handle"
+
+      Expect.equal
+        (WorkbenchSettings.store(stateOf("guild:@rust|" + commitId)))
+        ("guild:rust|" + commitId)
+        "the stored handle"
+
+    testCase "the directory ref names its row"
+    <| fun () ->
+      Expect.isTrue (Ref.guilds(refOf "guilds")) "the directory ref"
+
+      Expect.equal (Ref.label(refOf "guilds")) "Guilds" "the label"
 
     testCase "a stored ref is trimmed before it is read"
     <| fun () ->

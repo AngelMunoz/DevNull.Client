@@ -37,6 +37,7 @@ let rows(saved: int, scheduled: int, unread: int, remotes: int option) = [
   rowOf("scheduled", Some scheduled)
   rowOf("notifications", Some unread)
   rowOf("remotes", remotes)
+  rowOf("guilds", None)
 ]
 
 let refButton(selected: Ref, row: RefRow, onSelect: Ref -> unit) : Control =

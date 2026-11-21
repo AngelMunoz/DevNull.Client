@@ -3,7 +3,8 @@ namespace DevNull.Client.Workbench
 open DevNull.Client.Core.ApiTypes
 
 /// One workbench ref: one of the three histories, the saved and
-/// scheduled lists, the notifications list, or a user's repository.
+/// scheduled lists, the notifications list, the guild directory, a
+/// user's repository, or a guild's board.
 type Ref =
   private
   | HistoryRef of LogKind
@@ -11,6 +12,8 @@ type Ref =
   | ScheduledRef
   | NotificationsRef
   | RemotesRef
+  | GuildsRef
+  | GuildRef of handle: string
   | RepositoryRef of handle: string
 
 /// The list a history program reads: one log, or the signed user's
@@ -59,6 +62,12 @@ module Ref =
   /// True for the remotes ref.
   val remotes: ref: Ref -> bool
 
+  /// True for the guild directory ref.
+  val guilds: ref: Ref -> bool
+
+  /// The handle behind a guild ref, when the ref is one.
+  val guild: ref: Ref -> string option
+
 module Checkout =
 
   /// The checked-out commit's id.
@@ -86,6 +95,10 @@ module internal Build =
   val notifications: Ref
 
   val remotes: Ref
+
+  val guilds: Ref
+
+  val guild: handle: string -> Ref
 
   val repository: handle: string -> Ref
 

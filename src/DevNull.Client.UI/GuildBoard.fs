@@ -94,3 +94,17 @@ module GuildBoard =
               Wanted = ValueNone
               Failed = true
         }
+
+  let ordered(state: BoardState) : (CommitNode * bool) list =
+    let keyOf(node: CommitNode) =
+      match node with
+      | LiveCommit commit -> commit.Id
+      | Tombstone stone -> stone.Id
+
+    match state.Pinned with
+    | Some pinned ->
+      (pinned, true)
+      :: (state.Commits
+          |> List.filter(fun node -> keyOf node <> keyOf pinned)
+          |> List.map(fun node -> node, false))
+    | None -> state.Commits |> List.map(fun node -> node, false)

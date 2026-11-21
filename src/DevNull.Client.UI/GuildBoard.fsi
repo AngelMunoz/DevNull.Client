@@ -76,3 +76,9 @@ module GuildBoard =
     page: int *
     outcome: Result<DevNull.Client.Core.ApiTypes.GuildBoard, AppError> ->
       BoardState
+
+  /// The board's rows in display order: the pinned commit first, once,
+  /// then the commits the board holds with the pinned one left out.
+  /// Each row carries its pinned fact, so a surface draws its own
+  /// marker on the rows that ask for one.
+  val ordered: state: BoardState -> (CommitNode * bool) list

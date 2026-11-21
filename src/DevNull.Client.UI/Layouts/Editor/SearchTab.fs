@@ -333,6 +333,19 @@ let mount(dispatcher: IDispatcher, props: Props<'env>) =
             Limit = Some 20
           }
         )),
+      (fun term -> async {
+        let! page =
+          Guilds.list(
+            props.Env,
+            {
+              KeyFile = props.Session.KeyFile
+              Query = Some term
+              Page = 1
+            }
+          )
+
+        return page |> Result.map(fun answered -> answered.Items)
+      }),
       log
     )
 

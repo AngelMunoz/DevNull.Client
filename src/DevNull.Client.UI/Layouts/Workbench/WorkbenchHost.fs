@@ -491,6 +491,7 @@ let flyoutOf
     OnOpen = fun handle -> dispatch(RefSelected(Build.repository handle))
     // The workbench has no organization destination yet.
     OnOpenOrg = ignore
+    OnOpenGuild = ignore
     OnOpenTag = fun tag -> dispatch(SearchCommitted tag)
     Cache = props.Env.ImageCache
   }
@@ -691,6 +692,19 @@ let searchSession
           Limit = limit
         }
       )),
+    (fun term -> async {
+      let! page =
+        Guilds.list(
+          props.Env,
+          {
+            KeyFile = session.KeyFile
+            Query = Some term
+            Page = 1
+          }
+        )
+
+      return page |> Result.map(fun answered -> answered.Items)
+    }),
     log
   )
 
@@ -740,6 +754,7 @@ let startSearchPalette
           Recents = (props.Env :> IProvideRecentSearches).RecentSearches
           Nav = navFor(props, dispatch)
           InitialTerm = None
+          OnOpenGuild = ignore
           OpenCompose = fun () -> dispatch ComposeRequested
           Close = fun () -> dispatch SearchPaletteClosed
         }
@@ -766,6 +781,7 @@ let startSearch
           Recents = (props.Env :> IProvideRecentSearches).RecentSearches
           Nav = navFor(props, dispatch)
           InitialTerm = Some start.Term
+          OnOpenGuild = ignore
           OpenCompose = fun () -> dispatch ComposeRequested
           Close = fun () -> dispatch SearchClosed
         }

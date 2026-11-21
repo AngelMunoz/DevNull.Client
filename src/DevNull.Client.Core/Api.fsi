@@ -729,6 +729,55 @@ module Organizations =
       and Rejected<'e>
       and DecodeError<'e>
 
+module Guilds =
+
+  /// One directory read: a search term or none, and the page number,
+  /// one-based. The server strips a leading `#` from the term itself;
+  /// send the term as typed. An empty term leaves `q` off.
+  type ListRequest = {
+    KeyFile: string
+    Query: string option
+    Page: int
+  }
+
+  /// One board read: the guild's handle and the page number, one-based.
+  type ShowRequest = {
+    KeyFile: string
+    Handle: string
+    Page: int
+  }
+
+  /// Reads one page of the guild directory, twenty-four a page,
+  /// ordered by member count. The server answers 404 while the feature
+  /// is off for the viewer; the refusal rides the ordinary Rejected
+  /// path.
+  val list:
+    env: 'env * request: ListRequest -> Async<Result<GuildsPage, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
+  /// Reads one page of a guild's board, thirty root commits a page,
+  /// newest first, with the guild row, the pinned commit, and the
+  /// moderator fact. A paused guild still reads; only posting refuses.
+  val show:
+    env: 'env * request: ShowRequest -> Async<Result<GuildBoard, 'e>>
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and NonceError<'e>
+      and SigningError<'e>
+      and TransportError<'e>
+      and Rejected<'e>
+      and DecodeError<'e>
+
 module Commits =
 
   /// What a new commit points at: nothing, a parent, or a quoted commit.
@@ -750,6 +799,10 @@ module Commits =
     ImageDescriptions: string option list
     Poll: PollSpec option
     ReplyRecipients: string list
+    /// The guild board this commit posts to, when it posts to one.
+    /// The server refuses a guild reply; a guild that lost its
+    /// moderator answers the guild_paused refusal.
+    GuildHandle: string option
   }
 
   /// One commit to read through the signed API.
@@ -988,6 +1041,8 @@ module ScheduledCommits =
     Poll: PollSpec option
     Card: LinkCard
     ScheduledAt: ScheduledMoment
+    /// The guild board this commit posts to, when it posts to one.
+    GuildHandle: string option
   }
 
   /// One queued commit acted on by id.

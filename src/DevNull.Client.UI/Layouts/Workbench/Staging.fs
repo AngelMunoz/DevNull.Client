@@ -210,6 +210,8 @@ let composerFor
         Session = session
         Target = target
         Participants = ValueNone
+        Guilds = ValueNone
+        Guild = ValueNone
         OnCommitted = props.OnPosted
         OnScheduled = ValueSome props.OnScheduled
         OnOpenQueue = ValueSome openQueue

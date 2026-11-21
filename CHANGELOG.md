@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Guilds:** commits posted to a guild show its chip under the body in every feed, guild results ride the search dialog, and the composer targets a guild board with `#handle` completion. The sidebar's new Guilds entry opens the guild directory — searched, counted, and paged the way the site does it — and a guild opens its board inside the app as the site's own guild page: identity header, the composer aimed at the board asking its own question, and the pinned commit leading the bulletin board.
+
 ## [0.17.1] - 2026-11-16
 
 ### Fixed

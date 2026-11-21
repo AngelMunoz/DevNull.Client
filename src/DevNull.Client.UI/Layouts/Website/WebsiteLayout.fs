@@ -372,6 +372,8 @@ let composeDialog
               Session = session
               Target = Composer.Fresh
               Participants = ValueNone
+              Guilds = ValueNone
+              Guild = ValueNone
               OnCommitted = fun _ -> close()
               OnScheduled = ValueSome(fun _ -> close())
               OnOpenQueue = ValueNone
@@ -717,6 +719,8 @@ let chromeFeed(props: ChromeProps<'env>) : Control =
               Session = entry
               Target = Composer.Fresh
               Participants = ValueNone
+              Guilds = ValueNone
+              Guild = ValueNone
               OnCommitted = fun _ -> props.Env.Timeline.CommitLanded()
               OnScheduled = ValueNone
               OnOpenQueue =
@@ -889,6 +893,19 @@ let mount(props: Props<'env>) : Mount =
                 Limit = Some 5
               }
             )),
+          (fun term -> async {
+            let! page =
+              Guilds.list(
+                env,
+                {
+                  KeyFile = entry.KeyFile
+                  Query = Some term
+                  Page = 1
+                }
+              )
+
+            return page |> Result.map(fun answered -> answered.Items)
+          }),
           log
         )
 
@@ -899,6 +916,7 @@ let mount(props: Props<'env>) : Mount =
         Recents = (env :> IProvideRecentSearches).RecentSearches
         Nav = router
         InitialTerm = None
+        OnOpenGuild = ignore
         OpenCompose = fun () -> composeOpen.OnNext true
         Close = closeSearch
       }
@@ -1127,6 +1145,14 @@ let mount(props: Props<'env>) : Mount =
       Label = "Saved"
       Section = "saved"
       Url = "/saved"
+      Badge = ValueNone
+      Visible = ValueNone
+    }
+    {
+      Glyph = Glyph.Guild
+      Label = "Guilds"
+      Section = "guilds"
+      Url = "/guilds"
       Badge = ValueNone
       Visible = ValueNone
     }

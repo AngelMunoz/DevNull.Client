@@ -118,6 +118,41 @@ type OrganizationProfile = {
   Admins: User list
 }
 
+/// The guild context a commit carries: what the wire's `guild` object
+/// holds. The icon address is signed for the viewer and stays the same
+/// for the day, so a cache keyed by it holds.
+type GuildSummary = {
+  Handle: string
+  Name: string
+  Emoji: string
+  IconUrl: string option
+}
+
+/// One guild as the directory returns it, with the viewer's state.
+/// The state chips are read-only facts: the signed API offers no
+/// join, leave, or mute write. A guild without a moderator is paused.
+type Guild = {
+  Handle: string
+  Name: string
+  Emoji: string
+  IconUrl: string option
+  Description: string option
+  MemberCount: int
+  IsJoined: bool
+  IsMuted: bool
+  IsPaused: bool
+  HtmlUrl: string
+}
+
+/// One page of the guild directory: offset pagination, twenty-four a
+/// page, ordered by member count then handle.
+type GuildsPage = {
+  Items: Guild list
+  CurrentPage: int
+  LastPage: int
+  Total: int
+}
+
 /// One issue or pull request a `#number` reference can name: the card
 /// the site's own suggestion carries.
 type Issue = {
@@ -343,6 +378,8 @@ type Commit = {
   ReplyPreview: ReplyPreview option
   /// The commit in the person's own language, when translations are on.
   Translation: CommitTranslation option
+  /// The guild this commit was posted to, when it was posted to one.
+  Guild: GuildSummary option
 }
 
 /// A commit or a tombstone, as lists and ancestors return them.
@@ -385,6 +422,22 @@ type Page<'value> = {
   NextCursor: string option
   PrevCursor: string option
   PerPage: int
+}
+
+/// One page of a guild's board, as GET /api/v1/guilds/{handle} answers
+/// it: thirty root commits a numbered page, newest first, with the
+/// guild row, the pinned commit, and whether the viewer moderates. The
+/// board is a simple paginator: no total and no last page, only the
+/// next link, so `HasMore` reads that link. The pinned commit keeps its
+/// place among the items and also rides beside them.
+type GuildBoard = {
+  Items: CommitNode list
+  CurrentPage: int
+  PerPage: int
+  HasMore: bool
+  Guild: Guild
+  PinnedCommit: CommitNode option
+  CanModerate: bool
 }
 
 /// One public profile.
@@ -712,6 +765,7 @@ type ErrorCode =
   | TimedOut
   | Banned
   | CommitRulesRequired
+  | GuildPaused
   | Unknown of raw: string
 
 module ErrorCodes =
@@ -1126,6 +1180,11 @@ module SearchTerms =
   /// sent nothing.
   val commitTerm: raw: string -> string voption
 
+  /// The guild term to send: its trimmed words without the leading
+  /// `#`, or none when nothing is left to match. The wire's own
+  /// search strips the mark too.
+  val guildTerm: raw: string -> string voption
+
 module User =
   /// Reads a cursor page of users.
   val decodePage: body: string -> Result<Page<User>, DecodeFailure>
@@ -1226,6 +1285,14 @@ module OrganizationProfile =
   /// Reads one public organization profile, from its `{data: ...}`
   /// envelope.
   val decode: body: string -> Result<OrganizationProfile, DecodeFailure>
+
+module Guilds =
+  /// Reads one numbered page of the directory envelope.
+  val decodePage: body: string -> Result<GuildsPage, DecodeFailure>
+
+  /// Reads one guild board envelope: the commits, the guild row, the
+  /// pinned commit, and the moderator fact.
+  val decodeBoard: body: string -> Result<GuildBoard, DecodeFailure>
 
 /// The transport could not reach the server.
 type TransportError<'e> =

@@ -45,6 +45,14 @@ type Props<'env
   /// author first, then the thread read's other participants. An
   /// absent value leaves the picker out and the field off the request.
   Participants: ParticipantRow list voption
+  /// The joined guilds the picker offers, read fresh each time the
+  /// picker opens. An absent value leaves the picker out: the host
+  /// offers no guild targeting. A reply target hides it — the wire
+  /// forbids a guild reply.
+  Guilds: (unit -> Guild list) voption
+  /// The guild the draft starts targeted at, when a host opens the
+  /// composer aimed at one. The composer owns the choice after that.
+  Guild: string voption
   /// Runs with the created commit, on the UI thread.
   OnCommitted: Commit -> unit
   /// Runs with the queued commit when one was scheduled, on the UI

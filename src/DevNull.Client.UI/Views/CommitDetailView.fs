@@ -1113,6 +1113,7 @@ module Parts =
         fun username -> Navigation.go(props.Nav, "/profile/" + username, ignore)
       OnOpenOrg =
         fun handle -> Navigation.go(props.Nav, "/org/" + handle, ignore)
+      OnOpenGuild = ignore
       OnOpenTag =
         fun tag ->
           Navigation.go(
@@ -1456,6 +1457,8 @@ module Parts =
               Session = props.Session
               Target = Composer.ReplyTo props.CommitId
               Participants = participantsOf page
+              Guilds = ValueNone
+              Guild = ValueNone
               OnCommitted = fun _ -> dispatch State.ReloadRequested
               OnScheduled = ValueNone
               OnOpenQueue = ValueNone
@@ -1473,6 +1476,8 @@ module Parts =
         Session = props.Session
         Target = Composer.Quoting props.CommitId
         Participants = ValueNone
+        Guilds = ValueNone
+        Guild = ValueNone
         OnCommitted =
           fun commit -> Navigation.go(props.Nav, "/commit/" + commit.Id, ignore)
         OnScheduled = ValueNone

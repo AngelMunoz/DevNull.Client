@@ -445,6 +445,7 @@ let commitRequest: Commits.CreateRequest = {
   ImageDescriptions = []
   Poll = None
   ReplyRecipients = []
+  GuildHandle = None
 }
 
 let commitApiTests =
@@ -3921,5 +3922,241 @@ let settingsTests =
           Expect.equal true translation.Available "available"
         | None -> failtest "expected the commit's translation"
       | Error error -> failtestf "expected a commit: %A" error
+    }
+  ]
+
+let guildRowJson =
+  """{"handle":"rust","name":"Rust","description":null,"emoji":"🦀","icon_url":null,"member_count":1204,"is_joined":true,"is_muted":true,"is_paused":false,"html_url":"https://dev-null.sh/g/rust"}"""
+
+let pausedGuildRowJson =
+  """{"handle":"go","name":"Go","description":"Gophers.","emoji":"🐹","icon_url":"https://dev-null.sh/g/go/icon?v=1","member_count":3,"is_joined":false,"is_muted":false,"is_paused":true,"html_url":"https://dev-null.sh/g/go"}"""
+
+let guildsPageJson =
+  sprintf
+    """{"data":[%s,%s],"links":{},"meta":{"current_page":2,"last_page":3,"total":74,"per_page":24}}"""
+    guildRowJson
+    pausedGuildRowJson
+
+let guildBoardJson =
+  sprintf
+    """{"data":[%s],"links":{"first":"https://dev-null.sh/api/v1/guilds/rust?page=1","last":null,"prev":null,"next":"https://dev-null.sh/api/v1/guilds/rust?page=2"},"meta":{"current_page":1,"per_page":30,"from":1,"to":1,"path":"https://dev-null.sh/api/v1/guilds/rust"},"guild":%s,"pinned_commit":%s,"can_moderate":false}"""
+    commitJson
+    guildRowJson
+    commitJson
+
+let guildBoardLastJson =
+  sprintf
+    """{"data":[%s],"links":{"first":"https://dev-null.sh/api/v1/guilds/rust?page=1","last":null,"prev":"https://dev-null.sh/api/v1/guilds/rust?page=1","next":null},"meta":{"current_page":2,"per_page":30,"from":31,"to":31,"path":"https://dev-null.sh/api/v1/guilds/rust"},"guild":%s,"pinned_commit":null,"can_moderate":true}"""
+    commitJson
+    guildRowJson
+
+/// The created commit as a guild post answers it: the guild object
+/// rides beside the body, as every feed read carries it.
+let guildCommitJson =
+  commitJson.Replace(
+    "\"status\":\"approved\"",
+    "\"status\":\"approved\",\"guild\":{\"handle\":\"ops\",\"name\":\"Ops Room\",\"emoji\":\"🚨\",\"icon_url\":null}"
+  )
+
+let guildApiTests =
+  testList "Api.guilds" [
+    testAsync "a directory page becomes rows carrying the viewer's state" {
+      let http = CapturingHttp(ok guildsPageJson)
+
+      let request: Guilds.ListRequest = {
+        KeyFile = "key-file"
+        Query = None
+        Page = 2
+      }
+
+      let! (result: Result<GuildsPage, TestError>) =
+        Guilds.list(envFor http, request)
+
+      match result with
+      | Ok page ->
+        Expect.equal 2 page.Items.Length "rows"
+
+        let joined = page.Items |> List.head
+        Expect.equal "rust" joined.Handle "handle"
+        Expect.equal true joined.IsJoined "joined"
+        Expect.equal true joined.IsMuted "muted"
+        Expect.equal None joined.Description "null description"
+        Expect.equal None joined.IconUrl "null icon"
+        Expect.equal 1204 joined.MemberCount "members"
+        Expect.equal false joined.IsPaused "active"
+
+        let paused = page.Items |> List.item 1
+        Expect.equal true paused.IsPaused "paused"
+        Expect.equal (Some "Gophers.") paused.Description "description"
+
+        Expect.equal
+          (Some "https://dev-null.sh/g/go/icon?v=1")
+          paused.IconUrl
+          "icon"
+
+        Expect.equal 2 page.CurrentPage "current page"
+        Expect.equal 3 page.LastPage "last page"
+        Expect.equal 74 page.Total "total"
+
+        let sent = http.Requests |> List.exactlyOne
+        Expect.equal "/api/v1/guilds?page=2" sent.Target "no term, no q"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "a search reads its term and page" {
+      let http = CapturingHttp(ok guildsPageJson)
+
+      let request: Guilds.ListRequest = {
+        KeyFile = "key-file"
+        Query = Some "rust"
+        Page = 2
+      }
+
+      let! (result: Result<GuildsPage, TestError>) =
+        Guilds.list(envFor http, request)
+
+      match result with
+      | Ok _ ->
+        let sent = http.Requests |> List.exactlyOne
+
+        Expect.equal
+          "/api/v1/guilds?q=rust&page=2"
+          sent.Target
+          "the term as typed"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "a board page carries its commits, guild, pin and moderator fact" {
+      let http = CapturingHttp(ok guildBoardJson)
+
+      let request: Guilds.ShowRequest = {
+        KeyFile = "key-file"
+        Handle = "rust"
+        Page = 1
+      }
+
+      let! (result: Result<GuildBoard, TestError>) =
+        Guilds.show(envFor http, request)
+
+      match result with
+      | Ok board ->
+        Expect.equal 1 board.Items.Length "commits"
+        Expect.equal "rust" board.Guild.Handle "the guild row"
+        Expect.equal true board.Guild.IsJoined "viewer state"
+        Expect.isTrue board.PinnedCommit.IsSome "the pin rides beside"
+        Expect.equal false board.CanModerate "not the moderator"
+        Expect.equal true board.HasMore "the next link"
+        Expect.equal 1 board.CurrentPage "current page"
+        Expect.equal 30 board.PerPage "per page"
+
+        let sent = http.Requests |> List.exactlyOne
+        Expect.equal "/api/v1/guilds/rust?page=1" sent.Target "target"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "the last board page holds no more and no pin" {
+      let http = CapturingHttp(ok guildBoardLastJson)
+
+      let request: Guilds.ShowRequest = {
+        KeyFile = "key-file"
+        Handle = "rust"
+        Page = 2
+      }
+
+      let! (result: Result<GuildBoard, TestError>) =
+        Guilds.show(envFor http, request)
+
+      match result with
+      | Ok board ->
+        Expect.equal false board.HasMore "no next link"
+        Expect.isNone board.PinnedCommit "no pin"
+        Expect.equal true board.CanModerate "the moderator"
+      | Error error -> failtestf "%A" error
+    }
+
+    testCase
+      "a feed's guild commit carries its summary; the guild-less one carries none"
+      (fun () ->
+        let page =
+          CommitNode.decodePage(pageOf(guildCommitJson + "," + commitJson))
+
+        match page with
+        | Ok page ->
+          let nodes =
+            page.Items
+            |> List.map(function
+              | LiveCommit commit -> commit.Guild
+              | Tombstone _ -> failtest "expected live commits")
+
+          Expect.equal
+            (Some {
+              Handle = "ops"
+              Name = "Ops Room"
+              Emoji = "🚨"
+              IconUrl = None
+            })
+            (nodes |> List.head)
+            "the guild commit carries its summary"
+
+          Expect.isNone
+            (nodes |> List.item 1)
+            "the guild-less commit carries none"
+        | Error failure -> failtestf "%A" failure)
+
+    testAsync "a guild post names its board and lands on it" {
+      let http = CapturingHttp(ok(sprintf "{\"data\":%s}" guildCommitJson))
+
+      let request = {
+        commitRequest with
+            GuildHandle = Some "ops"
+      }
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(envFor http, request)
+
+      match result with
+      | Ok commit ->
+        Expect.equal
+          (Some {
+            Handle = "ops"
+            Name = "Ops Room"
+            Emoji = "🚨"
+            IconUrl = None
+          })
+          commit.Guild
+          "the created commit carries its guild"
+
+        let sent = http.Requests |> List.exactlyOne
+
+        Expect.equal
+          "{\"body\":\"It was DNS.\",\"guild_handle\":\"ops\"}"
+          (bodyText sent)
+          "the board rode the post"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "a paused guild's refusal keeps its code" {
+      let http =
+        CapturingHttp(
+          refused
+            422
+            "{\"message\":\"This guild is paused until it has a moderator.\",\"code\":\"guild_paused\"}"
+        )
+
+      let request = {
+        commitRequest with
+            GuildHandle = Some "ops"
+      }
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(envFor http, request)
+
+      match result with
+      | Error(Refused(422, Some GuildPaused, message)) ->
+        Expect.equal
+          "This guild is paused until it has a moderator."
+          message
+          "the server's message"
+      | other -> failtestf "expected a guild_paused refusal: %A" other
     }
   ]

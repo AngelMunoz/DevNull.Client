@@ -2,6 +2,7 @@ module DevNull.Client.Components.Composer
 
 open System
 open System.Runtime
+open System.Reactive.Subjects
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Layout
@@ -53,6 +54,8 @@ type Props<'env
   Session: SignedInSession
   Target: Target
   Participants: ParticipantRow list voption
+  Guilds: (unit -> Guild list) voption
+  Guild: string voption
   OnCommitted: Commit -> unit
   OnScheduled: (ScheduledCommit -> unit) voption
   OnOpenQueue: (unit -> unit) voption
@@ -71,6 +74,7 @@ module State =
     Trigger: Trigger voption
     Users: User list
     Organizations: Organization list
+    Guilds: Guild list
     Issue: Issue option
     Active: int
     Searching: bool
@@ -82,6 +86,7 @@ module State =
     Trigger = ValueNone
     Users = []
     Organizations = []
+    Guilds = []
     Issue = None
     Active = 0
     Searching = false
@@ -109,14 +114,16 @@ module State =
   let inline queryOf(completion: CompletionState) =
     match completion.Trigger with
     | ValueSome(Mention(_, query)) -> query
+    | ValueSome(GuildTag(_, query)) -> query
     | ValueSome(IssueRef(_, digits)) -> IssueNumber.value digits
     | ValueNone -> ""
 
   // How many rows the keys walk: the people and organizations
-  // together, or the one issue card.
+  // together, the guild rows, or the one issue card.
   let inline completionCount(completion: CompletionState) =
     match completion.Trigger with
     | ValueSome(IssueRef _) -> if completion.Issue.IsSome then 1 else 0
+    | ValueSome(GuildTag _) -> List.length completion.Guilds
     | ValueSome(Mention _)
     | ValueNone ->
       List.length completion.Users + List.length completion.Organizations
@@ -128,6 +135,10 @@ module State =
     match completion.Trigger with
     | ValueNone -> false
     | ValueSome(IssueRef _) -> completion.Issue.IsSome
+    | ValueSome(GuildTag _) ->
+      completion.Searching
+      || completion.Throttled
+      || completionCount completion > 0
     | ValueSome(Mention _) ->
       completion.Searching
       || completion.Throttled
@@ -184,6 +195,12 @@ module State =
     // The reply's participants the send leaves out, by handle; the
     // author never rides the list.
     Excluded: string list
+    // The guild board the draft posts to, when it posts to one.
+    GuildChoice: string option
+    // The picker's search: the term as typed and the directory's
+    // answers beneath the joined rows.
+    GuildQuery: string
+    GuildRows: Guild list
   }
 
   type Msg =
@@ -217,6 +234,14 @@ module State =
     | EmojiClosed
     | EmojiPicked of emoji: string
     | ParticipantToggled of handle: string
+    | GuildsArrived of GuildsFound
+    | GuildPickerOpened
+    | GuildPickerClosed
+    | GuildQueryChanged of query: string
+    | GuildSearchSettled of query: string
+    | GuildRowsArrived of query: string * Result<Guild list, AppError>
+    | GuildPicked of guild: Guild
+    | GuildTargetCleared
 
   let initial = {
     Busy = false
@@ -231,6 +256,9 @@ module State =
     Completion = closedCompletion
     Emoji = closedEmoji
     Excluded = []
+    GuildChoice = None
+    GuildQuery = ""
+    GuildRows = []
   }
 
   // The staging path allocates large-object arrays an idle composer
@@ -263,6 +291,13 @@ module State =
     | ReplyTo parentId -> Commits.ReplyTo parentId
     | Quoting quotedId -> Commits.Quote quotedId
 
+  // Whether the directory term names the guild: the handle or the
+  // name holds it, case aside. Curried: the filter call sites pass
+  // the term half-applied.
+  let guildMatches (query: string) (guild: Guild) =
+    guild.Handle.Contains(query, StringComparison.OrdinalIgnoreCase)
+    || guild.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+
   // The local now, from the env's clock.
   let localNow(props: Props<'env>) : DateTimeOffset =
     DateTimeOffset.FromUnixTimeSeconds(props.Env.Clock.UnixNow()).ToLocalTime()
@@ -286,7 +321,12 @@ module State =
       | ValueSome draft -> draft.Seed
       | ValueNone -> ""
 
-    { initial with Body = seeded }, Cmd.none
+    {
+      initial with
+          Body = seeded
+          GuildChoice = ValueOption.toOption props.Guild
+    },
+    Cmd.none
 
   let loggerOf(props: Props<'env>) =
     props.Env.LoggerFactory.CreateLogger "DevNull.Client.Components.Composer"
@@ -334,6 +374,7 @@ module State =
       // shows.
       | ValueSome(Mention _)
       | ValueSome(IssueRef _)
+      | ValueSome(GuildTag _)
       | ValueNone -> model, Cmd.none
     | IssueArrived found ->
       match model.Completion.Trigger with
@@ -354,6 +395,26 @@ module State =
       // shows.
       | ValueSome(IssueRef _)
       | ValueSome(Mention _)
+      | ValueSome(GuildTag _)
+      | ValueNone -> model, Cmd.none
+    | GuildsArrived found ->
+      match model.Completion.Trigger with
+      | ValueSome(GuildTag(_, query)) when query = found.Query ->
+        {
+          model with
+              Completion = {
+                model.Completion with
+                    Guilds = found.Guilds
+                    Searching = false
+                    Throttled = found.Throttled
+              }
+        },
+        Cmd.none
+      // An answer for a trigger the caret already left behind never
+      // shows.
+      | ValueSome(GuildTag _)
+      | ValueSome(Mention _)
+      | ValueSome(IssueRef _)
       | ValueNone -> model, Cmd.none
     | CompletionStepped step ->
       let count = completionCount model.Completion
@@ -409,6 +470,10 @@ module State =
       model,
       Cmd.ofAction(fun () ->
         log.LogDebug("The issue completion picked {Number}.", number))
+    | CompletionPicked(CompletionLane.GuildChosen handle) ->
+      model,
+      Cmd.ofAction(fun () ->
+        log.LogDebug("The guild completion picked {Handle}.", handle))
     | EmojiToggled(start, finish) ->
       if model.Emoji.Open then
         { model with Emoji = closedEmoji }, Cmd.none
@@ -462,6 +527,65 @@ module State =
           model.Excluded @ [ handle ]
 
       { model with Excluded = excluded }, Cmd.none
+    | GuildPickerOpened ->
+      {
+        model with
+            GuildQuery = ""
+            GuildRows = []
+      },
+      Cmd.none
+    | GuildPickerClosed -> model, Cmd.none
+    | GuildQueryChanged query ->
+      // The box follows every keystroke; the read waits for the
+      // settled term the picker's gate sends.
+      {
+        model with
+            GuildQuery = query.Trim()
+            GuildRows = []
+      },
+      Cmd.none
+    | GuildSearchSettled query ->
+      let trimmed = query.Trim()
+
+      // A term the box already left behind never reads.
+      if trimmed = "" || trimmed <> model.GuildQuery then
+        model, Cmd.none
+      else
+        model,
+        Cmd.OfAsync.perform
+          Guilds.list
+          (props.Env,
+           {
+             KeyFile = props.Session.KeyFile
+             Query = Some trimmed
+             Page = 1
+           })
+          (fun result ->
+            GuildRowsArrived(trimmed, result |> Result.map _.Items))
+    | GuildRowsArrived(query, result) ->
+      // An answer for a term the box already left behind never shows.
+      if query <> model.GuildQuery then
+        model, Cmd.none
+      else
+        match result with
+        | Ok rows -> { model with GuildRows = rows }, Cmd.none
+        | Error error ->
+          model,
+          Cmd.ofAction(fun () ->
+            log.LogWarning(
+              "The guild picker search for {Query} did not arrive: {Error}",
+              query,
+              bounded 300 (describe error)
+            ))
+    | GuildPicked guild ->
+      {
+        model with
+            GuildChoice = Some guild.Handle
+            GuildQuery = ""
+            GuildRows = []
+      },
+      Cmd.none
+    | GuildTargetCleared -> { model with GuildChoice = None }, Cmd.none
     | AttachRequested ->
       // The picker is modal; the answer arrives as one message.
       model, Cmd.OfAsync.perform props.Env.Attachments.PickFiles () ImagesAdded
@@ -694,6 +818,7 @@ module State =
                  Poll = spec
                  Card = FirstLink
                  ScheduledAt = at
+                 GuildHandle = model.GuildChoice
                })
               Scheduled
           | ValueNone ->
@@ -713,6 +838,7 @@ module State =
                ImageDescriptions = descriptions
                Poll = spec
                ReplyRecipients = replyRecipients
+               GuildHandle = model.GuildChoice
              })
             Committed
     | Committed result ->
@@ -724,6 +850,7 @@ module State =
         {
           initial with
               Committed = model.Committed + 1
+              GuildChoice = ValueOption.toOption props.Guild
         },
         Cmd.batch [
           Cmd.ofEffect(fun _ ->
@@ -750,6 +877,7 @@ module State =
         {
           initial with
               Committed = model.Committed + 1
+              GuildChoice = ValueOption.toOption props.Guild
         },
         Cmd.batch [
           match props.OnScheduled with
@@ -781,7 +909,10 @@ module State =
 
   // The completion session's answers enter the program through the
   // engine's subscription set, and the session itself retires with it.
-  let subscribe (session: CompletionSession) (_: Model) : Sub<Msg> =
+  let subscribe
+    (session: CompletionSession, pickerGate: BehaviorSubject<string voption>)
+    (_: Model)
+    : Sub<Msg> =
     Sub.batch [
       Sub.fromObservable
         "completion-mentions"
@@ -791,7 +922,30 @@ module State =
         "completion-issues"
         (session.Issues |> Observable.map IssueArrived)
 
+      Sub.fromObservable
+        "completion-guilds"
+        (session.Guilds |> Observable.map GuildsArrived)
+
       Sub.ofId "completion-session" (fun _ -> session :> IDisposable)
+
+      // The picker's reads wait out the site's own people-search
+      // pause, so a burst of keystrokes costs one read of the last
+      // term, not one read a key.
+      Sub.ofId "guild-picker-search" (fun dispatch ->
+        let pipe =
+          pickerGate
+          |> Observable.distinctUntilChanged
+          |> Observable.throttle(TimeSpan.FromMilliseconds 120.0)
+          |> Observable.subscribe(fun gated ->
+            gated
+            |> ValueOption.iter(fun term -> dispatch(GuildSearchSettled term)))
+
+        {
+          new IDisposable with
+            member _.Dispose() =
+              pipe.Dispose()
+              pickerGate.OnCompleted()
+        })
     ]
 
 // The composer's semantic regions; the view only composes these.
@@ -823,8 +977,9 @@ module Parts =
       .PlaceholderText(
         model
         |> Observable.map(fun current ->
-          match props.Target, current.Poll with
-          | Fresh, Some _ -> "Ask a question"
+          match props.Target, current.Poll, current.GuildChoice with
+          | Fresh, Some _, _ -> "Ask a question"
+          | Fresh, _, Some _ -> "What do you want to share with the guild?"
           | _ -> placeholder)
         |> Observable.distinctUntilChanged
       )
@@ -889,13 +1044,95 @@ module Parts =
                 }
               )
             | ValueNone -> async { return Ok None }
+        Guilds =
+          fun query -> async {
+            let joined =
+              props.Guilds
+              |> ValueOption.map(fun read -> read())
+              |> ValueOption.defaultValue []
+
+            let local = joined |> List.filter(State.guildMatches query)
+
+            // The joined rows answer first; a short local list asks
+            // the directory for the rest, the joined rows keeping
+            // the lead. A failed read keeps the local rows, its
+            // cause in the log.
+            if local.Length >= 6 then
+              return Ok local
+            else
+              let! answer =
+                Guilds.list(
+                  props.Env,
+                  {
+                    KeyFile = props.Session.KeyFile
+                    Query = Some query
+                    Page = 1
+                  }
+                )
+
+              return
+                match answer with
+                | Ok page ->
+                  let held = local |> List.map _.Handle |> Set.ofList
+
+                  Ok(
+                    local
+                    @ (page.Items
+                       |> List.filter(fun guild ->
+                         not(Set.contains guild.Handle held)))
+                  )
+                | Error error ->
+                  log.LogWarning(
+                    "The guild completion for {Query} did not arrive: {Error}",
+                    query,
+                    bounded 300 (describe error)
+                  )
+
+                  Ok local
+          }
         Remember = reply |> ValueOption.isNone
       },
       log
     )
 
+// The composer's target line: who the draft answers or what it
+// quotes, with the commit's short hash. A host shows it directly
+// above the composer so a stale draft never hides its target.
+let targetLabel(verb: string, commit: Commit) : string =
+  $"{verb} @{Author.handle commit.Author} · {commit.ShortHash}"
+
+// The target line with its cancel button: the button stands only
+// while the host passes a clear sink.
+let targetStrip(label: string, onClear: (unit -> unit) voption) : Control =
+  let line =
+    TextBlock()
+      .Name("ComposerTarget")
+      .Classes(Theme.name Theme.Mono)
+      .Text(label)
+      .TextWrapping(TextWrapping.Wrap)
+
+  match onClear with
+  | ValueNone -> line :> Control
+  | ValueSome clear ->
+    DockPanel()
+      .LastChildFill(true)
+      .Children(
+        Button()
+          .Name("ComposerTargetClear")
+          .Classes(Theme.name Theme.GhostButton)
+          .Content("×")
+          .OnClickHandler(fun _ _ -> clear())
+          .DockRight(),
+        line
+      )
+    :> Control
+
 let view
-  (props: Props<'env>, session: CompletionSession)
+  (
+    props: Props<'env>,
+    session: CompletionSession,
+    pickerGate: BehaviorSubject<string voption>
+  )
   (model: IObservable<State.Model>)
   (dispatch: Dispatch<State.Msg>)
   : Control =
@@ -932,6 +1169,7 @@ let view
           | Quoting _ -> false
         Users = current.Completion.Users
         Organizations = current.Completion.Organizations
+        Guilds = current.Completion.Guilds
         Issue = current.Completion.Issue
         Searching = current.Completion.Searching
         Throttled = current.Completion.Throttled
@@ -1075,6 +1313,72 @@ let view
       OnToggle = fun handle -> dispatch(State.ParticipantToggled handle)
     }
 
+  // The guild picker's rows: the joined guilds the host offers, read
+  // fresh on every model beat, and — under a search — the joined rows
+  // that match first, the directory's answers beneath, no guild twice.
+  let guildRows =
+    model
+    |> Observable.map(fun current ->
+      let joined =
+        props.Guilds
+        |> ValueOption.map(fun read -> read())
+        |> ValueOption.defaultValue []
+
+      match current.GuildQuery with
+      | "" -> joined
+      | query ->
+        let local = joined |> List.filter(State.guildMatches query)
+        let held = local |> List.map _.Handle |> Set.ofList
+
+        local
+        @ (current.GuildRows
+           |> List.filter(fun guild -> not(Set.contains guild.Handle held))))
+    |> Observable.distinctUntilChanged
+
+  // The guild target: the picker over the joined rows and the
+  // directory, and the strip the choice stands in. A reply draft
+  // carries neither — the wire forbids a guild reply.
+  let guildPicker: GuildPicker.View =
+    match props.Guilds, props.Target with
+    | ValueSome _, Fresh
+    | ValueSome _, Quoting _ ->
+      GuildPicker.view {
+        Rows = guildRows
+        Query =
+          model
+          |> Observable.map _.GuildQuery
+          |> Observable.distinctUntilChanged
+        Images = props.Env.ImageCache
+        OnOpen = fun () -> dispatch State.GuildPickerOpened
+        OnQuery =
+          fun query ->
+            dispatch(State.GuildQueryChanged query)
+            pickerGate.OnNext(ValueSome query)
+        OnPick = fun guild -> dispatch(State.GuildPicked guild)
+        OnClose = fun () -> dispatch State.GuildPickerClosed
+      }
+    | ValueSome _, ReplyTo _
+    | ValueNone, _ -> { Trigger = ValueNone; Layer = Panel() }
+
+  let guildStrip =
+    let chosen =
+      model |> Observable.map _.GuildChoice |> Observable.distinctUntilChanged
+
+    ContentControl()
+      .Content(
+        chosen
+        |> Observable.map(fun choice ->
+          match choice with
+          | Some handle ->
+            targetStrip(
+              "Posting to #" + handle,
+              ValueSome(fun () -> dispatch State.GuildTargetCleared)
+            )
+          | None -> Panel())
+        |> _.ToBinding()
+      )
+      .IsVisible(chosen |> Observable.map Option.isSome)
+
   // No box: the composer rides the rail plain, the way the site's does
   // on the log and the thread; a host that wants a card wraps it. The
   // audience dialog rides the same frame, above the composer's rail.
@@ -1087,62 +1391,27 @@ let view
             .Margin(0.0, 0.0, 0.0, 12.0)
             .Spacing(8.0)
             .Children(
-              match picker.Trigger with
-              | ValueSome trigger -> [|
-                  trigger
-                  body
-                  completion
-                  emoji
-                  strip
-                  poll
-                  schedule
-                  toolbar.Row
-                |]
-              | ValueNone -> [|
-                  body
-                  completion
-                  emoji
-                  strip
-                  poll
-                  schedule
-                  toolbar.Row
-                |]
+              [|
+                match guildPicker.Trigger with
+                | ValueSome trigger -> trigger
+                | ValueNone -> ()
+                guildStrip
+                match picker.Trigger with
+                | ValueSome trigger -> trigger
+                | ValueNone -> ()
+                body
+                completion
+                emoji
+                strip
+                poll
+                schedule
+                toolbar.Row
+              |]
             ),
-          picker.Layer
+          picker.Layer,
+          guildPicker.Layer
         )
     )
-
-// The composer's target line: who the draft answers or what it
-// quotes, with the commit's short hash. A host shows it directly
-// above the composer so a stale draft never hides its target.
-let targetLabel(verb: string, commit: Commit) : string =
-  $"{verb} @{Author.handle commit.Author} · {commit.ShortHash}"
-
-// The target line with its cancel button: the button stands only
-// while the host passes a clear sink.
-let targetStrip(label: string, onClear: (unit -> unit) voption) : Control =
-  let line =
-    TextBlock()
-      .Name("ComposerTarget")
-      .Classes(Theme.name Theme.Mono)
-      .Text(label)
-      .TextWrapping(TextWrapping.Wrap)
-
-  match onClear with
-  | ValueNone -> line :> Control
-  | ValueSome clear ->
-    DockPanel()
-      .LastChildFill(true)
-      .Children(
-        Button()
-          .Name("ComposerTargetClear")
-          .Classes(Theme.name Theme.GhostButton)
-          .Content("×")
-          .OnClickHandler(fun _ _ -> clear())
-          .DockRight(),
-        line
-      )
-    :> Control
 
 type Page<'env
   when 'env :> IProvideClock
@@ -1157,13 +1426,14 @@ type Page<'env
 
   do
     let session = Parts.completionSession props
+    let pickerGate = new BehaviorSubject<string voption>(ValueNone)
 
     let program =
       Program.mkProgram
         (State.init props)
         (State.update props)
-        (view(props, session))
-      |> Program.withSubscription(State.subscribe session)
+        (view(props, session, pickerGate))
+      |> Program.withSubscription(State.subscribe(session, pickerGate))
 
     // The composer is replace-only: the first detach ends the program.
     Programs.runComponentOnAttach(

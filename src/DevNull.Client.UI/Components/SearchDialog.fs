@@ -784,7 +784,13 @@ let view
               "/org/" + Uri.EscapeDataString handle,
               ignore
             )
-        OnOpenGuild = ignore
+        OnOpenGuild =
+          fun handle ->
+            Navigation.go(
+              props.Nav,
+              "/guilds/" + Uri.EscapeDataString handle,
+              ignore
+            )
         OnOpenTag =
           fun tag ->
             Navigation.go(

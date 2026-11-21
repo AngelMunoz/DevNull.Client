@@ -456,7 +456,8 @@ let view
     OnOpen =
       fun handle -> props.OnOpen("/profile/" + Uri.EscapeDataString handle)
     OnOpenOrg = fun org -> props.OnOpen("/org/" + Uri.EscapeDataString org)
-    OnOpenGuild = ignore
+    OnOpenGuild =
+      fun handle -> props.OnOpen("/guilds/" + Uri.EscapeDataString handle)
     OnOpenTag = fun tag -> props.OnOpen("/search/" + Uri.EscapeDataString tag)
     Cache = props.Env.ImageCache
   }

@@ -1,4 +1,4 @@
-﻿module DevNull.Client.Views.NotificationsView
+module DevNull.Client.Views.NotificationsView
 
 open System
 open System.Collections.Generic
@@ -862,7 +862,13 @@ module Parts =
               Navigation.go(props.Nav, "/profile/" + username, ignore)
           OnOpenOrg =
             fun handle -> Navigation.go(props.Nav, "/org/" + handle, ignore)
-          OnOpenGuild = ignore
+          OnOpenGuild =
+            fun handle ->
+              Navigation.go(
+                props.Nav,
+                "/guilds/" + Uri.EscapeDataString handle,
+                ignore
+              )
           OnOpenTag =
             fun tag ->
               Navigation.go(

@@ -1,4 +1,4 @@
-﻿module DevNull.Client.Views.SearchView
+module DevNull.Client.Views.SearchView
 
 open System
 open Avalonia
@@ -818,7 +818,13 @@ let view
                   "/org/" + Uri.EscapeDataString handle,
                   ignore
                 )
-            OnOpenGuild = ignore
+            OnOpenGuild =
+              fun handle ->
+                Navigation.go(
+                  props.Nav,
+                  "/guilds/" + Uri.EscapeDataString handle,
+                  ignore
+                )
             OnOpenTag =
               fun tag ->
                 Navigation.go(
@@ -885,7 +891,13 @@ let view
             Navigation.go(props.Nav, "/profile/" + username, ignore)
         OnOpenOrg =
           fun handle -> Navigation.go(props.Nav, "/org/" + handle, ignore)
-        OnOpenGuild = ignore
+        OnOpenGuild =
+          fun handle ->
+            Navigation.go(
+              props.Nav,
+              "/guilds/" + Uri.EscapeDataString handle,
+              ignore
+            )
         OnOpenTag =
           fun tag ->
             Navigation.go(

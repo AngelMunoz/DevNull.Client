@@ -916,7 +916,13 @@ let mount(props: Props<'env>) : Mount =
         Recents = (env :> IProvideRecentSearches).RecentSearches
         Nav = router
         InitialTerm = None
-        OnOpenGuild = ignore
+        OnOpenGuild =
+          fun handle ->
+            Navigation.go(
+              router,
+              "/guilds/" + Uri.EscapeDataString handle,
+              ignore
+            )
         OpenCompose = fun () -> composeOpen.OnNext true
         Close = closeSearch
       }

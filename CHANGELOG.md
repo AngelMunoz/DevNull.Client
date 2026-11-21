@@ -9,7 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Guilds:** commits posted to a guild show its chip under the body in every feed, guild results ride the search dialog, and the composer targets a guild board with `#handle` completion. The sidebar's new Guilds entry opens the guild directory — searched, counted, and paged the way the site does it — and a guild opens its board inside the app as the site's own guild page: identity header, the composer aimed at the board asking its own question, and the pinned commit leading the bulletin board. A guild chip or a guild search result now opens its board from every feed, profile, thread, and notification in the site layout. The workbench layout presents guilds its own way: the refs rail gains a Guilds row that opens the directory as a dense registry, a guild opens as `#handle` — its board is the center log with the pinned commit leading and the usual row actions, the status bar names it, and guild chips and guild search results open boards as refs. The staging composer opens aimed at the selected board: the aim is captured when staging opens so switching refs never changes where a draft posts, the board's STAGE button re-aims an open composer, and a paused board is never auto-aimed. The editor layout presents guilds its own way: the explorer gains a GUILDS branch that opens the directory as a tab with dense rows, search, and a pager; a guild opens as a `#handle` board tab with the pinned commit leading, guild chips and palette search picks open board tabs, and the terminal composer opens aimed at the active board — never at a paused one — and a post refreshes the board.
+- **Guilds:** A commit posted to a guild names it under the body in every feed. The composer can target a guild board with `#handle` completion, and guilds ride the search dialog.
+- **Website:** The sidebar gains a Guilds entry that opens the guild directory, searched and paged like the site. A guild opens its board in the app: identity header, a composer aimed at the board, and the pinned commit first.
+- **Workbench:** The refs rail gains a Guilds row that opens the directory as a dense registry. A guild opens as `#handle` with its board as the center log, and the staging composer opens aimed at the selected board. A paused board is never aimed.
+- **Editor:** The explorer gains a GUILDS branch that opens the directory as a tab. A guild opens as a `#handle` board tab, and the terminal opens aimed at the active board. A post refreshes the board.
+
+### Fixed
+
+- **Editor:** The reserved strip at the top of the window now takes the chrome color instead of the white window background, and the search icon no longer stands on a white block.
+- **Editor:** A reply in a thread opens in its own tab when clicked, and its reply button opens the terminal on that commit.
 
 ## [0.17.1] - 2026-11-16
 

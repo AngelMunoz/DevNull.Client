@@ -69,6 +69,9 @@ type WorkbenchEnv() =
   interface DevNull.Client.Env.IProvideDispatcher with
     member _.Dispatcher = Unchecked.defaultof<Avalonia.Threading.IDispatcher>
 
+  interface DevNull.Client.Stores.IProvideSession with
+    member _.Session = Unchecked.defaultof<DevNull.Client.Stores.SessionStore>
+
   interface DevNull.Client.Profiles.IProvideProfiles with
     member _.Profiles = Unchecked.defaultof<DevNull.Client.Profiles.IProfiles>
 

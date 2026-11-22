@@ -298,7 +298,7 @@ let createAuthorizationEnv
 let languageOf(code: string) : string<LanguageCode> =
   match LanguageCodes.parse<TestError> code with
   | Ok parsed -> parsed
-  | Error(InvalidLanguageCode raw) -> failtestf "%s is not a language code" raw
+  | Error error -> failtestf "unexpected %A" error
 
 module Values =
 

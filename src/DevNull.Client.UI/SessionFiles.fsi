@@ -29,7 +29,8 @@ val deletePending: log: ILogger -> unit
 
 /// Reads the stored session, when one exists. A file that exists but
 /// cannot serve a session is a warning; an absent file stays quiet,
-/// the way a probe answers.
+/// the way a probe answers. A session stored before the membership
+/// rows reads with none; the first account poll fills them.
 val loadSession: log: ILogger -> Async<DeviceSession option>
 
 /// Stores the session.

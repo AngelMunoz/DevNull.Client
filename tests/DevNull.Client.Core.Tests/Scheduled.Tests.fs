@@ -40,6 +40,7 @@ let createRequest: ScheduledCommits.CreateRequest = {
   Card = FirstLink
   ScheduledAt = soon
   GuildHandle = None
+  Author = None
 }
 
 let momentTests =
@@ -230,6 +231,45 @@ let apiTests =
         Expect.isTrue
           ((bodyText sent).Contains "\"guild_handle\":\"ops\"")
           "the board rode the queued post"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "queues a post-as commit and names its author" {
+      let http = CapturingHttp(ok $"{{\"data\":{queuedJson}}}")
+
+      let request = {
+        createRequest with
+            Author = Some "devnull"
+      }
+
+      let! (result: Result<ScheduledCommit, TestError>) =
+        ScheduledCommits.create(envFor http, request)
+
+      match result with
+      | Ok _ ->
+        let sent = http.Requests |> List.exactlyOne
+
+        Expect.equal
+          "{\"body\":\"Shipping tomorrow.\",\"scheduled_at\":\"2026-10-15T13:00:00\\u002B00:00\",\"author\":\"devnull\"}"
+          (bodyText sent)
+          "the author rode the queued post"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "a queued user post leaves the author off the wire" {
+      let http = CapturingHttp(ok $"{{\"data\":{queuedJson}}}")
+
+      let! (result: Result<ScheduledCommit, TestError>) =
+        ScheduledCommits.create(envFor http, createRequest)
+
+      match result with
+      | Ok _ ->
+        let sent = http.Requests |> List.exactlyOne
+
+        Expect.equal
+          "{\"body\":\"Shipping tomorrow.\",\"scheduled_at\":\"2026-10-15T13:00:00\\u002B00:00\"}"
+          (bodyText sent)
+          "no author as the user"
       | Error error -> failtestf "%A" error
     }
 

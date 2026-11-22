@@ -82,6 +82,10 @@ type Props = {
   OnEvent: Event -> unit
   OnOpenExternal: string -> unit
   ViewerId: string
+  // The viewer's organization handles: an organization-authored
+  // commit the viewer belongs to is the viewer's own, by the
+  // server's rule.
+  ViewerOrgs: string list
   Pastels: IObservable<bool>
   Now: IObservable<DateTimeOffset>
   PollChoice: IObservable<string option>
@@ -122,6 +126,12 @@ let selectedOption
     commit.Poll
     |> Option.bind(fun poll ->
       poll.Options |> List.tryFind(fun candidate -> candidate.Id = optionId)))
+
+// The viewer's organization handles, for the card's own-commit
+// gates: the rows the session's membership list carries, oldest
+// first.
+let inline viewerOrgs(session: DeviceSession) : string list =
+  session.Organizations |> List.map _.Handle
 
 // The card's semantic regions; the view only composes these.
 module Parts =
@@ -1535,14 +1545,14 @@ module Parts =
         Aria = ValueSome "Quote"
       }
 
-    // The profile pin: the author's own top-level commits only — the
-    // server refuses anything else — and only where the host offers
-    // it. The pinned flag flips the glyph and the word, the site's
-    // pair, and the flight of the call disables the button.
+    // The profile pin: the viewer's own top-level commits only —
+    // the server refuses anything else — and only where the host
+    // offers it. The pinned flag flips the glyph and the word, the
+    // site's pair, and the flight of the call disables the button.
     let pin: Control =
       match props.Pin with
       | ValueSome toggle when
-        (Author.id commit.Author) = props.ViewerId
+        Author.isOwned(commit.Author, props.ViewerId, props.ViewerOrgs)
         && Option.isNone commit.ParentId
         ->
         let pinned = commit.IsPinned
@@ -1577,6 +1587,7 @@ module Parts =
         CommitMenu.view {
           Commit = commit
           ViewerId = props.ViewerId
+          ViewerOrgs = props.ViewerOrgs
           Slot = slot
           OnOpened = fun commit -> onEvent(MenuOpened commit)
           CopyLink = fun source -> copyLink(source, commit.HtmlUrl)
@@ -1847,6 +1858,10 @@ type RowProps = {
   OnEvent: Event -> unit
   OnOpenExternal: string -> unit
   ViewerId: string
+  // The viewer's organization handles: an organization-authored
+  // commit the viewer belongs to is the viewer's own, by the
+  // server's rule.
+  ViewerOrgs: string list
   Pasteis: IObservable<bool>
   Now: IObservable<DateTimeOffset>
   PollChoices: IObservable<Map<string, string>>
@@ -1871,6 +1886,7 @@ let feedRow (props: RowProps) (node: CommitNode) : Control =
       OnEvent = props.OnEvent
       OnOpenExternal = props.OnOpenExternal
       ViewerId = props.ViewerId
+      ViewerOrgs = props.ViewerOrgs
       Pastels = props.Pasteis
       Now = props.Now
 

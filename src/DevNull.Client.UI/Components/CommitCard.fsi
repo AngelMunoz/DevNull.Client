@@ -87,7 +87,9 @@ type TranslationView = {
 /// the author's own star count to open the stargazers list, and
 /// leaves it read-only when absent; `Menu` is the
 /// More actions the host offers the card; `Translation` is what the
-/// card shows about the commit's translation.
+/// card shows about the commit's translation; `ViewerOrgs` carries
+/// the viewer's organization handles, so the delete and pin rows
+/// stand on organization commits the viewer belongs to.
 [<Struct>]
 type Props = {
   Commit: Commit
@@ -96,6 +98,10 @@ type Props = {
   /// outside resource; the card never reaches the browser itself.
   OnOpenExternal: string -> unit
   ViewerId: string
+  /// The viewer's organization handles: an organization-authored
+  /// commit the viewer belongs to is the viewer's own, by the
+  /// server's rule.
+  ViewerOrgs: string list
   Pastels: IObservable<bool>
   Now: IObservable<DateTimeOffset>
   PollChoice: IObservable<string option>
@@ -135,6 +141,11 @@ val choose: change: ChoiceChange -> Map<string, string>
 /// The option a page still holds for a commit, when the poll carries it.
 val selectedOption:
   choices: Map<string, string> * commit: Commit -> PollOption option
+
+/// The viewer's organization handles, for the card's own-commit
+/// gates: the rows the session's membership list carries, oldest
+/// first.
+val inline viewerOrgs: session: DeviceSession -> string list
 
 /// Renders a deleted commit placeholder.
 val tombstone: unit -> Control
@@ -178,6 +189,10 @@ type RowProps = {
   /// link preview; the row never reaches the browser itself.
   OnOpenExternal: string -> unit
   ViewerId: string
+  /// The viewer's organization handles: an organization-authored
+  /// commit the viewer belongs to is the viewer's own, by the
+  /// server's rule.
+  ViewerOrgs: string list
   Pasteis: IObservable<bool>
   Now: IObservable<DateTimeOffset>
   PollChoices: IObservable<Map<string, string>>

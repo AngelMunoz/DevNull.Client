@@ -54,6 +54,7 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
+  and 'env :> IProvideSession
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLogging> = {

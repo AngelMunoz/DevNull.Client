@@ -35,6 +35,7 @@
     <Compile Include="WorkbenchHardening.Tests.fs" />
     <Compile Include="AttachGate.Tests.fs" />
     <Compile Include="WebsiteRetirement.Tests.fs" />
+    <Compile Include="PostAs.Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

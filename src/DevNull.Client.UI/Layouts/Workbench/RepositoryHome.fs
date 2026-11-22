@@ -579,6 +579,10 @@ let view
         onEvent event
     OnOpenExternal = fun url -> dispatch(ExternalOpened url)
     ViewerId = props.ViewerId
+    ViewerOrgs =
+      props.Session
+      |> Option.map(fun session -> viewerOrgs session.Session)
+      |> Option.defaultValue []
     Pasteis = pasteis
     Now = now
     PollChoices = polls

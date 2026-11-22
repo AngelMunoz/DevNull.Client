@@ -21,8 +21,9 @@ type RowSlices = {
 }
 
 /// What one page adds to the shared row builder: where its card events
-/// go, the signed-in viewer, the page's image cache, hover card source,
-/// and zone, the pin command where the page offers one — the card's own
+/// go, the signed-in viewer and their organization handles, the page's
+/// image cache, hover card source, and zone, the pin command where
+/// the page offers one — the card's own
 /// gate decides whether a row arms it — the More actions slot the page
 /// builds, whether the vote and pastel actions show, the three host-run
 /// action commands, and the translation lookup the page builds from its
@@ -33,6 +34,9 @@ type Host = {
   /// link preview; the page wires it to the env's browser.
   OnOpenExternal: string -> unit
   ViewerId: string
+  /// The viewer's organization handles, threaded to the card's own
+  /// and delete gates.
+  ViewerOrgs: string list
   Images: ImageCacheService
   Flyout: Source voption
   Zone: Zone

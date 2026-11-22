@@ -4,6 +4,7 @@ module DevNull.Client.Core.ApiTypes
 
 open System
 open System.Text.Json
+open System.Text.Json.Nodes
 open System.Text.RegularExpressions
 open JDeck
 
@@ -255,7 +256,7 @@ type OrganizationProfile = {
 
 /// One commit's author: a person, or an organization the wire types.
 /// The organization branch carries the profile the organization read
-/// decodes, whose admins are the members who may delete its commits.
+/// decodes.
 type Author =
   | Person of User
   | Organization of OrganizationProfile
@@ -302,13 +303,13 @@ module Author =
     | Person _ -> None
     | Organization org -> Some org
 
-  /// Whether the viewer is a member of the organization author: the
-  /// viewer id appears in the profile's admins.
-  let isAdmin(author: Author, viewerId: string) =
-    match author with
-    | Person _ -> false
-    | Organization org ->
-      org.Admins |> List.exists(fun admin -> admin.Id = viewerId)
+  /// Whether the viewer owns the commit: the author's own, or an
+  /// organization the viewer belongs to — any role — matched by
+  /// handle, the only join the commit author carries. The server's
+  /// rule; the admins-only check it replaces is gone.
+  let isOwned(author, viewerId: string, orgHandles: string list) =
+    id author = viewerId
+    || (isOrganization author && List.contains (handle author) orgHandles)
 
 type GuildSummary = {
   Handle: string
@@ -885,6 +886,27 @@ module OrgRoles =
     | Contributor -> "contributor"
     | UnknownRole raw -> raw
 
+/// One membership's role in an org, as the signed API reports it.
+/// An unknown word stays raw.
+type MembershipRole =
+  | Admin
+  | Member
+  | UnknownMembershipRole of raw: string
+
+module MembershipRoles =
+
+  let parse(raw: string) =
+    match raw with
+    | "admin" -> Admin
+    | "member" -> Member
+    | raw -> UnknownMembershipRole raw
+
+  let wire(role: MembershipRole) =
+    match role with
+    | Admin -> "admin"
+    | Member -> "member"
+    | UnknownMembershipRole raw -> raw
+
 /// The event one message records: an org's own changes and a ping. An
 /// unknown event stays raw.
 type OrgEvent =
@@ -1072,6 +1094,23 @@ type MeRemotes = {
   UnreadCount: int
 }
 
+/// One organization the signed-in account belongs to: its profile
+/// identity lines and the viewer's role in it. The follow state, the
+/// follower count, and the admins stay unread here.
+type MeOrganization = {
+  Id: string
+  Handle: string
+  Name: string
+  AvatarUrl: string option
+  Bio: string option
+  Location: string option
+  Website: string option
+  GithubUrl: string option
+  HtmlUrl: string
+  Lane: Lane option
+  Role: MembershipRole
+}
+
 /// One redeemed device: the user, the unread notifications in the
 /// envelope, whether the user shows pastel controls at all, the terms
 /// state the app asks on, and the direct-message settings while they
@@ -1086,6 +1125,9 @@ type DeviceSession = {
   TermsVersion: string
   TermsAccepted: bool option
   Remotes: MeRemotes option
+  /// The organizations the account may post as, oldest membership
+  /// first. Empty with no membership.
+  Organizations: MeOrganization list
 }
 
 /// What the settings read carries: where times show, the language commits
@@ -1114,6 +1156,7 @@ type Me = {
   TermsAccepted: bool
   UnreadNotificationsCount: int
   Remotes: MeRemotes option
+  Organizations: MeOrganization list
 }
 
 let inline failure path message = { Path = path; Message = message }
@@ -2423,6 +2466,57 @@ type CurrentUserData = {
   TermsAcceptedAt: DateTimeOffset option
   TermsAccepted: bool
   Remotes: MeRemotes option
+  Organizations: MeOrganization list
+}
+
+let meOrganizationDecoder(element: JsonElement) = decode {
+  let! id = Required.Property.get ("id", Required.string) element
+  let! handle = Required.Property.get ("handle", Required.string) element
+  let! name = Required.Property.get ("name", Required.string) element
+
+  let! avatarUrl =
+    Optional.Property.get ("avatar_url", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! bio =
+    Optional.Property.get ("bio", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! location =
+    Optional.Property.get ("location", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! website =
+    Optional.Property.get ("website", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! githubUrl =
+    Optional.Property.get ("github_url", Optional.string) element
+    |> Result.map Option.flatten
+
+  let! htmlUrl = Required.Property.get ("html_url", Required.string) element
+
+  let! lane =
+    Optional.Property.get ("lane", optionalDecoder laneDecoder) element
+    |> Result.map Option.flatten
+
+  let! role =
+    Required.Property.get ("role", Required.string) element
+    |> Result.map MembershipRoles.parse
+
+  return {
+    Id = id
+    Handle = handle
+    Name = name
+    AvatarUrl = avatarUrl
+    Bio = bio
+    Location = location
+    Website = website
+    GithubUrl = githubUrl
+    HtmlUrl = htmlUrl
+    Lane = lane
+    Role = role
+  }
 }
 
 let currentUserDataDecoder(element: JsonElement) = decode {
@@ -2470,6 +2564,14 @@ let currentUserDataDecoder(element: JsonElement) = decode {
   let! remotes =
     Required.Property.get ("remotes", optionalDecoder meRemotesDecoder) element
 
+  // The membership rows ride every signed answer, oldest first; an
+  // answer from before they rode carries none.
+  let! organizations =
+    Optional.Property.get
+      ("organizations", optionalListDecoder meOrganizationDecoder)
+      element
+    |> Result.map(Option.flatten >> Option.defaultValue [])
+
   return {
     Profile = profile
     PasteisMode = pasteisMode
@@ -2484,6 +2586,7 @@ let currentUserDataDecoder(element: JsonElement) = decode {
     TermsAcceptedAt = termsAcceptedAt
     TermsAccepted = termsAccepted
     Remotes = remotes
+    Organizations = organizations
   }
 }
 
@@ -2508,6 +2611,7 @@ let meDecoder(element: JsonElement) = decode {
     TermsAccepted = data.TermsAccepted
     UnreadNotificationsCount = unread
     Remotes = data.Remotes
+    Organizations = data.Organizations
   }
 }
 
@@ -3483,6 +3587,37 @@ let inline decodeGuildBoard(body: string) : Result<GuildBoard, DecodeFailure> =
 
 module Me =
   let decode(body: string) = decodeMe body
+
+  let decodeOrganizations
+    (element: JsonElement)
+    : Result<MeOrganization list, DecodeFailure> =
+    Optional.Property.get
+      ("organizations", optionalListDecoder meOrganizationDecoder)
+      element
+    |> Result.map(Option.flatten >> Option.defaultValue [])
+    |> Result.mapError toDecodeFailure
+
+  let encodeOrganization(org: MeOrganization) : JsonNode =
+    let nullable encoder value =
+      value |> Option.map encoder |> Option.defaultWith Encode.Null
+
+    Json.object [
+      "id", Encode.string org.Id
+      "handle", Encode.string org.Handle
+      "name", Encode.string org.Name
+      "avatar_url", nullable Encode.string org.AvatarUrl
+      "bio", nullable Encode.string org.Bio
+      "location", nullable Encode.string org.Location
+      "website", nullable Encode.string org.Website
+      "github_url", nullable Encode.string org.GithubUrl
+      "html_url", Encode.string org.HtmlUrl
+      "lane",
+      (match org.Lane with
+       | Some(LaneIndex index) -> Encode.int index
+       | Some(LaneColor color) -> Encode.string color
+       | None -> Encode.Null())
+      "role", Encode.string(MembershipRoles.wire org.Role)
+    ]
 
   let decodeLiveFollowing(body: string) : Result<User list, DecodeFailure> =
     parseBody body liveFollowingDecoder

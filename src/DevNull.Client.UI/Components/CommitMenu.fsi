@@ -43,13 +43,19 @@ type MenuSlot = {
   Busy: IObservable<string option>
 }
 
-/// The menu's input: the commit it rides, the signed-in viewer, the
-/// host's slot, the open cue the page loads the relation on, and the
-/// card's own link copier.
+/// The menu's input: the commit it rides, the signed-in viewer and
+/// their organization handles, the host's slot, the open cue the
+/// page loads the relation on, and the card's own link copier. A row
+/// of an organization the viewer belongs to is the viewer's own, by
+/// the server's rule.
 [<Struct>]
 type MenuProps = {
   Commit: Commit
   ViewerId: string
+  /// The viewer's organization handles: an organization-authored
+  /// commit the viewer belongs to is the viewer's own, by the
+  /// server's rule.
+  ViewerOrgs: string list
   Slot: MenuSlot
   /// The cue the page takes to load the author relation when absent,
   /// raised once per open.

@@ -24,6 +24,7 @@ open DevNull.Client.UI.Tests.AttachGateTests
 open DevNull.Client.UI.Tests.WebsiteRetirementTests
 open DevNull.Client.UI.Tests.WorkbenchHostViewTests
 open DevNull.Client.UI.Tests.WorkbenchSettingsTests
+open DevNull.Client.UI.Tests.PostAsTests
 
 [<EntryPoint>]
 let main argv =
@@ -53,6 +54,7 @@ let main argv =
       WorkbenchHardening.tests
       App.tests
       App.notificationDayTests
+      PostAsTests.tests
       // Focus and key routing are process-global too; the suite runs
       // alone like the memory budgets.
       testSequenced Shortcuts.tests

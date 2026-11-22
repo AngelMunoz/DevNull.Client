@@ -25,6 +25,13 @@ type DraftSource = {
   Changed: string -> unit
 }
 
+/// A host-owned slot that mounts the composer's identity avatar (such
+/// as the website log rail) instead of placing it inline beside the
+/// body box. `Size` sets the rendered avatar edge in device-independent
+/// pixels; `Place` receives the live identity control once built.
+[<Struct>]
+type AvatarHost = { Size: float; Place: Control -> unit }
+
 /// The quick composer: one body, optional staged images or a poll, one
 /// commit button, one error line. Every post goes through the signed
 /// v1 route; images travel as a multipart post whose payload carries
@@ -35,6 +42,7 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
+  and 'env :> IProvideSession
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLogging> = {
@@ -66,6 +74,9 @@ type Props<'env
   /// Reports the body box once it exists, so a host can focus it
   /// without searching the visual tree for a name.
   OnBodyReady: (TextBox -> unit) voption
+  /// Where the host places the composer's identity avatar when it does
+  /// not sit inline beside the body box.
+  AvatarHost: AvatarHost voption
 }
 
 /// The composer's target line: who the draft answers or what it
@@ -86,6 +97,7 @@ type Page<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
+  and 'env :> IProvideSession
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLogging> =

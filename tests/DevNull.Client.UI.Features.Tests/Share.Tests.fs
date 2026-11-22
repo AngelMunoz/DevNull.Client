@@ -25,8 +25,7 @@ open DevNull.Client.UI.Tests.Fixtures
 open DevNull.Client.UI.Tests.Harness
 open DevNull.Client.UI.Tests.Remotes
 
-/// One signed-in session with the direct messages on.
-let remotesStoreOn() : SessionStore =
+let private remotesStore(orgs: MeOrganization list) : SessionStore =
   SessionStore.create {
     Initial =
       Some(
@@ -40,12 +39,21 @@ let remotesStoreOn() : SessionStore =
                   Everyone = true
                   UnreadCount = 0
                 }
+              Organizations = orgs
         }
       )
     KeyFile = devicePrivateKeyPath
     Forget = ignore
     Dispatcher = Harness.ui
   }
+
+/// One signed-in session with the direct messages on.
+let remotesStoreOn() : SessionStore = remotesStore []
+
+/// One signed-in session with the direct messages on and the named
+/// membership rows, so the member gates arm.
+let remotesStoreOnWith(orgs: MeOrganization list) : SessionStore =
+  remotesStore orgs
 
 let candidateJson(user: string, reason: string option) =
   match reason with

@@ -50,10 +50,10 @@ type Props = {
   Height: IObservable<float>
 }
 
-/// The drawer height for a host of the given height: the docked
-/// 280 otherwise, taller while the terminal quotes, so a large
-/// quoted card scrolls above a visible composer. The taller drawer
-/// never eats the list above it below 240 pixels.
+// The drawer height for a host of the given height: the docked
+// 280 otherwise, taller while the terminal quotes, so a large
+// quoted card scrolls above a visible composer. The taller drawer
+// never eats the list above it below 240 pixels.
 let heightOf(total: float, quoting: bool) =
   if quoting then
     min 480.0 (max 280.0 (total - 240.0))

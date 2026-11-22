@@ -1470,6 +1470,7 @@ module Parts =
               OnOpenQueue = ValueNone
               Draft = ValueNone
               OnBodyReady = ValueNone
+              AvatarHost = ValueNone
             }
             :> Control))
 
@@ -1490,6 +1491,7 @@ module Parts =
         OnOpenQueue = ValueNone
         Draft = ValueNone
         OnBodyReady = ValueNone
+        AvatarHost = ValueNone
       }
 
     StackPanel()
@@ -1716,6 +1718,7 @@ let view
         OnEvent = State.CardEvent >> dispatch
         OnOpenExternal = fun url -> props.Env.Browser.Open(url) |> ignore
         ViewerId = props.Session.Session.User.Id
+        ViewerOrgs = viewerOrgs props.Session.Session
         Images = props.Env.ImageCache
         Flyout = Parts.flyoutOf props
         Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)

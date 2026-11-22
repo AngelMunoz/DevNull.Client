@@ -232,6 +232,7 @@ let complete
           TermsVersion = me.TermsVersion
           TermsAccepted = Some me.TermsAccepted
           Remotes = me.Remotes
+          Organizations = me.Organizations
         }
 
         match! saveSession(log, session) with

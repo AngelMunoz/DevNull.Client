@@ -42,6 +42,7 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
+  and 'env :> IProvideSession
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
@@ -188,6 +189,7 @@ let view
     OnEvent = ignore
     OnOpenExternal = fun url -> props.Env.Browser.Open url |> ignore
     ViewerId = props.Session.Session.User.Id
+    ViewerOrgs = viewerOrgs props.Session.Session
     Pasteis = pastels
     Now = model |> Observable.map _.Now
     PollChoices = choices
@@ -317,25 +319,25 @@ let view
       | _ -> false
 
     composerHost.Content <-
-      (if offered then
-         Composer.Page {
-           Env = props.Env
-           Session = props.Session
-           Target = Composer.Fresh
-           Participants = ValueNone
-           Guilds = ValueSome(fun () -> guilds.Value)
-           Guild = ValueSome props.Handle
-           OnCommitted = fun _ -> dispatch State.BoardLoad
-           OnScheduled = ValueNone
-           OnOpenQueue =
-             ValueSome(fun () ->
-               Navigation.go(props.Nav, "/scheduled", ignore))
-           Draft = ValueNone
-           OnBodyReady = ValueNone
-         }
-         :> Control
-       else
-         Panel()))
+      if offered then
+        Composer.Page {
+          Env = props.Env
+          Session = props.Session
+          Target = Composer.Fresh
+          Participants = ValueNone
+          Guilds = ValueSome(fun () -> guilds.Value)
+          Guild = ValueSome props.Handle
+          OnCommitted = fun _ -> dispatch State.BoardLoad
+          OnScheduled = ValueNone
+          OnOpenQueue =
+            ValueSome(fun () -> Navigation.go(props.Nav, "/scheduled", ignore))
+          Draft = ValueNone
+          OnBodyReady = ValueNone
+          AvatarHost = ValueNone
+        }
+        :> Control
+      else
+        Panel())
   |> ignore
 
   let boardHeading =
@@ -500,6 +502,7 @@ type Page<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
+  and 'env :> IProvideSession
   and 'env :> IProvideUiClock
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources

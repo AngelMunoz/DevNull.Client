@@ -5,6 +5,7 @@ open System.IO
 open System.Text.Json
 open System.Text.Json.Nodes
 open IcedTasks
+open JDeck
 open Microsoft.Extensions.Logging
 open DevNull.Client.Core.ApiTypes
 
@@ -142,6 +143,9 @@ let saveSession
       json.["remotes_unread"] <- JsonValue.Create remotes.UnreadCount
     | None -> ()
 
+    json.["organizations"] <-
+      Json.sequence(session.Organizations, Me.encodeOrganization)
+
     do! writeAllTextAtomic sessionPath (json.ToJsonString())
 
     log.LogDebug("The session of {Handle} was stored.", session.User.Handle)
@@ -229,6 +233,12 @@ let loadSession(log: ILogger) : Async<DeviceSession option> = asyncEx {
             tryString "terms_version" root |> Option.defaultValue ""
           TermsAccepted = tryBool "terms_accepted" root
           Remotes = remotes
+          // The stored membership rows, oldest first; a session stored
+          // before them reads with none — the first account poll fills.
+          Organizations =
+            (match Me.decodeOrganizations root with
+             | Ok rows -> rows
+             | Error _ -> [])
         }
     | _ ->
       log.LogWarning("The stored session file carries no usable session.")

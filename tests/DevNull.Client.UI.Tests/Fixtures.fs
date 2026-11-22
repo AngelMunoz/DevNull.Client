@@ -649,6 +649,7 @@ let sessionOf(username: string) : DeviceSession = {
   TermsVersion = "20261001"
   TermsAccepted = Some true
   Remotes = None
+  Organizations = []
 }
 
 let signedInStore() =

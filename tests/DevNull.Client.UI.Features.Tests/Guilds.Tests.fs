@@ -223,6 +223,7 @@ let mountComposer
         OnOpenQueue = ValueNone
         Draft = ValueNone
         OnBodyReady = ValueNone
+        AvatarHost = ValueNone
       }
       :> Control)
 
@@ -413,6 +414,7 @@ module BoardHost =
       OnEvent = ignore
       OnOpenExternal = ignore
       ViewerId = ""
+      ViewerOrgs = []
       Pasteis = pastels
       Now = now
       PollChoices = choices

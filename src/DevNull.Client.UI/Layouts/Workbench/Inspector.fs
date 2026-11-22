@@ -75,6 +75,7 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
+  and 'env :> IProvideSession
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideProfiles
@@ -504,6 +505,10 @@ let view
         onEvent event
     OnOpenExternal = props.OnOpenExternal
     ViewerId = props.ViewerId
+    ViewerOrgs =
+      props.Session
+      |> Option.map(fun session -> viewerOrgs session.Session)
+      |> Option.defaultValue []
     Pasteis = pasteis
     Now = now
     PollChoices = polls
@@ -681,6 +686,7 @@ let view
             ValueSome(fun body -> body.Focus() |> ignore)
           else
             ValueNone
+        AvatarHost = ValueNone
       }
       :> Control
     | Some _, None ->

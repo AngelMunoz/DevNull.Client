@@ -76,6 +76,36 @@ let tests =
         ]
         "the kind order"
 
+      let allKinds = [
+        NotificationKind.FirstCommit
+        NotificationKind.Rejected
+        NotificationKind.Approved
+        NotificationKind.Quoted
+        NotificationKind.Starred
+        NotificationKind.Mentioned
+        NotificationKind.Replied
+        NotificationKind.Followed
+        NotificationKind.LeveledUp
+      ]
+
+      let allItems =
+        allKinds |> List.map(fun kind -> { sample with Type = kind })
+
+      Expect.equal
+        (EditorPanel.kindsOf allItems)
+        [
+          NotificationKind.LeveledUp
+          NotificationKind.Followed
+          NotificationKind.Replied
+          NotificationKind.Mentioned
+          NotificationKind.Starred
+          NotificationKind.Quoted
+          NotificationKind.Approved
+          NotificationKind.Rejected
+          NotificationKind.FirstCommit
+        ]
+        "the full kind display order"
+
       Expect.equal
         (EditorPanel.notificationsOf(items, NotificationKind.Replied)).Length
         2

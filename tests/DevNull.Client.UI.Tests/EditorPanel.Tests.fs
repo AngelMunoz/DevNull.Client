@@ -1,6 +1,7 @@
 module DevNull.Client.UI.Tests.EditorPanel
 
 open System
+open System.Collections.Concurrent
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
@@ -1194,6 +1195,174 @@ let tests =
           surviving
           0
           "cleared problem rows remained rooted by the frame clock"
+
+        do! close(window, handle)
+      })
+
+    testCaseAsync
+      "bottom panel tabs render in the requested order"
+      (async {
+        let api = panelApi(manyKindsJson, 0)
+        let! window, handle = mountAt(1600.0, 900.0, api)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history never rendered"
+        do! openProblems(window)
+
+        let expected = [
+          "EditorPanelTab-Activity"
+          "EditorPanelTab-LEVELS"
+          "EditorPanelTab-FOLLOWS"
+          "EditorPanelTab-REPLIES"
+          "EditorPanelTab-MENTIONS"
+          "EditorPanelTab-STARS"
+          "EditorPanelTab-QUOTES"
+          "EditorPanelTab-APPROVED"
+          "EditorPanelTab-REJECTED"
+          "EditorPanelTab-FIRST COMMITS"
+          "EditorPanelTab-Remotes"
+          "EditorPanelTab-Terminal"
+        ]
+
+        let! landed =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root ->
+              expected
+              |> List.forall(fun name ->
+                controlByName(root, name) |> Option.isSome)
+          )
+
+        Expect.isTrue landed "not all panel tabs rendered"
+
+        let! actual =
+          probeUiAsync(fun () ->
+            controlByName(window, "EditorPanelTabs")
+            |> Option.bind(function
+              | :? ScrollViewer as view ->
+                match view.Content with
+                | :? StackPanel as strip ->
+                  strip.Children
+                  |> Seq.choose(fun child -> Option.ofObj child.Name)
+                  |> Seq.toList
+                  |> Some
+                | _ -> None
+              | _ -> None)
+            |> Option.defaultValue [])
+
+        Expect.equal actual expected "the panel tabs did not match the order"
+
+        do! close(window, handle)
+      })
+
+    testCaseAsync
+      "bottom panel notification tabs show unread dots and clear on refresh"
+      (async {
+        let row(index: int, kind: string, unread: int) =
+          notificationJson
+            .Replace(
+              "01a15752-d17c-7065-b076-99e5bdad596d",
+              sprintf "01a15752-d17c-7065-b076-99e5bdad60%02x" index
+            )
+            .Replace("\"type\":\"replied\"", sprintf "\"type\":\"%s\"" kind)
+            .Replace("\"unread_count\":0", sprintf "\"unread_count\":%d" unread)
+
+        let pageOf rows =
+          sprintf
+            """{"data":[%s],"links":{},"meta":{"per_page":20,"next_cursor":null,"prev_cursor":null},"filters":{"type":"all"},"read_at":"2026-10-20T04:20:00Z"}"""
+            (rows |> String.concat ",")
+
+        let initialPage =
+          pageOf [
+            row(0, "leveled_up", 0)
+            row(1, "followed", 0)
+            row(2, "replied", 1)
+            row(3, "mentioned", 2)
+            row(4, "starred", 1)
+          ]
+
+        let refreshedPage =
+          pageOf [
+            row(0, "leveled_up", 0)
+            row(1, "followed", 0)
+            row(2, "replied", 0)
+            row(3, "mentioned", 2)
+            row(4, "starred", 1)
+          ]
+
+        let pages = ConcurrentQueue<string>([ initialPage; refreshedPage ])
+
+        let api =
+          FakeApi(fun request ->
+            if request.Target.StartsWith "/api/v1/notifications" then
+              match pages.TryDequeue() with
+              | true, body -> ok body
+              | false, _ -> ok refreshedPage
+            elif request.Target.StartsWith "/api/v1/log/" then
+              ok logPageJson
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let! window, handle = mountAt(1600.0, 900.0, api)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history never rendered"
+        do! openProblems(window)
+
+        let! initialDots =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root ->
+              [ "REPLIES"; "MENTIONS"; "STARS" ]
+              |> List.forall(fun name ->
+                visible(root, $"EditorPanelTabUnread-{name}"))
+          )
+
+        Expect.isTrue
+          initialDots
+          "the unread notification tabs never showed dots"
+
+        let! cleanTabs =
+          probeUiAsync(fun () ->
+            [ "Activity"; "LEVELS"; "FOLLOWS"; "Remotes"; "Terminal" ]
+            |> List.forall(fun name ->
+              controlByName(window, $"EditorPanelTabUnread-{name}")
+              |> Option.isNone))
+
+        Expect.isTrue cleanTabs "a read or plain tab showed an unread dot"
+
+        do! clickName(window, "EditorPanelTab-REPLIES")
+
+        let! cleared =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root ->
+              controlByName(root, "EditorPanelTabUnread-REPLIES")
+              |> Option.isNone
+              && visible(root, "EditorPanelTabUnread-MENTIONS")
+              && visible(root, "EditorPanelTabUnread-STARS")
+          )
+
+        Expect.isTrue
+          cleared
+          "the replies tab dot did not clear after notifications refreshed"
 
         do! close(window, handle)
       })

@@ -271,11 +271,12 @@ let tests =
 
       run(ThreadTab.State.CardEvent(Opened reply))
       run(ThreadTab.State.CardEvent(MoreRepliesRequested reply))
+      run(ThreadTab.State.AncestorOpened reply)
 
       Expect.equal
         (opened |> Seq.map _.Id |> List.ofSeq)
-        [ reply.Id; reply.Id ]
-        "the reply row never reached the open sink"
+        [ reply.Id; reply.Id; reply.Id ]
+        "the reply row or ancestor never reached the open sink"
 
     testCase "the card row carries the web action slots per surface" (fun () ->
       let env = FakeEnv(unusedHttp)

@@ -102,6 +102,7 @@ module State =
     | PollVoteRequested of Commit
     | PollVotedDone of Result<Commit, AppError>
     | CardEvent of Event
+    | AncestorOpened of Commit
     | PeekRequested of commitId: string
     | Peeked of commitId: string * Result<CommitPage, AppError>
     | CardMsg of EditorCards.Msg
@@ -413,6 +414,8 @@ module State =
 
         next, Cmd.none
       | _ -> model, Cmd.none
+    | AncestorOpened commit ->
+      model, Cmd.ofAction(fun () -> props.OnOpenThread commit)
     | PeekRequested commitId ->
       if needsPeek(model, commitId) then
         model,
@@ -522,64 +525,79 @@ let view
   let mainSlot = new SerialDisposable()
 
   let breadcrumbs(nodes: CommitNode list) : Control =
-    let commits =
-      nodes
-      |> List.choose(function
-        | LiveCommit commit -> Some commit
-        | Tombstone _ -> None)
-
-    if commits.IsEmpty then
+    if nodes.IsEmpty then
       crumbSlot.Disposable <- Disposable.Empty
 
       TextBlock()
+        .Name("ThreadBreadcrumbs")
         .Text("(root)")
         .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Margin(Thickness(12.0, 8.0, 12.0, 4.0))
     else
       let stop = EditorCards.nextGate crumbSlot
 
       let crumbs: Control array = [|
-        for index, commit in List.indexed commits do
+        for index, node in List.indexed nodes do
           if index > 0 then
             TextBlock()
               .Text("←")
               .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
+              .VerticalAlignment(VerticalAlignment.Center)
 
-          let button =
-            Button()
-              .Classes(Theme.name Theme.GhostButton)
-              .Content(
-                TextBlock()
-                  .Text(commit.ShortHash)
-                  .Classes(Theme.name Theme.Mono)
-              )
+          match node with
+          | LiveCommit commit ->
+            let button =
+              Button()
+                .Name($"ThreadBreadcrumb-{commit.Id}")
+                .Classes(Theme.name Theme.GhostButton)
+                .Padding(Thickness(4.0, 2.0))
+                .VerticalAlignment(VerticalAlignment.Center)
+                .Content(
+                  TextBlock()
+                    .Text(commit.ShortHash)
+                    .Classes(Theme.name Theme.Mono)
+                    .VerticalAlignment(VerticalAlignment.Center)
+                )
+                .OnClickHandler(fun _ _ ->
+                  dispatch(State.AncestorOpened commit))
 
-          button.PointerEntered.Add(fun _ ->
-            dispatch(State.PeekRequested commit.Id))
+            button.PointerEntered.Add(fun _ ->
+              dispatch(State.PeekRequested commit.Id))
 
-          let body =
-            model
-            |> Observable.takeUntilOther stop
-            |> Observable.distinctUntilChangedKey(fun current ->
-              current.Peek |> Option.map fst)
-            |> Observable.map(fun current ->
-              match current.Peek with
-              | Some(id, page) when id = commit.Id -> page.Commit.Body
-              | _ -> "")
+            let body =
+              model
+              |> Observable.takeUntilOther stop
+              |> Observable.distinctUntilChangedKey(fun current ->
+                current.Peek |> Option.map fst)
+              |> Observable.map(fun current ->
+                match current.Peek with
+                | Some(id, page) when id = commit.Id -> page.Commit.Body
+                | _ -> "")
 
-          let tip =
+            let tip =
+              TextBlock()
+                .Text(body)
+                .TextWrapping(TextWrapping.Wrap)
+                .MaxWidth(360.0)
+                .Classes(Theme.name Theme.FgMuted)
+
+            ToolTip.SetTip(button, tip)
+            button :> Control
+          | Tombstone tombstone ->
             TextBlock()
-              .Text(body)
-              .TextWrapping(TextWrapping.Wrap)
-              .MaxWidth(360.0)
-              .Classes(Theme.name Theme.FgMuted)
-
-          ToolTip.SetTip(button, tip)
-          button
+              .Name($"ThreadBreadcrumbTombstone-{tombstone.Id}")
+              .Text("deleted")
+              .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
+              .VerticalAlignment(VerticalAlignment.Center)
+              .Margin(Thickness(4.0, 2.0))
       |]
 
       StackPanel()
+        .Name("ThreadBreadcrumbs")
         .Orientation(Orientation.Horizontal)
-        .Spacing(4.0)
+        .Spacing(6.0)
+        .Margin(Thickness(12.0, 8.0, 12.0, 4.0))
         .Children(crumbs)
 
   let breadcrumbRow =
@@ -591,9 +609,9 @@ let view
             current.Page
             |> Option.map(fun page ->
               page.Ancestors
-              |> List.choose(function
-                | LiveCommit commit -> Some commit.Id
-                | Tombstone _ -> None))),
+              |> List.map(function
+                | LiveCommit commit -> true, commit.Id
+                | Tombstone tombstone -> false, tombstone.Id))),
           (fun current ->
             match current.Page with
             | Some page -> breadcrumbs page.Ancestors

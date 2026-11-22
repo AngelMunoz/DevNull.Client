@@ -112,6 +112,7 @@ module State =
     | PollVoteRequested of Commit
     | PollVotedDone of Result<Commit, AppError>
     | CardEvent of Event
+    | AncestorOpened of Commit
     | PeekRequested of commitId: string
     | Peeked of commitId: string * Result<CommitPage, AppError>
     | CardMsg of EditorCards.Msg

@@ -3,6 +3,7 @@ module DevNull.Client.UI.Tests.EditorFrame
 open System
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Layout
 open Avalonia.VisualTree
 open Expecto
 open FSharp.Control.Reactive
@@ -681,6 +682,178 @@ let tests =
           )
 
         Expect.isTrue closed "closing the board tab did not dispose its program"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            handle.Dispose())
+      })
+
+    testCaseAsync
+      "thread breadcrumbs align, keep tombstones, and open ancestor tabs on click"
+      (async {
+        let grandparentId = "018f4c1e-1111-7c3a-9b2d-5e6f7a8b9c0d"
+        let tombstoneId = "018f4c1e-2222-7c3a-9b2d-5e6f7a8b9c0d"
+        let parentId = "018f4c1e-3333-7c3a-9b2d-5e6f7a8b9c0d"
+        let childId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+
+        let grandparentJson =
+          commitJson
+            .Replace(childId, grandparentId)
+            .Replace("\"short_hash\":\"b8b9c0d\"", "\"short_hash\":\"5ce45a8\"")
+            .Replace("It was DNS.", "Grandparent root commit.")
+
+        let tombstoneJson =
+          sprintf
+            """{"id":"%s","parent_id":"%s","deleted_at":"2026-10-20T04:18:00Z","replies_count":1}"""
+            tombstoneId
+            grandparentId
+
+        let parentJson =
+          commitJson
+            .Replace(childId, parentId)
+            .Replace("\"short_hash\":\"b8b9c0d\"", "\"short_hash\":\"8d0ff29\"")
+            .Replace("It was DNS.", "Direct parent commit.")
+
+        let childThreadJson =
+          sprintf
+            """{"data":%s,"ancestors":[%s,%s,%s],"reply_participants":[]}"""
+            commitJson
+            grandparentJson
+            tombstoneJson
+            parentJson
+
+        let grandparentThreadJson =
+          sprintf
+            """{"data":%s,"ancestors":[],"reply_participants":[]}"""
+            grandparentJson
+
+        let api =
+          FakeApi(fun request ->
+            if request.Target.Contains "/replies" then
+              ok
+                """{"data":[],"links":{},"meta":{"per_page":20,"next_cursor":null,"prev_cursor":null}}"""
+            elif
+              request.Target.StartsWith($"/api/v1/commits/{grandparentId}")
+            then
+              ok grandparentThreadJson
+            elif request.Target.StartsWith($"/api/v1/commits/{childId}") then
+              ok childThreadJson
+            elif request.Target.StartsWith "/api/v1/log/" then
+              ok logPageJson
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let env = TestEnv(signedInStore(), api :> IHttp)
+
+        let! window, handle =
+          probeUiAsync(fun () ->
+            let control, handle = EditorRoot.mount(ui, props env)
+
+            let window =
+              Window(Width = 1600.0, Height = 900.0, Content = control)
+
+            window.Show()
+            window, handle)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history card never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "It was DNS.") |> Option.iter click)
+
+        let! crumbsLoaded =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root ->
+              root.GetVisualDescendants()
+              |> Seq.exists(fun visual ->
+                visual.Name = $"ThreadBreadcrumb-{grandparentId}")
+          )
+
+        Expect.isTrue crumbsLoaded "the ancestor breadcrumbs never rendered"
+
+        let! layoutOk =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryFind(fun visual -> visual.Name = "ThreadBreadcrumbs")
+            |> Option.bind(function
+              | :? StackPanel as panel ->
+                let items = panel.Children |> Seq.toList
+
+                let aligned =
+                  items
+                  |> List.forall(fun child ->
+                    child.VerticalAlignment = VerticalAlignment.Center)
+
+                let names =
+                  items
+                  |> List.map(fun child ->
+                    match child with
+                    | :? Button as button -> "B:" + button.Name
+                    | :? TextBlock as block -> "T:" + block.Text
+                    | other -> other.GetType().Name)
+
+                let padded =
+                  items
+                  |> List.choose(function
+                    | :? Button as button -> Some button.Padding
+                    | _ -> None)
+                  |> List.forall(fun padding -> padding = Thickness(4.0, 2.0))
+
+                Some(
+                  aligned
+                  && padded
+                  && panel.Spacing >= 6.0
+                  && panel.Margin.Top >= 4.0
+                  && names = [
+                    $"B:ThreadBreadcrumb-{grandparentId}"
+                    "T:←"
+                    "T:deleted"
+                    "T:←"
+                    $"B:ThreadBreadcrumb-{parentId}"
+                  ]
+                )
+              | _ -> None)
+            |> Option.defaultValue false)
+
+        Expect.isTrue
+          layoutOk
+          "the breadcrumb chain did not align, pad, or preserve the tombstone"
+
+        do!
+          onUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryFind(fun visual ->
+              visual.Name = $"ThreadBreadcrumb-{grandparentId}")
+            |> Option.iter(function
+              | :? Button as button -> click button
+              | _ -> ()))
+
+        let! ancestorOpened =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root ->
+              hasText(root, "Grandparent root commit.")
+              && (root.GetVisualDescendants()
+                  |> Seq.exists(fun visual ->
+                    visual.Name = $"EditorTab-{grandparentId}"))
+          )
+
+        Expect.isTrue
+          ancestorOpened
+          "clicking an ancestor breadcrumb did not open its thread tab"
 
         do!
           onUiAsync(fun () ->

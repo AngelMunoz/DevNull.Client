@@ -84,12 +84,12 @@ let toggle(tab: Tab, state: State) =
 
 let kindRank(kind: NotificationKind) =
   match kind with
-  | NotificationKind.Followed -> 0
-  | NotificationKind.Replied -> 1
-  | NotificationKind.Quoted -> 2
-  | NotificationKind.Starred -> 3
-  | NotificationKind.Mentioned -> 4
-  | NotificationKind.LeveledUp -> 5
+  | NotificationKind.LeveledUp -> 0
+  | NotificationKind.Followed -> 1
+  | NotificationKind.Replied -> 2
+  | NotificationKind.Mentioned -> 3
+  | NotificationKind.Starred -> 4
+  | NotificationKind.Quoted -> 5
   | NotificationKind.Approved -> 6
   | NotificationKind.Rejected -> 7
   | NotificationKind.FirstCommit -> 8
@@ -178,6 +178,18 @@ let severityOf(kind: NotificationKind) =
 
 let isUnread(notification: Notification) = notification.UnreadCount > 0
 
+let inline hasUnread(items: Notification list, kind: NotificationKind) =
+  items
+  |> List.exists(fun notification ->
+    notification.Type = kind && isUnread notification)
+
+let inline tabUnread(items: Notification list, tab: Tab) =
+  match tab with
+  | Kind kind -> hasUnread(items, kind)
+  | Activity
+  | Remotes
+  | Terminal -> false
+
 let commitOf(notification: Notification) =
   match notification.Commit with
   | Some(LiveCommit commit) -> Some commit
@@ -215,31 +227,71 @@ let tabName(tab: Tab) =
   | Remotes -> "Remotes"
   | Terminal -> "Terminal"
 
-let tabButton(props: Props, current: Tab, tab: Tab) : Control =
+[<Struct>]
+type TabButtonArgs = {
+  Props: Props
+  Current: Tab
+  Tab: Tab
+  Unread: bool
+}
+
+let tabButton(args: TabButtonArgs) : Control =
   let classes = [|
     Theme.name Theme.TabButton
-    if current = tab then
+    if args.Current = args.Tab then
       Theme.name Theme.TabButtonActive
   |]
 
-  let button =
-    Button()
-      .Classes(classes)
-      .Padding(Thickness(10.0, 6.0))
-      .Content(TextBlock().Text(tabLabel tab).Classes(Theme.name Theme.Mono))
-      .OnClickHandler(fun _ _ -> props.OnSelect tab)
+  let label =
+    TextBlock()
+      .Text(tabLabel args.Tab)
+      .Classes(Theme.name Theme.Mono)
+      .VerticalAlignment(VerticalAlignment.Center)
 
-  button.Name <- $"EditorPanelTab-{tabName tab}"
-  button
+  let content: Control =
+    if args.Unread then
+      let dot =
+        Shapes
+          .Ellipse()
+          .Name($"EditorPanelTabUnread-{tabName args.Tab}")
+          .Classes(Theme.name Theme.AccentDot)
+          .Width(6.0)
+          .Height(6.0)
+          .VerticalAlignment(VerticalAlignment.Center)
+
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Spacing(6.0)
+        .Children(label, dot)
+    else
+      label
+
+  Button()
+    .Name($"EditorPanelTab-{tabName args.Tab}")
+    .Classes(classes)
+    .Padding(Thickness(10.0, 6.0))
+    .Content(content)
+    .OnClickHandler(fun _ _ -> args.Props.OnSelect args.Tab)
 
 let tabStrip(props: Props, current: Tab, items: Notification list) : Control =
-  let tabs = [ Activity; Remotes; Terminal ] @ (kindsOf items |> List.map Kind)
+  let tabs =
+    Activity :: (kindsOf items |> List.map Kind) @ [ Remotes; Terminal ]
 
   let strip =
     StackPanel()
       .Orientation(Orientation.Horizontal)
       .Spacing(2.0)
-      .Children([| for tab in tabs -> tabButton(props, current, tab) |])
+      .Children(
+        [|
+          for tab in tabs ->
+            tabButton {
+              Props = props
+              Current = current
+              Tab = tab
+              Unread = tabUnread(items, tab)
+            }
+        |]
+      )
 
   let scroll =
     ScrollViewer()
@@ -248,22 +300,17 @@ let tabStrip(props: Props, current: Tab, items: Notification list) : Control =
       .VerticalScrollBarVisibility(ScrollBarVisibility.Disabled)
       .Content(strip)
 
-  let frame = Grid()
-  frame.ColumnDefinitions <- ColumnDefinitions("*,Auto")
-
-  frame.Children(
-    scroll.Column(0),
-    Button()
-      .Name("EditorPanelClose")
-      .Classes(Theme.name Theme.GhostButton)
-      .Padding(Thickness(6.0, 2.0))
-      .Content(TextBlock().Text("×"))
-      .OnClickHandler(fun _ _ -> props.OnClose())
-      .Column(1)
-  )
-  |> ignore
-
-  frame
+  Grid(ColumnDefinitions = ColumnDefinitions("*,Auto"))
+    .Children(
+      scroll.Column(0),
+      Button()
+        .Name("EditorPanelClose")
+        .Classes(Theme.name Theme.GhostButton)
+        .Padding(Thickness(6.0, 2.0))
+        .Content(TextBlock().Text("×"))
+        .OnClickHandler(fun _ _ -> props.OnClose())
+        .Column(1)
+    )
 
 let problemRow(props: Props, notification: Notification) : Control =
   let button =

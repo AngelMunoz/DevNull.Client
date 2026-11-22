@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-11-22
+
+### Added
+
+- **Editor:** Bottom panel notification tabs show an accent dot whenever that category has unread notifications, and the dot clears once the notifications refresh as read; plain tabs (Activity, Remotes, Terminal) never show a dot.
+
+### Changed
+
+- **Editor:** Bottom panel tabs now appear in the order Activity, Levels, Follows, Replies, Mentions, Stars, remaining notification kinds, Remotes, and Terminal.
+
+### Fixed
+
+- **Editor:** Clicking a commit hash in a thread tab's breadcrumb chain now opens that ancestor's thread tab. Deleted ancestors stay visible in the chain as non-clickable `deleted` labels, and the chain aligns hashes and arrows vertically with breathing room under the tab strip.
+
 ## [0.18.0] - 2026-11-22
 
 ### Added

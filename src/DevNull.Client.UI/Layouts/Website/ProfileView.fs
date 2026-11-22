@@ -1,0 +1,2195 @@
+module DevNull.Client.Layout.Website.ProfileView
+
+open System
+open System.Collections.Generic
+open System.Globalization
+open System.Runtime.CompilerServices
+open System.Text.RegularExpressions
+open Avalonia.Controls.Documents
+open Avalonia
+open Avalonia.Controls
+open Avalonia.Controls.Primitives
+open Avalonia.Media
+open Avalonia.Layout
+open NXUI.Extensions
+open FSharp.Control.Reactive
+open IcedTasks
+open MVUish.Avalonia
+open Navs
+open DevNull.Client
+open DevNull.Client.Components
+open DevNull.Client.Components.CommitActions
+open DevNull.Client.Components.CommitCard
+open DevNull.Client.Components.TranslationModel
+open DevNull.Client.Components.UserFlyout
+open DevNull.Client.Core.Api
+open DevNull.Client.Core.ApiTypes
+open DevNull.Client.Core.Capabilities
+open DevNull.Client.Core.Http
+open DevNull.Client.Errors
+open DevNull.Client.Env
+open Microsoft.Extensions.Logging
+open DevNull.Client.ImageCache
+open DevNull.Client.Formatting
+open DevNull.Client.Profiles
+open DevNull.Client.Stores
+open DevNull.Client.Timeline
+open DevNull.Client.UiClock
+open DevNull.Client.UserSettingsStore
+open DevNull.Client.TranslationCache
+
+type Props<'env
+  when 'env :> IProvideClock
+  and 'env :> IProvideNonceSource
+  and 'env :> IProvideSigner
+  and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideSession
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideTimeline
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
+  and 'env :> IProvideLogging> = {
+  Env: 'env
+  Username: string
+  Session: SignedInSession
+  Nav: INavigable
+  Context: RouteContext
+}
+
+// The page's state logic: model, messages, update, and the
+// subscriptions that feed it from outside.
+module State =
+
+  // The feed tab the page shows: the user's own commits or their
+  // replies.
+  type Tab =
+    | Commits
+    | Replies
+
+  // One row of the profile feed: the pinned caption, the pinned
+  // commit it marks, or one commit of the list.
+  [<Struct>]
+  type FeedRow =
+    | PinnedCaption
+    | PinnedNode of node: CommitNode
+    | FeedNode of node: CommitNode
+
+  // The header's shape: the automatic fold, or the form the reader
+  // pinned with the chevron.
+  type HeaderForm =
+    | Auto
+    | Full
+    | Compact
+
+  type Model = {
+    Loading: bool
+    Error: AppError option
+    Details: ProfileDetails option
+    Feed: FeedWindow.Window<CommitNode>
+    Anchor: FeedWindow.Anchor voption
+    Tab: Tab
+    Now: DateTimeOffset
+    Pasteis: bool
+    Voting: string option
+    PollChoices: Map<string, string>
+    Pinning: string option
+    Note: string option
+    // The form the reader pinned, or Auto.
+    HeaderForm: HeaderForm
+    // The fold the last read place asked for, while the form is Auto.
+    AutoCompact: bool
+    // Whether the window is short for the full header, decided once
+    // from the full header's first layout.
+    ShortWindow: bool
+    // Whether the first read place already landed.
+    PlaceReported: bool
+    // Whether translations show by themselves.
+    Automatic: bool
+    // Every commit's translation on this page.
+    Translations: TranslationModel.Book
+    // The viewer's relation per author handle, as the More menu reads
+    // it.
+    Relations: Map<string, AuthorRelation>
+    // The commit whose menu action is in flight, so its items disable.
+    MenuBusy: string option
+    // Whether the go-live dialog is open, on the owner's own profile.
+    LiveOpen: bool
+  }
+
+  type Msg =
+    | Fetched of Result<ProfileDetails, AppError>
+    | CommitsFetched of
+      cursor: string option *
+      Result<Page<CommitNode>, AppError>
+    | CommitsPrepended of
+      cursor: string option *
+      Result<Page<CommitNode>, AppError>
+    | CommitsRefreshed of Result<Page<CommitNode>, AppError>
+    | MoreCommits
+    | NewerCommits
+    | AnchorMoved of FeedWindow.Anchor
+    | TabChosen of Tab
+    | HeaderChosen of HeaderForm
+    | FeedRead of Components.Feed.Ride
+    | StarToggled of Commit
+    | StarDone of Result<Commit, AppError>
+    | PollChoiceChanged of Commit * PollOption * chosen: bool
+    | PollVoteRequested of Commit
+    | PollVotedDone of Result<Commit, AppError>
+    | PastelGiven of Commit
+    | PastelDone of Result<PastelResult, AppError>
+    | FollowToggled
+    | MuteToggled
+    | BlockToggled
+    | FollowDone of Result<unit, AppError>
+    | MuteDone of Result<MuteResult, AppError>
+    | BlockDone of Result<BlockResult, AppError>
+    | PinToggled of Commit
+    | PinDone of pinned: bool * Result<Commit, AppError>
+    | ClockTicked of moment: DateTimeOffset
+    | SessionChanged of state: SessionState
+    | TranslateRequested of Commit
+    | OriginalRequested of Commit
+    | TranslationDone of Commit * Result<TranslationPayload, AppError>
+    | TranslationRecalled of Commit * TranslationModel.Book option
+    | MenuOpened of Commit
+    | RelationLoaded of handle: string * AuthorRelation voption
+    | AuthorFollowToggled of Commit
+    | AuthorFollowDone of Commit * Result<unit, AppError>
+    | AuthorMuteToggled of Commit
+    | AuthorMuteDone of Commit * Result<MuteResult, AppError>
+    | AuthorBlockRequested of Commit
+    | AuthorBlockDone of Commit * Result<BlockResult, AppError>
+    | DeleteRequested of Commit
+    | Deleted of commitId: string * Result<unit, AppError>
+    | GoLiveChosen
+    | LiveDialogClosed
+    | GoLiveDone of Result<Me, AppError>
+    | EndLiveRequested
+    | EndLiveDone of Result<Me, AppError>
+
+  // The marker one deleted commit folds to.
+  let tombstoneOf(commit: Commit) : Tombstone = {
+    Id = commit.Id
+    ParentId = commit.ParentId
+    DeletedAt = DateTimeOffset.UtcNow
+    RepliesCount = commit.RepliesCount
+  }
+
+  // The unread state the menu's words start from.
+  let unreadRelation: AuthorRelation = {
+    IsFollowing = false
+    IsMuting = false
+    IsBlocking = false
+  }
+
+  // The relation the page holds for one author handle, defaulting to
+  // the unread state the menu's words start from.
+  let heldRelation(model: Model, handle: string) : AuthorRelation =
+    model.Relations |> Map.tryFind handle |> Option.defaultValue unreadRelation
+
+  // The key of one feed row: the pinned rows carry their own so the
+  // pinned commit can appear above while its feed copy stays its own
+  // row.
+  let inline rowKey(row: FeedRow) : string =
+    match row with
+    | PinnedCaption -> "pinned-caption"
+    | PinnedNode node -> "pinned:" + FeedParts.nodeKey node
+    | FeedNode node -> FeedParts.nodeKey node
+
+  let windowLimit = 300
+
+  let ops: FeedWindow.Ops<CommitNode> = { KeyOf = FeedParts.nodeKey }
+
+  let spanOf
+    (request: string option, page: Page<CommitNode>)
+    : FeedWindow.Chunk<CommitNode> = {
+    Request = ValueOption.ofOption request
+    Items = Array.ofList page.Items
+    Older = ValueOption.ofOption page.NextCursor
+    Newer = ValueOption.ofOption page.PrevCursor
+  }
+
+  let windowOf
+    (request: string option, page: Page<CommitNode>)
+    : FeedWindow.Window<CommitNode> = {
+    Order = FeedWindow.NewestFirst
+    Chunks = [ spanOf(request, page) ]
+    Limit = windowLimit
+  }
+
+  let itemsOf(model: Model) : CommitNode list = FeedWindow.items model.Feed
+
+  let olderOf(model: Model) : string voption = FeedWindow.older model.Feed
+
+  let newerOf(model: Model) : string voption = FeedWindow.newer model.Feed
+
+  let trimWindow
+    (window: FeedWindow.Window<CommitNode>, anchor: FeedWindow.Anchor voption)
+    : FeedWindow.Window<CommitNode> =
+    let items = FeedWindow.items window
+    let count = items.Length
+
+    let index =
+      anchor
+      |> ValueOption.bind(fun place ->
+        items
+        |> List.tryFindIndex(fun node -> FeedParts.nodeKey node = place.Key)
+        |> ValueOption.ofOption)
+
+    let edge =
+      match index with
+      | ValueSome at when at < 40 -> FeedWindow.OlderEdge
+      | ValueSome at when at > count - 40 -> FeedWindow.NewerEdge
+      | _ -> FeedWindow.OlderEdge
+
+    FeedWindow.trim(
+      {
+        Ops = ops
+        Keep = anchor |> ValueOption.map _.Key
+        Edge = edge
+      },
+      window
+    )
+
+  let surfaceOf(username: string, tab: Tab) : Surface =
+    Surface.profile(username, tab = Replies)
+
+  // The rows one profile render lists: the pinned commit under its
+  // caption first — the Commits tab only, as the site shows it — then
+  // the feed.
+  let rowsOf(model: Model) : FeedRow list =
+    let pinned =
+      match model.Tab, model.Details |> Option.bind _.PinnedCommit with
+      | Commits, Some node -> [ PinnedCaption; PinnedNode node ]
+      | _ -> []
+
+    pinned @ (FeedWindow.items model.Feed |> List.map FeedNode)
+
+  let initial = {
+    Loading = true
+    Error = None
+    Details = None
+    Feed = FeedWindow.empty(FeedWindow.NewestFirst, windowLimit)
+    Anchor = ValueNone
+    Tab = Commits
+    Now = DateTimeOffset.UtcNow
+    Pasteis = false
+    Voting = None
+    PollChoices = Map.empty
+    Pinning = None
+    Note = None
+    HeaderForm = Auto
+    AutoCompact = false
+    ShortWindow = false
+    PlaceReported = false
+    Automatic = false
+    Translations = TranslationModel.initial
+    Relations = Map.empty
+    MenuBusy = None
+    LiveOpen = false
+  }
+
+  // The feed viewport under which the full header gives way at once:
+  // about three feed rows.
+  let HeaderFloor = 300.0
+
+  // The form the header takes: the reader's pin wins, Auto follows
+  // the last automatic fold.
+  let inline effectiveForm(model: Model) : HeaderForm =
+    match model.HeaderForm with
+    | Auto -> if model.AutoCompact then Compact else Full
+    | chosen -> chosen
+
+  // One feed read: whose commits, which tab, and the pager cursor.
+  [<Struct>]
+  type FeedQuery = {
+    Session: SignedInSession
+    Username: string
+    Replies: bool
+    Cursor: string option
+  }
+
+  let fetchCommits(env, query: FeedQuery) =
+    Users.commits(
+      env,
+      {
+        KeyFile = query.Session.KeyFile
+        Username = query.Username
+        Replies = query.Replies
+        Cursor = query.Cursor
+      }
+    )
+
+  let init (props: Props<'env>) () =
+    let surface = surfaceOf(props.Username, Commits)
+
+    let cursor =
+      props.Env.Timeline.PlaceOf surface
+      |> Option.bind(fun place -> ValueOption.toOption place.Anchor)
+      |> Option.bind(fun anchor -> ValueOption.toOption anchor.Entry)
+
+    {
+      initial with
+          Pasteis = props.Session.Session.PasteisMode
+          Automatic = props.Session.Session.AutomaticTranslation
+          Translations = TranslationModel.initial
+    },
+    Cmd.batch [
+      Cmd.OfAsync.perform
+        Users.get
+        (props.Env,
+         {
+           KeyFile = props.Session.KeyFile
+           Username = props.Username
+         })
+        Fetched
+
+      Cmd.OfAsync.perform
+        fetchCommits
+        (props.Env,
+         {
+           Session = props.Session
+           Username = props.Username
+           Replies = false
+           Cursor = cursor
+         })
+        (fun result -> CommitsFetched(cursor, result))
+    ]
+
+  // Runs one commit's translate call: the language its own translation or
+  // the settings pick, and the 503 retries.
+  let translate(props: Props<'env>, commit: Commit) =
+    let language =
+      TranslationModel.languageFor(
+        (props.Env :> IProvideUserSettings).UserSettings.Current,
+        commit
+      )
+
+    TranslationModel.execute(
+      TranslationModel.retryDelays,
+      fun () ->
+        Commits.translate(
+          props.Env,
+          {
+            KeyFile = props.Session.KeyFile
+            CommitId = commit.Id
+            Language = language
+          }
+        )
+    )
+
+  let loggerOf(props: Props<'env>) =
+    props.Env.LoggerFactory.CreateLogger
+      "DevNull.Client.Layout.Website.ProfileView"
+
+  let updateCore (log: ILogger, props: Props<'env>) msg model =
+    let username =
+      model.Details
+      |> Option.map(fun details -> details.Profile.User.Handle)
+      |> Option.defaultValue props.Username
+
+    let refetch(replies: bool) =
+      Cmd.OfAsync.perform
+        fetchCommits
+        (props.Env,
+         {
+           Session = props.Session
+           Username = username
+           Replies = replies
+           Cursor = None
+         })
+        (fun result -> CommitsFetched(None, result))
+
+    // Every log line is an effect: update returns it as a command,
+    // and the loop writes it after the computation.
+    let failure = CommitActions.failure log
+
+    let failed what error =
+      Cmd.ofAction(fun () -> failure what error)
+
+    match msg with
+    | Fetched result ->
+      match result with
+      | Ok details ->
+        {
+          model with
+              Loading = false
+              Error = None
+              Details = Some details
+        },
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The profile of {User} arrived.", username))
+      | Error error ->
+        {
+          model with
+              Loading = false
+              Error = Some error
+        },
+        failed $"the profile of {username}" error
+    | CommitsFetched(cursor, result) ->
+      match result with
+      | Ok page ->
+        let grown = FeedWindow.addOlder(ops, spanOf(cursor, page), model.Feed)
+
+        {
+          model with
+              Loading = false
+              Feed = trimWindow(grown, model.Anchor)
+        },
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The commits of {User} arrived ({Count}).",
+            username,
+            page.Items.Length
+          ))
+      | Error error ->
+        { model with Error = Some error },
+        failed $"the commits of {username}" error
+    | CommitsPrepended(cursor, result) ->
+      match result with
+      | Ok page ->
+        let grown = FeedWindow.addNewer(ops, spanOf(cursor, page), model.Feed)
+
+        {
+          model with
+              Feed = trimWindow(grown, model.Anchor)
+        },
+        Cmd.none
+      | Error error ->
+        { model with Error = Some error },
+        failed $"the newer commits of {username}" error
+    | MoreCommits ->
+      match olderOf model with
+      | ValueSome cursor ->
+        model,
+        Cmd.OfAsync.perform
+          fetchCommits
+          (props.Env,
+           {
+             Session = props.Session
+             Username = username
+             Replies = model.Tab = Replies
+             Cursor = Some cursor
+           })
+          (fun result -> CommitsFetched(Some cursor, result))
+      | ValueNone -> model, Cmd.none
+    | NewerCommits ->
+      match newerOf model with
+      | ValueSome cursor ->
+        model,
+        Cmd.OfAsync.perform
+          fetchCommits
+          (props.Env,
+           {
+             Session = props.Session
+             Username = username
+             Replies = model.Tab = Replies
+             Cursor = Some cursor
+           })
+          (fun result -> CommitsPrepended(Some cursor, result))
+      | ValueNone -> model, Cmd.none
+    | AnchorMoved anchor ->
+      { model with Anchor = ValueSome anchor },
+      Cmd.ofAction(fun () ->
+        let place: FeedWindow.Place = { Anchor = ValueSome anchor }
+
+        props.Env.Timeline.RememberPlace(
+          surfaceOf(props.Username, model.Tab),
+          place
+        ))
+    | TabChosen kind ->
+      if kind = model.Tab then
+        model, Cmd.none
+      else
+        {
+          model with
+              Loading = true
+              Error = None
+              Feed = FeedWindow.empty(FeedWindow.NewestFirst, windowLimit)
+              Anchor = ValueNone
+              Tab = kind
+        },
+        refetch(kind = Replies)
+    | StarToggled commit ->
+      { model with Error = None },
+      Cmd.OfAsync.perform
+        CommitActions.toggleStar
+        (props.Env, props.Session, commit)
+        StarDone
+    | StarDone result ->
+      match result with
+      | Ok updated ->
+        {
+          model with
+              Feed = FeedWindow.replace(ops, LiveCommit updated, model.Feed)
+        },
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The star on {Commit} settled.", updated.Id))
+      | Error error ->
+        { model with Error = Some error }, failed "the star" error
+    | PinToggled commit ->
+      // The card's own gate already says this is the author's
+      // top-level commit; the flag on it says which way the toggle
+      // goes.
+      let pin = not commit.IsPinned
+
+      let call() =
+        let request: CommitPins.ActionRequest = {
+          KeyFile = props.Session.KeyFile
+          CommitId = commit.Id
+        }
+
+        if pin then
+          CommitPins.pin(props.Env, request)
+        else
+          CommitPins.unpin(props.Env, request)
+
+      {
+        model with
+            Pinning = Some commit.Id
+            Error = None
+            Note = None
+      },
+      Cmd.batch [
+        Cmd.OfAsync.perform call () (fun result -> PinDone(pin, result))
+
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The pin of {Commit} is being {State}.",
+            commit.Id,
+            if pin then "set" else "cleared"
+          ))
+      ]
+    | PinDone(pinned, result) ->
+      match result with
+      | Ok updated ->
+        // The slot moves at once from the answer; the feed read below
+        // reconciles where the commit itself sits, which only the
+        // server knows after a pin.
+        let details =
+          model.Details
+          |> Option.map(fun details -> {
+            details with
+                PinnedCommit =
+                  (if pinned then Some(LiveCommit updated) else None)
+          })
+
+        let feed =
+          if pinned then
+            FeedWindow.remove(
+              ops,
+              FeedParts.nodeKey(LiveCommit updated),
+              model.Feed
+            )
+          else
+            model.Feed
+
+        {
+          model with
+              Pinning = None
+              Note =
+                Some(
+                  if pinned then
+                    "Commit pinned to your profile."
+                  else
+                    "Commit unpinned."
+                )
+              Details = details
+              Feed = feed
+        },
+        Cmd.batch [
+          Cmd.OfAsync.perform
+            fetchCommits
+            (props.Env,
+             {
+               Session = props.Session
+               Username = username
+               Replies = model.Tab = Replies
+               Cursor = None
+             })
+            CommitsRefreshed
+
+          Cmd.ofAction(fun () ->
+            match pinned with
+            | true ->
+              log.LogInformation(
+                "The commit {Commit} was pinned to the profile.",
+                updated.Id
+              )
+            | false ->
+              log.LogInformation(
+                "The pin of the commit {Commit} was taken off.",
+                updated.Id
+              ))
+        ]
+      | Error error ->
+        {
+          model with
+              Pinning = None
+              Error = Some error
+        },
+        failed "the profile pin" error
+    | CommitsRefreshed result ->
+      // The read after a settled pin: it replaces the list, because
+      // the server moved the commit in it. A failure keeps the
+      // already-patched rows and says so in the log only — the pin
+      // itself succeeded.
+      match result with
+      | Ok page ->
+        {
+          model with
+              Feed = windowOf(None, page)
+        },
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The commits of {User} were read again.", username))
+      | Error error -> model, failed "the commits refresh" error
+    | PollChoiceChanged(commit, option, chosen) ->
+      {
+        model with
+            PollChoices =
+              CommitCard.choose {
+                Choices = model.PollChoices
+                CommitId = commit.Id
+                OptionId = option.Id
+                Chosen = chosen
+              }
+      },
+      Cmd.none
+    | PollVoteRequested commit ->
+      match CommitCard.selectedOption(model.PollChoices, commit) with
+      | None -> model, Cmd.none
+      | Some option ->
+        {
+          model with
+              Error = None
+              Voting = Some commit.Id
+        },
+        Cmd.OfAsync.perform
+          CommitActions.vote
+          (props.Env,
+           {
+             Session = props.Session
+             Commit = commit
+             Option = option
+           })
+          PollVotedDone
+    | PollVotedDone result ->
+      match result with
+      | Ok updated ->
+        {
+          model with
+              Feed = FeedWindow.replace(ops, LiveCommit updated, model.Feed)
+              Voting = None
+              PollChoices = model.PollChoices |> Map.remove updated.Id
+        },
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The vote on {Commit} landed.", updated.Id))
+      | Error error ->
+        {
+          model with
+              Error = Some error
+              Voting = None
+        },
+        failed "the poll vote" error
+    | PastelGiven commit ->
+      { model with Error = None },
+      Cmd.OfAsync.perform
+        CommitActions.pastel
+        (props.Env,
+         {
+           Session = props.Session
+           Commit = commit
+         })
+        PastelDone
+    | PastelDone result ->
+      match result with
+      | Ok pastel ->
+        {
+          model with
+              Feed =
+                FeedWindow.replace(ops, LiveCommit pastel.Commit, model.Feed)
+        },
+        Cmd.ofAction(fun () ->
+          log.LogDebug("The pastel on {Commit} landed.", pastel.Commit.Id))
+      | Error error ->
+        { model with Error = Some error }, failed "the pastel" error
+    | FollowToggled ->
+      let following =
+        model.Details |> Option.map _.IsFollowing |> Option.defaultValue false
+
+      let toggle() =
+        let request: Users.Request = {
+          KeyFile = props.Session.KeyFile
+          Username = username
+        }
+
+        if following then
+          Users.unfollow(props.Env, request)
+        else
+          Users.follow(props.Env, request)
+
+      { model with Error = None }, Cmd.OfAsync.perform toggle () FollowDone
+    | MuteToggled ->
+      let muting =
+        model.Details |> Option.map _.IsMuting |> Option.defaultValue false
+
+      let toggle() =
+        let request: Users.Request = {
+          KeyFile = props.Session.KeyFile
+          Username = username
+        }
+
+        if muting then
+          Users.unmute(props.Env, request)
+        else
+          Users.mute(props.Env, request)
+
+      { model with Error = None }, Cmd.OfAsync.perform toggle () MuteDone
+    | BlockToggled ->
+      let toggle() =
+        let request: Users.Request = {
+          KeyFile = props.Session.KeyFile
+          Username = username
+        }
+
+        Users.block(props.Env, request)
+
+      { model with Error = None }, Cmd.OfAsync.perform toggle () BlockDone
+    | FollowDone result ->
+      match result with
+      | Ok _ ->
+        // the follow state lives on the profile; a refetch keeps it honest
+        { model with Error = None },
+        Cmd.batch [
+          Cmd.OfAsync.perform
+            Users.get
+            (props.Env,
+             {
+               KeyFile = props.Session.KeyFile
+               Username = username
+             })
+            Fetched
+
+          Cmd.ofAction(fun () ->
+            log.LogInformation("The follow of {User} changed.", username))
+        ]
+      | Error error ->
+        { model with Error = Some error },
+        failed $"the follow of {username}" error
+    | MuteDone result ->
+      match result with
+      | Ok _ ->
+        { model with Error = None },
+        Cmd.batch [
+          Cmd.OfAsync.perform
+            Users.get
+            (props.Env,
+             {
+               KeyFile = props.Session.KeyFile
+               Username = username
+             })
+            Fetched
+
+          Cmd.ofAction(fun () ->
+            log.LogInformation("The mute of {User} changed.", username))
+        ]
+      | Error error ->
+        { model with Error = Some error },
+        failed $"the mute of {username}" error
+    | BlockDone result ->
+      match result with
+      | Ok _ ->
+        model,
+        Cmd.batch [
+          Cmd.ofEffect(fun _ -> Navigation.go(props.Nav, "/log/latest", ignore))
+
+          Cmd.ofAction(fun () ->
+            log.LogInformation("The block of {User} changed.", username))
+        ]
+      | Error error ->
+        { model with Error = Some error },
+        failed $"the block of {username}" error
+    | ClockTicked moment -> { model with Now = moment }, Cmd.none
+    | SessionChanged state ->
+      let pasteis, automatic =
+        match state with
+        | SignedIn entry ->
+          entry.Session.PasteisMode, entry.Session.AutomaticTranslation
+        | SignedOut -> model.Pasteis, model.Automatic
+
+      {
+        model with
+            Pasteis = pasteis
+            Automatic = automatic
+      },
+      Cmd.none
+    | TranslateRequested commit when
+      TranslationModel.canReuse(model.Translations, commit)
+      ->
+      {
+        model with
+            Translations =
+              TranslationModel.showTranslated(model.Translations, commit.Id)
+      },
+      Cmd.none
+    | TranslateRequested commit ->
+      model,
+      Cmd.OfAsync.perform
+        TranslationModel.recall
+        ((props.Env :> IProvideTranslations).Translations,
+         model.Translations,
+         commit.Id)
+        (fun book -> TranslationRecalled(commit, book))
+    | TranslationRecalled(commit, book) ->
+      match book with
+      | Some book -> { model with Translations = book }, Cmd.none
+      | None when Set.contains commit.Id model.Translations.Busy ->
+        model, Cmd.none
+      | None ->
+        {
+          model with
+              Translations =
+                TranslationModel.request(model.Translations, commit.Id)
+        },
+        Cmd.OfAsync.perform translate (props, commit) (fun result ->
+          TranslationDone(commit, result))
+    | OriginalRequested commit ->
+      {
+        model with
+            Translations =
+              TranslationModel.showOriginal(model.Translations, commit.Id)
+      },
+      Cmd.none
+    | TranslationDone(commit, result) ->
+      let args: TranslationModel.Finish = {
+        Book = model.Translations
+        Now = model.Now
+        CommitId = commit.Id
+        Result = result
+      }
+
+      {
+        model with
+            Translations = TranslationModel.finish args
+      },
+      Cmd.ofAction(fun () ->
+        Async.Start(
+          TranslationModel.store(
+            (props.Env :> IProvideTranslations).Translations,
+            args
+          )
+        ))
+    | MenuOpened commit ->
+      // The relation the menu speaks loads once per author handle; the
+      // read carries no block flag, so that flag moves only when a
+      // block answers. The viewer's own commit needs no read at all.
+      if
+        (Author.id commit.Author) = props.Session.Session.User.Id
+        || model.Relations |> Map.containsKey(Author.handle commit.Author)
+      then
+        model, Cmd.none
+      else
+        model,
+        Cmd.OfAsync.perform
+          props.Env.Profiles.Fetch
+          (Author.handle commit.Author)
+          (fun details ->
+            let toRelation(loaded: ProfileDetails) : AuthorRelation = {
+              IsFollowing = loaded.IsFollowing
+              IsMuting = loaded.IsMuting
+              IsBlocking = false
+            }
+
+            let relation =
+              details |> Option.map toRelation |> ValueOption.ofOption
+
+            RelationLoaded((Author.handle commit.Author), relation))
+    | RelationLoaded(handle, relation) ->
+      (match relation with
+       | ValueSome current -> {
+           model with
+               Relations = model.Relations |> Map.add handle current
+         }
+       | ValueNone -> model),
+      Cmd.none
+    | AuthorFollowToggled commit ->
+      // The word flips at once and rolls back on a refusal, the way
+      // the site's toggle answers before the server does.
+      let held = heldRelation(model, (Author.handle commit.Author))
+
+      {
+        model with
+            MenuBusy = Some commit.Id
+            Relations =
+              model.Relations
+              |> Map.add (Author.handle commit.Author) {
+                held with
+                    IsFollowing = not held.IsFollowing
+              }
+      },
+      Cmd.OfAsync.perform
+        CommitActions.toggleFollow
+        (props.Env,
+         {
+           Session = props.Session
+           Author = commit.Author
+           Flag = held.IsFollowing
+         })
+        (fun result -> AuthorFollowDone(commit, result))
+    | AuthorFollowDone(commit, result) ->
+      match result with
+      | Ok() ->
+        { model with MenuBusy = None },
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The follow of @{Author} settled.",
+            (Author.handle commit.Author)
+          ))
+      | Error error ->
+        let held = heldRelation(model, (Author.handle commit.Author))
+
+        {
+          model with
+              MenuBusy = None
+              Relations =
+                model.Relations
+                |> Map.add (Author.handle commit.Author) {
+                  held with
+                      IsFollowing = not held.IsFollowing
+                }
+        },
+        failed "the follow toggle" error
+    | AuthorMuteToggled commit ->
+      let held = heldRelation(model, (Author.handle commit.Author))
+
+      {
+        model with
+            MenuBusy = Some commit.Id
+            Relations =
+              model.Relations
+              |> Map.add (Author.handle commit.Author) {
+                held with
+                    IsMuting = not held.IsMuting
+              }
+      },
+      Cmd.OfAsync.perform
+        CommitActions.toggleMute
+        (props.Env,
+         {
+           Session = props.Session
+           Author = commit.Author
+           Flag = held.IsMuting
+         })
+        (fun result -> AuthorMuteDone(commit, result))
+    | AuthorMuteDone(commit, result) ->
+      match result with
+      | Ok mute ->
+        // The server's answer is the truth the state keeps.
+        let held = heldRelation(model, (Author.handle commit.Author))
+
+        {
+          model with
+              MenuBusy = None
+              Relations =
+                model.Relations
+                |> Map.add (Author.handle commit.Author) {
+                  held with
+                      IsMuting = mute.IsMuting
+                }
+        },
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The mute of @{Author} settled.",
+            (Author.handle commit.Author)
+          ))
+      | Error error ->
+        let held = heldRelation(model, (Author.handle commit.Author))
+
+        {
+          model with
+              MenuBusy = None
+              Relations =
+                model.Relations
+                |> Map.add (Author.handle commit.Author) {
+                  held with
+                      IsMuting = not held.IsMuting
+                }
+        },
+        failed "the mute toggle" error
+    | AuthorBlockRequested commit ->
+      let held = heldRelation(model, (Author.handle commit.Author))
+
+      { model with MenuBusy = Some commit.Id },
+      Cmd.OfAsync.perform
+        CommitActions.blockAuthor
+        (props.Env,
+         {
+           Session = props.Session
+           Author = commit.Author
+           Flag = held.IsBlocking
+         })
+        (fun result -> AuthorBlockDone(commit, result))
+    | AuthorBlockDone(commit, result) ->
+      match result with
+      | Ok blocked ->
+        let held = heldRelation(model, (Author.handle commit.Author))
+
+        {
+          model with
+              MenuBusy = None
+              Relations =
+                model.Relations
+                |> Map.add (Author.handle commit.Author) {
+                  held with
+                      IsBlocking = blocked.IsBlocking
+                }
+        },
+        Cmd.ofAction(fun () ->
+          log.LogInformation(
+            "The block of @{Author} settled.",
+            (Author.handle commit.Author)
+          ))
+      | Error error ->
+        {
+          model with
+              MenuBusy = None
+              Error = Some error
+        },
+        failed "the block toggle" error
+    | DeleteRequested commit ->
+      {
+        model with
+            MenuBusy = Some commit.Id
+            Error = None
+      },
+      Cmd.OfAsync.perform
+        Commits.delete
+        (props.Env,
+         {
+           KeyFile = props.Session.KeyFile
+           CommitId = commit.Id
+         })
+        (fun result -> Deleted(commit.Id, result))
+    | Deleted(commitId, result) ->
+      match result with
+      | Ok() ->
+        // The row folds to its marker; the shell answers with the undo
+        // toast and owns the restore. The pinned slot carries the same
+        // commit when it is pinned, so it folds there too.
+        {
+          model with
+              Feed =
+                FeedWindow.items model.Feed
+                |> List.tryPick(function
+                  | LiveCommit commit when commit.Id = commitId -> Some commit
+                  | _ -> None)
+                |> Option.map(fun commit ->
+                  FeedWindow.replaceKey(
+                    {
+                      Ops = ops
+                      Key = commit.Id
+                      Item = Tombstone(tombstoneOf commit)
+                    },
+                    model.Feed
+                  ))
+                |> Option.defaultValue model.Feed
+              Details =
+                model.Details
+                |> Option.map(fun details ->
+                  match details.PinnedCommit with
+                  | Some(LiveCommit pinned) when pinned.Id = commitId -> {
+                      details with
+                          PinnedCommit = Some(Tombstone(tombstoneOf pinned))
+                    }
+                  | _ -> details)
+              MenuBusy = None
+        },
+        Cmd.batch [
+          Cmd.ofAction(fun () ->
+            (props.Env :> IProvideTimeline).Timeline.AnnounceDeletion commitId)
+
+          Cmd.ofAction(fun () ->
+            log.LogInformation("The commit {Commit} was deleted.", commitId))
+        ]
+      | Error error ->
+        {
+          model with
+              MenuBusy = None
+              Error = Some error
+        },
+        failed "the commit deletion" error
+    | GoLiveChosen -> { model with LiveOpen = true }, Cmd.none
+    | LiveDialogClosed -> { model with LiveOpen = false }, Cmd.none
+    | GoLiveDone result ->
+      match result with
+      | Ok _ ->
+        // The stream is live; a refetch shows the marker.
+        { model with LiveOpen = false },
+        Cmd.OfAsync.perform
+          Users.get
+          (props.Env,
+           {
+             KeyFile = props.Session.KeyFile
+             Username = username
+           })
+          Fetched
+      | Error error ->
+        { model with LiveOpen = false }, failed "going live" error
+    | EndLiveRequested ->
+      model,
+      Cmd.OfAsync.perform
+        Me.endLive
+        (props.Env, { KeyFile = props.Session.KeyFile })
+        EndLiveDone
+    | EndLiveDone result ->
+      match result with
+      | Ok _ ->
+        // The stream ended; a refetch takes the marker off.
+        model,
+        Cmd.OfAsync.perform
+          Users.get
+          (props.Env,
+           {
+             KeyFile = props.Session.KeyFile
+             Username = username
+           })
+          Fetched
+      | Error error ->
+        { model with Error = Some error }, failed "ending the stream" error
+    | HeaderChosen Full -> { model with HeaderForm = Full }, Cmd.none
+    | HeaderChosen Compact -> { model with HeaderForm = Compact }, Cmd.none
+    | HeaderChosen Auto -> model, Cmd.none
+    | FeedRead place when model.Details.IsSome ->
+      if model.PlaceReported then
+        // The window's shortness decided once at the first layout;
+        // the reading place keeps following the scroll.
+        let compact = model.ShortWindow || place.Offset > 0.5
+
+        if compact = model.AutoCompact then
+          model, Cmd.none
+        else
+          { model with AutoCompact = compact }, Cmd.none
+      else
+        let shortWindow = place.Viewport < HeaderFloor
+
+        {
+          model with
+              PlaceReported = true
+              ShortWindow = shortWindow
+              AutoCompact = shortWindow || place.Offset > 0.5
+        },
+        Cmd.none
+    | FeedRead _ -> model, Cmd.none
+
+  let update(props: Props<'env>) = updateCore(loggerOf props, props)
+
+  // The page's inlets from outside: the shared clock and the session
+  // store.
+  let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
+    [
+      Sub.fromObservable
+        "clock"
+        (props.Env.UiClock.Minute |> Observable.map ClockTicked)
+
+      Sub.fromObservable
+        "session"
+        (props.Env.Session.Observe |> Observable.map SessionChanged)
+    ]
+    |> Sub.batch
+
+// The page's semantic regions; the view only composes these.
+module Parts =
+
+  let followButton
+    (details: ProfileDetails, dispatch: Dispatch<State.Msg>)
+    : Control =
+    Button()
+      .Classes(Theme.name Theme.NavButton)
+      .Content(if details.IsFollowing then "Unfollow" else "Follow")
+      .OnClickHandler(fun _ _ -> dispatch State.FollowToggled)
+
+  let muteButton
+    (details: ProfileDetails, dispatch: Dispatch<State.Msg>)
+    : Control =
+    Button()
+      .Classes(Theme.name Theme.NavButton)
+      .Content(if details.IsMuting then "Unmute" else "Mute")
+      .OnClickHandler(fun _ _ -> dispatch State.MuteToggled)
+
+  let blockButton(dispatch: Dispatch<State.Msg>) : Control =
+    Button()
+      .Classes(Theme.name Theme.DangerButton)
+      .Content("Block")
+      .OnClickHandler(fun _ _ -> dispatch State.BlockToggled)
+
+  // The owner's live action: going live opens the dialog, and while
+  // live the button ends the stream instead.
+  let liveButton
+    (details: ProfileDetails, dispatch: Dispatch<State.Msg>)
+    : Control =
+    match details.Profile.User.Live with
+    | Some _ ->
+      Button()
+        .Name("EndStream")
+        .Classes(Theme.name Theme.DangerButton)
+        .Content("End stream")
+        .OnClickHandler(fun _ _ -> dispatch State.EndLiveRequested)
+    | None ->
+      Button()
+        .Name("GoLiveButton")
+        .Classes(Theme.name Theme.AccentButton)
+        .Content("Go live")
+        .OnClickHandler(fun _ _ -> dispatch State.GoLiveChosen)
+
+  // The follow, mute, and block actions; the viewer's own header
+  // carries the live action instead.
+  let actions
+    (details: ProfileDetails, isSelf: bool, dispatch: Dispatch<State.Msg>)
+    : Control array =
+    if isSelf then
+      [| liveButton(details, dispatch) |]
+    else
+      [|
+        followButton(details, dispatch)
+        muteButton(details, dispatch)
+        blockButton dispatch
+      |]
+
+  // One small label chip, the site's "Follows you" and "Muted" marks.
+  let mark(text: string) : Control =
+    Border()
+      .Classes(Theme.name Theme.Chip)
+      .CornerRadius(999.0)
+      .Child(
+        TextBlock().Classes(Theme.name Theme.Muted).FontSize(11.0).Text(text)
+      )
+
+  // The lane-tinted level chip the profile and the XP shelf carry.
+  let levelChip(achievements: Achievements, lane: Lane option) : Control =
+    let label =
+      TextBlock()
+        .Classes(Theme.name Theme.Mono)
+        .FontSize(11.0)
+        .Text($"Lv. {achievements.Level} · {achievements.Rank}")
+
+    Theme.laneText(label, lane)
+
+    let chip =
+      Border()
+        .BorderThickness(Thickness(1.0))
+        .CornerRadius(999.0)
+        .Padding(8.0, 2.0, 8.0, 2.0)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .HorizontalAlignment(HorizontalAlignment.Left)
+        .Child(label)
+
+    Theme.laneBorder(chip, lane)
+
+    chip
+
+  // A GitHub handle after an "@" that follows no letter, digit, "_",
+  // ".", "/", "@", or "-", and runs into no path or domain, so emails
+  // and "@vue.js" stay plain. The server's own rule, in .NET form.
+  let mentionPattern =
+    Regex(
+      @"(?<![\p{L}\p{N}_./@-])@([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38})(?![A-Za-z0-9_@/-]|\.[A-Za-z0-9])"
+    )
+
+  // One piece of a bio after the mention split: plain prose, or one
+  // handle and its canonical page handle, when the map names one.
+  type BioPiece =
+    | BioPlain of string
+    | BioHandle of handle: string * canonical: string option
+
+  // Splits one bio into prose and handles at the first match every
+  // round, so a handle named twice wraps twice. A tail call never
+  // grows the stack on a bio dense with handles.
+  [<TailCall>]
+  let rec splitBio
+    (rest: string, profiles: Map<string, string>, pieces: BioPiece list)
+    : BioPiece list =
+    let matches = mentionPattern.Matches(rest)
+
+    match matches |> Seq.tryHead with
+    | None -> (if rest = "" then [] else [ BioPlain rest ]) @ pieces |> List.rev
+    | Some found ->
+      let handle = found.Groups[1].Value
+      let before = rest.Substring(0, found.Index)
+      let after = rest.Substring(found.Index + found.Length)
+
+      let canonical = Map.tryFind (handle.ToLowerInvariant()) profiles
+
+      let withHandle = BioHandle(handle, canonical) :: pieces
+
+      let next =
+        if before = "" then
+          withHandle
+        else
+          BioPlain before :: withHandle
+
+      splitBio(after, profiles, next)
+
+  // The clickable chip one bio handle wears: a mapped handle opens
+  // its page here, an unmapped one opens its GitHub page outside.
+  let bioChip
+    (
+      browser: IBrowser,
+      openMention: string -> Async<unit>,
+      handle: string,
+      canonical: string option
+    ) : Inline =
+    let activate() =
+      match canonical with
+      | Some target ->
+        asyncEx { do! openMention target } |> Async.StartImmediate
+      | None -> browser.Open($"https://github.com/{handle}") |> ignore
+
+    let chip =
+      Border()
+        .Classes(Theme.name Theme.Chip)
+        .Padding(5.0, 0.0, 5.0, 0.0)
+        .CornerRadius(5.0)
+        .Child(
+          TextBlock()
+            .Classes(Theme.name Theme.FgAccent)
+            .FontSize(12.0)
+            .Text("@" + handle)
+        )
+
+    InlineUIContainer(
+      Child =
+        Button()
+          .Name("BioMention")
+          .Classes(Theme.name Theme.GhostButton)
+          .MinHeight(0.0)
+          .Padding(0.0)
+          .Margin(0.0)
+          .VerticalAlignment(VerticalAlignment.Center)
+          .Content(chip)
+          .OnClickHandler(fun _ args ->
+            args.Handled <- true
+            activate()),
+      BaselineAlignment = BaselineAlignment.Center
+    )
+
+  // One text run as prose with its mention chips: plain runs and one
+  // chip per handle, in order.
+  let mentionInlines
+    (
+      browser: IBrowser,
+      openMention: string -> Async<unit>,
+      profiles: Map<string, string>,
+      text: string
+    ) : Inline list =
+    splitBio(text, profiles, [])
+    |> List.map(fun piece ->
+      match piece with
+      | BioPlain plain -> Run plain
+      | BioHandle(handle, canonical) ->
+        bioChip(browser, openMention, handle, canonical))
+
+  // One bio as prose with its mention chips, flowing inside a
+  // wrapping text block.
+  let bioBlock
+    (
+      browser: IBrowser,
+      openMention: string -> Async<unit>,
+      profiles: Map<string, string>,
+      text: string
+    ) : Control =
+    let block = TextBlock().TextWrapping(TextWrapping.Wrap)
+    let inlines = InlineCollection()
+    block.Inlines <- inlines
+
+    mentionInlines(browser, openMention, profiles, text)
+    |> List.iter(fun part -> inlines.Add(part) |> ignore)
+
+    block
+
+  // The joined-and-links line under the bio: company, location, the
+  // website host, and the join month. The company's mentions ride
+  // the same map as the bio's.
+  let metaLine
+    (browser: IBrowser, profile: Profile, openMention: string -> Async<unit>)
+    : Control =
+    let stripScheme(url: string) =
+      url.Replace("https://", "").Replace("http://", "")
+
+    let joined =
+      profile.CreatedAt.ToString("MMMM yyyy", CultureInfo.InvariantCulture)
+
+    let rest: string list = [
+      match profile.Location with
+      | Some location -> location
+      | None -> ()
+
+      match profile.Website |> Option.map stripScheme with
+      | Some website -> website
+      | None -> ()
+
+      $"Joined {joined}"
+    ]
+
+    let tail = String.Join(" · ", rest)
+
+    // A company with no mention renders as the plain joined line, as
+    // before; the chips only open when a mention stands.
+    match profile.Company with
+    | Some company when mentionPattern.IsMatch company ->
+      let block =
+        TextBlock()
+          .Classes(Theme.name Theme.Mono)
+          .TextWrapping(TextWrapping.Wrap)
+
+      let inlines = InlineCollection()
+      block.Inlines <- inlines
+
+      mentionInlines(browser, openMention, profile.BioProfiles, company)
+      |> List.iter(fun part -> inlines.Add(part) |> ignore)
+
+      inlines.Add(Run(" · " + tail)) |> ignore
+
+      block
+    | Some company ->
+      TextBlock()
+        .Classes(Theme.name Theme.Mono)
+        .TextWrapping(TextWrapping.Wrap)
+        .Text(String.Join(" · ", company :: rest))
+    | None ->
+      TextBlock()
+        .Classes(Theme.name Theme.Mono)
+        .TextWrapping(TextWrapping.Wrap)
+        .Text(tail)
+
+  // The activity bars: one lane-colored column per bucket, bottom
+  // aligned, the height following the count.
+  let activityView(activity: Activity, lane: Lane option) : Control =
+    let buckets = activity.Buckets |> List.truncate 52
+
+    let caption =
+      TextBlock()
+        .Classes(Theme.name Theme.Mono)
+        .Text($"activity · {activity.Scale}")
+
+    match buckets with
+    | [] -> StackPanel().Children(caption)
+    | _ ->
+      let maxCount = buckets |> List.maxBy _.Count |> _.Count |> max 1
+
+      let bars = Grid()
+
+      bars.Height <- 56.0
+
+      bars.ColumnDefinitions <-
+        ColumnDefinitions(String.Join(",", [ for _ in buckets -> "6" ]))
+
+      buckets
+      |> List.iteri(fun index bucket ->
+        let height = 8.0 + float bucket.Count / float maxCount * 44.0
+
+        let bar =
+          Border()
+            .Width(6.0)
+            .Height(height)
+            .CornerRadius(1.0)
+            .VerticalAlignment(VerticalAlignment.Bottom)
+            .Column(index)
+
+        Theme.laneBack(bar, lane)
+
+        bars.Children(bar) |> ignore)
+
+      StackPanel().Spacing(6.0).Children(caption, bars)
+
+  // The streak line under the activity.
+  let streaksView(streaks: Streaks) : Control =
+    TextBlock()
+      .Classes(Theme.name Theme.Mono)
+      .Text(
+        $"longest streak {streaks.Longest} days · current streak {streaks.Current} days"
+      )
+
+  // The XP shelf: the level chip, the progress bar toward the next
+  // level, and the badge count.
+  let xpView(achievements: Achievements, lane: Lane option) : Control =
+    let progress = achievements.LevelProgress |> max 0 |> min 100
+
+    let fill =
+      Border()
+        .Height(6.0)
+        .CornerRadius(3.0)
+        .VerticalAlignment(VerticalAlignment.Center)
+
+    Theme.laneBack(fill, lane)
+
+    let track = Grid()
+
+    track.Height <- 6.0
+
+    track.ColumnDefinitions <-
+      ColumnDefinitions($"{progress}*,{100 - progress}*")
+
+    track.Children(fill.Column(0)) |> ignore
+
+    let next =
+      achievements.NextLevelXp
+      |> Option.map(fun target -> $" · next {target}")
+      |> Option.defaultValue ""
+
+    let badges =
+      let unlocked =
+        achievements.Badges |> List.filter _.Unlocked |> List.length
+
+      $"{unlocked}/{List.length achievements.Badges} badges"
+
+    StackPanel()
+      .Spacing(6.0)
+      .Margin(0.0, 16.0, 0.0, 0.0)
+      .Children(
+        DockPanel()
+          .LastChildFill(true)
+          .Children(
+            TextBlock()
+              .Classes(Theme.name Theme.Mono)
+              .Text($"{achievements.Xp} xp{next}")
+              .DockRight(),
+            levelChip(achievements, lane)
+          ),
+        Border()
+          .Classes(Theme.name Theme.SurfaceBack)
+          .CornerRadius(3.0)
+          .Child(track),
+        TextBlock().Classes(Theme.name Theme.Muted).Text(badges)
+      )
+
+  // The level chip when achievements exist, nothing when they do not.
+  let achievementsChip
+    (achievements: Achievements option, lane: Lane option)
+    : Control =
+    match achievements with
+    | Some shelf -> levelChip(shelf, lane)
+    | None -> Status.empty ""
+
+  // The sections between the identity header and the tabs: the
+  // activity bars, the streak line, and the XP shelf.
+  let profileSections(details: ProfileDetails) : Control array =
+    let lane = details.Profile.Lane
+
+    [|
+      match details.Activity with
+      | Some activity -> activityView(activity, lane)
+      | None -> ()
+
+      match details.Streaks with
+      | Some streaks -> streaksView streaks
+      | None -> ()
+
+      match details.Achievements with
+      | Some shelf -> xpView(shelf, lane)
+      | None -> ()
+    |]
+
+  // What the identity header reads: the profile, the viewer's
+  // relation to it, the dispatch, the image cache, the nav the
+  // count buttons follow, and what a bio mention opens.
+  [<Struct>]
+  type IdentityCtx = {
+    Images: ImageCacheService
+    Details: ProfileDetails
+    IsSelf: bool
+    Dispatch: Dispatch<State.Msg>
+    Nav: INavigable
+    OpenMention: string -> Async<unit>
+    Browser: IBrowser
+  }
+
+  // One count-and-label pair, the stats row's piece.
+  let inline statPair(count: int, label: string) : Control =
+    StackPanel()
+      .Orientation(Orientation.Horizontal)
+      .Spacing(4.0)
+      .VerticalAlignment(VerticalAlignment.Center)
+      .Children(
+        TextBlock().Classes(Theme.name Theme.StatNum).Text(string count),
+        TextBlock().Classes(Theme.name Theme.Muted).Text(label)
+      )
+
+  // The stats row whose following and followers counts are quiet
+  // buttons over their numbers: each opens its list for the profile's
+  // own handle. The flyout's card keeps the plain counts row.
+  let counts(profile: Profile, nav: INavigable) : Control =
+    let statButton(name: string, pair: Control, url: string) =
+      Button()
+        .Name(name + ":" + profile.User.Handle)
+        .Classes(Theme.name Theme.GhostButton)
+        .Padding(0.0)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Content(pair)
+        .OnClickHandler(fun _ _ -> Navigation.go(nav, url, ignore))
+
+    StackPanel()
+      .Orientation(Orientation.Horizontal)
+      .Spacing(16.0)
+      .Children(
+        statPair(profile.CommitsCount |> Option.defaultValue 0, "commits"),
+        statButton(
+          "ProfileFollowingCount",
+          statPair(profile.FollowingCount |> Option.defaultValue 0, "following"),
+          "/profile/" + profile.User.Handle + "/following"
+        ),
+        statButton(
+          "ProfileFollowersCount",
+          statPair(profile.FollowersCount |> Option.defaultValue 0, "followers"),
+          "/profile/" + profile.User.Handle + "/followers"
+        )
+      )
+
+  // The chevron at the header row's right edge: the glyph points
+  // where the header goes next, and the click pins the form it names.
+  // The full form shows ChevronsUp and names Compact; the compact bar
+  // shows ChevronsDown and names Full.
+  let headerToggle
+    (dispatch: Dispatch<State.Msg>, glyph: Icons.Glyph, choose: State.HeaderForm) : Control =
+    Button()
+      .Classes(Theme.name Theme.GhostButton)
+      .Name("ProfileHeaderToggle")
+      .Content(Icons.icon glyph)
+      .VerticalAlignment(VerticalAlignment.Center)
+      .OnClickHandler(fun _ _ -> dispatch(State.HeaderChosen choose))
+
+  // The identity header: the avatar in its lane ring, the actions, the
+  // name, the handle row, the bio, the meta line, and the stats.
+  let identity(ctx: IdentityCtx) : Control =
+    let details = ctx.Details
+    let isSelf = ctx.IsSelf
+    let dispatch = ctx.Dispatch
+    let profile = details.Profile
+    let user = profile.User
+
+    let ring =
+      Border()
+        .Classes(Theme.name Theme.CardBack)
+        .BorderThickness(Thickness(2.0))
+        .CornerRadius(44.0)
+        .Padding(3.0)
+        .Child(
+          Avatar.view {
+            Name = user.Name
+            Url = user.AvatarUrl
+            Lane = profile.Lane
+            Size = 80.0
+            Cache = ctx.Images
+            Square = false
+            Viewable = true
+          }
+        )
+
+    Theme.laneBorder(ring, profile.Lane)
+
+    let headerChildren: Control array = [|
+      DockPanel()
+        .LastChildFill(false)
+        .Children(
+          headerToggle(ctx.Dispatch, Icons.ChevronsUp, State.HeaderForm.Compact)
+            .DockRight(),
+          StackPanel()
+            .Orientation(Orientation.Horizontal)
+            .Spacing(8.0)
+            .VerticalAlignment(VerticalAlignment.Top)
+            .DockRight()
+            .Children(actions(details, isSelf, dispatch)),
+          ring
+        )
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Spacing(8.0)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Children(
+          TextBlock().Classes(Theme.name Theme.Headline).Text(user.Name),
+          LiveBadge.view(
+            (fun url -> ctx.Browser.Open(url) |> ignore),
+            user.Live
+          )
+        )
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Spacing(10.0)
+        .Children(
+          ProfileCard.laneHandle(profile.Lane, user.Handle),
+          mark("Follows you").IsVisible(details.FollowsYou),
+          mark("Muted").IsVisible(details.IsMuting),
+          achievementsChip(details.Achievements, profile.Lane)
+        )
+      (bioBlock(
+        ctx.Browser,
+        ctx.OpenMention,
+        profile.BioProfiles,
+        profile.Bio |> Option.defaultValue ""
+      ))
+        .IsVisible(profile.Bio.IsSome)
+      metaLine(ctx.Browser, profile, ctx.OpenMention)
+      counts(profile, ctx.Nav)
+    |]
+
+    StackPanel().Spacing(8.0).Children(headerChildren)
+
+  // The compact header: the small avatar, the name, the handle, and
+  // the counts on one row, with the unfold chevron at its right edge.
+  let compactHeader(ctx: IdentityCtx) : Control =
+    let profile = ctx.Details.Profile
+    let user = profile.User
+
+    let row =
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Spacing(10.0)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Children(
+          Avatar.view {
+            Name = user.Name
+            Url = user.AvatarUrl
+            Lane = profile.Lane
+            Size = 32.0
+            Cache = ctx.Images
+            Square = false
+            Viewable = false
+          },
+          TextBlock()
+            .Classes(Theme.name Theme.Subtitle)
+            .VerticalAlignment(VerticalAlignment.Center)
+            .Text(user.Name),
+          ProfileCard.laneHandle(profile.Lane, user.Handle),
+          counts(profile, ctx.Nav)
+        )
+
+    DockPanel()
+      .LastChildFill(false)
+      .MinHeight(44.0)
+      .Children(
+        headerToggle(ctx.Dispatch, Icons.ChevronsDown, State.HeaderForm.Full)
+          .DockRight(),
+        row
+      )
+
+  // The space the full header never takes: the page's 88 DIP of fixed
+  // chrome (the 40 DIP band padding, the 48 DIP tab strip) plus a
+  // 120 DIP feed band.
+  let HeaderCapRoom = 208.0
+
+  // The header host, rebuilt when the profile changes: the follow,
+  // mute, and block states come back from the server after every
+  // action. Both forms build with it and only their visibility flips,
+  // so a fold never rebuilds the feed below.
+  let headerHost
+    (
+      props: Props<'env>,
+      dispatch: Dispatch<State.Msg>,
+      model: IObservable<State.Model>
+    ) : Control =
+    let form =
+      model
+      |> Observable.map State.effectiveForm
+      |> Slices.gate id
+      |> Slices.share
+
+    let formIs(wanted: State.HeaderForm) =
+      form |> Observable.map(fun current -> current = wanted)
+
+    // What a bio mention opens: the profile fetch answers a person,
+    // the organization read answers an organization, and the map
+    // guarantees one of the two names a page here.
+    let openMention(handle: string) : Async<unit> = asyncEx {
+      let! details = props.Env.Profiles.Fetch handle
+
+      match details with
+      | Some _ -> Navigation.go(props.Nav, "/profile/" + handle, ignore)
+      | None ->
+        let! (organization: Result<OrganizationProfile, AppError>) =
+          Organizations.get(
+            props.Env,
+            {
+              KeyFile = props.Session.KeyFile
+              Handle = handle
+            }
+          )
+
+        match organization with
+        | Ok _ -> Navigation.go(props.Nav, "/org/" + handle, ignore)
+        | Error _ -> ()
+    }
+
+    let content =
+      PageChrome.rebuildOn(
+        model,
+        (fun current -> current.Details),
+        (fun current ->
+          match current.Details with
+          | Some details ->
+            let ctx = {
+              Images = props.Env.ImageCache
+              Details = details
+              IsSelf = details.Profile.User.Id = props.Session.Session.User.Id
+              Dispatch = dispatch
+              Nav = props.Nav
+              OpenMention = openMention
+              Browser = props.Env.Browser
+            }
+
+            // The full form is the identity and the sections together,
+            // capped at the space above a minimum feed band: a pinned
+            // header scrolls inside the cap instead of starving the
+            // feed. The cap follows the window on the scroller's own
+            // layout passes, so the subscription dies with the control.
+            let fullStack =
+              StackPanel()
+                .Spacing(16.0)
+                .Children(
+                  Array.append [| identity ctx |] (profileSections details)
+                )
+
+            let fullForm =
+              ScrollViewer()
+                .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
+                .Content(fullStack)
+                .IsVisible(formIs State.HeaderForm.Full)
+
+            fullForm.LayoutUpdated.Add(fun _ ->
+              match TopLevel.GetTopLevel fullForm |> Option.ofObj with
+              | Some top ->
+                let cap = top.ClientSize.Height - HeaderCapRoom
+
+                if cap > 0.0 && fullForm.MaxHeight <> cap then
+                  fullForm.MaxHeight <- cap
+              | None -> ())
+
+            let compactForm =
+              (compactHeader ctx).IsVisible(formIs State.HeaderForm.Compact)
+
+            StackPanel().Spacing(16.0).Children(fullForm, compactForm)
+          | None -> Status.empty "")
+      )
+
+    ContentControl().Content(content.ToBinding())
+
+  // The go-live dialog's overlay layer: it opens from the model's
+  // open flag on the owner's own profile and closes back into it.
+  let liveLayer
+    (
+      props: Props<'env>,
+      model: IObservable<State.Model>,
+      dispatch: Dispatch<State.Msg>
+    ) : Control =
+    DialogChrome.layer {
+      Open = model |> Observable.map _.LiveOpen
+      Content =
+        fun () ->
+          GoLiveDialog.Page {
+            Env = props.Env
+            Session = props.Session
+            WentLive = fun result -> dispatch(State.GoLiveDone result)
+            Close = fun () -> dispatch State.LiveDialogClosed
+          }
+      Scrim = true
+      OnScrimClick = ValueSome(fun () -> dispatch State.LiveDialogClosed)
+      Place = DialogChrome.Center
+    }
+
+// The row inputs the page compares by reference, so a tick that left
+// them the same does not reshape the feed.
+let rowInputsComparer = {
+  new IEqualityComparer<
+    ProfileDetails option * FeedWindow.Window<CommitNode> * State.Tab
+       > with
+    member _.Equals
+      ((leftDetails, leftFeed, leftTab), (rightDetails, rightFeed, rightTab))
+      =
+      leftTab = rightTab
+      && ReferenceEqualityComparer.Instance.Equals(leftDetails, rightDetails)
+      && ReferenceEqualityComparer.Instance.Equals(
+        leftFeed.Chunks,
+        rightFeed.Chunks
+      )
+
+    member _.GetHashCode((details, feed, tab)) =
+      HashCode.Combine(
+        RuntimeHelpers.GetHashCode details,
+        RuntimeHelpers.GetHashCode feed.Chunks,
+        tab.GetHashCode()
+      )
+}
+
+// One feed row with the chunk request cursor that fetched it, so the
+// anchor the feed reports names the page the row came from. Pinned
+// rows carry none: they sit above the feed, outside any page.
+[<Struct>]
+type AnchoredRow = {
+  Row: State.FeedRow
+  Entry: string option
+}
+
+let view
+  (props: Props<'env>)
+  (model: IObservable<State.Model>)
+  (dispatch: Dispatch<State.Msg>)
+  : Control =
+
+  let ctx =
+    CommitRows.row(
+      {
+        OnEvent =
+          function
+          | CommitCard.Opened c ->
+            Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
+          | CommitCard.ReplyToggled c ->
+            Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
+          | CommitCard.MoreRepliesRequested c ->
+            Navigation.go(props.Nav, "/commit/" + c.Id, ignore)
+          | CommitCard.QuoteRequested c ->
+            Navigation.go(props.Nav, "/quote/" + c.Id, ignore)
+          | CommitCard.PollChoiceChanged(commit, option, chosen) ->
+            dispatch(State.PollChoiceChanged(commit, option, chosen))
+          | CommitCard.TranslateRequested commit ->
+            dispatch(State.TranslateRequested commit)
+          | CommitCard.OriginalRequested commit ->
+            dispatch(State.OriginalRequested commit)
+          | CommitCard.MenuOpened commit -> dispatch(State.MenuOpened commit)
+        OnOpenExternal = fun url -> props.Env.Browser.Open(url) |> ignore
+        ViewerId = props.Session.Session.User.Id
+        ViewerOrgs = viewerOrgs props.Session.Session
+        Images = props.Env.ImageCache
+        Flyout =
+          ValueSome {
+            UserFlyout.Fetch = props.Env.Profiles.Fetch
+            OnOpen =
+              fun username ->
+                Navigation.go(props.Nav, "/profile/" + username, ignore)
+            OnOpenOrg =
+              fun handle -> Navigation.go(props.Nav, "/org/" + handle, ignore)
+            OnOpenGuild =
+              fun handle ->
+                Navigation.go(
+                  props.Nav,
+                  "/guilds/" + Uri.EscapeDataString handle,
+                  ignore
+                )
+            OnOpenTag =
+              fun tag ->
+                Navigation.go(
+                  props.Nav,
+                  "/search/" + Uri.EscapeDataString tag,
+                  ignore
+                )
+            Cache = props.Env.ImageCache
+          }
+        Zone = zoneOf((props.Env :> IProvideUserSettings).UserSettings.Current)
+        OnPin = ValueSome(State.PinToggled >> dispatch)
+        Menu =
+          ValueSome {
+            Share = ValueNone
+            Report = ValueNone
+            Delete =
+              ValueSome(fun commit -> dispatch(State.DeleteRequested commit))
+            ToggleFollow =
+              fun commit -> dispatch(State.AuthorFollowToggled commit)
+            ToggleMute = fun commit -> dispatch(State.AuthorMuteToggled commit)
+            Block = fun commit -> dispatch(State.AuthorBlockRequested commit)
+            Relations =
+              model
+              |> Observable.map(fun current ->
+                fun commit ->
+                  current.Relations
+                  |> Map.tryFind(Author.handle commit.Author)
+                  |> ValueOption.ofOption)
+            Busy = model |> Observable.map _.MenuBusy
+          }
+        Actions = true
+        OnStar = fun commit -> dispatch(State.StarToggled commit)
+        OnStars = ValueNone
+        OnVote = fun commit -> dispatch(State.PollVoteRequested commit)
+        OnPastel = fun commit -> dispatch(State.PastelGiven commit)
+        Translation =
+          model
+          |> Observable.map(fun current ->
+            fun commit ->
+              TranslationModel.view {
+                Automatic = current.Automatic
+                Book = current.Translations
+                Now = current.Now
+                Commit = commit
+              })
+      },
+      model,
+      (fun current -> {
+        Pasteis = current.Pasteis
+        Now = current.Now
+        PollChoices = current.PollChoices
+        Voting = current.Voting
+        Pinning = current.Pinning
+      })
+    )
+
+  let anchorKeyOf(anchored: AnchoredRow) : string option =
+    match anchored.Row with
+    | State.PinnedCaption -> None
+    | State.PinnedNode _
+    | State.FeedNode _ -> Some(State.rowKey anchored.Row)
+
+  let entryOf(anchored: AnchoredRow) : string option = anchored.Entry
+
+  let hasOlder =
+    model
+    |> Observable.map(fun current ->
+      FeedWindow.older current.Feed |> ValueOption.isSome)
+    |> Observable.distinctUntilChanged
+    |> Slices.share
+
+  let hasNewer =
+    model
+    |> Observable.map(fun current ->
+      FeedWindow.newer current.Feed |> ValueOption.isSome)
+    |> Observable.distinctUntilChanged
+    |> Slices.share
+
+  let restoreAnchor =
+    props.Env.Timeline.PlaceOf(State.surfaceOf(props.Username, State.Commits))
+    |> Option.bind(fun place -> ValueOption.toOption place.Anchor)
+
+  let page =
+    ProfileShell.view {
+      Model = model
+      Title = fun _ -> ""
+      Kind = None
+      Padding = Theme.pinnedPadding
+      ErrorOf = _.Error
+      Busy =
+        fun current ->
+          if current.Loading then
+            PageChrome.Words "Loading the profile…"
+          else
+            PageChrome.Off
+      Empty =
+        fun current ->
+          // A profile with nothing but a pinned commit shows the pinned
+          // slot, not the empty state — the server keeps the pinned
+          // commit out of the list itself.
+          let pinned =
+            match current.Tab with
+            | State.Commits ->
+              current.Details |> Option.bind _.PinnedCommit |> Option.isSome
+            | State.Replies -> false
+
+          if
+            not current.Loading
+            && current.Error.IsNone
+            && (FeedWindow.items current.Feed).IsEmpty
+            && not pinned
+          then
+            PageChrome.Words(
+              match current.Tab with
+              | State.Commits -> "No commits yet."
+              | State.Replies -> "No replies yet."
+            )
+          else
+            PageChrome.Off
+      Note = _.Note
+      Header = fun () -> Parts.headerHost(props, dispatch, model)
+      Meta = ValueNone
+      FeedLabel = None
+      Tabs = [
+        {
+          Label = "Commits"
+          Active =
+            model |> Observable.map(fun current -> current.Tab = State.Commits)
+          Badge = ValueNone
+          Choose = fun () -> dispatch(State.TabChosen State.Commits)
+        }
+        {
+          Label = "Replies"
+          Active =
+            model |> Observable.map(fun current -> current.Tab = State.Replies)
+          Badge = ValueNone
+          Choose = fun () -> dispatch(State.TabChosen State.Replies)
+        }
+      ]
+      Feed = {
+        Items =
+          model
+          |> Observable.distinctUntilChangedKeyCompare
+            (fun current -> current.Details, current.Feed, current.Tab)
+            rowInputsComparer
+          |> Observable.map(fun current ->
+            State.rowsOf current
+            |> List.map(fun feedRow -> {
+              Row = feedRow
+              Entry =
+                match feedRow with
+                | State.FeedNode node ->
+                  FeedWindow.entryOf(
+                    State.ops,
+                    FeedParts.nodeKey node,
+                    current.Feed
+                  )
+                  |> ValueOption.toOption
+                | State.PinnedCaption
+                | State.PinnedNode _ -> None
+            }))
+          |> Slices.share
+        KeyOf = fun anchored -> State.rowKey anchored.Row
+        Row =
+          fun anchored ->
+            match anchored.Row with
+            | State.PinnedCaption -> FeedParts.pinnedRow()
+            | State.PinnedNode node -> ProfileShell.commitRow(ctx, node)
+            | State.FeedNode node -> ProfileShell.commitRow(ctx, node)
+        HasMore = hasOlder
+        OnMore = fun () -> dispatch State.MoreCommits
+        OnRide = ValueSome(State.FeedRead >> dispatch)
+        AnchorKeyOf = ValueSome anchorKeyOf
+        EntryCursorOf = ValueSome entryOf
+        RestoreAnchor = restoreAnchor |> ValueOption.ofOption
+        OnAnchor = ValueSome(fun anchor -> dispatch(State.AnchorMoved anchor))
+        Paging =
+          ValueSome {
+            Order = FeedWindow.NewestFirst
+            HasOlder = hasOlder
+            HasNewer = hasNewer
+            OnOlder = (fun () -> dispatch State.MoreCommits)
+            OnNewer = (fun () -> dispatch State.NewerCommits)
+          }
+        End = System.Reactive.Linq.Observable.Return(None: string option)
+      }
+    }
+
+  Grid().Children(page, Parts.liveLayer(props, model, dispatch))
+
+type Page<'env
+  when 'env :> IProvideClock
+  and 'env :> IProvideNonceSource
+  and 'env :> IProvideSigner
+  and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideSession
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideTimeline
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
+  and 'env :> IProvideLogging>(props: Props<'env>) as this =
+  inherit UserControl()
+
+  do
+    let program =
+      Program.mkProgram (State.init props) (State.update props) (view props)
+      |> Program.withSubscription(State.subscribe props)
+
+    let root, lifetime = Programs.runPage(props.Env.Dispatcher, program)
+
+    this.Content <- root
+    props.Context.AddDisposable lifetime

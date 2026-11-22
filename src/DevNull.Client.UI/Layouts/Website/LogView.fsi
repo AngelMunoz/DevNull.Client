@@ -1,0 +1,259 @@
+module DevNull.Client.Layout.Website.LogView
+
+open System
+open Avalonia.Controls
+open DevNull.Client
+open DevNull.Client.AttachmentSources
+open DevNull.Client.Components.CommitCard
+open DevNull.Client.Core.ApiTypes
+open DevNull.Client.Core.Capabilities
+open DevNull.Client.Core.Http
+open DevNull.Client.Env
+open DevNull.Client.Errors
+open DevNull.Client.ImageCache
+open DevNull.Client.LastVisitStore
+open DevNull.Client.Profiles
+open DevNull.Client.Remotes
+open DevNull.Client.SshKeys
+open DevNull.Client.Stores
+open DevNull.Client.Timeline
+open DevNull.Client.UiClock
+open DevNull.Client.UserSettingsStore
+open DevNull.Client.TranslationCache
+open MVUish.Avalonia
+open Navs
+
+/// The log page: one of the three logs, its timeline, and its pager.
+/// The page needs the signed request workers and the navigation target.
+type Props<'env
+  when 'env :> IProvideClock
+  and 'env :> IProvideNonceSource
+  and 'env :> IProvideSigner
+  and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideSession
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLastVisit
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideTimeline
+  and 'env :> IProvideSshKeys
+  and 'env :> IProvideRemotes
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
+  and 'env :> IProvideLogging> = {
+  Env: 'env
+  Log: LogKind
+  Session: SignedInSession
+  Nav: INavigable
+  /// The route the page lives in; the page's program lifetime lands
+  /// in the route's disposable bag, so leaving or evicting the route
+  /// stops the program.
+  Context: RouteContext
+}
+
+/// One row of the log feed: a day separator, a commit on the rail, a
+/// deletion marker, or the last-visit separator.
+type LogRow =
+  | Day of string
+  | Node of Commit
+  | TombstoneRow of Tombstone
+  | LastVisitRow
+
+/// The visit the marker reads: when it was and who is reading.
+[<Struct>]
+type VisitMarker = {
+  VisitedAt: DateTimeOffset
+  ViewerId: string
+}
+
+/// The page's state logic — model, messages, update, and the
+/// subscriptions that feed it from outside — exported so the update
+/// stays testable without a running page.
+module State =
+
+  /// One thread preview the page grew past the payload slice: the
+  /// replies shown and the cursor the next page asks for.
+  [<Struct>]
+  type PreviewState = {
+    Shown: CommitNode list
+    Cursor: string option
+  }
+
+  /// The state of one log page: the loaded items, the pager cursor, the
+  /// head the since-poll checks against, the new-commit count the pill
+  /// holds, and whether the log is ranked.
+  type Model = {
+    Loading: bool
+    Error: AppError option
+    Feed: FeedWindow.Window<CommitNode>
+    Head: string option
+    Anchor: FeedWindow.Anchor voption
+    NewCount: int option
+    /// The number of return-to-top requests the page has taken; the
+    /// feed's scroll binds to changes in it.
+    ScrollRequests: int
+    Ranked: bool
+    /// Whether the page sits in the visual tree: the since-poll pauses
+    /// while it does not.
+    Attached: bool
+    /// The shared clock's last tick, for the relative times.
+    Now: DateTimeOffset
+    /// Whether the viewer's pastel controls show, live from the session.
+    Pasteis: bool
+    /// The commit whose inline reply composer is open, by id.
+    ReplyingTo: string option
+    /// The thread read of each parent a reply opened on, keyed by its
+    /// id: the answer the reply's participant rows build from. A
+    /// failed read never lands here, and the reply posts without ids.
+    ReplyPages: Map<string, CommitPage>
+    /// The commit whose poll vote is in flight, so its buttons disable.
+    Voting: string option
+    /// The option a viewer picked in each open poll, by commit id.
+    PollChoices: Map<string, string>
+    /// The visit captured when the page mounted; the rendered marker
+    /// keeps pointing there for the session even as the store advances.
+    Marker: DateTimeOffset option
+    /// The thread previews the page grew past the payload slice, by
+    /// parent id.
+    Previews: Map<string, PreviewState>
+    /// Whether translations show by themselves.
+    Automatic: bool
+    /// Every commit's translation on this page.
+    Translations: DevNull.Client.Components.TranslationModel.Book
+    /// Whether the page already asked for its automatic translations.
+    AutoRan: bool
+    /// The commit whose share dialog stands open.
+    ShareOpen: Commit voption
+    /// The commit whose report dialog stands open.
+    ReportOpen: Commit voption
+    /// The viewer's relation per author handle, as the More menu reads
+    /// it; a handle absent stays unread, and the read carries no block
+    /// flag, so that flag moves only when a block answers.
+    Relations: Map<string, AuthorRelation>
+    /// The commit whose menu action is in flight, so its items disable.
+    MenuBusy: string option
+    /// The newer-than-head commits the poll heard while the pill
+    /// waited; the next poll reports them as arrived, and a landed
+    /// refresh or a row that loaded clears them.
+  }
+
+  /// The messages of the log page, including the since-poll pair.
+  type Msg =
+    | Fetched of cursor: string option * Result<LogPage, AppError>
+    | ReloadRequested
+    | Appended of cursor: string option * Result<LogPage, AppError>
+    | MoreRequested
+    | NewerRequested
+    | Prepended of cursor: string option * Result<LogPage, AppError>
+    | AnchorMoved of FeedWindow.Anchor
+    | CommitOpened of Commit
+    | StarToggled of Commit
+    | StarDone of Result<Commit, AppError>
+    | PastelGiven of Commit
+    | PastelDone of Result<PastelResult, AppError>
+    | CheckNew
+    | NewChecked of Result<LogPage, AppError>
+    | NewRequested
+    | NewFetched of Result<LogPage, AppError>
+    | ScrollRequested
+    | AttachedChanged of attached: bool
+    | ClockTicked of moment: DateTimeOffset
+    | SessionChanged of state: SessionState
+    | ReplyToggled of Commit
+    | ReplyPosted of commitId: string
+    | ReplyPageFetched of commitId: string * Result<CommitPage, AppError>
+    | PollChoiceChanged of Commit * PollOption * chosen: bool
+    | PollVoteRequested of Commit
+    | PollVotedDone of Result<Commit, AppError>
+    | PreviewMoreRequested of Commit
+    | PreviewLoaded of commitId: string * Result<Page<CommitNode>, AppError>
+    | TranslateRequested of Commit
+    | OriginalRequested of Commit
+    | TranslationDone of Commit * Result<TranslationPayload, AppError>
+    | TranslationsAuto of (Commit * Result<TranslationPayload, AppError>) list
+    | TranslationRecalled of
+      Commit *
+      DevNull.Client.Components.TranslationModel.Book option
+    | PrefsArrived of settings: UserSettings option
+    | ShareOpened of Commit
+    | ShareClosed
+    | Shared
+    | ReportOpened of Commit
+    | ReportClosed
+    | MenuOpened of Commit
+    | RelationLoaded of handle: string * AuthorRelation voption
+    | AuthorFollowToggled of Commit
+    | AuthorFollowDone of Commit * Result<unit, AppError>
+    | AuthorMuteToggled of Commit
+    | AuthorMuteDone of Commit * Result<MuteResult, AppError>
+    | AuthorBlockRequested of Commit
+    | AuthorBlockDone of Commit * Result<BlockResult, AppError>
+    | DeleteRequested of Commit
+    | Deleted of commitId: string * Result<unit, AppError>
+
+  /// The fresh page state.
+  val initial: Model
+
+  /// The rows one window holds, in display order.
+  val internal itemsOf: model: Model -> CommitNode list
+
+  /// A model with one loaded page, for tests and fixtures.
+  val internal withPage:
+    items: CommitNode list * nextCursor: string option * model: Model -> Model
+
+  /// Interleaves day separators between the commits of different days,
+  /// carrying the day across tombstones. A ranked log is score ordered,
+  /// its days interleave, so it rides without separators the way the
+  /// site's ranked feed does. The last-visit marker rides above the
+  /// first already-seen commit, and only when someone else's newer
+  /// commit sits above it — the site's own rules.
+  val toRows:
+    items: CommitNode list * ranked: bool * marker: VisitMarker option ->
+      LogRow list
+
+  /// The stable identity of one feed row.
+  val keyOf: logRow: LogRow -> string
+
+  /// Applies one message.
+  val update:
+    props: Props<'env> -> (Msg -> Model -> Model * Cmd<Msg>)
+      when 'env :> IProvideClock
+      and 'env :> IProvideNonceSource
+      and 'env :> IProvideSigner
+      and 'env :> IProvideHttp
+      and 'env :> IProvideDispatcher
+      and 'env :> IProvideSession
+      and 'env :> IProvideUiClock
+      and 'env :> IProvideImageCache
+      and 'env :> IProvideAttachmentSources
+      and 'env :> IProvideLastVisit
+      and 'env :> IProvideProfiles
+      and 'env :> IProvideTimeline
+      and 'env :> IProvideSshKeys
+      and 'env :> IProvideLogging
+
+/// One log timeline, self-contained: mounts the MVUish program.
+type Page<'env
+  when 'env :> IProvideClock
+  and 'env :> IProvideNonceSource
+  and 'env :> IProvideSigner
+  and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideSession
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideAttachmentSources
+  and 'env :> IProvideLastVisit
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideTimeline
+  and 'env :> IProvideSshKeys
+  and 'env :> IProvideRemotes
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
+  and 'env :> IProvideLogging> =
+  new: props: Props<'env> -> Page<'env>
+  inherit UserControl

@@ -1,0 +1,57 @@
+﻿module DevNull.Client.Layout.Website.ProfileView
+
+open Avalonia.Controls
+open DevNull.Client.Core.Capabilities
+open DevNull.Client.Core.Http
+open DevNull.Client.Env
+open DevNull.Client.ImageCache
+open DevNull.Client.Stores
+open DevNull.Client.Profiles
+open DevNull.Client.Timeline
+open DevNull.Client.UiClock
+open DevNull.Client.UserSettingsStore
+open DevNull.Client.TranslationCache
+open Navs
+
+/// One profile by username, with the viewer's relation to it.
+type Props<'env
+  when 'env :> IProvideClock
+  and 'env :> IProvideNonceSource
+  and 'env :> IProvideSigner
+  and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideSession
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideTimeline
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
+  and 'env :> IProvideLogging> = {
+  Env: 'env
+  Username: string
+  Session: SignedInSession
+  Nav: INavigable
+  /// The route the page lives in; owns the page's program lifetime.
+  Context: RouteContext
+}
+
+/// One profile page, self-contained: mounts the MVUish program.
+type Page<'env
+  when 'env :> IProvideClock
+  and 'env :> IProvideNonceSource
+  and 'env :> IProvideSigner
+  and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideSession
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideTimeline
+  and 'env :> IProvideUserSettings
+  and 'env :> IProvideTranslations
+  and 'env :> IProvideBrowser
+  and 'env :> IProvideLogging> =
+  new: props: Props<'env> -> Page<'env>
+  inherit UserControl

@@ -1,0 +1,965 @@
+module DevNull.Client.Layout.Website.NotificationsView
+
+open System
+open System.Collections.Generic
+open Avalonia
+open Avalonia.Controls
+open Avalonia.Media
+open Avalonia.Layout
+open NXUI.Extensions
+open FSharp.Control.Reactive
+open MVUish.Avalonia
+open Navs
+open DevNull.Client
+open DevNull.Client.Components
+open DevNull.Client.Components.UserFlyout
+open DevNull.Client.Core.Api
+open DevNull.Client.Core.ApiTypes
+open DevNull.Client.Core.Capabilities
+open DevNull.Client.Core.Http
+open DevNull.Client.Errors
+open DevNull.Client.Env
+open Microsoft.Extensions.Logging
+open DevNull.Client.Formatting
+open DevNull.Client.Icons
+open DevNull.Client.ImageCache
+open DevNull.Client.Profiles
+open DevNull.Client.Stores
+open DevNull.Client.UiClock
+
+type Props<'env
+  when 'env :> IProvideClock
+  and 'env :> IProvideNonceSource
+  and 'env :> IProvideSigner
+  and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideSession
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideLogging> = {
+  Env: 'env
+  Session: SignedInSession
+  Nav: INavigable
+  Context: RouteContext
+}
+
+// The page's state logic: model, messages, update, the row shaping,
+// and the subscriptions that feed it from outside.
+module State =
+
+  // One notification group's expansion: the toggle, the events the
+  // group endpoint returned, and whether that read failed.
+  type GroupVm = {
+    Open: bool
+    Items: Notification list
+    Failed: bool
+  }
+
+  let closedGroup: GroupVm = {
+    Open = false
+    Items = []
+    Failed = false
+  }
+
+  type Model = {
+    Loading: bool
+    Error: AppError option
+    Filter: string option
+    Items: Notification list
+    NextCursor: string option
+    Groups: Map<string, GroupVm>
+    // The unread count of the signed-in session, live from the store.
+    Unread: int
+    // The shared clock's last tick, for the relative times.
+    Now: DateTimeOffset
+  }
+
+  type Msg =
+    | Fetched of Result<NotificationPage, AppError>
+    | FilterChosen of filter: string option
+    | Appended of Result<NotificationPage, AppError>
+    | MoreRequested
+    | GroupToggled of Notification
+    | GroupLoaded of groupId: string * Result<Page<Notification>, AppError>
+    | ClockTicked of moment: DateTimeOffset
+    | SessionChanged of state: SessionState
+
+  let initial = {
+    Loading = true
+    Error = None
+    Filter = None
+    Items = []
+    NextCursor = None
+    Groups = Map.empty
+    Unread = 0
+    Now = DateTimeOffset.UtcNow
+  }
+
+  // One inbox read: the filter in play and the pager cursor.
+  [<Struct>]
+  type Query = {
+    Session: SignedInSession
+    Filter: string option
+    Cursor: string option
+  }
+
+  let fetch(env, query: Query) =
+    Notifications.list(
+      env,
+      {
+        KeyFile = query.Session.KeyFile
+        Filter = query.Filter
+        Through = None
+        Cursor = query.Cursor
+      }
+    )
+
+  let init (props: Props<'env>) () =
+    {
+      initial with
+          Unread = props.Session.Session.UnreadNotificationsCount
+    },
+    Cmd.OfAsync.perform
+      fetch
+      (props.Env,
+       {
+         Session = props.Session
+         Filter = None
+         Cursor = None
+       })
+      Fetched
+
+  // Reads one group's events: the first event carries the id the group
+  // endpoint takes.
+  let loadGroup
+    (env, session: SignedInSession, notification: Notification)
+    : Async<Result<Page<Notification>, AppError>> =
+    Notifications.group(
+      env,
+      {
+        KeyFile = session.KeyFile
+        NotificationId = notification.Id
+        Filter = None
+        Cursor = None
+      }
+    )
+
+  let groupOf(notification: Notification, model: Model) : GroupVm =
+    model.Groups
+    |> Map.tryFind notification.GroupId
+    |> Option.defaultValue closedGroup
+
+  // The inbox title: the unread count when one exists.
+  let unreadTitle(model: Model) : string =
+    if model.Unread > 0 then
+      $"Notifications · {model.Unread} unread"
+    else
+      "Notifications"
+
+  let loggerOf(props: Props<'env>) =
+    props.Env.LoggerFactory.CreateLogger
+      "DevNull.Client.Layout.Website.NotificationsView"
+
+  let updateCore (log: ILogger, props: Props<'env>) msg model =
+    // Every log line is an effect: update returns it as a command,
+    // and the loop writes it after the computation.
+    let failed what error =
+      Cmd.ofAction(fun () ->
+        log.LogWarning(
+          "The {What} failed: {Error}",
+          what,
+          bounded 300 (describe error)
+        ))
+
+    match msg with
+    | Fetched result ->
+      match result with
+      | Ok page ->
+        {
+          model with
+              Loading = false
+              Error = None
+              Items = page.Page.Items
+              NextCursor = page.Page.NextCursor
+        },
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The inbox fetched {Count} notifications.",
+            page.Page.Items.Length
+          ))
+      | Error error ->
+        {
+          model with
+              Loading = false
+              Error = Some error
+        },
+        failed "the inbox fetch" error
+    | FilterChosen filter ->
+      // Clicking the pill already in play clears the filter.
+      let next = if model.Filter = filter then None else filter
+
+      if next = model.Filter then
+        model, Cmd.none
+      else
+        {
+          model with
+              Loading = true
+              Error = None
+              Filter = next
+              Items = []
+              NextCursor = None
+              Groups = Map.empty
+        },
+        Cmd.OfAsync.perform
+          fetch
+          (props.Env,
+           {
+             Session = props.Session
+             Filter = next
+             Cursor = None
+           })
+          Fetched
+    | MoreRequested ->
+      model,
+      Cmd.OfAsync.perform
+        fetch
+        (props.Env,
+         {
+           Session = props.Session
+           Filter = model.Filter
+           Cursor = model.NextCursor
+         })
+        Appended
+    | Appended result ->
+      match result with
+      | Ok page ->
+        {
+          model with
+              Items = model.Items @ page.Page.Items
+              NextCursor = page.Page.NextCursor
+        },
+        Cmd.ofAction(fun () ->
+          log.LogDebug(
+            "The inbox grew by {Count} notifications.",
+            page.Page.Items.Length
+          ))
+      | Error error ->
+        { model with Error = Some error }, failed "the inbox next page" error
+    | GroupToggled notification ->
+      let group = groupOf(notification, model)
+
+      if group.Open then
+        {
+          model with
+              Groups =
+                model.Groups.Add(
+                  notification.GroupId,
+                  { group with Open = false }
+                )
+        },
+        Cmd.none
+      else if List.isEmpty group.Items then
+        {
+          model with
+              Groups =
+                model.Groups.Add(
+                  notification.GroupId,
+                  { group with Open = true }
+                )
+        },
+        Cmd.OfAsync.perform
+          loadGroup
+          (props.Env, props.Session, notification)
+          (fun result -> GroupLoaded(notification.GroupId, result))
+      else
+        {
+          model with
+              Groups =
+                model.Groups.Add(
+                  notification.GroupId,
+                  { group with Open = true }
+                )
+        },
+        Cmd.none
+    | GroupLoaded(groupId, result) ->
+      let group =
+        model.Groups |> Map.tryFind groupId |> Option.defaultValue closedGroup
+
+      let next, logged =
+        match result with
+        | Ok page ->
+          {
+            group with
+                Items = page.Items
+                Failed = false
+          },
+          Cmd.ofAction(fun () ->
+            log.LogDebug(
+              "The group {Group} opened with {Count} notifications.",
+              groupId,
+              page.Items.Length
+            ))
+        | Error error ->
+          // The page shows a failed line; the log keeps the reason.
+          { group with Failed = true },
+          failed $"the group {groupId} fetch" error
+
+      {
+        model with
+            Groups = model.Groups.Add(groupId, next)
+      },
+      logged
+    | ClockTicked moment -> { model with Now = moment }, Cmd.none
+    | SessionChanged state ->
+      let unread =
+        match state with
+        | SignedIn entry -> entry.Session.UnreadNotificationsCount
+        | SignedOut -> 0
+
+      { model with Unread = unread }, Cmd.none
+
+  let update(props: Props<'env>) = updateCore(loggerOf props, props)
+
+  // The page's inlets from outside: the shared clock and the session
+  // store.
+  let subscribe (props: Props<'env>) (_: Model) : Sub<Msg> =
+    [
+      Sub.fromObservable
+        "clock"
+        (props.Env.UiClock.Minute |> Observable.map ClockTicked)
+
+      Sub.fromObservable
+        "session"
+        (props.Env.Session.Observe |> Observable.map SessionChanged)
+    ]
+    |> Sub.batch
+
+  // One inbox row of the feed: a day separator or a notification
+  // group.
+  type InboxRow =
+    | Day of string
+    | Entry of Notification
+
+  // Interleaves day separators between the groups of different days,
+  // keeping the first row of every group.
+  let toRows(items: Notification list) : InboxRow list =
+    let now = DateTimeOffset.UtcNow
+
+    let inline dayOf(notification: Notification) =
+      dayLabel(now, notification.CreatedAt)
+
+    match items |> List.distinctBy _.GroupId with
+    | [] -> []
+    | first :: rest ->
+      let rows = [
+        for previous, next in List.pairwise(first :: rest) do
+          if dayOf previous <> dayOf next then
+            InboxRow.Day(dayOf next)
+
+          InboxRow.Entry next
+      ]
+
+      InboxRow.Day(dayOf first) :: InboxRow.Entry first :: rows
+
+  let rowKey(inboxRow: InboxRow) : string =
+    match inboxRow with
+    | InboxRow.Day label -> "day:" + label
+    | InboxRow.Entry notification -> notification.GroupId
+
+// The page's semantic regions; the view only composes these.
+module Parts =
+
+  // One filter pill: the wire type it requests and the label it wears.
+  let filters: (string * string) list = [
+    "replies", "Replies"
+    "quotes", "Quotes"
+    "stars", "Stars"
+    "mentions", "Mentions"
+    "follows", "Follows"
+    "moderation", "Moderation"
+  ]
+
+  // The pill row of the pinned header; the active pill carries the
+  // primary-soft wash. The toggle lives in `update`: clicking the pill
+  // in play clears the filter.
+  let filterPill
+    (
+      active: IObservable<string option>,
+      dispatch: Dispatch<State.Msg>,
+      pair: string * string
+    ) : Control =
+    let wire, label = pair
+
+    let pill =
+      Button()
+        .Classes(Theme.name Theme.FilterPill)
+        .Content(label)
+        .OnClickHandler(fun _ _ -> dispatch(State.FilterChosen(Some wire)))
+
+    Theme.bindClass(
+      pill,
+      Theme.FilterPillActive,
+      active |> Observable.map(fun current -> current |> Option.contains wire)
+    )
+    |> ignore
+
+    pill
+
+  // The pill row of filters over the inbox.
+  let pillRow
+    (model: IObservable<State.Model>, dispatch: Dispatch<State.Msg>)
+    : Control =
+    let panel = WrapPanel()
+
+    panel.Margin <- Thickness(0.0, 8.0, 0.0, 12.0)
+    panel.ItemSpacing <- 8.0
+
+    panel.Children [|
+      for pair in filters ->
+        filterPill(model |> Observable.map _.Filter, dispatch, pair)
+    |]
+
+  // The icon one notification type wears.
+  let glyphOf(kind: NotificationKind) : Glyph =
+    match kind with
+    | NotificationKind.Followed -> Glyph.UserPlus
+    | NotificationKind.Replied -> Glyph.Reply
+    | NotificationKind.Quoted -> Glyph.Quote
+    | NotificationKind.Starred -> Glyph.Star
+    | NotificationKind.Mentioned -> Glyph.At
+    | NotificationKind.LeveledUp -> Glyph.ChevronsUp
+    | NotificationKind.Approved -> Glyph.Check
+    | NotificationKind.Rejected -> Glyph.Close
+    | NotificationKind.FirstCommit -> Glyph.Commit
+    | NotificationKind.UnknownKind _ -> Glyph.Notifications
+
+  // The sentence one notification type says after the actor; the
+  // organization's handle replaces "your" when the notification names
+  // one, and a mention names the organization instead of "you".
+  let actionOf
+    (kind: NotificationKind, organization: OrganizationProfile option)
+    : string =
+    match kind with
+    | NotificationKind.Followed -> "followed you"
+    | NotificationKind.Replied ->
+      let whose =
+        organization
+        |> Option.map(fun org -> $"@{org.Handle}'s")
+        |> Option.defaultValue "your"
+
+      $"replied to {whose} commit"
+    | NotificationKind.Quoted ->
+      let whose =
+        organization
+        |> Option.map(fun org -> $"@{org.Handle}'s")
+        |> Option.defaultValue "your"
+
+      $"quoted {whose} commit"
+    | NotificationKind.Starred ->
+      let whose =
+        organization
+        |> Option.map(fun org -> $"@{org.Handle}'s")
+        |> Option.defaultValue "your"
+
+      $"starred {whose} commit"
+    | NotificationKind.Mentioned ->
+      organization
+      |> Option.map(fun org -> $"mentioned @{org.Handle}")
+      |> Option.defaultValue "mentioned you"
+    | NotificationKind.FirstCommit -> "made their first commit"
+    | NotificationKind.Approved ->
+      organization
+      |> Option.map(fun org -> $"@{org.Handle}'s commit was approved")
+      |> Option.defaultValue "Your commit was approved"
+    | NotificationKind.Rejected ->
+      organization
+      |> Option.map(fun org -> $"@{org.Handle}'s commit was rejected")
+      |> Option.defaultValue "Your commit was rejected"
+    | NotificationKind.LeveledUp -> "sent an update"
+    | NotificationKind.UnknownKind _ -> "sent an update"
+
+  // The noun a grouped row counts.
+  let nounOf(kind: NotificationKind) : string =
+    match kind with
+    | NotificationKind.Followed -> "followers"
+    | NotificationKind.Starred -> "stars"
+    | _ -> "updates"
+
+  // The commit the notification points at, when it points at one.
+  let commitOf(notification: Notification) : Commit option =
+    match notification.Commit with
+    | Some(LiveCommit commit) -> Some commit
+    | _ -> None
+
+  // The rail cell of one notification: the neutral rail with the
+  // actor's avatar (the types about their commit) or the type's icon in
+  // a ring. The avatar carries the hover card.
+  let railCell
+    (
+      cache: ImageCacheService,
+      flyout: Source voption,
+      notification: Notification
+    ) : Control =
+    let actorsCommit =
+      match notification.Type with
+      | NotificationKind.Replied
+      | NotificationKind.Quoted
+      | NotificationKind.Mentioned
+      | NotificationKind.FirstCommit -> true
+      | _ -> false
+
+    let line =
+      Border()
+        .Width(2.0)
+        .Classes(Theme.name Theme.RailBack)
+        .HorizontalAlignment(HorizontalAlignment.Center)
+        .VerticalAlignment(VerticalAlignment.Stretch)
+        .Margin(0.0, 32.0, 0.0, 0.0)
+
+    let node: Control =
+      if actorsCommit then
+        let plain =
+          Avatar.view {
+            Name = Author.name notification.Actor
+            Url = Author.avatarUrl notification.Actor
+            Lane = Author.lane notification.Actor
+            Size = 40.0
+            Cache = cache
+            Square = Author.isOrganization notification.Actor
+            Viewable = false
+          }
+
+        let avatar =
+          match flyout with
+          | ValueSome source ->
+            UserFlyout.attachAuthor(source, notification.Actor, plain)
+          | ValueNone -> plain
+
+        Border()
+          .Classes(Theme.name Theme.CardBack, Theme.name Theme.RailEdge)
+          .BorderThickness(Thickness(2.0))
+          .CornerRadius(40.0)
+          .Padding(1.0)
+          .HorizontalAlignment(HorizontalAlignment.Center)
+          .VerticalAlignment(VerticalAlignment.Top)
+          .Margin(0.0, 11.0, 0.0, 0.0)
+          .Child(avatar)
+      else
+        let icon = Icons.iconAt(glyphOf notification.Type, 16.0)
+
+        Theme.laneForeground(icon, Author.lane notification.Actor)
+
+        Border()
+          .Classes(Theme.name Theme.CardBack, Theme.name Theme.RailEdge)
+          .BorderThickness(Thickness(2.0))
+          .CornerRadius(20.0)
+          .Width(38.0)
+          .Height(38.0)
+          .HorizontalAlignment(HorizontalAlignment.Center)
+          .VerticalAlignment(VerticalAlignment.Top)
+          .Margin(0.0, 13.0, 0.0, 0.0)
+          .Child(icon)
+
+    let rail = Panel()
+
+    rail.Width <- 64.0
+    rail.MinHeight <- 64.0
+
+    rail.Children(line, node)
+
+  // What one row's parts read: the router, the dispatch, the model.
+  type RowCtx = {
+    Nav: INavigable
+    Dispatch: Dispatch<State.Msg>
+    Model: IObservable<State.Model>
+    Images: ImageCacheService
+    Flyout: Source voption
+  }
+
+  // The actor name as one piece, with the handle when the row shows
+  // one: with a flyout source the piece carries the hover card and
+  // the handled profile click; without one it stays plain text.
+  let identityPiece
+    (author: Author, flyout: Source voption, showHandle: bool)
+    : Control =
+    let children: Control array = [|
+      TextBlock().Classes(Theme.name Theme.Subtitle).Text(Author.name author)
+
+      if showHandle then
+        TextBlock()
+          .Classes(Theme.name Theme.Mono)
+          .Text($"@{Author.handle author}")
+          .TextTrimming(TextTrimming.CharacterEllipsis)
+    |]
+
+    let piece =
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Spacing(6.0)
+        .Children(children)
+
+    match flyout with
+    | ValueSome source ->
+      UserFlyout.attachAuthorNamed {
+        Source = source
+        Author = author
+        Name = "AuthorIdentity"
+        Child = piece
+      }
+    | ValueNone -> piece
+
+  // The excerpt of the commit the notification points at: boxed for
+  // the viewer's own commits, inline for the actor's.
+  let excerptBody(ctx: RowCtx, commit: Commit, maxLines: int) : Control =
+    let body =
+      CommitCard.body(
+        {
+          Flyout = ctx.Flyout
+          Tone = CommitCard.Accent
+          Mentions = commit.Mentions
+          OnOpenExternal = ValueNone
+        },
+        commit.Body,
+        commit.BodySegments
+      )
+
+    match body with
+    | :? TextBlock as block ->
+      block.MaxLines <- maxLines
+      block.TextTrimming <- TextTrimming.CharacterEllipsis
+      block :> Control
+    | other -> other
+
+  // One expanded event inside a group: the actor, the action, and the
+  // excerpt, off a short spine.
+  let eventRow(ctx: RowCtx, notification: Notification) : Control =
+    let now = ctx.Model |> Observable.map _.Now
+    let cache = ctx.Images
+
+    let identity =
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Spacing(6.0)
+        .Children(
+          identityPiece(notification.Actor, ctx.Flyout, false),
+          TextBlock()
+            .Classes(Theme.name Theme.Mono)
+            .Text(
+              now
+              |> Observable.map(fun moment ->
+                timeAgo(moment, notification.CreatedAt))
+            )
+        )
+
+    let children: Control array = [|
+      identity
+      TextBlock()
+        .Classes(Theme.name Theme.Muted)
+        .Text(actionOf(notification.Type, notification.Organization))
+
+      match commitOf notification with
+      | Some commit ->
+        let body = excerptBody(ctx, commit, 2)
+
+        match body with
+        | :? TextBlock as block ->
+          block.Classes.Add(Theme.name Theme.Muted)
+          block.Margin <- Thickness(0.0, 2.0, 0.0, 0.0)
+          block :> Control
+        | other -> other
+      | None -> ()
+    |]
+
+    StackPanel()
+      .Orientation(Orientation.Horizontal)
+      .Spacing(10.0)
+      .Margin(0.0, 4.0, 0.0, 0.0)
+      .Children(
+        (let plain =
+          Avatar.view {
+            Name = Author.name notification.Actor
+            Url = Author.avatarUrl notification.Actor
+            Lane = Author.lane notification.Actor
+            Size = 28.0
+            Cache = cache
+            Square = Author.isOrganization notification.Actor
+            Viewable = false
+          }
+
+         match ctx.Flyout with
+         | ValueSome source ->
+           UserFlyout.attachAuthor(source, notification.Actor, plain)
+         | ValueNone -> plain),
+        StackPanel()
+          .VerticalAlignment(VerticalAlignment.Center)
+          .Spacing(4.0)
+          .Children(children)
+      )
+
+  let excerptBox(ctx: RowCtx, notification: Notification) : Control option =
+    match notification.Type with
+    | NotificationKind.Starred
+    | NotificationKind.Approved
+    | NotificationKind.Rejected ->
+      commitOf notification
+      |> Option.map(fun commit ->
+        Border()
+          .Classes(Theme.name Theme.Hairline)
+          .BorderThickness(Thickness(1.0))
+          .CornerRadius(8.0)
+          .Padding(10.0)
+          .Margin(0.0, 6.0, 0.0, 0.0)
+          .Child(excerptBody(ctx, commit, 3)))
+    | _ ->
+      commitOf notification
+      |> Option.map(fun commit ->
+        let body = excerptBody(ctx, commit, 2)
+
+        match body with
+        | :? TextBlock as block ->
+          block.Classes.Add(Theme.name Theme.Muted)
+          block.Margin <- Thickness(0.0, 2.0, 0.0, 0.0)
+          block :> Control
+        | other -> other)
+
+  // One group's expansion host: the toggle line and, while open, the
+  // events the group endpoint returned. Every piece binds the group's
+  // model entry, so a recycled row never keeps stale state.
+  let groupHost(ctx: RowCtx, notification: Notification) : Control =
+    let count = notification.EventCount
+
+    let label = $"{count} {nounOf notification.Type}"
+
+    let group =
+      ctx.Model
+      |> Observable.map(fun current -> State.groupOf(notification, current))
+
+    let now = ctx.Model |> Observable.map _.Now
+
+    let toggle =
+      Button()
+        .Classes(Theme.name Theme.GhostButton)
+        .Padding(6.0, 2.0, 6.0, 2.0)
+        .Margin(0.0, 6.0, 0.0, 0.0)
+        .Content(
+          StackPanel()
+            .Orientation(Orientation.Horizontal)
+            .Spacing(4.0)
+            .Children(
+              Icons.iconAt(Glyph.Collapse, 14.0),
+              TextBlock().Classes(Theme.name Theme.Mono).Text(label)
+            )
+        )
+        .OnClickHandler(fun _ args ->
+          args.Handled <- true
+          ctx.Dispatch(State.GroupToggled notification))
+        .IsVisible(notification.EventCount > 1)
+
+    let events =
+      let content =
+        PageChrome.rebuildOn(
+          group,
+          id,
+          fun current ->
+            StackPanel().Margin(24.0, 0.0, 0.0, 0.0).Children [|
+              for item in current.Items -> eventRow(ctx, item)
+            |]
+        )
+
+      ContentControl()
+        .Content(content.ToBinding())
+        .IsVisible(group |> Observable.map _.Open)
+
+    let failed =
+      TextBlock()
+        .Classes(Theme.name Theme.Mono)
+        .Margin(0.0, 6.0, 0.0, 0.0)
+        .Text("fatal: could not load")
+        .IsVisible(group |> Observable.map _.Failed)
+
+    StackPanel().Children(toggle, events, failed)
+
+  // One inbox row: the rail, the identity line, the action, the
+  // excerpt, and the group host.
+  let row (ctx: RowCtx) (notification: Notification) : Control =
+    let where =
+      commitOf notification |> Option.map(fun commit -> "/commit/" + commit.Id)
+
+    let now = ctx.Model |> Observable.map _.Now
+
+    let identity =
+      StackPanel()
+        .Orientation(Orientation.Horizontal)
+        .Spacing(6.0)
+        .Children(
+          identityPiece(notification.Actor, ctx.Flyout, true),
+          TextBlock()
+            .Classes(Theme.name Theme.Mono)
+            .Text(
+              now
+              |> Observable.map(fun moment ->
+                timeAgo(moment, notification.CreatedAt))
+            )
+        )
+
+    let action =
+      TextBlock()
+        .Classes(Theme.name Theme.Muted)
+        .Margin(0.0, 2.0, 0.0, 0.0)
+        .Text(actionOf(notification.Type, notification.Organization))
+
+    let children: Control array = [|
+      identity
+      action
+
+      match excerptBox(ctx, notification) with
+      | Some excerpt -> excerpt
+      | None -> ()
+
+      groupHost(ctx, notification)
+    |]
+
+    let content = StackPanel().Margin(0.0, 12.0, 16.0, 12.0).Children(children)
+
+    let contentColumn =
+      Border()
+        .Classes(Theme.name Theme.Hairline)
+        .BorderThickness(Thickness(0.0, 0.0, 0.0, 1.0))
+        .Child(content)
+
+    let grid = Grid()
+
+    grid.ColumnDefinitions <- ColumnDefinitions("64,*")
+
+    Button()
+      .Classes(Theme.name Theme.CommitRow)
+      .Content(
+        grid.Children(
+          railCell(ctx.Images, ctx.Flyout, notification).Column(0),
+          contentColumn.Column(1)
+        )
+      )
+      .OnClickHandler(fun _ _ ->
+        where |> Option.iter(fun url -> Navigation.go(ctx.Nav, url, ignore)))
+
+  // The inbox itself: the virtualized feed over the page's rows.
+  let feed
+    (
+      props: Props<'env>,
+      dispatch: Dispatch<State.Msg>,
+      model: IObservable<State.Model>
+    ) : Control =
+    let ctx: RowCtx = {
+      Nav = props.Nav
+      Dispatch = dispatch
+      Model = model
+      Images = props.Env.ImageCache
+      Flyout =
+        ValueSome {
+          Fetch = props.Env.Profiles.Fetch
+          OnOpen =
+            fun username ->
+              Navigation.go(props.Nav, "/profile/" + username, ignore)
+          OnOpenOrg =
+            fun handle -> Navigation.go(props.Nav, "/org/" + handle, ignore)
+          OnOpenGuild =
+            fun handle ->
+              Navigation.go(
+                props.Nav,
+                "/guilds/" + Uri.EscapeDataString handle,
+                ignore
+              )
+          OnOpenTag =
+            fun tag ->
+              Navigation.go(
+                props.Nav,
+                "/search/" + Uri.EscapeDataString tag,
+                ignore
+              )
+          Cache = props.Env.ImageCache
+        }
+    }
+
+    let hasMore = model |> Observable.map _.NextCursor.IsSome
+
+    Feed.view {
+      Header = ValueNone
+      Items =
+        model
+        |> Observable.map _.Items
+        |> Observable.distinctUntilChangedKeyCompare
+          (fun items -> box items)
+          ReferenceEqualityComparer.Instance
+        |> Observable.map State.toRows
+      KeyOf = State.rowKey
+      Row =
+        (fun inboxRow ->
+          match inboxRow with
+          | State.InboxRow.Day label -> FeedParts.dayRow label
+          | State.InboxRow.Entry notification -> row ctx notification)
+      Footer =
+        ValueSome(
+          PageChrome.loadMore(hasMore, fun () -> dispatch State.MoreRequested)
+        )
+      HasMore = hasMore
+      ScrollTo = ValueNone
+      Ride = false
+      Restore = ValueNone
+      OnScroll = ValueNone
+      OnRide = ValueNone
+      OnNeedMore = ValueNone
+    }
+
+let view
+  (props: Props<'env>)
+  (model: IObservable<State.Model>)
+  (dispatch: Dispatch<State.Msg>)
+  : Control =
+
+  PageChrome.page {
+    Model = model
+    TitleOf = State.unreadTitle
+    Padding = Theme.pinnedPadding
+    ErrorOf = _.Error
+    Busy =
+      fun current ->
+        if current.Loading then
+          PageChrome.Words "Loading the inbox…"
+        else
+          PageChrome.Off
+    Empty =
+      fun current ->
+        if
+          not current.Loading && current.Error.IsNone && current.Items.IsEmpty
+        then
+          PageChrome.Words
+            "Nothing here yet. Follows, stars, and replies will show up here."
+        else
+          PageChrome.Off
+    Header = [ Parts.pillRow(model, dispatch) ]
+    Body = Parts.feed(props, dispatch, model)
+  }
+
+type Page<'env
+  when 'env :> IProvideClock
+  and 'env :> IProvideNonceSource
+  and 'env :> IProvideSigner
+  and 'env :> IProvideHttp
+  and 'env :> IProvideDispatcher
+  and 'env :> IProvideSession
+  and 'env :> IProvideUiClock
+  and 'env :> IProvideImageCache
+  and 'env :> IProvideProfiles
+  and 'env :> IProvideLogging>(props: Props<'env>) as this =
+  inherit UserControl()
+
+  do
+    let program =
+      Program.mkProgram (State.init props) (State.update props) (view props)
+      |> Program.withSubscription(State.subscribe props)
+
+    let root, lifetime = Programs.runPage(props.Env.Dispatcher, program)
+
+    this.Content <- root
+    props.Context.AddDisposable lifetime

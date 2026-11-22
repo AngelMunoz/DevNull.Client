@@ -390,7 +390,7 @@ const battery = async () => {
   const grepCount = async (pattern, paths) =>
     Number((await sh(`(Get-ChildItem ${paths} -Recurse -Include *.fs,*.fsi | Select-String -Pattern '${pattern}' | Measure-Object).Count`)).text.match(/\d+/)?.[0] ?? 0);
   const greps = {
-    componentsToViews: await grepCount("DevNull\\.Client\\.Views|\\bViews\\.", "src/DevNull.Client.UI/Components"),
+    componentsToViews: await grepCount("DevNull\\.Client\\.(Views|Layout\\.|Workbench|Editor)|\\bViews\\.", "src/DevNull.Client.UI/Components"),
     behaviorSubjectSub: await grepCount("BehaviorSubject<Sub", "src"),
     privateInPaired: (await sh("Get-ChildItem src -Recurse -Include *.fs | Where-Object { Test-Path ($_.FullName -replace '\\.fs$','.fsi') } | Select-String -Pattern '\\blet private\\b|\\bmember private\\b|\\btype private\\b' -CaseSensitive | ForEach-Object { \"{0}:{1}\" -f (Split-Path $_.Path -Leaf), $_.LineNumber }")).text.trim(),
   };
@@ -423,7 +423,7 @@ const collect = async () => {
   const grepCount = async (pattern, paths) =>
     Number((await sh(`(Get-ChildItem ${paths} -Recurse -Include *.fs,*.fsi | Select-String -Pattern '${pattern}' | Measure-Object).Count`)).text.match(/\d+/)?.[0] ?? 0);
   const greps = {
-    componentsToViews: await grepCount("DevNull\\.Client\\.Views|\\bViews\\.", "src/DevNull.Client.UI/Components"),
+    componentsToViews: await grepCount("DevNull\\.Client\\.(Views|Layout\\.|Workbench|Editor)|\\bViews\\.", "src/DevNull.Client.UI/Components"),
     behaviorSubjectSub: await grepCount("BehaviorSubject<Sub", "src"),
     privateInPaired: (await sh("Get-ChildItem src -Recurse -Include *.fs | Where-Object { Test-Path ($_.FullName -replace '\\.fs$','.fsi') } | Select-String -Pattern '\\blet private\\b|\\bmember private\\b|\\btype private\\b' -CaseSensitive | ForEach-Object { \"{0}:{1}\" -f (Split-Path $_.Path -Leaf), $_.LineNumber }")).text.trim(),
   };

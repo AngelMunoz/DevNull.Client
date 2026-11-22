@@ -76,8 +76,10 @@ DevNull.Client is an Avalonia desktop client for https://dev-null.sh: F# on
   - `Tray.fsi/fs` - the tray icon: `TrayProps` first, the helpers that
     build its menu, and `install`; menu, raise on click, unread
     tooltip.
-  - `Components/`
-  - `Views/` - one MVUish page per route over `Program.mkProgram`
+  - `Components/` - shared reusable controls and layout-agnostic surfaces
+  - `Views/` - shared multi-layout views (`Views/Remotes/`)
+  - `Layouts/` - the app layouts (`Website/`, `Workbench/`, `Editor/`)
+  - `Layouts.fsi/fs` - the layout contract and built-in layout registry
   - `Shell.fsi/fs`
   - `Startup.fsi/fs` - `App`, `createLogging` and
     `start(logging, natives, argv)`: Serilog (console plus

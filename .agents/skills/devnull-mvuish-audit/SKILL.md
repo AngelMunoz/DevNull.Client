@@ -1,6 +1,6 @@
 ---
 name: devnull-mvuish-audit
-description: Audit and review F# Avalonia code in DevNull.Client for MVUish usage and the observable-binding patterns that caused memory leaks. Use whenever writing, reviewing, or changing Views/, Components/, Shell.fs, Theme.fs, feeds, images, or anything touching IObservable, Sub, Program runners, bindings, or controls that rebuild — and for any request about memory, leaks, retention, or disposal in this repo.
+description: Audit and review F# Avalonia code in DevNull.Client for MVUish usage and the observable-binding patterns that caused memory leaks. Use whenever writing, reviewing, or changing Views/, Layouts/, Components/, Shell.fs, Theme.fs, feeds, images, or anything touching IObservable, Sub, Program runners, bindings, or controls that rebuild — and for any request about memory, leaks, retention, or disposal in this repo.
 ---
 
 # MVUish usage and leak-pattern audit for DevNull.Client
@@ -33,7 +33,7 @@ the gate that proves it stays dead.
 
 1. **Themed brushes are style classes, never observables.** No
    `.Background(Brushes.x)` / `.Foreground` / `.BorderBrush` / `.Fill` /
-   `.Stroke` with a themed observable anywhere in Components/ or Views/.
+   `.Stroke` with a themed observable anywhere in Components/, Views/, or Layouts/.
    Use the style classes and the lane helpers `Theme` exports.
 2. **Shared state lives in env stores.** If a value must cross pages,
    it belongs to a store service — one the env record carries, alive
@@ -62,7 +62,7 @@ the gate that proves it stays dead.
    replaced from a session stream rebuilds only when the user identity
    changes — the shell's aside, footer, and chrome do this.
 9. **Theme's class binding only on program-model streams**, and no
-   `Observable.add` or `.Subscribe` in Components/ or Views/ outside
+   `Observable.add` or `.Subscribe` in Components/, Views/, or Layouts/ outside
    the Sub engine. `mvuish-controls` §3 permits `Observable.add` on a
    control's own event observable; this repo wires events through
    `.OnClickHandler` instead, so the ban stands. The one standing

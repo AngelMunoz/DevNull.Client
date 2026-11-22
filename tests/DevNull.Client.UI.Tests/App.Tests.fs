@@ -34,7 +34,7 @@ open DevNull.Client.Theme
 open DevNull.Client.Timeline
 open DevNull.Client.UI.Tests.Fixtures
 open DevNull.Client.UI.Tests.Harness
-open DevNull.Client.Views
+open DevNull.Client.Layout.Website
 
 // The two components the mention tests mount: the aliases keep the
 // qualified names short without opening the whole Components set.

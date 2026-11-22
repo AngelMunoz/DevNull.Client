@@ -14,7 +14,7 @@ open Expecto
 open Navs.Avalonia
 open DevNull.Client.Core.Http
 open DevNull.Client.Shell
-open DevNull.Client.Views
+open DevNull.Client.Layout.Website
 open DevNull.Client.UI.Tests.Fixtures
 open DevNull.Client.UI.Tests.Harness
 open DevNull.Client.UI.Tests.Leaks

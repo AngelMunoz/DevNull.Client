@@ -1,0 +1,195 @@
+module DevNull.Client.Layout.Website.ProfileShell
+
+open System
+open Avalonia
+open Avalonia.Controls
+open Avalonia.Layout
+open Avalonia.Media
+open NXUI.Extensions
+open FSharp.Control.Reactive
+open DevNull.Client
+open DevNull.Client.Components
+open DevNull.Client.Core.ApiTypes
+open DevNull.Client.Errors
+open DevNull.Client.Theme
+
+type FeedProps<'row when 'row: equality> = {
+  Items: IObservable<'row list>
+  KeyOf: 'row -> string
+  Row: 'row -> Control
+  HasMore: IObservable<bool>
+  OnMore: unit -> unit
+  OnRide: (Feed.Ride -> unit) voption
+  AnchorKeyOf: ('row -> string option) voption
+  EntryCursorOf: ('row -> string option) voption
+  RestoreAnchor: FeedWindow.Anchor voption
+  OnAnchor: (FeedWindow.Anchor -> unit) voption
+  Paging: Feed.Paging voption
+  End: IObservable<string option>
+}
+
+type Props<'model, 'row when 'row: equality> = {
+  Model: IObservable<'model>
+  Title: 'model -> string
+  Kind: string option
+  Padding: Thickness
+  ErrorOf: 'model -> AppError option
+  Busy: 'model -> PageChrome.Line
+  Empty: 'model -> PageChrome.Line
+  Note: 'model -> string option
+  Header: unit -> Control
+  Meta: (unit -> Control) voption
+  FeedLabel: string option
+  Tabs: TabStrip.Tab list
+  Feed: FeedProps<'row>
+}
+
+let commitRow(ctx: CommitCard.RowProps, node: CommitNode) : Control =
+  let card = CommitCard.feedRow ctx node
+
+  match node with
+  | LiveCommit commit ->
+    StackPanel().Children(card, CommitCard.replyBlock(ctx, commit, ValueNone))
+    : Control
+  | Tombstone _ -> card
+
+let kindLabel(kind: string) : Control =
+  Border()
+    .Classes(Theme.name Theme.Chip)
+    .CornerRadius(999.0)
+    .VerticalAlignment(VerticalAlignment.Center)
+    .Child(
+      TextBlock()
+        .Classes(Theme.name Theme.Muted)
+        .FontFamily(Fonts.mono)
+        .FontSize(11.0)
+        .Text(kind)
+    )
+
+let titleRow
+  (model: IObservable<'model>, titleOf: 'model -> string, kind: string option)
+  : Control =
+  let title = model |> Slices.gate titleOf |> Slices.share
+
+  let visible = title |> Observable.map(fun text -> text <> "" || kind.IsSome)
+
+  let children: Control array = [|
+    TextBlock().Classes(Theme.name Theme.Title).Text(title)
+    yield! kind |> Option.map kindLabel |> Option.toArray
+  |]
+
+  StackPanel()
+    .Orientation(Orientation.Horizontal)
+    .Spacing(8.0)
+    .Margin(0.0, 0.0, 0.0, 12.0)
+    .VerticalAlignment(VerticalAlignment.Center)
+    .Children(children)
+    .IsVisible(visible)
+
+let noteLine
+  (model: IObservable<'model>, noteOf: 'model -> string option)
+  : Control =
+  let note = model |> Slices.gate noteOf |> Slices.share
+
+  TextBlock()
+    .Classes(Theme.name Theme.Muted)
+    .Margin(0.0, 8.0, 0.0, 0.0)
+    .Text(note |> Observable.map(Option.defaultValue ""))
+    .IsVisible(note |> Observable.map Option.isSome)
+
+/// The profile pages' feed column. These feeds are always-top: they
+/// never restore a place and never stick to the bottom edge; the
+/// report slot hands each settled read place to the host.
+let feedColumn(feed: FeedProps<'row>) : Control =
+  let end' = feed.End |> Slices.gate id |> Slices.share
+
+  let endVisible = end' |> Observable.map Option.isSome
+
+  let endText = end' |> Observable.map(Option.defaultValue "")
+
+  let endLine =
+    TextBlock()
+      .Classes(Theme.name Theme.Muted)
+      .TextAlignment(TextAlignment.Center)
+      .TextWrapping(TextWrapping.Wrap)
+      .Margin(24.0)
+      .Text(endText)
+      .IsVisible(endVisible)
+
+  let footer =
+    StackPanel()
+      .Spacing(8.0)
+      .Children(
+        [|
+          match feed.Paging with
+          | ValueSome _ -> ()
+          | ValueNone -> PageChrome.loadMore(feed.HasMore, feed.OnMore)
+
+          endLine
+        |]
+      )
+
+  Feed.viewWith(
+    {
+      Header = ValueNone
+      Items = feed.Items
+      KeyOf = feed.KeyOf
+      Row = feed.Row
+      Footer = ValueSome footer
+      HasMore = feed.HasMore
+      ScrollTo = ValueNone
+      Ride = false
+      Restore = ValueNone
+      OnScroll = ValueNone
+      OnRide = feed.OnRide
+      OnNeedMore = ValueNone
+    },
+    {
+      Feed.Advanced.none() with
+          AnchorKeyOf = feed.AnchorKeyOf
+          EntryCursorOf = feed.EntryCursorOf
+          RestoreAnchor = feed.RestoreAnchor
+          OnAnchor = feed.OnAnchor
+          Paging = feed.Paging
+    }
+  )
+
+let feedLabel(label: string) : Control =
+  TextBlock()
+    .Classes(Theme.name Theme.Subtitle)
+    .Margin(0.0, 0.0, 0.0, 8.0)
+    .Text(label)
+
+let view(props: Props<'model, 'row>) : Control =
+  let label: Control =
+    props.FeedLabel |> Option.map feedLabel |> Option.defaultValue(Panel())
+
+  let body = Grid()
+
+  body.RowDefinitions <- RowDefinitions("Auto,Auto,Auto,*")
+
+  body.Children(
+    label.Row(0),
+    TabStrip.view(props.Tabs).Row(1),
+    noteLine(props.Model, props.Note).Row(2),
+    feedColumn(props.Feed).Row(3)
+  )
+  |> ignore
+
+  let meta: Control list =
+    props.Meta |> ValueOption.toList |> List.map(fun factory -> factory())
+
+  PageChrome.page {
+    Model = props.Model
+    TitleOf = fun _ -> ""
+    Padding = props.Padding
+    ErrorOf = props.ErrorOf
+    Busy = props.Busy
+    Empty = props.Empty
+    Header = [
+      titleRow(props.Model, props.Title, props.Kind)
+      props.Header()
+      yield! meta
+    ]
+    Body = body
+  }

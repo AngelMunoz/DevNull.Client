@@ -13,7 +13,7 @@ open DevNull.Client.Core.Http
 open DevNull.Client.Env
 open DevNull.Client.ImageCache
 open DevNull.Client.LastVisitStore
-open DevNull.Client.WebsiteLayout
+open DevNull.Client.Layout.Website
 open DevNull.Client.Workbench
 open DevNull.Client.Editor
 open DevNull.Client.Core.ApiTypes
@@ -94,7 +94,7 @@ let builtIn
   // dialogs.
   let current(host: IHostSurface) : ILayout =
     let site =
-      WebsiteLayout.mount {
+      Website.mount {
         Env = env
         Window = host.Window
         UndoWindow = undoWindow

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-22
+
 ### Added
 
 - **Guilds:** A commit posted to a guild names it under the body in every feed. The composer can target a guild board with `#handle` completion, and guilds ride the search dialog.

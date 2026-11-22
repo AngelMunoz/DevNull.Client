@@ -1,6 +1,7 @@
 module DevNull.Client.Editor.EditorCards
 
 open System
+open System.Reactive.Disposables
 open Avalonia.Controls
 open DevNull.Client.Components.CommitCard
 open DevNull.Client.Components.CommitMenu
@@ -138,6 +139,15 @@ val mapCmd: map: ('msg -> 'outer) * cmd: Cmd<'msg> -> Cmd<'outer>
 /// the More menu, translations, the author flyout, and the surface's pin
 /// offer.
 val row: args: RowArgs<'env> -> RowProps
+
+/// Replaces the previous generation gate in `slot`, completing and
+/// disposing the prior gate so subscriptions scoped to it release.
+val nextGate: slot: SerialDisposable -> IObservable<unit>
+
+/// Returns the same row props with every reactive slice stopped once
+/// `stop` emits, so a replaced card drops its subscriptions to the
+/// parent tab's shared card slices.
+val scope: stop: IObservable<unit> * row: RowProps -> RowProps
 
 /// Routes the card events the shared actions own, then hands the rest to
 /// the tab's own fallback.

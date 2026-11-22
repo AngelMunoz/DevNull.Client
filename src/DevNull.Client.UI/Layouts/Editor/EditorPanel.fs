@@ -9,6 +9,7 @@ open Avalonia.Media
 open NXUI.Extensions
 open FSharp.Control.Reactive
 open DevNull.Client
+open DevNull.Client.Components
 open DevNull.Client.Components.PageChrome
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Errors
@@ -265,6 +266,14 @@ let tabStrip(props: Props, current: Tab, items: Notification list) : Control =
   frame
 
 let problemRow(props: Props, notification: Notification) : Control =
+  let button =
+    Button()
+      .Name($"ProblemRow-{notification.Id}")
+      .Classes(Theme.name Theme.CommitRow)
+      .Margin(Thickness(10.0, 1.0))
+      .OnClickHandler(fun _ _ ->
+        commitOf notification |> Option.iter props.OnOpenCommit)
+
   let mark =
     severityOf notification.Type
     |> Option.map(fun text ->
@@ -286,6 +295,7 @@ let problemRow(props: Props, notification: Notification) : Control =
 
   let time =
     props.Now
+    |> Observable.takeUntilOther button.DetachedFromVisualTree
     |> Observable.distinctUntilChangedKey minuteBucket
     |> Observable.map(fun now -> timeAgo(now, notification.CreatedAt))
     |> fun text ->
@@ -307,57 +317,8 @@ let problemRow(props: Props, notification: Notification) : Control =
   )
   |> ignore
 
-  Button()
-    .Name($"ProblemRow-{notification.Id}")
-    .Classes(Theme.name Theme.CommitRow)
-    .Content(content)
-    .OnClickHandler(fun _ _ ->
-      commitOf notification |> Option.iter props.OnOpenCommit)
-
-let problemsView
-  (props: Props, state: ProblemsState, kind: NotificationKind)
-  : Control =
-  let rows = notificationsOf(state.Items, kind)
-
-  let children: Control list = [
-    if state.Loading && List.isEmpty state.Items then
-      yield
-        TextBlock()
-          .Text("Reading notifications…")
-          .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
-
-    match state.Error with
-    | Some _ -> yield errorPanel(Observable.single state.Error)
-    | None -> ()
-
-    if
-      not state.Loading && state.Error |> Option.isNone && List.isEmpty rows
-    then
-      yield
-        TextBlock()
-          .Text("No notifications of this kind.")
-          .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
-
-    for notification in rows do
-      yield problemRow(props, notification)
-
-    if state.NextCursor.IsSome && not state.Loading then
-      yield
-        Button()
-          .Name("EditorPanelLoadMore")
-          .Classes(Theme.name Theme.GhostButton)
-          .Content("Load more")
-          .OnClickHandler(fun _ _ -> props.OnLoadMore())
-  ]
-
-  ScrollViewer()
-    .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
-    .Content(
-      StackPanel()
-        .Spacing(2.0)
-        .Margin(Thickness(10.0, 6.0))
-        .Children(Array.ofList children)
-    )
+  button.Content <- content
+  button
 
 let outputView(lines: OutputLine list) : Control =
   if List.isEmpty lines then
@@ -427,21 +388,90 @@ let view(props: Props) : Control =
 
     ContentControl().Content(binding)
 
-  let problemsHost =
-    ContentControl()
-      .Content(
-        rebuildOn(
-          current,
-          (fun (tab, problems) -> tabKey tab, problems),
-          fun (tab, problems) ->
+  let problemItems =
+    current
+    |> Observable.map(fun (tab, problems) ->
+      match tab with
+      | Kind kind -> notificationsOf(problems.Items, kind)
+      | Activity
+      | Remotes
+      | Terminal -> [])
+    |> Slices.share
+
+  let problemsHeader =
+    let loading =
+      TextBlock()
+        .Text("Reading notifications…")
+        .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
+        .IsVisible(
+          current
+          |> Observable.map(fun (_, problems) ->
+            problems.Loading && List.isEmpty problems.Items)
+          |> Observable.distinctUntilChanged
+        )
+
+    let error =
+      errorPanel(
+        current
+        |> Observable.map(fun (_, problems) -> problems.Error)
+        |> Observable.distinctUntilChanged
+      )
+
+    let empty =
+      TextBlock()
+        .Text("No notifications of this kind.")
+        .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
+        .IsVisible(
+          current
+          |> Observable.map(fun (tab, problems) ->
             match tab with
-            | Kind kind -> problemsView(props, problems, kind)
+            | Kind kind ->
+              not problems.Loading
+              && problems.Error.IsNone
+              && List.isEmpty(notificationsOf(problems.Items, kind))
             | Activity
             | Remotes
-            | Terminal -> Panel()
+            | Terminal -> false)
+          |> Observable.distinctUntilChanged
         )
-        |> _.ToBinding()
-      )
+
+    StackPanel()
+      .Spacing(2.0)
+      .Margin(Thickness(10.0, 6.0, 10.0, 0.0))
+      .Children(loading, error, empty)
+
+  let hasMore =
+    current
+    |> Observable.map(fun (_, problems) ->
+      problems.NextCursor.IsSome && not problems.Loading)
+    |> Observable.distinctUntilChanged
+    |> Slices.share
+
+  let loadMore =
+    Button()
+      .Name("EditorPanelLoadMore")
+      .Classes(Theme.name Theme.GhostButton)
+      .Margin(Thickness(10.0, 4.0, 10.0, 6.0))
+      .Content("Load more")
+      .IsVisible(hasMore)
+      .OnClickHandler(fun _ _ -> props.OnLoadMore())
+
+  let problemsHost =
+    (Feed.view {
+      Header = ValueSome problemsHeader
+      Items = problemItems
+      KeyOf = fun notification -> notification.Id
+      Row = fun notification -> problemRow(props, notification)
+      Footer = ValueSome loadMore
+      HasMore = hasMore
+      ScrollTo = ValueNone
+      Ride = false
+      Restore = ValueNone
+      OnScroll = ValueNone
+      OnRide = ValueNone
+      OnNeedMore = ValueNone
+    })
+      .Name("EditorPanelProblems")
       .IsVisible(
         current
         |> Observable.map(fun (tab, _) ->
@@ -450,6 +480,7 @@ let view(props: Props) : Control =
           | Activity
           | Remotes
           | Terminal -> false)
+        |> Observable.distinctUntilChanged
       )
 
   let outputHost =

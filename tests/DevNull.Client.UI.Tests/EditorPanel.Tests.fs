@@ -801,10 +801,20 @@ let tests =
 
         do! settleAsync()
 
+        let! oldRow =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryPick(function
+              | :? TextBlock as block when textBlockShows(block, "It was DNS.") ->
+                Some(WeakReference block)
+              | _ -> None))
+
+        Expect.isSome oldRow "the initial history row never rendered"
+
         let before =
           api.Requests
           |> List.filter(fun request ->
-            request.Target.StartsWith "/api/v1/log/")
+            request.Target = "/api/v1/log/following")
           |> List.length
 
         do!
@@ -827,13 +837,24 @@ let tests =
             fun requests ->
               (requests
                |> List.filter(fun request ->
-                 request.Target.StartsWith "/api/v1/log/")
+                 request.Target = "/api/v1/log/following")
                |> List.length)
                 =
                 before + 1
           )
 
         Expect.isTrue refreshed "the history did not refresh once"
+        do! settleAsync()
+
+        for _ in 1..2 do
+          GC.Collect()
+          GC.WaitForPendingFinalizers()
+
+        GC.Collect()
+
+        Expect.isFalse
+          oldRow.Value.IsAlive
+          "the previous history rows survived a post reload"
 
         let! tabs =
           probeUiAsync(fun () ->
@@ -1070,6 +1091,109 @@ let tests =
           )
 
         Expect.isTrue closed "the overlay did not close"
+
+        do! close(window, handle)
+      })
+
+    testCaseAsync
+      "problems tab with a hundred notifications virtualizes and drops replaced rows"
+      (async {
+        let rows =
+          [
+            for index in 0..99 ->
+              notificationJson
+                .Replace(
+                  $"\"id\":\"{linkedNotificationId}\"",
+                  sprintf
+                    "\"id\":\"01a15752-d17c-7065-b076-99e5bdad%04x\""
+                    index
+                )
+                .Replace(
+                  "\"name\":\"The Octocat\"",
+                  sprintf "\"name\":\"Actor %d\"" index
+                )
+          ]
+          |> String.concat ","
+
+        let hundredJson =
+          sprintf
+            """{"data":[%s],"links":{},"meta":{"per_page":100,"next_cursor":null,"prev_cursor":null},"filters":{"type":"all"},"read_at":"2026-10-20T04:20:00Z"}"""
+            rows
+
+        let api = panelApi(hundredJson, 0)
+        let! window, handle = mountAt(1600.0, 900.0, api)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history never rendered"
+        do! openProblems(window)
+
+        let! landed =
+          waitForAsync(
+            8000,
+            (fun () ->
+              controlByName(window, "EditorPanelProblems")
+              |> Option.map(fun host ->
+                host.GetVisualDescendants()
+                |> Seq.filter(fun visual ->
+                  visual.Name <> null && visual.Name.StartsWith "ProblemRow-")
+                |> Seq.length)
+              |> Option.defaultValue 0),
+            fun count -> count > 0
+          )
+
+        Expect.isTrue landed "the notification rows never rendered"
+        do! settleAsync()
+
+        let! realized, rowWeaks =
+          probeUiAsync(fun () ->
+            let rows =
+              controlByName(window, "EditorPanelProblems")
+              |> Option.map(fun host ->
+                host.GetVisualDescendants()
+                |> Seq.filter(fun visual ->
+                  visual.Name <> null && visual.Name.StartsWith "ProblemRow-")
+                |> Seq.map WeakReference
+                |> List.ofSeq)
+              |> Option.defaultValue []
+
+            rows.Length, rows)
+
+        Expect.isLessThan
+          realized
+          30
+          "the problems panel realized too many of its hundred rows"
+
+        do! clickName(window, "EditorPanelTab-Activity")
+
+        let! switched =
+          waitForAsync(
+            5000,
+            (fun () -> not(visible(window, "EditorPanelProblems"))),
+            id
+          )
+
+        Expect.isTrue switched "the problems panel stayed visible"
+        do! settleAsync()
+
+        for _ in 1..2 do
+          GC.Collect()
+          GC.WaitForPendingFinalizers()
+
+        GC.Collect()
+
+        let surviving =
+          rowWeaks |> List.filter(fun weak -> weak.IsAlive) |> List.length
+
+        Expect.equal
+          surviving
+          0
+          "cleared problem rows remained rooted by the frame clock"
 
         do! close(window, handle)
       })

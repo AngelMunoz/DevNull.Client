@@ -8,6 +8,7 @@ open Avalonia.Interactivity
 open Avalonia.VisualTree
 open Expecto
 open FSharp.Control.Reactive
+open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Http
 open DevNull.Client.Editor
 open DevNull.Client.Stores
@@ -485,5 +486,494 @@ let tests =
           "the repository programs survived"
 
         Expect.isFalse weak.IsAlive "the frame outlived its mount"
+      })
+
+    testCaseAsync
+      "terminal and remotes mount lazily and only one explorer lives at desktop width"
+      (async {
+        let store = signedInStore()
+
+        match store.Current with
+        | SignedIn current ->
+          store.Refresh {
+            current.Session with
+                Remotes =
+                  Some {
+                    From = FromEveryone
+                    PullReceipts = true
+                    Requests = true
+                    Everyone = true
+                    UnreadCount = 0
+                  }
+          }
+        | SignedOut -> failwith "the test needs a signed-in session"
+
+        let inboxJson =
+          """{"data":[{"id":"row-hubot","kind":"direct","name":null,"partner":{"id":"01a151db-7fee-727b-a7ce-c911a7556243","handle":"hubot","name":"The Hubot","avatar_url":null},"members":null,"last_message":null,"last_message_at":"2026-10-21T04:00:00Z","ahead":0,"last_incoming_message_id":null,"last_incoming_sender":null,"partner_read_through_id":0,"partner_read_at":null,"is_archived":false,"pinned_at":null,"muted_until_at":null}],"has_more":false,"unread_count":0,"requests_count":0}"""
+
+        let api =
+          FakeApi(fun request ->
+            if request.Target.StartsWith "/api/v1/remotes" then
+              ok inboxJson
+            elif request.Target.StartsWith "/api/v1/log/" then
+              ok logPageJson
+            elif request.Target.StartsWith "/api/v1/scheduled-commits" then
+              ok "{}"
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let env = TestEnv(store, api :> IHttp)
+
+        let! window, mounted =
+          probeUiAsync(fun () ->
+            let mounted = EditorRoot.mountFor(ui, EditorFrame.props env)
+
+            let window =
+              Window(Width = 1600.0, Height = 900.0, Content = mounted.Root)
+
+            window.Show()
+            window, mounted)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history never rendered"
+        do! settleAsync()
+
+        let! explorerCount, hasComposer =
+          probeUiAsync(fun () ->
+            let explorers =
+              window.GetVisualDescendants()
+              |> Seq.filter(fun visual -> visual.Name = "EditorExplorer")
+              |> Seq.length
+
+            explorers, controlByName(window, "ComposerBody").IsSome)
+
+        Expect.equal
+          explorerCount
+          1
+          "desktop width mounted duplicate explorer trees"
+
+        Expect.isFalse hasComposer "terminal mounted its composer while closed"
+
+        let remotesBefore =
+          api.Requests
+          |> List.filter(fun request ->
+            request.Target.StartsWith "/api/v1/remotes")
+          |> List.length
+
+        Expect.equal
+          remotesBefore
+          0
+          "remotes inbox polled before the panel opened"
+
+        do! onUiAsync(fun () -> mounted.Send EditorRoot.OpenTerminal)
+
+        let! composerShown =
+          waitForAsync(
+            5000,
+            (fun () -> controlByName(window, "ComposerBody")),
+            Option.isSome
+          )
+
+        Expect.isTrue composerShown "opening terminal never mounted composer"
+
+        let! composerWeak =
+          probeUiAsync(fun () ->
+            controlByName(window, "ComposerBody") |> Option.map WeakReference)
+
+        do! onUiAsync(fun () -> mounted.Send EditorRoot.Escape)
+
+        let! panelClosed =
+          waitForAsync(
+            5000,
+            (fun () -> not(visible(window, "EditorPanel"))),
+            id
+          )
+
+        Expect.isTrue panelClosed "closing terminal left panel open"
+        do! settleAsync()
+        collect()
+
+        Expect.isFalse
+          composerWeak.Value.IsAlive
+          "composer survived closing the terminal panel"
+
+        do!
+          onUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryPick(fun visual ->
+              match visual with
+              | :? Button as button when ToolTip.GetTip button = box "Remotes" ->
+                Some button
+              | _ -> None)
+            |> Option.iter click)
+
+        let! listed =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> buttonWithText(root, "@hubot").IsSome
+          )
+
+        Expect.isTrue listed "remotes inbox never mounted on demand"
+
+        let! hubotWeak =
+          probeUiAsync(fun () ->
+            buttonWithText(window, "@hubot") |> Option.map WeakReference)
+
+        do! onUiAsync(fun () -> mounted.Send EditorRoot.Escape)
+
+        let! remotesClosed =
+          waitForAsync(
+            5000,
+            (fun () -> not(visible(window, "EditorPanel"))),
+            id
+          )
+
+        Expect.isTrue remotesClosed "closing remotes left panel open"
+        do! settleAsync()
+        collect()
+
+        Expect.isFalse
+          hubotWeak.Value.IsAlive
+          "remotes inbox survived closing the panel"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            (mounted :> IDisposable).Dispose())
+      })
+
+    testCaseAsync
+      "reloading the pinned history by clicking the active ref disposes previous rows"
+      (async {
+        let api =
+          FakeApi(fun request ->
+            if request.Target.StartsWith "/api/v1/log/" then
+              ok logPageJson
+            elif request.Target.StartsWith "/api/v1/scheduled-commits" then
+              ok "{}"
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let env = TestEnv(signedInStore(), api :> IHttp)
+
+        let! window, handle =
+          probeUiAsync(fun () ->
+            let control, handle = EditorRoot.mount(ui, EditorFrame.props env)
+
+            let window =
+              Window(Width = 1600.0, Height = 900.0, Content = control)
+
+            window.Show()
+            window, handle)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history never rendered"
+        do! settleAsync()
+
+        let! oldRow =
+          probeUiAsync(fun () ->
+            window.GetVisualDescendants()
+            |> Seq.tryPick(function
+              | :? TextBlock as block when textBlockShows(block, "It was DNS.") ->
+                Some(WeakReference block)
+              | _ -> None))
+
+        Expect.isSome oldRow "the initial history row never rendered"
+
+        let before =
+          api.Requests
+          |> List.filter(fun request ->
+            request.Target = "/api/v1/log/following")
+          |> List.length
+
+        do! clickName(window, "EditorExplorerRef-Following")
+
+        let! reloaded =
+          waitForAsync(
+            8000,
+            (fun () ->
+              api.Requests
+              |> List.filter(fun request ->
+                request.Target = "/api/v1/log/following")
+              |> List.length),
+            fun count -> count = before + 1
+          )
+
+        Expect.isTrue reloaded "clicking the active ref never reloaded history"
+        do! settleAsync()
+        collect()
+
+        Expect.isFalse
+          oldRow.Value.IsAlive
+          "the previous history rows survived reloading the active ref"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            handle.Dispose())
+      })
+
+    testCaseAsync
+      "thread tab releases replaced main card on star and survives tab switching"
+      (async {
+        let commitId = "018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d"
+
+        let starredCommitJson =
+          commitJson
+            .Replace("\"is_starred\":false", "\"is_starred\":true")
+            .Replace("\"stars_count\":3", "\"stars_count\":4")
+
+        let api =
+          FakeApi(fun request ->
+            if
+              request.Method = "POST"
+              && request.Target = $"/api/v1/commits/{commitId}/star"
+            then
+              ok(sprintf "{\"data\":%s}" starredCommitJson)
+            elif request.Target.Contains "/replies" then
+              ok
+                "{\"data\":[],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+            elif request.Target.StartsWith "/api/v1/commits/" then
+              ok threadPageJson
+            elif request.Target.StartsWith "/api/v1/log/" then
+              ok logPageJson
+            elif request.Target.StartsWith "/api/v1/scheduled-commits" then
+              ok "{}"
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let env = TestEnv(signedInStore(), api :> IHttp)
+
+        let! window, handle =
+          probeUiAsync(fun () ->
+            let control, handle = EditorRoot.mount(ui, EditorFrame.props env)
+
+            let window =
+              Window(Width = 1600.0, Height = 900.0, Content = control)
+
+            window.Show()
+            window, handle)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history never rendered"
+
+        do!
+          onUiAsync(fun () ->
+            buttonWithText(window, "It was DNS.") |> Option.iter click)
+
+        let! threadShown =
+          waitForAsync(
+            8000,
+            (fun () -> controlByName(window, "StarButton")),
+            Option.isSome
+          )
+
+        Expect.isTrue threadShown "the thread main card never rendered"
+
+        do! clickName(window, "EditorTab-history")
+        do! settleAsync()
+        do! clickName(window, $"EditorTab-{commitId}")
+
+        let! returned =
+          waitForAsync(5000, (fun () -> visible(window, "StarButton")), id)
+
+        Expect.isTrue returned "the thread main card broke after tab switch"
+
+        let! oldStar =
+          probeUiAsync(fun () ->
+            controlByName(window, "StarButton") |> Option.map WeakReference)
+
+        do! clickName(window, "StarButton")
+
+        let! starred =
+          waitForAsync(
+            8000,
+            (fun () ->
+              api.Requests
+              |> List.exists(fun request ->
+                request.Method = "POST"
+                && request.Target = $"/api/v1/commits/{commitId}/star")),
+            id
+          )
+
+        Expect.isTrue starred "starring the main commit never completed"
+        do! settleAsync()
+        collect()
+
+        Expect.isFalse
+          oldStar.Value.IsAlive
+          "the replaced thread main card stayed rooted after star"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            handle.Dispose())
+      })
+
+    testCaseAsync
+      "repo tab virtualizes followers and preserves pinned card across follow toggle and tab switch"
+      (async {
+        let pinnedProfileJson =
+          profileJson
+            .Replace(
+              "\"pinned_commit\":null",
+              $"\"pinned_commit\":{commitJson}"
+            )
+            .Replace("\"followers_count\":0", "\"followers_count\":100")
+
+        let followersJson =
+          let rows =
+            [
+              for index in 0..99 ->
+                (userJson $"follower{index}")
+                  .Replace(
+                    "\"id\":\"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b9c0d\"",
+                    sprintf
+                      "\"id\":\"018f4c1e-6f8a-7c3a-9b2d-5e6f7a8b%04x\""
+                      index
+                  )
+            ]
+            |> String.concat ","
+
+          sprintf
+            "{\"data\":[%s],\"links\":{},\"meta\":{\"per_page\":100,\"next_cursor\":null,\"prev_cursor\":null}}"
+            rows
+
+        let api =
+          FakeApi(fun request ->
+            if
+              request.Target.StartsWith "/api/v1/users/"
+              && request.Target.Contains "/followers"
+            then
+              ok followersJson
+            elif
+              request.Target.StartsWith "/api/v1/users/"
+              && request.Target.Contains "/commits"
+            then
+              ok
+                "{\"data\":[],\"links\":{},\"meta\":{\"per_page\":20,\"next_cursor\":null,\"prev_cursor\":null}}"
+            elif
+              request.Method = "POST"
+              && request.Target.StartsWith "/api/v1/users/"
+              && request.Target.Contains "/follow"
+            then
+              ok "{}"
+            elif request.Target.StartsWith "/api/v1/users/" then
+              ok pinnedProfileJson
+            elif request.Target.StartsWith "/api/v1/log/" then
+              ok logPageJson
+            elif request.Target.StartsWith "/api/v1/scheduled-commits" then
+              ok "{}"
+            else
+              (match accountAnswer request with
+               | ValueSome answer -> answer
+               | ValueNone -> ok "{}"))
+
+        let env = TestEnv(signedInStore(), api :> IHttp)
+
+        let! window, handle =
+          probeUiAsync(fun () ->
+            let control, handle = EditorRoot.mount(ui, EditorFrame.props env)
+
+            let window =
+              Window(Width = 1600.0, Height = 900.0, Content = control)
+
+            window.Show()
+            window, handle)
+
+        let! shown =
+          waitForAsync(
+            8000,
+            (fun () -> window),
+            fun root -> hasText(root, "It was DNS.")
+          )
+
+        Expect.isTrue shown "the history never rendered"
+
+        do! clickName(window, "EditorExplorerViewer")
+
+        let! readmeShown =
+          waitForAsync(8000, (fun () -> visible(window, "RepoReadme")), id)
+
+        Expect.isTrue readmeShown "the pinned readme card never rendered"
+
+        let! pinnedBefore =
+          probeUiAsync(fun () -> controlByName(window, "RepoReadme"))
+
+        do! clickName(window, "RepoFollowers")
+
+        let! followersLoaded =
+          waitForAsync(
+            8000,
+            (fun () ->
+              window.GetVisualDescendants()
+              |> Seq.filter(fun visual ->
+                visual.Name <> null && visual.Name.StartsWith "RepoList-")
+              |> Seq.length),
+            fun count -> count > 0
+          )
+
+        Expect.isTrue followersLoaded "the followers list never rendered"
+        do! settleAsync()
+
+        let! realizedFollowers, pinnedAfter =
+          probeUiAsync(fun () ->
+            let count =
+              window.GetVisualDescendants()
+              |> Seq.filter(fun visual ->
+                visual.Name <> null && visual.Name.StartsWith "RepoList-")
+              |> Seq.length
+
+            count, controlByName(window, "RepoReadme"))
+
+        Expect.isLessThan
+          realizedFollowers
+          30
+          "the repo followers list realized too many of its hundred rows"
+
+        Expect.isTrue
+          (obj.ReferenceEquals(pinnedBefore.Value, pinnedAfter.Value))
+          "toggling the followers list rebuilt the pinned commit card"
+
+        do! clickName(window, "EditorTab-history")
+        do! settleAsync()
+        do! clickName(window, "EditorTab-repo:octocat")
+
+        let! readmeReturned =
+          waitForAsync(5000, (fun () -> visible(window, "RepoReadme")), id)
+
+        Expect.isTrue
+          readmeReturned
+          "the repo pinned card broke after tab switching"
+
+        do!
+          onUiAsync(fun () ->
+            window.Close()
+            handle.Dispose())
       })
   ]

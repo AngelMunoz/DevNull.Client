@@ -93,6 +93,8 @@ type Runtime = {
   Terminal: Control
   TerminalQuote: IObservable<bool>
   ShowTerminal: TerminalRequest -> unit
+  EnsureTerminal: unit -> unit
+  ClearTerminal: unit -> unit
   RefreshHistory: unit -> unit
   OpenRepo: string -> unit
   CloseRepo: string -> unit
@@ -116,8 +118,10 @@ type Runtime = {
   /// the enable panel while it is off). The panel shows it on its
   /// Remotes tab; the view never moves it between parents.
   RemotesInbox: Control
+  EnsureRemotes: unit -> unit
+  CloseRemotesInbox: unit -> unit
   /// Closes every remote tab and remounts the inbox body for the
-  /// new sign-in state.
+  /// new sign-in state when the inbox panel is open.
   ResetRemotes: SessionState -> unit
   PaletteHost: Control
   OpenPalette: unit -> unit
@@ -309,7 +313,6 @@ type HistoryArgs<'env
   Props: Props<'env>
   Log: LogKind
   Place: EditorPlace
-  Refresh: IObservable<unit>
   Sinks: HistorySinks
 }
 
@@ -321,7 +324,7 @@ let historyProps(args: HistoryArgs<'env>) : HistoryTab.Props<'env> = {
   Active = args.Props.Active
   Now = args.Props.Now
   Restore = ValueSome args.Place
-  Refresh = args.Refresh
+  Refresh = Observable.empty
   OnSnapshot = args.Sinks.Snapshot
   OnAnchor = args.Sinks.Anchor
   OnOpen = args.Sinks.Open
@@ -460,6 +463,18 @@ let addOutput(refName: string, result: Result<unit, string>, model: Model) = {
         )
 }
 
+let syncPanelRuntime(args: UpdateArgs<'env>, panel: EditorPanel.State) =
+  Cmd.ofAction(fun () ->
+    if panel.Open && panel.Tab = EditorPanel.Remotes then
+      args.Runtime.EnsureRemotes()
+    else
+      args.Runtime.CloseRemotesInbox()
+
+    if panel.Open && panel.Tab = EditorPanel.Terminal then
+      args.Runtime.EnsureTerminal()
+    elif not panel.Open then
+      args.Runtime.ClearTerminal())
+
 let openNotificationsPanel
   (args: UpdateArgs<'env>, panel: EditorPanel.State, model: Model)
   =
@@ -477,16 +492,13 @@ let openNotificationsPanel
             model.Problems
   }
 
-  let cmd =
+  let fetchCmd =
     if openKind then
-      Cmd.OfAsync.perform
-        (fun () -> readNotifications(args.Props, None))
-        ()
-        ProblemsFetched
+      Cmd.OfAsync.perform readNotifications (args.Props, None) ProblemsFetched
     else
       Cmd.none
 
-  next, cmd
+  next, Cmd.batch [ syncPanelRuntime(args, panel); fetchCmd ]
 
 let openRepo(args: UpdateArgs<'env>, handle: string, model: Model) =
   let tab = EditorTab.repo(TabId.repo handle, handle)
@@ -613,7 +625,10 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
           FlyoutOpen = false
     }
 
-    next, Cmd.ofAction(fun () -> args.Runtime.ShowTerminal FreshTerm)
+    next,
+    Cmd.ofAction(fun () ->
+      args.Runtime.CloseRemotesInbox()
+      args.Runtime.ShowTerminal FreshTerm)
   | OpenThread commit ->
     let id = TabId.thread commit.Id
 
@@ -883,7 +898,7 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
             Panel = EditorPanel.close model.Panel
       }
 
-      next, Cmd.none
+      next, syncPanelRuntime(args, next.Panel)
     | ActivityBar.Account ->
       openRepo(args, args.Props.Session.Session.User.Handle, model)
     | ActivityBar.Remotes ->
@@ -894,7 +909,7 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
             Panel = EditorPanel.openOn(EditorPanel.Remotes, model.Panel)
       }
 
-      next, Cmd.none
+      next, syncPanelRuntime(args, next.Panel)
   | OpenRepo handle -> openRepo(args, handle, model)
   | OpenSearch term -> openSearch(args, term, model)
   | OpenSaved -> openList(args, ListTab.Saved, model)
@@ -917,7 +932,10 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
           FlyoutOpen = false
     }
 
-    next, Cmd.ofAction(fun () -> args.Runtime.ShowTerminal FreshTerm)
+    next,
+    Cmd.ofAction(fun () ->
+      args.Runtime.CloseRemotesInbox()
+      args.Runtime.ShowTerminal FreshTerm)
   | PaletteToggled ->
     if model.PaletteOpen then
       { model with PaletteOpen = false },
@@ -945,7 +963,7 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
             FlyoutOpen = false
       }
 
-      next, Cmd.none
+      next, syncPanelRuntime(args, next.Panel)
     | _ ->
       let panel = EditorPanel.select(tab, model.Panel)
       openNotificationsPanel(args, panel, model)
@@ -953,12 +971,13 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
     let panel = EditorPanel.openFirst(model.Problems.Items, model.Panel)
     openNotificationsPanel(args, panel, model)
   | PanelClosed ->
-    {
+    let next = {
       model with
           Panel = EditorPanel.close model.Panel
           Activity = ActivityBar.History
-    },
-    Cmd.none
+    }
+
+    next, syncPanelRuntime(args, next.Panel)
   | ProblemsMoreRequested ->
     match model.Problems.NextCursor with
     | Some cursor when not model.Problems.Loading ->
@@ -1052,7 +1071,10 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
           FlyoutOpen = false
     }
 
-    next, Cmd.ofAction(fun () -> args.Runtime.ShowTerminal(QuoteTerm commit))
+    next,
+    Cmd.ofAction(fun () ->
+      args.Runtime.CloseRemotesInbox()
+      args.Runtime.ShowTerminal(QuoteTerm commit))
   | ReplyRequested commit ->
     let active = EditorState.activeTab model.Frame
 
@@ -1073,12 +1095,19 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
 
     next,
     Cmd.ofAction(fun () ->
+      args.Runtime.CloseRemotesInbox()
       args.Runtime.ShowTerminal(ReplyTerm(commit, participants)))
   | ComposerChanged event ->
     match event with
     | Posted _ ->
+      let log = EditorState.selectedRef model.Frame
+      let frame = EditorState.setDirty(TabId.history, 0, model.Frame)
+
       let next = {
         model with
+            Frame = frame
+            History = HistoryTab.State.snapshot HistoryTab.State.initial
+            Places = model.Places |> Map.remove log
             Panel = EditorPanel.close model.Panel
             Activity = ActivityBar.History
       }
@@ -1094,7 +1123,9 @@ let update(args: UpdateArgs<'env>, msg: Msg, model: Model) =
       Cmd.batch [
         Cmd.ofAction(fun () -> args.Runtime.RefreshHistory())
         guildRefresh
-        Cmd.ofAction(fun () -> args.Runtime.ShowTerminal FreshTerm)
+        Cmd.ofAction(fun () ->
+          args.Runtime.ClearTerminal()
+          args.Runtime.CloseRemotesInbox())
       ]
     | Scheduled _ ->
       model, Cmd.OfAsync.perform readQueue args.Props QueueFetched
@@ -1228,29 +1259,56 @@ let view(args: ViewArgs<'env>) : Control =
         })
     )
 
-  let explorer =
+  let explorerView(current: Model) : Control =
+    Explorer.view {
+      Selected = EditorState.selectedRef current.Frame
+      Saved = current.Saved
+      Queue = current.Queue
+      QueueHint = None
+      GuildCount = current.GuildCount
+      Viewer = props.Session.Session.User.Handle
+      OnSelectRef = fun log -> dispatch(RefSelected log)
+      OnOpenSaved = fun () -> dispatch OpenSaved
+      OnOpenQueue = fun () -> dispatch OpenQueue
+      OnOpenGuilds = fun () -> dispatch OpenGuilds
+      OnOpenViewer =
+        fun () -> dispatch(OpenRepo props.Session.Session.User.Handle)
+    }
+
+  let explorerKey(current: Model) =
+    LogKinds.wire(EditorState.selectedRef current.Frame),
+    current.Saved,
+    current.Queue,
+    current.GuildCount
+
+  let desktopExplorer =
     rebuildOn(
       model,
       (fun current ->
-        LogKinds.wire(EditorState.selectedRef current.Frame),
-        current.Saved,
-        current.Queue,
-        current.GuildCount),
+        if current.Band = Full then
+          Some(explorerKey current)
+        else
+          None),
       (fun current ->
-        Explorer.view {
-          Selected = EditorState.selectedRef current.Frame
-          Saved = current.Saved
-          Queue = current.Queue
-          QueueHint = None
-          GuildCount = current.GuildCount
-          Viewer = props.Session.Session.User.Handle
-          OnSelectRef = fun log -> dispatch(RefSelected log)
-          OnOpenSaved = fun () -> dispatch OpenSaved
-          OnOpenQueue = fun () -> dispatch OpenQueue
-          OnOpenGuilds = fun () -> dispatch OpenGuilds
-          OnOpenViewer =
-            fun () -> dispatch(OpenRepo props.Session.Session.User.Handle)
-        })
+        if current.Band = Full then
+          explorerView current
+        else
+          Panel())
+    )
+
+  let flyoutExplorerBody =
+    rebuildOn(
+      model,
+      (fun current ->
+        if current.Band <> Full && current.FlyoutOpen then
+          Some(explorerKey current)
+        else
+          None),
+      (fun current ->
+        if current.Band <> Full && current.FlyoutOpen then
+          explorerView current
+        else
+          Panel())
     )
 
   let activityControl = ContentControl().Content(activity |> _.ToBinding())
@@ -1258,7 +1316,7 @@ let view(args: ViewArgs<'env>) : Control =
   let sidebar =
     ContentControl()
       .Width(240.0)
-      .Content(explorer |> _.ToBinding())
+      .Content(desktopExplorer |> _.ToBinding())
       .IsVisible(model |> Observable.map(fun current -> current.Band = Full))
 
   let tabStrip =
@@ -1409,7 +1467,7 @@ let view(args: ViewArgs<'env>) : Control =
       )
 
   let flyoutExplorer =
-    ContentControl().Width(240.0).Content(explorer |> _.ToBinding())
+    ContentControl().Width(240.0).Content(flyoutExplorerBody |> _.ToBinding())
 
   let flyout =
     Border()
@@ -1591,7 +1649,6 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
   let paletteClose = new System.Reactive.Subjects.Subject<unit>()
   let paletteRefs = new System.Reactive.Subjects.Subject<LogKind>()
   let palettePanels = new System.Reactive.Subjects.Subject<EditorPanel.Tab>()
-  let historyRefresh = new System.Reactive.Subjects.Subject<unit>()
   let quotes = new System.Reactive.Subjects.Subject<Commit>()
   let replies = new System.Reactive.Subjects.Subject<Commit>()
 
@@ -1761,6 +1818,15 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
 
     term.Content <- layout
 
+  let ensureTerminal() =
+    if isNull term.Content then
+      showTerminal FreshTerm
+
+  let clearTerminal() =
+    quoteLifetime.Disposable <- Disposable.Empty
+    terminalQuote.OnNext false
+    term.Content <- null
+
   let show(log: LogKind, place: EditorPlace) =
     selected.OnNext log
     historyLifetime.Disposable <- Disposable.Empty
@@ -1772,7 +1838,6 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
           Props = props
           Log = log
           Place = place
-          Refresh = historyRefresh
           Sinks = {
             Snapshot =
               fun snapshot ->
@@ -1809,7 +1874,6 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
     historyLifetime.Disposable <- handle
 
   show(StoredState.selectedRef props.Stored, EditorPlace.empty)
-  showTerminal FreshTerm
 
   let openPalette() =
     if isNull paletteHost.Content then
@@ -2114,10 +2178,15 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
       entry.Lifetime.Dispose()
     | None -> ()
 
-  // One list program for the layout: the panel shows its control on
-  // the Remotes tab, so the inbox poll runs once for the layout's life.
+  // The inbox program mounts while the Remotes panel tab is open
+  // and disposes when the panel switches away or closes.
   let listLifetime = new SerialDisposable()
   let listRoot = new BehaviorSubject<Control>(Panel())
+
+  let sessionBox =
+    new BehaviorSubject<SignedInSession option>(Some props.Session)
+
+  let remotesMounted = new BehaviorSubject<bool>(false)
 
   let inboxHost =
     ContentControl()
@@ -2164,6 +2233,17 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
         )
       )
 
+  let ensureRemotes() =
+    if not remotesMounted.Value then
+      remotesMounted.OnNext true
+      mountListBody sessionBox.Value
+
+  let closeRemotesInbox() =
+    if remotesMounted.Value then
+      remotesMounted.OnNext false
+      listLifetime.Disposable <- Disposable.Empty
+      listRoot.OnNext(Panel())
+
   let resetRemotes(state: SessionState) =
     for KeyValue(key, _) in remoteEntries.Value do
       closeRemote key
@@ -2173,9 +2253,10 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
       | SignedIn signed -> Some signed
       | SignedOut -> None
 
-    mountListBody session
+    sessionBox.OnNext session
 
-  mountListBody(Some props.Session)
+    if remotesMounted.Value then
+      mountListBody session
 
   let runtime = {
     History = content
@@ -2187,7 +2268,9 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
     Terminal = term
     TerminalQuote = terminalQuote
     ShowTerminal = showTerminal
-    RefreshHistory = fun () -> historyRefresh.OnNext()
+    EnsureTerminal = ensureTerminal
+    ClearTerminal = clearTerminal
+    RefreshHistory = fun () -> show(selected.Value, EditorPlace.empty)
     OpenRepo = openRepo
     CloseRepo = closeRepo
     Repos = repos
@@ -2206,6 +2289,8 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
     CloseRemote = closeRemote
     Remotes = remotes
     RemotesInbox = inboxHost
+    EnsureRemotes = ensureRemotes
+    CloseRemotesInbox = closeRemotesInbox
     ResetRemotes = resetRemotes
     PaletteHost = paletteHost
     OpenPalette = openPalette
@@ -2294,7 +2379,11 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
   let listCleanup =
     Disposable.Create(fun () ->
       listRoot.OnCompleted()
-      listRoot.Dispose())
+      listRoot.Dispose()
+      sessionBox.OnCompleted()
+      sessionBox.Dispose()
+      remotesMounted.OnCompleted()
+      remotesMounted.Dispose())
 
   let subjectCleanup =
     Disposable.Create(fun () ->
@@ -2326,8 +2415,8 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
       paletteRefs.Dispose()
       palettePanels.OnCompleted()
       palettePanels.Dispose()
-      historyRefresh.OnCompleted()
-      historyRefresh.Dispose()
+      terminalQuote.OnCompleted()
+      terminalQuote.Dispose()
       quotes.OnCompleted()
       quotes.Dispose()
       replies.OnCompleted()

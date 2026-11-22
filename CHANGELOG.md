@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Editor:** The reserved strip at the top of the window now takes the chrome color instead of the white window background, and the search icon no longer stands on a white block.
 - **Editor:** A reply in a thread opens in its own tab when clicked, and its reply button opens the terminal on that commit.
+- **Editor:** Memory stays bounded during long sessions: closing tabs or panels and reloading the pinned history tab release replaced views, hidden Terminal and Remotes panels mount only while open, and notification and follower lists virtualize.
 
 ## [0.17.1] - 2026-11-16
 

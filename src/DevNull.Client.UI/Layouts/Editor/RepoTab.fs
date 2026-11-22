@@ -767,100 +767,130 @@ let headerView
       .Spacing(10.0)
       .Children(top, counts, shieldsView(details), error)
 
-let bodyView(details: ProfileDetails, rowProps: CommitCard.RowProps) : Control =
-  StackPanel()
-    .Spacing(12.0)
-    .Children(
-      readmeView(details, rowProps),
-      match details.Activity with
-      | Some activity -> activityView(activity, details.Profile.Lane)
-      | None -> Panel()
+let listRow(props: Props<'env>, user: User) : Control =
+  let row =
+    StackPanel()
+      .Orientation(Orientation.Horizontal)
+      .Spacing(8.0)
+      .Children(
+        Avatar.view {
+          Name = user.Name
+          Url = user.AvatarUrl
+          Lane = user.Lane
+          Size = 28.0
+          Cache = props.Env.ImageCache
+          Square = false
+          Viewable = false
+        },
+        StackPanel()
+          .VerticalAlignment(VerticalAlignment.Center)
+          .Spacing(1.0)
+          .Children(
+            TextBlock().Text(user.Name).Classes(Theme.name Theme.Subtitle),
+            ProfileCard.laneHandle(user.Lane, user.Handle)
+          )
+      )
+
+  Button()
+    .Name($"RepoList-{user.Handle}")
+    .Classes(Theme.name Theme.NavItem)
+    .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+    .Content(row)
+    .OnClickHandler(fun _ _ -> props.OnOpenRepo user.Handle)
+
+let listSection
+  (props: Props<'env>, model: IObservable<Model>, dispatch: Dispatch<Msg>)
+  : Control =
+  let list = model |> Observable.map _.List |> Slices.gateByRef |> Slices.share
+
+  let header =
+    ContentControl()
+      .Content(
+        PageChrome.rebuildOn(
+          list,
+          (fun current -> current.Kind),
+          fun current ->
+            match current.Kind with
+            | None -> Panel() :> Control
+            | Some kind ->
+              let label =
+                match kind with
+                | Followers -> "FOLLOWERS"
+                | Following -> "FOLLOWING"
+
+              DockPanel()
+                .LastChildFill(false)
+                .Children(
+                  TextBlock()
+                    .Text(label)
+                    .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted),
+                  Button()
+                    .Name("RepoListClose")
+                    .Classes(Theme.name Theme.GhostButton)
+                    .Padding(Thickness(4.0, 0.0))
+                    .Content(TextBlock().Text("×"))
+                    .OnClickHandler(fun _ _ -> dispatch(ListToggled kind))
+                    .DockRight()
+                )
+        )
+        |> _.ToBinding()
+      )
+
+  let loading =
+    TextBlock()
+      .Text("Reading the list…")
+      .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
+      .IsVisible(
+        list
+        |> Observable.map(fun current ->
+          current.Loading && List.isEmpty current.Items)
+        |> Observable.distinctUntilChanged
+      )
+
+  let error =
+    PageChrome.errorPanel(
+      list |> Observable.map _.Error |> Observable.distinctUntilChanged
     )
 
-let listView
-  (props: Props<'env>, list: ListState, dispatch: Dispatch<Msg>)
-  : Control =
-  match list.Kind with
-  | None -> Panel()
-  | Some kind ->
-    let label =
-      match kind with
-      | Followers -> "FOLLOWERS"
-      | Following -> "FOLLOWING"
+  let hasMore =
+    list
+    |> Observable.map(fun current -> current.Cursor.IsSome)
+    |> Observable.distinctUntilChanged
+    |> Slices.share
 
-    let rows: Control array = [|
-      for user in list.Items do
-        let row =
-          StackPanel()
-            .Orientation(Orientation.Horizontal)
-            .Spacing(8.0)
-            .Children(
-              Avatar.view {
-                Name = user.Name
-                Url = user.AvatarUrl
-                Lane = user.Lane
-                Size = 28.0
-                Cache = props.Env.ImageCache
-                Square = false
-                Viewable = false
-              },
-              StackPanel()
-                .VerticalAlignment(VerticalAlignment.Center)
-                .Spacing(1.0)
-                .Children(
-                  TextBlock().Text(user.Name).Classes(Theme.name Theme.Subtitle),
-                  ProfileCard.laneHandle(user.Lane, user.Handle)
-                )
-            )
+  let more =
+    let button =
+      PageChrome.loadMore(hasMore, fun () -> dispatch MoreListRequested)
 
-        yield
-          Button()
-            .Name($"RepoList-{user.Handle}")
-            .Classes(Theme.name Theme.NavItem)
-            .HorizontalContentAlignment(HorizontalAlignment.Stretch)
-            .Content(row)
-            .OnClickHandler(fun _ _ -> props.OnOpenRepo user.Handle)
-    |]
+    button.Name <- "RepoListMore"
+    button
 
-    let more =
-      PageChrome.loadMore(
-        Observable.single list.Cursor.IsSome,
-        fun () -> dispatch MoreListRequested
-      )
+  let rows =
+    (Feed.view {
+      Header = ValueNone
+      Items = list |> Observable.map _.Items |> Slices.gateByRef
+      KeyOf = fun user -> user.Id
+      Row = fun user -> listRow(props, user)
+      Footer = ValueSome more
+      HasMore = hasMore
+      ScrollTo = ValueNone
+      Ride = false
+      Restore = ValueNone
+      OnScroll = ValueNone
+      OnRide = ValueNone
+      OnNeedMore = ValueNone
+    })
+      .MaxHeight(320.0)
 
-    more.Name <- "RepoListMore"
-
-    let loading =
-      TextBlock()
-        .Text("Reading the list…")
-        .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
-        .IsVisible(list.Loading && List.isEmpty list.Items)
-
-    let error = PageChrome.errorPanel(Observable.single list.Error)
-
-    StackPanel()
-      .Spacing(6.0)
-      .Margin(0.0, 4.0, 0.0, 4.0)
-      .Children(
-        DockPanel()
-          .LastChildFill(false)
-          .Children(
-            TextBlock()
-              .Text(label)
-              .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted),
-            Button()
-              .Name("RepoListClose")
-              .Classes(Theme.name Theme.GhostButton)
-              .Padding(Thickness(4.0, 0.0))
-              .Content(TextBlock().Text("×"))
-              .OnClickHandler(fun _ _ -> dispatch(ListToggled kind))
-              .DockRight()
-          ),
-        loading,
-        error,
-        StackPanel().Spacing(2.0).Children(rows),
-        more
-      )
+  StackPanel()
+    .Spacing(6.0)
+    .Margin(0.0, 4.0, 0.0, 4.0)
+    .IsVisible(
+      list
+      |> Observable.map(fun current -> current.Kind.IsSome)
+      |> Observable.distinctUntilChanged
+    )
+    .Children(header, loading, error, rows)
 
 let view
   (props: Props<'env>, model: IObservable<Model>, dispatch: Dispatch<Msg>)
@@ -885,54 +915,103 @@ let view
       OnEvent = EditorCards.event(cardDispatch, fallback)
     }
 
-  let headerBody =
-    PageChrome.rebuildOn(
-      model,
-      (fun current ->
-        current.Details,
-        current.FollowBusy,
-        current.Loading,
-        current.Error,
-        current.List,
-        current.CommitsLoading,
-        current.Commits.IsEmpty,
-        current.CommitsError),
-      fun current ->
-        let commitsEmpty: Control =
-          if List.isEmpty current.Commits then
-            TextBlock()
-              .Text(
-                if current.CommitsLoading then
-                  "Reading commits…"
-                else
-                  "No commits yet."
-              )
-              .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
+  let pinnedSlot = new SerialDisposable()
+
+  let profileHeader =
+    ContentControl()
+      .Content(
+        PageChrome.rebuildOn(
+          model,
+          (fun current ->
+            current.Details, current.FollowBusy, current.Loading, current.Error),
+          fun current -> headerView(props, current, dispatch)
+        )
+        |> _.ToBinding()
+      )
+
+  let pinnedHost =
+    ContentControl()
+      .Content(
+        PageChrome.rebuildOn(
+          model,
+          (fun current -> current.Details |> Option.bind _.PinnedCommit),
+          fun current ->
+            match current.Details with
+            | Some details ->
+              match details.PinnedCommit with
+              | Some _ ->
+                let scoped =
+                  EditorCards.scope(EditorCards.nextGate pinnedSlot, rowProps)
+
+                readmeView(details, scoped)
+              | None ->
+                pinnedSlot.Disposable <- Disposable.Empty
+                Panel()
+            | None ->
+              pinnedSlot.Disposable <- Disposable.Empty
+              Panel()
+        )
+        |> _.ToBinding()
+      )
+
+  let activityHost =
+    ContentControl()
+      .Content(
+        PageChrome.rebuildOn(
+          model,
+          (fun current ->
+            current.Details
+            |> Option.map(fun details ->
+              details.Activity, details.Profile.Lane)),
+          fun current ->
+            match current.Details with
+            | Some details ->
+              match details.Activity with
+              | Some activity -> activityView(activity, details.Profile.Lane)
+              | None -> Panel()
+            | None -> Panel()
+        )
+        |> _.ToBinding()
+      )
+
+  let commitsEmpty =
+    TextBlock()
+      .Text(
+        model
+        |> Observable.map(fun current ->
+          if current.CommitsLoading then
+            "Reading commits…"
           else
-            Panel()
+            "No commits yet.")
+        |> Observable.distinctUntilChanged
+      )
+      .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
+      .IsVisible(
+        model
+        |> Observable.map(fun current -> List.isEmpty current.Commits)
+        |> Observable.distinctUntilChanged
+      )
 
-        let commitsError =
-          PageChrome.errorPanel(Observable.single current.CommitsError)
-
-        let body: Control =
-          match current.Details with
-          | Some details -> bodyView(details, rowProps)
-          | None -> Panel()
-
-        StackPanel()
-          .Spacing(12.0)
-          .Margin(Thickness(16.0, 12.0))
-          .Children(
-            headerView(props, current, dispatch),
-            listView(props, current.List, dispatch),
-            body,
-            TextBlock()
-              .Text($"HISTORY @{props.Handle}")
-              .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted),
-            commitsEmpty,
-            commitsError
-          )
+  let commitsError =
+    PageChrome.errorPanel(
+      model |> Observable.map _.CommitsError |> Observable.distinctUntilChanged
     )
+
+  let headerBody =
+    StackPanel()
+      .Spacing(12.0)
+      .Margin(Thickness(16.0, 12.0))
+      .Children(
+        profileHeader,
+        listSection(props, model, dispatch),
+        pinnedHost,
+        activityHost,
+        TextBlock()
+          .Text($"HISTORY @{props.Handle}")
+          .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted),
+        commitsEmpty,
+        commitsError
+      )
 
   let more =
     let button =
@@ -946,7 +1025,7 @@ let view
 
   let feed =
     (Feed.view {
-      Header = ValueSome(ContentControl().Content(headerBody |> _.ToBinding()))
+      Header = ValueSome headerBody
       Items = model |> Observable.map _.Commits
       KeyOf = FeedParts.nodeKey
       Row = fun node -> CommitCard.feedRow rowProps node

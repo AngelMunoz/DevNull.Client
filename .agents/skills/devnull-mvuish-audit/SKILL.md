@@ -80,7 +80,49 @@ the gate that proves it stays dead.
     release when the page program ends. `mvuish-controls` §6.2 calls
     recycling-off a consumer tradeoff; this repo chose it. The recycle
     path clears a row before the next item lands, so the template must
-    stay total against a `null` item.
+    stay total against a `null` item. Every list that can hold 10 or
+    more items (including panel notification lists and profile
+    follower/following lists) must virtualize instead of rebuilding a
+    `StackPanel`.
+12. **Controls built inside `rebuildOn` / `ContentControl().Content(obs)`
+    must scope every binding to a longer-lived stream.** Even a
+    page-model binding leaks when the host program stays alive and the
+    `ContentControl` rebuilds: every discarded generation stays rooted
+    by the host's `model` / `cards` / `Now` stream until the host
+    program ends.
+    - Split coarse `rebuildOn` hosts so unrelated fields (like
+      `FollowBusy` or a toggleable list) never rebuild heavy subtrees
+      such as a `CommitCard`.
+    - For controls that detach only when discarded (never hidden by
+      swapping a parent `ContentControl`), cut bindings with
+      `Observable.takeUntilOther control.DetachedFromVisualTree`.
+    - For controls inside swappable tabs (such as `RepoTab` or
+      `ThreadTab` swapped in `EditorRoot`'s `ContentControl`), **never**
+      key on `DetachedFromVisualTree` because tab switches detach and
+      re-attach live tabs. Use a per-slot `SerialDisposable` gate
+      (`EditorCards.nextGate` + `EditorCards.scope`) so replacing a
+      generation completes and drops the previous generation's bindings
+      while tab switches keep the active generation reactive.
+13. **Pinned or long-lived tabs that reload must dispose and remount.**
+    Because `Feed.view` rows hold bindings to the tab program's `model`
+    until that program terminates, reloading a pinned tab in place keeps
+    previously realized rows rooted. Dispose the tab's `SerialDisposable`
+    lifetime handle and mount a fresh program on reload (both ref
+    re-selection and post-triggered refresh).
+14. **Lazy-mount hidden panels and never bind one cold `rebuildOn` into
+    two mutually exclusive hosts.**
+    - A child MVUish program mounted inside a hidden (`IsVisible = false`)
+      panel still allocates its controls and runs its subscriptions and
+      polls. Mount hidden-panel programs (Terminal, Remotes inbox) when
+      the panel opens and dispose them when it closes.
+    - Binding one cold `rebuildOn` observable to two `ContentControl`s
+      (such as a desktop sidebar and a narrow flyout) builds two full
+      visual trees at once. Gate each host's `rebuildOn` key on its own
+      visibility condition and return an empty `Panel()` when inactive.
+15. **Every subject created in a mount must be completed and disposed in
+    that mount's teardown.** Account for every `Subject`,
+    `BehaviorSubject`, and `ReplaySubject` in the mount's cleanup
+    disposable; an omitted subject leaks itself and its observers.
 
 ## The audit procedure
 
@@ -93,26 +135,34 @@ git diff -U0 -- src/DevNull.Client.UI | rg "^\+.*Brushes\."   # then check each:
 git diff -U0 -- src/DevNull.Client.UI | rg "^\+.*(Route\.cache|runWith\b|runWith[^L])"
 rg -n "IObservable" <changed files>            # classify every hit
 rg -n "new Bitmap|DecodeToWidth" <changed files> # then check the matching Dispose
+rg -n "rebuildOn|ToBinding" <changed files>    # check every rebuilt body for unscoped bindings and duplicate cold subscriptions
+rg -n "Subject<" <changed files>               # check every subject has OnCompleted() + Dispose() in teardown
 ```
 
 For a whole-tree audit, drop the `git diff` pipe and search
-`src/DevNull.Client.UI/Components` and `src/DevNull.Client.UI/Views`
-directly.
+`src/DevNull.Client.UI/Components`, `src/DevNull.Client.UI/Views`, and
+`src/DevNull.Client.UI/Layouts` directly.
 
 Then classify every hit and every new binding in changed view code:
 
 - **Page-model projection** (source is the function's `model`
-  argument): allowed.
+  argument, outside a rebuilding factory): allowed.
+- **Generation-scoped rebuild** (inside `rebuildOn` / `ContentControl`
+  with a `SerialDisposable` `takeUntilOther` gate, or
+  `DetachedFromVisualTree` on a non-reattachable host): allowed.
 - **Sub-owned** (inside `Sub.*` or `Sub.untilDetached`): allowed.
 - **The shell, the tray, and the app entry points**: allowed — one
   instance for the process, nothing accumulates.
 - **Store observable bound in a view, themed brush observable,
   `Observable.add` outside Sub, cached route, `runWithLifetime` on a
-  re-showable host, bitmap without a drop path**: a leak — report it.
+  re-showable host, bitmap without a drop path, unscoped binding inside
+  a rebuilding `ContentControl`, undisposed subject, eager hidden-panel
+  program, or duplicate cold `rebuildOn` mount**: a leak — report it.
 
 Also read every changed `view` function for new bindings against
-anything that is not the page model, and every new
-`ContentControl().Content(obs)` rebuild loop for an identity guard.
+anything that is not the page model, every `ContentControl().Content(obs)`
+rebuild loop for both an identity guard and scoped inner bindings, and
+every pinned-tab reload path for dispose-and-remount cleanup.
 
 ## Report format
 

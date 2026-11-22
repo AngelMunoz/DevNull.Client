@@ -1,6 +1,8 @@
 module DevNull.Client.Editor.EditorCards
 
 open System
+open System.Reactive.Disposables
+open System.Reactive.Subjects
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Layout
@@ -617,6 +619,49 @@ let row(args: RowArgs<'env>) : RowProps =
           })
       |> Slices.share
     Zone = args.Props.Zone
+  }
+
+let nextGate(slot: SerialDisposable) : IObservable<unit> =
+  let gate = new System.Reactive.Subjects.Subject<unit>()
+
+  slot.Disposable <-
+    Disposable.Create(fun () ->
+      gate.OnNext()
+      gate.OnCompleted()
+      gate.Dispose())
+
+  gate
+
+let scope(stop: IObservable<unit>, row: RowProps) : RowProps =
+  let inline cut(source: IObservable<'a>) =
+    source |> Observable.takeUntilOther stop
+
+  let inline cutSlot(slot: ActionSlot voption) =
+    slot |> ValueOption.map(fun item -> { item with Busy = cut item.Busy })
+
+  let inline cutPin(pin: PinToggle voption) =
+    pin |> ValueOption.map(fun item -> { item with Busy = cut item.Busy })
+
+  let inline cutMenu(menu: MenuSlot voption) =
+    menu
+    |> ValueOption.map(fun item -> {
+      item with
+          Relations = cut item.Relations
+          Busy = cut item.Busy
+    })
+
+  {
+    row with
+        Pasteis = cut row.Pasteis
+        Now = cut row.Now
+        PollChoices = cut row.PollChoices
+        Pin = cutPin row.Pin
+        Star = cutSlot row.Star
+        Stars = cutSlot row.Stars
+        Vote = cutSlot row.Vote
+        Pastel = cutSlot row.Pastel
+        Menu = cutMenu row.Menu
+        Translation = cut row.Translation
   }
 
 let event

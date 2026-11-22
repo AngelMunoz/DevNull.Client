@@ -518,6 +518,8 @@ let view
   }
 
   let replyProps: RowProps = { mainProps with Dense = true }
+  let crumbSlot = new SerialDisposable()
+  let mainSlot = new SerialDisposable()
 
   let breadcrumbs(nodes: CommitNode list) : Control =
     let commits =
@@ -526,48 +528,55 @@ let view
         | LiveCommit commit -> Some commit
         | Tombstone _ -> None)
 
-    let crumbs: Control array = [|
-      for index, commit in List.indexed commits do
-        if index > 0 then
-          TextBlock()
-            .Text("←")
-            .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
+    if commits.IsEmpty then
+      crumbSlot.Disposable <- Disposable.Empty
 
-        let button =
-          Button()
-            .Classes(Theme.name Theme.GhostButton)
-            .Content(
-              TextBlock().Text(commit.ShortHash).Classes(Theme.name Theme.Mono)
-            )
-
-        button.PointerEntered.Add(fun _ ->
-          dispatch(State.PeekRequested commit.Id))
-
-        let body =
-          model
-          |> Observable.distinctUntilChangedKey(fun current ->
-            current.Peek |> Option.map fst)
-          |> Observable.map(fun current ->
-            match current.Peek with
-            | Some(id, page) when id = commit.Id -> page.Commit.Body
-            | _ -> "")
-
-        let tip =
-          TextBlock()
-            .Text(body)
-            .TextWrapping(TextWrapping.Wrap)
-            .MaxWidth(360.0)
-            .Classes(Theme.name Theme.FgMuted)
-
-        ToolTip.SetTip(button, tip)
-        button
-    |]
-
-    if Array.isEmpty crumbs then
       TextBlock()
         .Text("(root)")
         .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
     else
+      let stop = EditorCards.nextGate crumbSlot
+
+      let crumbs: Control array = [|
+        for index, commit in List.indexed commits do
+          if index > 0 then
+            TextBlock()
+              .Text("←")
+              .Classes(Theme.name Theme.Mono, Theme.name Theme.FgMuted)
+
+          let button =
+            Button()
+              .Classes(Theme.name Theme.GhostButton)
+              .Content(
+                TextBlock()
+                  .Text(commit.ShortHash)
+                  .Classes(Theme.name Theme.Mono)
+              )
+
+          button.PointerEntered.Add(fun _ ->
+            dispatch(State.PeekRequested commit.Id))
+
+          let body =
+            model
+            |> Observable.takeUntilOther stop
+            |> Observable.distinctUntilChangedKey(fun current ->
+              current.Peek |> Option.map fst)
+            |> Observable.map(fun current ->
+              match current.Peek with
+              | Some(id, page) when id = commit.Id -> page.Commit.Body
+              | _ -> "")
+
+          let tip =
+            TextBlock()
+              .Text(body)
+              .TextWrapping(TextWrapping.Wrap)
+              .MaxWidth(360.0)
+              .Classes(Theme.name Theme.FgMuted)
+
+          ToolTip.SetTip(button, tip)
+          button
+      |]
+
       StackPanel()
         .Orientation(Orientation.Horizontal)
         .Spacing(4.0)
@@ -576,12 +585,20 @@ let view
   let breadcrumbRow =
     ContentControl()
       .Content(
-        model
-        |> Observable.map _.Page
-        |> Slices.gateByRef
-        |> Observable.map(function
-          | Some page -> breadcrumbs page.Ancestors
-          | None -> breadcrumbs [])
+        rebuildOn(
+          model,
+          (fun current ->
+            current.Page
+            |> Option.map(fun page ->
+              page.Ancestors
+              |> List.choose(function
+                | LiveCommit commit -> Some commit.Id
+                | Tombstone _ -> None))),
+          (fun current ->
+            match current.Page with
+            | Some page -> breadcrumbs page.Ancestors
+            | None -> breadcrumbs [])
+        )
         |> _.ToBinding()
       )
 
@@ -604,9 +621,16 @@ let view
         |> Observable.map(fun (commit, deleted) ->
           match commit, deleted with
           | Some commit, Some commitId when commit.Id = commitId ->
+            mainSlot.Disposable <- Disposable.Empty
             CommitCard.tombstone()
-          | Some commit, _ -> feedRow mainProps (LiveCommit commit)
+          | Some commit, _ ->
+            let scoped =
+              EditorCards.scope(EditorCards.nextGate mainSlot, mainProps)
+
+            feedRow scoped (LiveCommit commit)
           | None, _ ->
+            mainSlot.Disposable <- Disposable.Empty
+
             TextBlock()
               .Text("Opening the thread…")
               .Classes(Theme.name Theme.FgMuted)

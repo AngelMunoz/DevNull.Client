@@ -51,9 +51,11 @@ type Props = {
 }
 
 /// The drawer height for a host of the given height: the docked
-/// 280 otherwise, taller while the terminal quotes, so a large
-/// quoted card scrolls above a visible composer. The taller drawer
-/// never eats the list above it below 240 pixels.
+/// 320 otherwise — the composer's identity row sets the floor, so a
+/// long draft keeps its commit action in view — taller while the
+/// terminal quotes, so a large quoted card scrolls above a visible
+/// composer. The taller drawer never eats the list above it below
+/// 240 pixels.
 val heightOf: total: float * quoting: bool -> float
 
 /// The panel with no tab in front and no panel shown.

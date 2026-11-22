@@ -103,6 +103,7 @@ let session: SignedInSession = {
     TermsVersion = ""
     TermsAccepted = Some true
     Remotes = None
+    Organizations = []
   }
   KeyFile = "/tmp/devnull-test-key"
 }

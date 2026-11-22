@@ -191,6 +191,10 @@ let tests =
       (async {
         let! window = startShell(signedInStore(), manyCardsApi() :> IHttp)
 
+        // The composer's identity row takes the top of the window;
+        // the taller stage keeps two cards realized.
+        do! onUiAsync(fun () -> window.Height <- 800.0)
+
         let! shown = showsText(window, "The Octocat")
 
         Expect.isTrue shown "the log never rendered"

@@ -361,6 +361,7 @@ type Shell<'env
                     UnreadNotificationsCount = me.UnreadNotificationsCount
                     TermsVersion = me.TermsVersion
                     TermsAccepted = Some me.TermsAccepted
+                    Organizations = me.Organizations
               }
         }
       | SignedOut -> Panel()

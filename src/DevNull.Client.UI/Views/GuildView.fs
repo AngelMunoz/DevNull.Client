@@ -188,6 +188,7 @@ let view
     OnEvent = ignore
     OnOpenExternal = fun url -> props.Env.Browser.Open url |> ignore
     ViewerId = props.Session.Session.User.Id
+    ViewerOrgs = viewerOrgs props.Session.Session
     Pasteis = pastels
     Now = model |> Observable.map _.Now
     PollChoices = choices

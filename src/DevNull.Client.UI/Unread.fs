@@ -57,6 +57,7 @@ module UnreadService =
                   TermsVersion = me.TermsVersion
                   TermsAccepted = Some me.TermsAccepted
                   Remotes = me.Remotes
+                  Organizations = me.Organizations
             }
           | ValueNone -> ()
         | Error error ->

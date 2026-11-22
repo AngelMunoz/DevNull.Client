@@ -800,6 +800,7 @@ let view
         OnEvent = State.CardEvent >> dispatch
         OnOpenExternal = fun url -> props.Env.Browser.Open(url) |> ignore
         ViewerId = props.SignedIn.Session.User.Id
+        ViewerOrgs = viewerOrgs props.SignedIn.Session
         Images = props.Env.ImageCache
         Flyout =
           ValueSome {

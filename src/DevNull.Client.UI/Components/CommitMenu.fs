@@ -37,6 +37,10 @@ type MenuSlot = {
 type MenuProps = {
   Commit: Commit
   ViewerId: string
+  /// The viewer's organization handles: an organization-authored
+  /// commit the viewer belongs to is the viewer's own, by the
+  /// server's rule.
+  ViewerOrgs: string list
   Slot: MenuSlot
   OnOpened: Commit -> unit
   CopyLink: Control -> unit
@@ -158,8 +162,7 @@ let rowsFor
   let deleteRow: Control =
     match slot.Delete with
     | ValueSome command when
-      (Author.id commit.Author) = props.ViewerId
-      || Author.isAdmin(commit.Author, props.ViewerId)
+      Author.isOwned(commit.Author, props.ViewerId, props.ViewerOrgs)
       ->
       (confirmPick {
         Label = "Delete commit"

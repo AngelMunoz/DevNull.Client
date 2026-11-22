@@ -317,7 +317,7 @@ type Tombstone = {
 
 /// One commit's author: a person, or an organization the wire types.
 /// The organization branch carries the profile the organization read
-/// decodes, whose admins are the members who may delete its commits.
+/// decodes.
 type Author =
   | Person of User
   | Organization of OrganizationProfile
@@ -347,9 +347,12 @@ module Author =
   /// The organization branch, when the commit is an organization's.
   val organization: author: Author -> OrganizationProfile option
 
-  /// Whether the viewer is a member of the organization author: the
-  /// viewer id appears in the profile's admins.
-  val isAdmin: author: Author * viewerId: string -> bool
+  /// Whether the viewer owns the commit: the author's own, or an
+  /// organization the viewer belongs to — any role — matched by
+  /// handle, the only join the commit author carries. The server's
+  /// rule; the admins-only check it replaces is gone.
+  val isOwned:
+    author: Author * viewerId: string * orgHandles: string list -> bool
 
 /// One commit as the signed API returns it.
 type Commit = {
@@ -845,6 +848,21 @@ module OrgRoles =
   /// The wire name.
   val wire: role: OrgRole -> string
 
+/// One membership's role in an org, as the signed API reports it.
+/// An unknown word stays raw.
+type MembershipRole =
+  | Admin
+  | Member
+  | UnknownMembershipRole of raw: string
+
+module MembershipRoles =
+  /// The role a wire word names. An unknown word stays raw, so a
+  /// membership the client does not know yet still decodes.
+  val parse: raw: string -> MembershipRole
+
+  /// The wire word for a role.
+  val wire: role: MembershipRole -> string
+
 /// The event one message records: an org's own changes and a ping. An
 /// unknown event stays raw.
 type OrgEvent =
@@ -1042,6 +1060,27 @@ type DeviceSession = {
   TermsVersion: string
   TermsAccepted: bool option
   Remotes: MeRemotes option
+  /// The organizations the account may post as, oldest membership
+  /// first. Empty with no membership; the first account poll fills
+  /// what a stored session predates.
+  Organizations: MeOrganization list
+}
+
+/// One organization the signed-in account belongs to: its profile
+/// identity lines and the viewer's role in it. The follow state, the
+/// follower count, and the admins stay unread here.
+and MeOrganization = {
+  Id: string
+  Handle: string
+  Name: string
+  AvatarUrl: string option
+  Bio: string option
+  Location: string option
+  Website: string option
+  GithubUrl: string option
+  HtmlUrl: string
+  Lane: Lane option
+  Role: MembershipRole
 }
 
 /// One draft as the commit it would become, as POST
@@ -1067,7 +1106,9 @@ module UserSettings =
   /// Reads the `{data: ...}` envelope of GET /api/v1/me/settings.
   val decode: body: string -> Result<UserSettings, DecodeFailure>
 
-/// The signed-in account, as GET /api/v1/me returns it.
+/// The signed-in account, as GET /api/v1/me returns it. The
+/// organizations ride every signed answer, oldest membership first,
+/// and never stand absent: an answer without the key carries none.
 type Me = {
   Profile: Profile
   PasteisMode: bool
@@ -1083,11 +1124,23 @@ type Me = {
   TermsAccepted: bool
   UnreadNotificationsCount: int
   Remotes: MeRemotes option
+  Organizations: MeOrganization list
 }
 
 module Me =
   /// Reads the signed-in account envelope, from GET /api/v1/me and the sign-in responses.
   val decode: body: string -> Result<Me, DecodeFailure>
+
+  /// Reads the membership rows one JSON element carries — every
+  /// signed answer's shape, which the stored session file reuses. An
+  /// absent key carries none.
+  val decodeOrganizations:
+    element: System.Text.Json.JsonElement ->
+      Result<MeOrganization list, DecodeFailure>
+
+  /// One membership row as a JSON node: the wire's own field names,
+  /// written with the JSON vocabulary the signed requests use.
+  val encodeOrganization: org: MeOrganization -> System.Text.Json.Nodes.JsonNode
 
   /// Reads the followed users who are live right now, from GET /api/v1/me/live-following.
   val decodeLiveFollowing: body: string -> Result<User list, DecodeFailure>

@@ -584,6 +584,7 @@ let row(args: RowArgs<'env>) : RowProps =
     OnEvent = args.OnEvent
     OnOpenExternal = fun url -> args.Props.Env.Browser.Open(url) |> ignore
     ViewerId = args.Props.Session.Session.User.Id
+    ViewerOrgs = viewerOrgs args.Props.Session.Session
     Pasteis = Observable.single args.Props.Session.Session.PasteisMode
     Now = state |> Observable.map _.Now |> Slices.share
     PollChoices = state |> Observable.map _.PollChoices |> Slices.share

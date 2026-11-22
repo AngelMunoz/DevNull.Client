@@ -803,6 +803,10 @@ module Commits =
     /// The server refuses a guild reply; a guild that lost its
     /// moderator answers the guild_paused refusal.
     GuildHandle: string option
+    /// The organization the commit posts as, by handle, when the
+    /// viewer picked one they belong to. Omitted as the user; the
+    /// server refuses a handle outside the viewer's memberships.
+    Author: string option
   }
 
   /// One commit to read through the signed API.
@@ -1043,6 +1047,10 @@ module ScheduledCommits =
     ScheduledAt: ScheduledMoment
     /// The guild board this commit posts to, when it posts to one.
     GuildHandle: string option
+    /// The organization the commit posts as, by handle, when the
+    /// viewer picked one they belong to. Omitted as the user; the
+    /// server refuses a handle outside the viewer's memberships.
+    Author: string option
   }
 
   /// One queued commit acted on by id.

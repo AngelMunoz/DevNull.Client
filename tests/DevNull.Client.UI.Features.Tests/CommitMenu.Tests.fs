@@ -852,7 +852,25 @@ let tests =
                | ValueSome answer -> answer
                | ValueNone -> ok "{}"))
 
-        let! window = startShell(remotesStoreOn(), api :> IHttp)
+        // The viewer belongs to the canned organization, so the
+        // member gates arm: the menu keeps the delete row.
+        let membership: MeOrganization = {
+          Id = "org-devnull"
+          Handle = "devnull"
+          Name = "DevNull"
+          AvatarUrl = None
+          Bio = None
+          Location = None
+          Website = None
+          GithubUrl = None
+          HtmlUrl = "https://dev-null.sh/org/devnull"
+          Lane = None
+          Role = Member
+        }
+
+        let! window =
+          startShell(remotesStoreOnWith [ membership ], api :> IHttp)
+
         let! shown = showsText(window, "It was DNS.")
 
         Expect.isTrue shown "the organization commit never rendered"

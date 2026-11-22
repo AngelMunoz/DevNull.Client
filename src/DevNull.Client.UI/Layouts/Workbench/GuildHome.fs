@@ -574,6 +574,10 @@ let view
         | _ -> ()
     OnOpenExternal = props.OnOpenExternal
     ViewerId = props.ViewerId
+    ViewerOrgs =
+      props.Session
+      |> Option.map(fun session -> viewerOrgs session.Session)
+      |> Option.defaultValue []
     Pasteis = model |> Observable.map _.Pasteis |> Slices.share
     Now = now
     PollChoices = model |> Observable.map _.PollChoices |> Slices.share

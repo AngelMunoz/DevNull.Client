@@ -52,6 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Lists:** long search, history, notification, scheduled, and workbench lists virtualize their rows.
 - **Settings:** the time-zone list loads when the picker is used.
 - **Translations:** translations are read from the file tier on demand; the process keeps no process-wide translation dictionary.
+- **Composer:** post as one of your organizations: the composer leads with the identity avatar, and a chevron menu over it switches between you and your orgs. The pick rides every post — fresh, reply, quote, and scheduled — and a lost membership falls back to posting as you.
+- **Commits:** members can delete and pin their organizations' commits, matching the server's ownership rule.
 
 ### Changed
 

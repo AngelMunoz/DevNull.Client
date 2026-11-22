@@ -350,6 +350,7 @@ let view
         onEvent event
     OnOpenExternal = props.OnOpenExternal
     ViewerId = props.ViewerId
+    ViewerOrgs = viewerOrgs props.Session.Session
     Pasteis = pasteis
     Now = now
     PollChoices = polls

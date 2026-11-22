@@ -1959,6 +1959,7 @@ let view
           | CommitCard.MenuOpened commit -> dispatch(State.MenuOpened commit)
         OnOpenExternal = fun url -> props.Env.Browser.Open(url) |> ignore
         ViewerId = props.Session.Session.User.Id
+        ViewerOrgs = viewerOrgs props.Session.Session
         Images = props.Env.ImageCache
         Flyout =
           ValueSome {

@@ -413,6 +413,7 @@ module BoardHost =
       OnEvent = ignore
       OnOpenExternal = ignore
       ViewerId = ""
+      ViewerOrgs = []
       Pasteis = pastels
       Now = now
       PollChoices = choices

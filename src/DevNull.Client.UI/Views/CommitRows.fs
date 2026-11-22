@@ -21,6 +21,9 @@ type Host = {
   OnEvent: Event -> unit
   OnOpenExternal: string -> unit
   ViewerId: string
+  /// The viewer's organization handles, threaded to the card's own
+  /// and delete gates.
+  ViewerOrgs: string list
   Images: ImageCacheService
   Flyout: Source voption
   Zone: Zone
@@ -60,6 +63,7 @@ let row
     OnEvent = host.OnEvent
     OnOpenExternal = host.OnOpenExternal
     ViewerId = host.ViewerId
+    ViewerOrgs = host.ViewerOrgs
     Pasteis = slices |> Observable.map _.Pasteis |> Slices.share
     Now = slices |> Observable.map _.Now |> Slices.share
     PollChoices = slices |> Observable.map _.PollChoices |> Slices.share

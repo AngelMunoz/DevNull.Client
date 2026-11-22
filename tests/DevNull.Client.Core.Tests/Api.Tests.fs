@@ -446,6 +446,7 @@ let commitRequest: Commits.CreateRequest = {
   Poll = None
   ReplyRecipients = []
   GuildHandle = None
+  Author = None
 }
 
 let commitApiTests =
@@ -1115,6 +1116,129 @@ let authorTests =
           | None -> failtest "expected an organization"
         | Tombstone _ -> failtest "expected a live commit"
       | Error failure -> failtestf "%A" failure
+    }
+  ]
+
+/// The membership rows the signed answers carry, oldest first: an
+/// admin, a member, and a word the client does not know yet.
+let orgMembershipsJson =
+  "\"organizations\":["
+  + "{\"type\":\"organization\",\"id\":\"01a151db-aaaa-727b-a7ce-c911a7556242\",\"handle\":\"devnull\",\"name\":\"DevNull\",\"avatar_url\":\"https://avatars.example/devnull.png\",\"bio\":\"The org.\",\"location\":\"Berlin\",\"website\":\"https://dev-null.sh\",\"github_url\":\"https://github.com/devnull\",\"html_url\":\"https://dev-null.sh/org/devnull\",\"lane\":2,\"role\":\"admin\"},"
+  + "{\"type\":\"organization\",\"id\":\"01a151db-bbbb-727b-a7ce-c911a7556242\",\"handle\":\"ops\",\"name\":\"Ops Room\",\"avatar_url\":null,\"bio\":null,\"location\":null,\"website\":null,\"github_url\":null,\"html_url\":\"https://dev-null.sh/org/ops\",\"lane\":\"#b34a2e\",\"role\":\"member\"},"
+  + "{\"type\":\"organization\",\"id\":\"01a151db-cccc-727b-a7ce-c911a7556242\",\"handle\":\"future\",\"name\":\"Future\",\"avatar_url\":null,\"bio\":null,\"location\":null,\"website\":null,\"github_url\":null,\"html_url\":\"https://dev-null.sh/org/future\",\"lane\":null,\"role\":\"owner\"}"
+  + "]"
+
+/// The same signed-in account with its membership rows.
+let meWithOrgsJson =
+  meJson.Replace("\"remotes\":null", "\"remotes\":null," + orgMembershipsJson)
+
+let membershipTests =
+  testList "Api.memberships" [
+    test "decodes the membership rows in wire order" {
+      match Me.decode meWithOrgsJson with
+      | Ok me ->
+        Expect.equal 3 me.Organizations.Length "count"
+
+        Expect.equal
+          [ "devnull"; "ops"; "future" ]
+          (me.Organizations |> List.map _.Handle)
+          "oldest membership first"
+
+        Expect.equal
+          [ Admin; Member; UnknownMembershipRole "owner" ]
+          (me.Organizations |> List.map _.Role)
+          "roles"
+
+        let first = me.Organizations |> List.head
+
+        Expect.equal "01a151db-aaaa-727b-a7ce-c911a7556242" first.Id "org id"
+
+        Expect.equal "DevNull" first.Name "org name"
+
+        Expect.equal
+          (Some "https://avatars.example/devnull.png")
+          first.AvatarUrl
+          "org avatar"
+
+        Expect.equal (Some "Berlin") first.Location "org location"
+        Expect.equal (Some(LaneIndex 2)) first.Lane "org lane"
+
+        let second = me.Organizations |> List.item 1
+
+        Expect.equal (Some(LaneColor "#b34a2e")) second.Lane "org lane color"
+      | Error failure -> failtestf "%A" failure
+    }
+
+    test "an answer without memberships carries none" {
+      match Me.decode meJson with
+      | Ok me -> Expect.isEmpty me.Organizations "no memberships"
+      | Error failure -> failtestf "%A" failure
+    }
+
+    testAsync "the redeemed device carries the membership rows" {
+      let http = CapturingHttp(ok meWithOrgsJson)
+
+      let! (result: Result<Me, TestError>) =
+        Device.redeem(envFor http, redeemRequest)
+
+      match result with
+      | Ok me ->
+        Expect.equal
+          [ "devnull"; "ops"; "future" ]
+          (me.Organizations |> List.map _.Handle)
+          "memberships"
+      | Error error -> failtestf "%A" error
+    }
+
+    test "membership words round-trip" {
+      Expect.equal "admin" (MembershipRoles.wire Admin) "admin"
+      Expect.equal "member" (MembershipRoles.wire Member) "member"
+      Expect.equal Admin (MembershipRoles.parse "admin") "parse admin"
+      Expect.equal Member (MembershipRoles.parse "member") "parse member"
+
+      Expect.equal
+        (UnknownMembershipRole "owner")
+        (MembershipRoles.parse "owner")
+        "an unknown word stays raw"
+    }
+
+    testAsync "a post-as commit names its author" {
+      let http = CapturingHttp(ok createdResponse)
+
+      let request = {
+        commitRequest with
+            Author = Some "devnull"
+      }
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(envFor http, request)
+
+      match result with
+      | Ok _ ->
+        let sent = http.Requests |> List.exactlyOne
+
+        Expect.equal
+          "{\"body\":\"It was DNS.\",\"author\":\"devnull\"}"
+          (bodyText sent)
+          "the author rode the post"
+      | Error error -> failtestf "%A" error
+    }
+
+    testAsync "a user post leaves the author off the wire" {
+      let http = CapturingHttp(ok createdResponse)
+
+      let! (result: Result<Commit, TestError>) =
+        Commits.create(envFor http, commitRequest)
+
+      match result with
+      | Ok _ ->
+        let sent = http.Requests |> List.exactlyOne
+
+        Expect.equal
+          "{\"body\":\"It was DNS.\"}"
+          (bodyText sent)
+          "no author as the user"
+      | Error error -> failtestf "%A" error
     }
   ]
 

@@ -99,6 +99,7 @@ let tests =
           OnEvent = ignore
           OnOpenExternal = ignore
           ViewerId = "viewer"
+          ViewerOrgs = []
           Pasteis = Observable.single false
           Now = Observable.single DateTimeOffset.UtcNow
           PollChoices = Observable.single(Map.empty<string, string>)

@@ -1226,6 +1226,7 @@ module Commits =
     Poll: PollSpec option
     ReplyRecipients: string list
     GuildHandle: string option
+    Author: string option
   }
 
   type VoteRequest = {
@@ -1397,6 +1398,14 @@ module Commits =
       List.singleton("guild_handle", Encode.string board))
     |> Option.defaultValue []
 
+  /// The author field, when the post goes out as an organization:
+  /// the org handle the membership check passed. Omitted as the
+  /// user, the way the guild board stays out of a user post.
+  let authorField(handle: string option) =
+    handle
+    |> Option.map(fun author -> List.singleton("author", Encode.string author))
+    |> Option.defaultValue []
+
   let create(env, request: CreateRequest) = asyncResult {
     let! body = CommitBodies.parse request.Body
 
@@ -1437,6 +1446,7 @@ module Commits =
           pollField poll
           recipientsField(request.Target, recipients)
           guildHandleField request.GuildHandle
+          authorField request.Author
         ]
       )
       |> _.ToJsonString()
@@ -1728,6 +1738,7 @@ module ScheduledCommits =
     Card: LinkCard
     ScheduledAt: ScheduledMoment
     GuildHandle: string option
+    Author: string option
   }
 
   type ActionRequest = {
@@ -1786,6 +1797,7 @@ module ScheduledCommits =
           )
 
           Commits.guildHandleField request.GuildHandle
+          Commits.authorField request.Author
         ]
       )
       |> _.ToJsonString()

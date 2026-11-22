@@ -2,9 +2,11 @@ module DevNull.Client.Components.Composer
 
 open System
 open System.Runtime
+open System.Reactive.Disposables
 open System.Reactive.Subjects
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.Primitives
 open Avalonia.Layout
 open Avalonia.Media
 open Avalonia.Threading
@@ -12,6 +14,7 @@ open NXUI.Extensions
 open FSharp.Control.Reactive
 open MVUish.Avalonia
 open DevNull.Client
+open DevNull.Client.Slices
 open DevNull.Client.AttachmentSources
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
@@ -21,6 +24,7 @@ open DevNull.Client.Core.Completion
 open DevNull.Client.Core.Http
 open DevNull.Client.Errors
 open DevNull.Client.Env
+open DevNull.Client.Icons
 open DevNull.Client.ImageCache
 open Microsoft.Extensions.Logging
 open DevNull.Client.Search
@@ -197,6 +201,11 @@ module State =
     Excluded: string list
     // The guild board the draft posts to, when it posts to one.
     GuildChoice: string option
+    // The organization the draft posts as, by org id, when the
+    // viewer picked one they belong to. The send resolves it
+    // against the session's list; a lost membership posts as the
+    // user.
+    AuthorChoice: string option
     // The picker's search: the term as typed and the directory's
     // answers beneath the joined rows.
     GuildQuery: string
@@ -242,6 +251,8 @@ module State =
     | GuildRowsArrived of query: string * Result<Guild list, AppError>
     | GuildPicked of guild: Guild
     | GuildTargetCleared
+    | AuthorPicked of orgId: string
+    | AuthorTargetCleared
 
   let initial = {
     Busy = false
@@ -257,9 +268,19 @@ module State =
     Emoji = closedEmoji
     Excluded = []
     GuildChoice = None
+    AuthorChoice = None
     GuildQuery = ""
     GuildRows = []
   }
+
+  // The post-as identity the send carries: the picked org while the
+  // session still lists it — a lost membership posts as the user,
+  // the way the site falls back.
+  let effectiveAuthor
+    (orgs: MeOrganization list, choice: string option)
+    : MeOrganization option =
+    choice
+    |> Option.bind(fun id -> orgs |> List.tryFind(fun org -> org.Id = id))
 
   // The staging path allocates large-object arrays an idle composer
   // never generates enough churn to collect: the picker's transients
@@ -586,6 +607,8 @@ module State =
       },
       Cmd.none
     | GuildTargetCleared -> { model with GuildChoice = None }, Cmd.none
+    | AuthorPicked orgId -> { model with AuthorChoice = Some orgId }, Cmd.none
+    | AuthorTargetCleared -> { model with AuthorChoice = None }, Cmd.none
     | AttachRequested ->
       // The picker is modal; the answer arrives as one message.
       model, Cmd.OfAsync.perform props.Env.Attachments.PickFiles () ImagesAdded
@@ -788,6 +811,15 @@ module State =
             |> List.map _.Id
           | ValueNone -> []
 
+        // The post-as identity: the picked org's handle while the
+        // session still lists it, nothing as the user.
+        let author =
+          effectiveAuthor(
+            props.Session.Session.Organizations,
+            model.AuthorChoice
+          )
+          |> Option.map _.Handle
+
         if model.Scheduling then
           // The window speaks before the request: the same bounds the
           // server runs, against the clock the env carries.
@@ -819,6 +851,7 @@ module State =
                  Card = FirstLink
                  ScheduledAt = at
                  GuildHandle = model.GuildChoice
+                 Author = author
                })
               Scheduled
           | ValueNone ->
@@ -839,6 +872,7 @@ module State =
                Poll = spec
                ReplyRecipients = replyRecipients
                GuildHandle = model.GuildChoice
+               Author = author
              })
             Committed
     | Committed result ->
@@ -1095,6 +1129,263 @@ module Parts =
       log
     )
 
+  // The trigger and layer the identity picker stands on: the
+  // avatar the draft posts under, and — while the session carries
+  // memberships — the chevron menu over it. Without memberships the
+  // avatar stands alone and the layer is empty.
+  [<Struct>]
+  type AuthorView = { Trigger: Control; Layer: Control }
+
+  // One identity row's facts: the avatar lines, the check while the
+  // row is the active identity, and the pick the click runs — the
+  // shared close rides inside it.
+  [<Struct>]
+  type IdentityPick = {
+    Name: string
+    Handle: string
+    Url: string option
+    Lane: Lane option
+    Square: bool
+    Active: bool
+    RowName: string
+    OnPick: unit -> unit
+  }
+
+  // One identity row: the avatar, the name and @handle, and the
+  // check while the row is the active identity. A click picks the
+  // identity, the way a guild row picks its board.
+  let identityRow(cache: ImageCacheService, pick: IdentityPick) : Control =
+    let avatar =
+      Avatar.view {
+        Name = pick.Name
+        Url = pick.Url
+        Lane = pick.Lane
+        Size = 24.0
+        Cache = cache
+        Square = pick.Square
+        Viewable = false
+      }
+
+    let mark: Control =
+      if pick.Active then
+        Icons.iconAt(Glyph.Check, 14.0)
+      else
+        Panel()
+
+    let columns =
+      Grid(ColumnDefinitions = ColumnDefinitions "*,Auto")
+        .Children(
+          StackPanel()
+            .Orientation(Orientation.Horizontal)
+            .Spacing(8.0)
+            .VerticalAlignment(VerticalAlignment.Center)
+            .Children(
+              avatar,
+              StackPanel()
+                .Spacing(0.0)
+                .VerticalAlignment(VerticalAlignment.Center)
+                .Children(
+                  TextBlock().Classes(Theme.name Theme.Subtitle).Text(pick.Name),
+                  TextBlock()
+                    .Classes(Theme.name Theme.Muted)
+                    .FontSize(12.0)
+                    .Text("@" + pick.Handle)
+                )
+            )
+            .Column(0),
+          mark.VerticalAlignment(VerticalAlignment.Center).Column(1)
+        )
+
+    Button()
+      .Name(pick.RowName)
+      .Classes(Theme.name Theme.GhostButton)
+      .HorizontalContentAlignment(HorizontalAlignment.Stretch)
+      .Content(columns)
+      .OnClickHandler(fun _ args ->
+        args.Handled <- true
+        pick.OnPick())
+
+  // The post-as identity picker: the avatar the draft posts under,
+  // and while the session carries memberships the chevron menu over
+  // it — the user row plus one row per org, the check on the active
+  // identity. A pick swaps the avatar and stands the menu down.
+  let authorView
+    (
+      props: Props<'env>,
+      model: IObservable<State.Model>,
+      dispatch: Dispatch<State.Msg>
+    ) : AuthorView =
+    let orgs = props.Session.Session.Organizations
+    let user = props.Session.Session.User
+
+    // The draft's identity on every model beat: the picked org
+    // while the session still lists it, the user otherwise. Gated and
+    // shared: the avatar and the menu rows both read it, and the
+    // resolve runs once per model beat, not per reader.
+    let identity =
+      model
+      |> Slices.gate(fun current ->
+        State.effectiveAuthor(orgs, current.AuthorChoice))
+      |> Slices.share
+
+    let avatar =
+      ContentControl()
+        .Name("ComposerAvatar")
+        .Content(
+          identity
+          |> Observable.map(function
+            | Some org ->
+              Avatar.view {
+                Name = org.Name
+                Url = org.AvatarUrl
+                Lane = org.Lane
+                Size = 32.0
+                Cache = props.Env.ImageCache
+                Square = true
+                Viewable = false
+              }
+            | None ->
+              Avatar.view {
+                Name = user.Name
+                Url = user.AvatarUrl
+                Lane = None
+                Size = 32.0
+                Cache = props.Env.ImageCache
+                Square = false
+                Viewable = false
+              })
+          |> _.ToBinding()
+        )
+
+    match orgs with
+    | [] -> { Trigger = avatar; Layer = Panel() }
+    | _ ->
+      // Every feed the picker owns ends with its detach: the open
+      // signal and the close path, the way the guild picker's feeds
+      // end with its own teardown.
+      let openLine = new BehaviorSubject<bool>(false)
+      let feeds = new CompositeDisposable()
+
+      let close() = openLine.OnNext false
+
+      // The rows ride the identity slice, not the whole model: the
+      // rows change only when the effective author does, so a body
+      // keystroke never rebuilds the menu.
+      let rows =
+        ContentControl()
+          .Content(
+            identity
+            |> Observable.map(fun effective ->
+              // The rows in stand order: the user first, one per
+              // org after it. A single comprehension carries them
+              // all: a `for` after static elements would drop the
+              // static ones.
+              let userPick: IdentityPick = {
+                Name = user.Name
+                Handle = user.Handle
+                Url = user.AvatarUrl
+                Lane = None
+                Square = false
+                Active = effective.IsNone
+                RowName = "ComposerAuthorUser"
+                OnPick =
+                  fun () ->
+                    close()
+                    dispatch State.AuthorTargetCleared
+              }
+
+              let orgPick(org: MeOrganization) : IdentityPick = {
+                Name = org.Name
+                Handle = org.Handle
+                Url = org.AvatarUrl
+                Lane = org.Lane
+                Square = true
+                Active =
+                  effective |> Option.exists(fun found -> found.Id = org.Id)
+                RowName = "ComposerAuthor" + org.Handle
+                OnPick =
+                  fun () ->
+                    close()
+                    dispatch(State.AuthorPicked org.Id)
+              }
+
+              StackPanel()
+                .Spacing(4.0)
+                .Children(
+                  [|
+                    for pick in userPick :: (orgs |> List.map orgPick) ->
+                      identityRow(props.Env.ImageCache, pick)
+                  |]
+                ))
+            |> _.ToBinding()
+          )
+
+      let trigger =
+        Button()
+          .Name("ComposerAuthorTrigger")
+          .Classes(Theme.name Theme.GhostButton)
+          .Padding(0.0)
+          .HorizontalAlignment(HorizontalAlignment.Left)
+          .Content(
+            Grid()
+              .Children(
+                avatar,
+                Icons
+                  .iconAt(Glyph.ChevronsDown, 12.0)
+                  .HorizontalAlignment(HorizontalAlignment.Right)
+                  .VerticalAlignment(VerticalAlignment.Bottom)
+              )
+          )
+          .OnClickHandler(fun _ args ->
+            args.Handled <- true
+            openLine.OnNext true)
+
+      let card =
+        Border()
+          .Name("ComposerAuthorCard")
+          .Classes(Theme.name Theme.Card)
+          .BorderThickness(Thickness(1.0))
+          .CornerRadius(8.0)
+          .MaxWidth(320.0)
+          .Child(
+            StackPanel()
+              .Margin(12.0)
+              .Spacing(8.0)
+              .Children(
+                TextBlock().Classes(Theme.name Theme.Title).Text("Post as"),
+                // The menu's own scroller bounds it the way the guild
+                // picker's card bounds its rows: a long membership
+                // list scrolls inside the card instead of past the
+                // composer.
+                ScrollViewer()
+                  .MaxHeight(280.0)
+                  .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
+                  .Content(rows)
+              )
+          )
+
+      let dialog =
+        Popup()
+          .Name("ComposerAuthorDialog")
+          .PlacementTarget(trigger)
+          .Placement(PlacementMode.Bottom)
+          .IsLightDismissEnabled(true)
+          .Child(card)
+
+      feeds.Add(
+        openLine
+        |> Observable.distinctUntilChanged
+        |> Observable.subscribe(fun isOpen -> dialog.IsOpen <- isOpen)
+      )
+
+      feeds.Add(
+        dialog.Closed |> Observable.subscribe(fun _ -> openLine.OnNext false)
+      )
+
+      dialog.DetachedFromVisualTree.Add(fun _ -> feeds.Dispose())
+
+      { Trigger = trigger; Layer = dialog }
+
 // The composer's target line: who the draft answers or what it
 // quotes, with the commit's short hash. A host shows it directly
 // above the composer so a stale draft never hides its target.
@@ -1138,6 +1429,12 @@ let view
   : Control =
 
   let body = Parts.body(props, model, dispatch)
+
+  // The post-as identity: the avatar the draft posts under, with
+  // the chevron menu over it while the session carries
+  // memberships. It stands first in the stack, before the guild
+  // trigger, the way the site leads with the identity.
+  let author = Parts.authorView(props, model, dispatch)
 
   props.OnBodyReady |> ValueOption.iter(fun ready -> ready body)
 
@@ -1392,6 +1689,7 @@ let view
             .Spacing(8.0)
             .Children(
               [|
+                author.Trigger
                 match guildPicker.Trigger with
                 | ValueSome trigger -> trigger
                 | ValueNone -> ()
@@ -1409,7 +1707,8 @@ let view
               |]
             ),
           picker.Layer,
-          guildPicker.Layer
+          guildPicker.Layer,
+          author.Layer
         )
     )
 

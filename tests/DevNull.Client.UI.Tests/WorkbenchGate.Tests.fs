@@ -58,6 +58,7 @@ let private rowProps(commit: Commit) : RowProps = {
   OnEvent = ignore
   OnOpenExternal = ignore
   ViewerId = "01a151db-7fee-727b-a7ce-c911a7556242"
+  ViewerOrgs = []
   Pasteis = Observable.single false
   Now = Observable.single(DateTimeOffset.UtcNow)
   PollChoices = Observable.single Map.empty

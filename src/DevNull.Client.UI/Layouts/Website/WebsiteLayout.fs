@@ -354,7 +354,8 @@ let footer(context: FooterContext) : Control =
 // card over a scrim. A commit, a scrim click, or Esc closes it.
 let composeDialog
   (
-    env: #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp,
+    env:
+      #IProvideClock & #IProvideNonceSource & #IProvideSigner & #IProvideHttp & #IProvideSession,
     session: SignedInSession,
     close: unit -> unit
   ) : Control =
@@ -387,6 +388,7 @@ let composeDialog
                       (fun () -> ignore(box.Focus())),
                       DispatcherPriority.Default
                     )))
+              AvatarHost = ValueNone
             }
           )
       )
@@ -395,9 +397,11 @@ let composeDialog
 
   card
 
-// The log chrome's rail node: the signed-in user's avatar, ring and
-// all. The chrome keeps the rail line and the 64px column.
-let logRailNode(session: SignedInSession, cache: ImageCacheService) : Control =
+// The log chrome's rail node: the composer's live identity avatar
+// framed in the rail ring. The chrome keeps the rail line and the
+// 64px column; the composer projects its identity control here so the
+// rail avatar itself switches posting identities.
+let logRailNode(content: Control) : Control =
   let nodeTop = 9.0
 
   let avatar =
@@ -410,17 +414,7 @@ let logRailNode(session: SignedInSession, cache: ImageCacheService) : Control =
       .HorizontalAlignment(HorizontalAlignment.Center)
       .VerticalAlignment(VerticalAlignment.Top)
       .Margin(0.0, nodeTop, 0.0, 0.0)
-      .Child(
-        Avatar.view {
-          Name = session.Session.User.Name
-          Url = session.Session.User.AvatarUrl
-          Lane = None
-          Size = 40.0
-          Cache = cache
-          Square = false
-          Viewable = false
-        }
-      )
+      .Child(content)
 
   avatar.Classes(Theme.laneClass(Theme.LaneBorder, None)) |> ignore
 
@@ -709,6 +703,13 @@ let chromeFeed(props: ChromeProps<'env>) : Control =
   let chrome(state: SessionState) : Control =
     match state with
     | SignedIn entry ->
+      let railSlot =
+        ContentControl()
+          .Width(40.0)
+          .Height(40.0)
+          .HorizontalAlignment(HorizontalAlignment.Center)
+          .VerticalAlignment(VerticalAlignment.Center)
+
       LogChrome.Page {
         Env = props.Env
         Nav = props.Nav
@@ -729,8 +730,13 @@ let chromeFeed(props: ChromeProps<'env>) : Control =
               Draft = ValueNone
               OnBodyReady =
                 ValueSome(fun box -> props.OnComposerBody(ValueSome box))
+              AvatarHost =
+                ValueSome {
+                  Size = 40.0
+                  Place = fun control -> railSlot.Content <- control
+                }
             }
-        RailNode = fun () -> logRailNode(entry, props.Env.ImageCache)
+        RailNode = fun () -> logRailNode railSlot
         Header = ValueNone
         OnReload = fun () -> props.Env.Timeline.ForceReload()
       }

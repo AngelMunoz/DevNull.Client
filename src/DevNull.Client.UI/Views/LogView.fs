@@ -1490,6 +1490,7 @@ module Parts =
                           props.Env.Timeline.RememberDraft(commit.Id, text)
                     }
                   OnBodyReady = ValueNone
+                  AvatarHost = ValueNone
                 }
                 :> Control
               else

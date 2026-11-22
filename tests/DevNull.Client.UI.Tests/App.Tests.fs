@@ -690,10 +690,6 @@ let tests =
       (async {
         let! window = startShell(signedInStore(), twoDaysLogApi() :> IHttp)
 
-        // The composer's identity row takes the top of the window;
-        // the taller stage realizes the second day.
-        do! onUiAsync(fun () -> window.Height <- 1000.0)
-
         let! firstDay = showsText(window, "Fri, Apr 3")
 
         Expect.isTrue firstDay "the first day header never rendered"
@@ -1907,10 +1903,6 @@ let tests =
       (async {
         let! window = startShell(signedInStore(), ownLogApi() :> IHttp)
 
-        // The composer's identity row takes the top of the window;
-        // the taller stage realizes the second commit.
-        do! onUiAsync(fun () -> window.Height <- 1000.0)
-
         let! own = showsText(window, "My own commit.")
 
         Expect.isTrue own "the viewer's commit never rendered"
@@ -2699,10 +2691,6 @@ let tests =
           )
 
         let! window = startShellSeeded(signedInStore(), api :> IHttp, seeded)
-
-        // The composer's identity row takes the top of the window;
-        // the taller stage realizes the marker.
-        do! onUiAsync(fun () -> window.Height <- 1000.0)
 
         let! marked = showsText(window, "HEAD@{last visit}")
 

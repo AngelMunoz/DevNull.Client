@@ -2,7 +2,6 @@ module DevNull.Client.Components.Composer
 
 open System
 open System.Runtime
-open System.Reactive.Disposables
 open System.Reactive.Subjects
 open Avalonia
 open Avalonia.Controls
@@ -16,6 +15,7 @@ open MVUish.Avalonia
 open DevNull.Client
 open DevNull.Client.Slices
 open DevNull.Client.AttachmentSources
+open DevNull.Client.Components.Feed
 open DevNull.Client.Core.Api
 open DevNull.Client.Core.ApiTypes
 open DevNull.Client.Core.Capabilities
@@ -43,6 +43,9 @@ type DraftSource = {
   Changed: string -> unit
 }
 
+[<Struct>]
+type AvatarHost = { Size: float; Place: Control -> unit }
+
 type ParticipantRow = ReplyPicker.ParticipantRow
 
 type Props<'env
@@ -51,6 +54,7 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
+  and 'env :> IProvideSession
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLogging> = {
@@ -65,6 +69,7 @@ type Props<'env
   OnOpenQueue: (unit -> unit) voption
   Draft: DraftSource voption
   OnBodyReady: (TextBox -> unit) voption
+  AvatarHost: AvatarHost voption
 }
 
 // The composer's state logic: model, messages, and update.
@@ -203,9 +208,13 @@ module State =
     GuildChoice: string option
     // The organization the draft posts as, by org id, when the
     // viewer picked one they belong to. The send resolves it
-    // against the session's list; a lost membership posts as the
+    // against the live memberships; a lost membership posts as the
     // user.
     AuthorChoice: string option
+    // The viewer's current organization memberships, updated from
+    // SessionStore so a lost or gained membership reaches a mounted
+    // composer without remounting.
+    Organizations: MeOrganization list
     // The picker's search: the term as typed and the directory's
     // answers beneath the joined rows.
     GuildQuery: string
@@ -251,6 +260,7 @@ module State =
     | GuildRowsArrived of query: string * Result<Guild list, AppError>
     | GuildPicked of guild: Guild
     | GuildTargetCleared
+    | OrganizationsChanged of orgs: MeOrganization list
     | AuthorPicked of orgId: string
     | AuthorTargetCleared
 
@@ -269,6 +279,7 @@ module State =
     Excluded = []
     GuildChoice = None
     AuthorChoice = None
+    Organizations = []
     GuildQuery = ""
     GuildRows = []
   }
@@ -346,6 +357,7 @@ module State =
       initial with
           Body = seeded
           GuildChoice = ValueOption.toOption props.Guild
+          Organizations = props.Session.Session.Organizations
     },
     Cmd.none
 
@@ -607,8 +619,31 @@ module State =
       },
       Cmd.none
     | GuildTargetCleared -> { model with GuildChoice = None }, Cmd.none
-    | AuthorPicked orgId -> { model with AuthorChoice = Some orgId }, Cmd.none
-    | AuthorTargetCleared -> { model with AuthorChoice = None }, Cmd.none
+    | OrganizationsChanged orgs ->
+      if orgs = model.Organizations then
+        model, Cmd.none
+      else
+        let nextChoice =
+          model.AuthorChoice
+          |> Option.filter(fun id ->
+            orgs |> List.exists(fun org -> org.Id = id))
+
+        {
+          model with
+              Organizations = orgs
+              AuthorChoice = nextChoice
+        },
+        Cmd.none
+    | AuthorPicked orgId ->
+      if model.AuthorChoice = Some orgId then
+        model, Cmd.none
+      else
+        { model with AuthorChoice = Some orgId }, Cmd.none
+    | AuthorTargetCleared ->
+      if model.AuthorChoice.IsNone then
+        model, Cmd.none
+      else
+        { model with AuthorChoice = None }, Cmd.none
     | AttachRequested ->
       // The picker is modal; the answer arrives as one message.
       model, Cmd.OfAsync.perform props.Env.Attachments.PickFiles () ImagesAdded
@@ -814,10 +849,7 @@ module State =
         // The post-as identity: the picked org's handle while the
         // session still lists it, nothing as the user.
         let author =
-          effectiveAuthor(
-            props.Session.Session.Organizations,
-            model.AuthorChoice
-          )
+          effectiveAuthor(model.Organizations, model.AuthorChoice)
           |> Option.map _.Handle
 
         if model.Scheduling then
@@ -885,6 +917,7 @@ module State =
           initial with
               Committed = model.Committed + 1
               GuildChoice = ValueOption.toOption props.Guild
+              Organizations = model.Organizations
         },
         Cmd.batch [
           Cmd.ofEffect(fun _ ->
@@ -912,6 +945,7 @@ module State =
           initial with
               Committed = model.Committed + 1
               GuildChoice = ValueOption.toOption props.Guild
+              Organizations = model.Organizations
         },
         Cmd.batch [
           match props.OnScheduled with
@@ -941,13 +975,30 @@ module State =
 
   let update(props: Props<'env>) = updateCore(loggerOf props, props)
 
-  // The completion session's answers enter the program through the
-  // engine's subscription set, and the session itself retires with it.
+  // The completion session's answers and the live session memberships
+  // enter the program through the engine's subscription set, and the
+  // session itself retires with it.
   let subscribe
-    (session: CompletionSession, pickerGate: BehaviorSubject<string voption>)
+    (
+      props: Props<'env>,
+      session: CompletionSession,
+      pickerGate: BehaviorSubject<string voption>
+    )
     (_: Model)
     : Sub<Msg> =
+    let viewerId = props.Session.Session.User.Id
+
     Sub.batch [
+      Sub.fromObservable
+        "session-organizations"
+        ((props.Env :> IProvideSession).Session.Observe
+         |> Observable.choose(function
+           | SignedIn entry when entry.Session.User.Id = viewerId ->
+             Some entry.Session.Organizations
+           | _ -> None)
+         |> Observable.distinctUntilChanged
+         |> Observable.map OrganizationsChanged)
+
       Sub.fromObservable
         "completion-mentions"
         (session.Mentions |> Observable.map MentionsArrived)
@@ -1129,48 +1180,151 @@ module Parts =
       log
     )
 
-  // The trigger and layer the identity picker stands on: the
-  // avatar the draft posts under, and — while the session carries
-  // memberships — the chevron menu over it. Without memberships the
-  // avatar stands alone and the layer is empty.
-  [<Struct>]
-  type AuthorView = { Trigger: Control; Layer: Control }
-
-  // One identity row's facts: the avatar lines, the check while the
-  // row is the active identity, and the pick the click runs — the
-  // shared close rides inside it.
-  [<Struct>]
-  type IdentityPick = {
+  // One row of the identity menu: the user or one organization the
+  // session lists. Keeping only data in the row lets `Feed.view`
+  // (`BindItemsSource`) reuse rows across identity picks instead of
+  // rebuilding the menu and re-decoding avatars.
+  type AuthorRow = {
+    Key: string
     Name: string
     Handle: string
     Url: string option
     Lane: Lane option
     Square: bool
-    Active: bool
+    OrgId: string option
     RowName: string
-    OnPick: unit -> unit
   }
 
-  // One identity row: the avatar, the name and @handle, and the
-  // check while the row is the active identity. A click picks the
-  // identity, the way a guild row picks its board.
-  let identityRow(cache: ImageCacheService, pick: IdentityPick) : Control =
-    let avatar =
+  [<Struct>]
+  type IdentityRowContext = {
+    Cache: ImageCacheService
+    Identity: IObservable<MeOrganization option>
+    OnPick: string option -> unit
+  }
+
+  [<Struct>]
+  type AuthorAvatarContext = {
+    User: CurrentUser
+    Cache: ImageCacheService
+    Size: float
+  }
+
+  [<Struct>]
+  type AuthorPickerContext = {
+    Avatar: AuthorAvatarContext
+    Identity: IObservable<MeOrganization option>
+    RowItems: IObservable<AuthorRow list>
+    Dispatch: Dispatch<State.Msg>
+  }
+
+  let inline isActiveAuthor
+    (rowOrgId: string option, effective: MeOrganization option)
+    : bool =
+    match rowOrgId, effective with
+    | None, None -> true
+    | Some id, Some found -> found.Id = id
+    | _ -> false
+
+  let authorRowsOf
+    (user: CurrentUser, orgs: MeOrganization list)
+    : AuthorRow list = [
+    {
+      Key = "user"
+      Name = user.Name
+      Handle = user.Handle
+      Url = user.AvatarUrl
+      Lane = None
+      Square = false
+      OrgId = None
+      RowName = "ComposerAuthorUser"
+    }
+    for org in orgs do
+      {
+        Key = org.Id
+        Name = org.Name
+        Handle = org.Handle
+        Url = org.AvatarUrl
+        Lane = org.Lane
+        Square = true
+        OrgId = Some org.Id
+        RowName = "ComposerAuthor" + org.Handle
+      }
+  ]
+
+  let avatarFor
+    (context: AuthorAvatarContext, effective: MeOrganization option)
+    : Control =
+    match effective with
+    | Some org ->
       Avatar.view {
-        Name = pick.Name
-        Url = pick.Url
-        Lane = pick.Lane
-        Size = 24.0
-        Cache = cache
-        Square = pick.Square
+        Name = org.Name
+        Url = org.AvatarUrl
+        Lane = org.Lane
+        Size = context.Size
+        Cache = context.Cache
+        Square = true
+        Viewable = false
+      }
+    | None ->
+      Avatar.view {
+        Name = context.User.Name
+        Url = context.User.AvatarUrl
+        Lane = None
+        Size = context.Size
+        Cache = context.Cache
+        Square = false
         Viewable = false
       }
 
-    let mark: Control =
-      if pick.Active then
-        Icons.iconAt(Glyph.Check, 14.0)
-      else
-        Panel()
+  let authorAvatar
+    (context: AuthorAvatarContext, identity: IObservable<MeOrganization option>)
+    : Control =
+    ContentControl()
+      .Name("ComposerAvatar")
+      .HorizontalAlignment(HorizontalAlignment.Left)
+      .VerticalAlignment(VerticalAlignment.Top)
+      .Content(
+        identity
+        |> Observable.map(fun effective -> avatarFor(context, effective))
+        |> _.ToBinding()
+      )
+
+  // One identity row: the avatar, the name and @handle, and a check
+  // icon whose visibility rides the shared identity slice. Built once
+  // per membership so picks never tear down or re-decode row avatars.
+  let identityRow(context: IdentityRowContext, row: AuthorRow) : Control =
+    let avatar =
+      Avatar.view {
+        Name = row.Name
+        Url = row.Url
+        Lane = row.Lane
+        Size = 24.0
+        Cache = context.Cache
+        Square = row.Square
+        Viewable = false
+      }
+
+    let labels =
+      StackPanel()
+        .Spacing(0.0)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .Children(
+          TextBlock().Classes(Theme.name Theme.Subtitle).Text(row.Name),
+          TextBlock()
+            .Classes(Theme.name Theme.Muted)
+            .FontSize(12.0)
+            .Text("@" + row.Handle)
+        )
+
+    let active =
+      context.Identity
+      |> Slices.gate(fun effective -> isActiveAuthor(row.OrgId, effective))
+
+    let mark =
+      Icons
+        .iconAt(Glyph.Check, 14.0)
+        .VerticalAlignment(VerticalAlignment.Center)
+        .IsVisible(active)
 
     let columns =
       Grid(ColumnDefinitions = ColumnDefinitions "*,Auto")
@@ -1179,212 +1333,168 @@ module Parts =
             .Orientation(Orientation.Horizontal)
             .Spacing(8.0)
             .VerticalAlignment(VerticalAlignment.Center)
-            .Children(
-              avatar,
-              StackPanel()
-                .Spacing(0.0)
-                .VerticalAlignment(VerticalAlignment.Center)
-                .Children(
-                  TextBlock().Classes(Theme.name Theme.Subtitle).Text(pick.Name),
-                  TextBlock()
-                    .Classes(Theme.name Theme.Muted)
-                    .FontSize(12.0)
-                    .Text("@" + pick.Handle)
-                )
-            )
+            .Children(avatar, labels)
             .Column(0),
-          mark.VerticalAlignment(VerticalAlignment.Center).Column(1)
+          mark.Column(1)
         )
 
     Button()
-      .Name(pick.RowName)
+      .Name(row.RowName)
       .Classes(Theme.name Theme.GhostButton)
       .HorizontalContentAlignment(HorizontalAlignment.Stretch)
       .Content(columns)
       .OnClickHandler(fun _ args ->
         args.Handled <- true
-        pick.OnPick())
+        context.OnPick row.OrgId)
+
+  let authorTrigger(avatar: Control, onToggle: unit -> unit) : Button =
+    Button()
+      .Name("ComposerAuthorTrigger")
+      .Classes(Theme.name Theme.GhostButton)
+      .Padding(0.0)
+      .HorizontalAlignment(HorizontalAlignment.Left)
+      .VerticalAlignment(VerticalAlignment.Top)
+      .Content(
+        Grid()
+          .Children(
+            avatar,
+            Icons
+              .iconAt(Glyph.ChevronsDown, 12.0)
+              .HorizontalAlignment(HorizontalAlignment.Right)
+              .VerticalAlignment(VerticalAlignment.Bottom)
+          )
+      )
+      .OnClickHandler(fun _ args ->
+        args.Handled <- true
+        onToggle())
+
+  // Virtualized identity menu card: bounded to 280px, keyed rows stay
+  // alive across picks so avatars do not re-decode when the check moves.
+  let authorMenuCard
+    (context: IdentityRowContext, rowItems: IObservable<AuthorRow list>)
+    : Control =
+    let rows =
+      Border()
+        .MaxHeight(280.0)
+        .Child(
+          Feed.view {
+            Header = ValueNone
+            Items = rowItems
+            KeyOf = _.Key
+            Row = fun row -> identityRow(context, row)
+            Footer = ValueNone
+            HasMore = Observable.single false
+            ScrollTo = ValueNone
+            Ride = false
+            Restore = ValueNone
+            OnScroll = ValueNone
+            OnRide = ValueNone
+            OnNeedMore = ValueNone
+          }
+        )
+
+    Border()
+      .Name("ComposerAuthorCard")
+      .Classes(Theme.name Theme.Card)
+      .BorderThickness(Thickness(1.0))
+      .CornerRadius(8.0)
+      .MaxWidth(320.0)
+      .Child(
+        StackPanel()
+          .Margin(12.0)
+          .Spacing(8.0)
+          .Children(
+            TextBlock().Classes(Theme.name Theme.Title).Text("Post as"),
+            rows
+          )
+      )
+
+  let authorPicker(context: AuthorPickerContext) : Control =
+    let dialog =
+      Popup()
+        .Name("ComposerAuthorDialog")
+        .Placement(PlacementMode.Bottom)
+        .IsLightDismissEnabled(true)
+
+    let trigger =
+      authorTrigger(
+        authorAvatar(context.Avatar, context.Identity),
+        fun () -> dialog.IsOpen <- not dialog.IsOpen
+      )
+
+    let rowContext: IdentityRowContext = {
+      Cache = context.Avatar.Cache
+      Identity = context.Identity
+      OnPick =
+        fun orgId ->
+          dialog.IsOpen <- false
+
+          match orgId with
+          | Some id -> context.Dispatch(State.AuthorPicked id)
+          | None -> context.Dispatch State.AuthorTargetCleared
+    }
+
+    dialog.PlacementTarget <- trigger
+    dialog.Child <- authorMenuCard(rowContext, context.RowItems)
+
+    Panel().Children(trigger, dialog)
 
   // The post-as identity picker: the avatar the draft posts under,
   // and while the session carries memberships the chevron menu over
   // it — the user row plus one row per org, the check on the active
-  // identity. A pick swaps the avatar and stands the menu down.
+  // identity. The popup lives beside the trigger inside one control so
+  // both inline and rail-projected hosts share the exact same picker.
   let authorView
     (
       props: Props<'env>,
       model: IObservable<State.Model>,
       dispatch: Dispatch<State.Msg>
-    ) : AuthorView =
-    let orgs = props.Session.Session.Organizations
-    let user = props.Session.Session.User
+    ) : Control =
+    let avatarContext: AuthorAvatarContext = {
+      User = props.Session.Session.User
+      Cache = props.Env.ImageCache
+      Size =
+        match props.AvatarHost with
+        | ValueSome host -> host.Size
+        | ValueNone -> 32.0
+    }
+
+    let orgsSlice = model |> Slices.gate _.Organizations |> Slices.share
 
     // The draft's identity on every model beat: the picked org
-    // while the session still lists it, the user otherwise. Gated and
-    // shared: the avatar and the menu rows both read it, and the
-    // resolve runs once per model beat, not per reader.
+    // while the live memberships list it, the user otherwise. Gated
+    // and shared: the avatar and every menu row's check icon read it.
     let identity =
       model
       |> Slices.gate(fun current ->
-        State.effectiveAuthor(orgs, current.AuthorChoice))
+        State.effectiveAuthor(current.Organizations, current.AuthorChoice))
       |> Slices.share
 
-    let avatar =
-      ContentControl()
-        .Name("ComposerAvatar")
-        .Content(
-          identity
-          |> Observable.map(function
-            | Some org ->
-              Avatar.view {
-                Name = org.Name
-                Url = org.AvatarUrl
-                Lane = org.Lane
-                Size = 32.0
-                Cache = props.Env.ImageCache
-                Square = true
-                Viewable = false
-              }
-            | None ->
-              Avatar.view {
-                Name = user.Name
-                Url = user.AvatarUrl
-                Lane = None
-                Size = 32.0
-                Cache = props.Env.ImageCache
-                Square = false
-                Viewable = false
-              })
-          |> _.ToBinding()
-        )
+    let hasOrgs = orgsSlice |> Slices.gate(fun orgs -> not orgs.IsEmpty)
 
-    match orgs with
-    | [] -> { Trigger = avatar; Layer = Panel() }
-    | _ ->
-      // Every feed the picker owns ends with its detach: the open
-      // signal and the close path, the way the guild picker's feeds
-      // end with its own teardown.
-      let openLine = new BehaviorSubject<bool>(false)
-      let feeds = new CompositeDisposable()
+    let rowItems =
+      orgsSlice
+      |> Observable.map(fun orgs -> authorRowsOf(avatarContext.User, orgs))
 
-      let close() = openLine.OnNext false
+    let pickerContext: AuthorPickerContext = {
+      Avatar = avatarContext
+      Identity = identity
+      RowItems = rowItems
+      Dispatch = dispatch
+    }
 
-      // The rows ride the identity slice, not the whole model: the
-      // rows change only when the effective author does, so a body
-      // keystroke never rebuilds the menu.
-      let rows =
-        ContentControl()
-          .Content(
-            identity
-            |> Observable.map(fun effective ->
-              // The rows in stand order: the user first, one per
-              // org after it. A single comprehension carries them
-              // all: a `for` after static elements would drop the
-              // static ones.
-              let userPick: IdentityPick = {
-                Name = user.Name
-                Handle = user.Handle
-                Url = user.AvatarUrl
-                Lane = None
-                Square = false
-                Active = effective.IsNone
-                RowName = "ComposerAuthorUser"
-                OnPick =
-                  fun () ->
-                    close()
-                    dispatch State.AuthorTargetCleared
-              }
-
-              let orgPick(org: MeOrganization) : IdentityPick = {
-                Name = org.Name
-                Handle = org.Handle
-                Url = org.AvatarUrl
-                Lane = org.Lane
-                Square = true
-                Active =
-                  effective |> Option.exists(fun found -> found.Id = org.Id)
-                RowName = "ComposerAuthor" + org.Handle
-                OnPick =
-                  fun () ->
-                    close()
-                    dispatch(State.AuthorPicked org.Id)
-              }
-
-              StackPanel()
-                .Spacing(4.0)
-                .Children(
-                  [|
-                    for pick in userPick :: (orgs |> List.map orgPick) ->
-                      identityRow(props.Env.ImageCache, pick)
-                  |]
-                ))
-            |> _.ToBinding()
-          )
-
-      let trigger =
-        Button()
-          .Name("ComposerAuthorTrigger")
-          .Classes(Theme.name Theme.GhostButton)
-          .Padding(0.0)
-          .HorizontalAlignment(HorizontalAlignment.Left)
-          .Content(
-            Grid()
-              .Children(
-                avatar,
-                Icons
-                  .iconAt(Glyph.ChevronsDown, 12.0)
-                  .HorizontalAlignment(HorizontalAlignment.Right)
-                  .VerticalAlignment(VerticalAlignment.Bottom)
-              )
-          )
-          .OnClickHandler(fun _ args ->
-            args.Handled <- true
-            openLine.OnNext true)
-
-      let card =
-        Border()
-          .Name("ComposerAuthorCard")
-          .Classes(Theme.name Theme.Card)
-          .BorderThickness(Thickness(1.0))
-          .CornerRadius(8.0)
-          .MaxWidth(320.0)
-          .Child(
-            StackPanel()
-              .Margin(12.0)
-              .Spacing(8.0)
-              .Children(
-                TextBlock().Classes(Theme.name Theme.Title).Text("Post as"),
-                // The menu's own scroller bounds it the way the guild
-                // picker's card bounds its rows: a long membership
-                // list scrolls inside the card instead of past the
-                // composer.
-                ScrollViewer()
-                  .MaxHeight(280.0)
-                  .HorizontalScrollBarVisibility(ScrollBarVisibility.Disabled)
-                  .Content(rows)
-              )
-          )
-
-      let dialog =
-        Popup()
-          .Name("ComposerAuthorDialog")
-          .PlacementTarget(trigger)
-          .Placement(PlacementMode.Bottom)
-          .IsLightDismissEnabled(true)
-          .Child(card)
-
-      feeds.Add(
-        openLine
-        |> Observable.distinctUntilChanged
-        |> Observable.subscribe(fun isOpen -> dialog.IsOpen <- isOpen)
+    ContentControl()
+      .HorizontalAlignment(HorizontalAlignment.Left)
+      .VerticalAlignment(VerticalAlignment.Top)
+      .Content(
+        hasOrgs
+        |> Observable.map(fun has ->
+          if has then
+            authorPicker pickerContext
+          else
+            authorAvatar(avatarContext, identity))
+        |> _.ToBinding()
       )
-
-      feeds.Add(
-        dialog.Closed |> Observable.subscribe(fun _ -> openLine.OnNext false)
-      )
-
-      dialog.DetachedFromVisualTree.Add(fun _ -> feeds.Dispose())
-
-      { Trigger = trigger; Layer = dialog }
 
 // The composer's target line: who the draft answers or what it
 // quotes, with the commit's short hash. A host shows it directly
@@ -1676,6 +1786,23 @@ let view
       )
       .IsVisible(chosen |> Observable.map Option.isSome)
 
+  let bodyRow: Control =
+    match props.AvatarHost with
+    | ValueSome host ->
+      host.Place author
+      body
+    | ValueNone ->
+      Grid(ColumnDefinitions = ColumnDefinitions "Auto,*")
+        .ColumnSpacing(8.0)
+        .Children(
+          author
+            .HorizontalAlignment(HorizontalAlignment.Left)
+            .VerticalAlignment(VerticalAlignment.Top)
+            .Margin(0.0, 6.0, 0.0, 0.0)
+            .Column(0),
+          body.Column(1)
+        )
+
   // No box: the composer rides the rail plain, the way the site's does
   // on the log and the thread; a host that wants a card wraps it. The
   // audience dialog rides the same frame, above the composer's rail.
@@ -1689,7 +1816,6 @@ let view
             .Spacing(8.0)
             .Children(
               [|
-                author.Trigger
                 match guildPicker.Trigger with
                 | ValueSome trigger -> trigger
                 | ValueNone -> ()
@@ -1697,7 +1823,7 @@ let view
                 match picker.Trigger with
                 | ValueSome trigger -> trigger
                 | ValueNone -> ()
-                body
+                bodyRow
                 completion
                 emoji
                 strip
@@ -1707,8 +1833,7 @@ let view
               |]
             ),
           picker.Layer,
-          guildPicker.Layer,
-          author.Layer
+          guildPicker.Layer
         )
     )
 
@@ -1718,6 +1843,7 @@ type Page<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
+  and 'env :> IProvideSession
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideLogging>(props: Props<'env>) as this =
@@ -1732,7 +1858,7 @@ type Page<'env
         (State.init props)
         (State.update props)
         (view(props, session, pickerGate))
-      |> Program.withSubscription(State.subscribe(session, pickerGate))
+      |> Program.withSubscription(State.subscribe(props, session, pickerGate))
 
     // The composer is replace-only: the first detach ends the program.
     Programs.runComponentOnAttach(

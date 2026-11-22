@@ -223,6 +223,7 @@ let mountComposer
         OnOpenQueue = ValueNone
         Draft = ValueNone
         OnBodyReady = ValueNone
+        AvatarHost = ValueNone
       }
       :> Control)
 

@@ -21,8 +21,8 @@ type Host = {
   OnEvent: Event -> unit
   OnOpenExternal: string -> unit
   ViewerId: string
-  /// The viewer's organization handles, threaded to the card's own
-  /// and delete gates.
+  // The viewer's organization handles, threaded to the card's own
+  // and delete gates.
   ViewerOrgs: string list
   Images: ImageCacheService
   Flyout: Source voption

@@ -1149,23 +1149,22 @@ let membershipTests =
           (me.Organizations |> List.map _.Role)
           "roles"
 
-        let first = me.Organizations |> List.head
+        match me.Organizations with
+        | [ first; second; _ ] ->
+          Expect.equal "01a151db-aaaa-727b-a7ce-c911a7556242" first.Id "org id"
 
-        Expect.equal "01a151db-aaaa-727b-a7ce-c911a7556242" first.Id "org id"
+          Expect.equal "DevNull" first.Name "org name"
 
-        Expect.equal "DevNull" first.Name "org name"
+          Expect.equal
+            (Some "https://avatars.example/devnull.png")
+            first.AvatarUrl
+            "org avatar"
 
-        Expect.equal
-          (Some "https://avatars.example/devnull.png")
-          first.AvatarUrl
-          "org avatar"
+          Expect.equal (Some "Berlin") first.Location "org location"
+          Expect.equal (Some(LaneIndex 2)) first.Lane "org lane"
 
-        Expect.equal (Some "Berlin") first.Location "org location"
-        Expect.equal (Some(LaneIndex 2)) first.Lane "org lane"
-
-        let second = me.Organizations |> List.item 1
-
-        Expect.equal (Some(LaneColor "#b34a2e")) second.Lane "org lane color"
+          Expect.equal (Some(LaneColor "#b34a2e")) second.Lane "org lane color"
+        | other -> failtestf "expected three memberships, got %d" other.Length
       | Error failure -> failtestf "%A" failure
     }
 

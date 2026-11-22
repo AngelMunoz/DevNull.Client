@@ -3740,10 +3740,6 @@ let captureTests =
     testAsync "the log shows the caught-up feed in place" {
       let! window = startShell(signedInStore(), catchUpLogApi() :> IHttp)
 
-      // The composer's identity row takes the top of the window;
-      // the taller stage realizes the late commit.
-      do! onUiAsync(fun () -> window.Height <- 1000.0)
-
       let! late = showsText(window, "A late commit.")
       Expect.isTrue late "the caught-up commit never rendered"
 

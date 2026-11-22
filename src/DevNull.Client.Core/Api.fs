@@ -1398,9 +1398,9 @@ module Commits =
       List.singleton("guild_handle", Encode.string board))
     |> Option.defaultValue []
 
-  /// The author field, when the post goes out as an organization:
-  /// the org handle the membership check passed. Omitted as the
-  /// user, the way the guild board stays out of a user post.
+  // The author field, when the post goes out as an organization:
+  // the org handle the membership check passed. Omitted as the
+  // user, the way the guild board stays out of a user post.
   let authorField(handle: string option) =
     handle
     |> Option.map(fun author -> List.singleton("author", Encode.string author))

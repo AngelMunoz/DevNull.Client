@@ -82,9 +82,9 @@ type Props = {
   OnEvent: Event -> unit
   OnOpenExternal: string -> unit
   ViewerId: string
-  /// The viewer's organization handles: an organization-authored
-  /// commit the viewer belongs to is the viewer's own, by the
-  /// server's rule.
+  // The viewer's organization handles: an organization-authored
+  // commit the viewer belongs to is the viewer's own, by the
+  // server's rule.
   ViewerOrgs: string list
   Pastels: IObservable<bool>
   Now: IObservable<DateTimeOffset>
@@ -1858,9 +1858,9 @@ type RowProps = {
   OnEvent: Event -> unit
   OnOpenExternal: string -> unit
   ViewerId: string
-  /// The viewer's organization handles: an organization-authored
-  /// commit the viewer belongs to is the viewer's own, by the
-  /// server's rule.
+  // The viewer's organization handles: an organization-authored
+  // commit the viewer belongs to is the viewer's own, by the
+  // server's rule.
   ViewerOrgs: string list
   Pasteis: IObservable<bool>
   Now: IObservable<DateTimeOffset>

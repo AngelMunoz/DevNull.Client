@@ -1470,6 +1470,7 @@ module Parts =
               OnOpenQueue = ValueNone
               Draft = ValueNone
               OnBodyReady = ValueNone
+              AvatarHost = ValueNone
             }
             :> Control))
 
@@ -1490,6 +1491,7 @@ module Parts =
         OnOpenQueue = ValueNone
         Draft = ValueNone
         OnBodyReady = ValueNone
+        AvatarHost = ValueNone
       }
 
     StackPanel()

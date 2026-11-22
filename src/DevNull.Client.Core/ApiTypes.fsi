@@ -1042,6 +1042,23 @@ type MeRemotes = {
   UnreadCount: int
 }
 
+/// One organization the signed-in account belongs to: its profile
+/// identity lines and the viewer's role in it. The follow state, the
+/// follower count, and the admins stay unread here.
+type MeOrganization = {
+  Id: string
+  Handle: string
+  Name: string
+  AvatarUrl: string option
+  Bio: string option
+  Location: string option
+  Website: string option
+  GithubUrl: string option
+  HtmlUrl: string
+  Lane: Lane option
+  Role: MembershipRole
+}
+
 /// One redeemed device: the user, the unread notifications in the
 /// envelope, whether the user shows pastel controls at all, the terms
 /// state the app asks on — `None` while a stored session predates it,
@@ -1064,23 +1081,6 @@ type DeviceSession = {
   /// first. Empty with no membership; the first account poll fills
   /// what a stored session predates.
   Organizations: MeOrganization list
-}
-
-/// One organization the signed-in account belongs to: its profile
-/// identity lines and the viewer's role in it. The follow state, the
-/// follower count, and the admins stay unread here.
-and MeOrganization = {
-  Id: string
-  Handle: string
-  Name: string
-  AvatarUrl: string option
-  Bio: string option
-  Location: string option
-  Website: string option
-  GithubUrl: string option
-  HtmlUrl: string
-  Lane: Lane option
-  Role: MembershipRole
 }
 
 /// One draft as the commit it would become, as POST

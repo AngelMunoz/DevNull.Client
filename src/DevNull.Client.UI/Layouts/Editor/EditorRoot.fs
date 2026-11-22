@@ -1705,6 +1705,7 @@ let mountFor(dispatcher: IDispatcher, props: Props<'env>) : EditorMount =
         OnOpenQueue = ValueNone
         Draft = ValueNone
         OnBodyReady = ValueSome(fun body -> body.Focus() |> ignore)
+        AvatarHost = ValueNone
       }
 
     let card: Control voption =

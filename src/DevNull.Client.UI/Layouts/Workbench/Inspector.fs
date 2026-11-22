@@ -75,6 +75,7 @@ type Props<'env
   and 'env :> IProvideSigner
   and 'env :> IProvideHttp
   and 'env :> IProvideDispatcher
+  and 'env :> IProvideSession
   and 'env :> IProvideImageCache
   and 'env :> IProvideAttachmentSources
   and 'env :> IProvideProfiles
@@ -685,6 +686,7 @@ let view
             ValueSome(fun body -> body.Focus() |> ignore)
           else
             ValueNone
+        AvatarHost = ValueNone
       }
       :> Control
     | Some _, None ->
